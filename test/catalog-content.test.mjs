@@ -29,6 +29,16 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
+test('README carries the theme-aware CUE++ pack header and maker footer', () => {
+  assert.match(readme, /prefers-color-scheme: dark/);
+  assert.match(readme, /prefers-color-scheme: light/);
+  assert.match(readme, /assets\/cue-logo-dark\.svg/);
+  assert.match(readme, /assets\/cue-logo-light\.svg/);
+  assert.match(readme, /Agent skills pack/);
+  assert.match(readme, /package of agent skills published by \*\*CUE\+\+\*\*/);
+  assert.match(readme, /Made by CUE\+\+/);
+});
+
 test('README has a how-to and concrete examples for both skills', () => {
   const howTo = section(readme, 'How to use the skills');
   for (const phrase of ['Show routing', 'Set up routing', 'Use the active routing profile', 'Show the current child lifecycle status']) {

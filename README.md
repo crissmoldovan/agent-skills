@@ -1,4 +1,14 @@
-# CUE++ Agent Skills
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
+  <img alt="CUE++" src="assets/cue-logo-light.svg" width="176">
+</picture>
+
+# Agent skills pack
+
+A public package of agent skills published by **CUE++**. It helps agents spend
+model tokens where they produce the most value while keeping delegated work
+observable and evidence-backed.
 
 **Use fewer model tokens without lowering the acceptance standard.** Route each
 task to the least expensive configured model that can own it completely, keep
@@ -150,3 +160,15 @@ Without that variable, catalog verification does not require a separate source c
 ## License
 
 [MIT](LICENSE)
+
+---
+
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
+    <img alt="CUE++" src="assets/cue-logo-light.svg" width="72">
+  </picture>
+  <br>
+  <sub>Made by CUE++</sub>
+</p>
