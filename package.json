@@ -1,0 +1,16 @@
+{
+  "name": "@cueplusplus/agent-skills",
+  "version": "0.1.0",
+  "description": "Public, standards-first agent skills monorepo.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "verify:skills": "node scripts/verify-skills.mjs",
+    "verify:mirror": "node -e \"if (process.env.AGENT_LIFECYCLE_SOURCE) process.exitCode = require('node:child_process').spawnSync(process.execPath, ['scripts/check-agent-lifecycle-mirror.mjs', process.env.AGENT_LIFECYCLE_SOURCE], { stdio: 'inherit' }).status ?? 1\"",
+    "verify": "node --test && node scripts/verify-skills.mjs && npm run verify:mirror"
+  },
+  "license": "MIT"
+}

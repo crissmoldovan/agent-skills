@@ -1,0 +1,7 @@
+# Replace @cueplusplus/maintainers with the repository's actual maintainer team.
+* @cueplusplus/maintainers
+
+/docs/ @cueplusplus/maintainers
+/.github/ @cueplusplus/maintainers
+/scripts/ @cueplusplus/maintainers
+/skills/ @cueplusplus/maintainers

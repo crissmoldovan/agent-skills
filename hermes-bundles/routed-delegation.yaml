@@ -1,0 +1,13 @@
+# Load-time helper for the public two-skill composition.
+# This bundle installs nothing; each listed skill must already be available.
+skills:
+  - model-routing
+  - agent-lifecycle
+instruction: >-
+  Compose exactly these two skills for routed delegation. Load model-routing
+  first to inspect the scoped v2 profile, live bindings, and exact user-approved
+  model identifiers. Before launching observable delegated work, load
+  agent-lifecycle to establish lifecycle evidence, reconciliation, and honest
+  unavailable/unknown fallbacks. Do not add or substitute a third skill; do not
+  treat todos as lifecycle status. If either dependency is unavailable, explain
+  the degraded behavior and do not claim routed, observable delegation.
