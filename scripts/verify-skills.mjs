@@ -48,7 +48,7 @@ function parseFrontmatter(source, file) {
   // The two required scalar keys are extracted without introducing a YAML dependency.
   for (const key of ['name', 'description']) {
     const match = frontmatter.match(new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm'));
-    if (match) result[key] = match[1].replace(/^(['"])(.*)\\1$/, '$2');
+    if (match) result[key] = match[1].replace(/^(['"])(.*)\1$/, '$2');
   }
   return result;
 }
@@ -73,6 +73,8 @@ const rootSkill = resolve(root, 'SKILL.md');
 if (existsSync(rootSkill)) fail('SKILL.md at repository root is forbidden; use skills/<name>/SKILL.md');
 
 const skillFiles = walk(skillsRoot).filter((file) => file.endsWith(`${sep}SKILL.md`));
+const readmePath = resolve(root, 'README.md');
+const readme = existsSync(readmePath) ? readFileSync(readmePath, 'utf8') : null;
 for (const file of skillFiles) {
   const skillDirectory = dirname(file);
   const expectedDirectory = resolve(skillsRoot, relative(skillsRoot, skillDirectory).split(sep)[0]);
@@ -90,6 +92,7 @@ for (const file of skillFiles) {
     if (!frontmatter.name) fail(`${relative(root, file)}: missing frontmatter name`);
     else if (frontmatter.name !== name) fail(`${relative(root, file)}: frontmatter name must match directory (${name})`);
     if (!frontmatter.description) fail(`${relative(root, file)}: missing frontmatter description`);
+    else if (readme !== null && !readme.includes(frontmatter.description)) fail(`${relative(root, file)}: README must list the exact frontmatter description`);
   }
   validateLinks(source, file, skillDirectory);
 }

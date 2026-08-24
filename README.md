@@ -7,10 +7,18 @@ when verification or ambiguity shows a stronger route is needed.
 
 Profiles remember exact approved bindings; they are a convenience, not the
 goal. `agent-lifecycle` is the visibility companion that keeps delegated work
-observable. This catalog ships exactly two skills:
+observable.
 
-1. [`model-routing`](skills/model-routing/SKILL.md) — routes work by judgment and acceptance needs to reduce token use while preserving quality responsibility.
-2. [`agent-lifecycle`](skills/agent-lifecycle/SKILL.md) — records and displays lifecycle evidence for delegated children.
+## Skills in this package
+
+Skills.sh and Agent Skills-compatible installers discover each
+`skills/<name>/SKILL.md` independently. The frontmatter description shown below
+is the same short description those catalogs display.
+
+| Skill | Description | Details |
+|---|---|---|
+| `model-routing` | Route work efficiently without lowering output quality. | [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md) |
+| `agent-lifecycle` | Integrate live visibility for child-agent lifecycles. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
 
 There is no third skill. The two compose intentionally: model routing chooses the exact models and profile; lifecycle makes delegation observable without mistaking task progress for child state. Read the [two-skill composition guide](docs/composition.md) for the ownership boundary.
 
@@ -67,6 +75,51 @@ npx skills add cueplusplus/agent-skills --skill agent-lifecycle
 ```
 
 The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
+
+## How to use the skills
+
+Skills are instruction sets for your agent. After installing, ask naturally or
+invoke the installed skill/bundle in the syntax your harness supports.
+Use `model-routing` for routing/profile requests and `agent-lifecycle` for
+status/integration requests; load both for observable routed delegation.
+
+### Inspect or configure routing
+
+```text
+Show routing. Compare the active scoped profile with the live model bindings.
+```
+
+```text
+Set up routing as "balanced". Keep important judgment with my strongest model,
+use a cheaper builder for bounded implementation, and fold sweeps into the
+builder where the harness cannot address a separate sweeper. Show every exact
+binding and ask before writing configuration.
+```
+
+### Run token-efficient delegated work
+
+```text
+Use the active routing profile for this task. Set the acceptance checks first,
+use deterministic local tools wherever possible, delegate only coherent work
+whose context/time savings exceed overhead, and escalate only on evidence.
+Keep child work visible through agent-lifecycle and verify the final result.
+```
+
+Expected behavior: exact mechanical work stays local; mechanically verifiable
+language work may use SWEEPER; bounded substantive work uses BUILDER; ambiguity,
+trade-offs, synthesis, and acceptance remain with DRIVER.
+
+### Inspect lifecycle status
+
+```text
+Show the current child lifecycle status. For each child report its ID, literal
+state, current activity/tool, freshness, and terminal evidence. Reconcile stale
+children; do not infer completion from silence or a todo checkbox.
+```
+
+If the harness has native child UI, it is preferred. Otherwise the lifecycle
+skill defines a display-only fallback whose rows never become lifecycle
+authority. See [the composition guide](docs/composition.md) for the boundary.
 
 ## What ships
 

@@ -55,7 +55,7 @@ test('verifier accepts neutral credential fixtures', async () => {
   const root = await fixture();
   const assignment = ['to', 'ken'].join('');
   const neutralToken = ['not', 'a', 'real', 'secret'].join('-');
-  await writeFile(path.join(root, 'README.md'), `Set ${assignment} = "${neutralToken}" in your local environment.\n`);
+  await writeFile(path.join(root, 'README.md'), `# Fixture\n\nValid fixture\n\nSet ${assignment} = "${neutralToken}" in your local environment.\n`);
 
   const result = await verify(root);
 

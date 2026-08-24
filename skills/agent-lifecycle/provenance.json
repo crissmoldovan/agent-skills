@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "source": {
     "repository": "https://github.com/cueplusplus/agent-lifecycle.git",
-    "commit": "3c1f776e034e0f6714c9ea44a6cd2e1565ddae52",
-    "tag": "v0.2.0",
+    "commit": "9f644269f801735812b91e405dc418069fc0176c",
+    "tag": "v0.2.1",
     "path": "skills/agent-lifecycle"
   },
   "files": {
-    "SKILL.md": "f5e7bdedd08896af7eb9e8b8fcc0c352464cb85fb07981cd46c0d9110f4190d7",
+    "SKILL.md": "b768b48ae7d471cea3a60da6a1858b78e17e4bdf8af2226502935877df82b757",
     "references/adapter-contract.md": "ca57b369f0baecffddd4d5d75f6e8e21c11fc188a2bc079b0f0bef2602db633b",
     "references/model-routing-migration.md": "3c5da913246fca0ea5c4b7c2ca5432fecf86a4235d74993103b4f3ec9f10d9c2"
   }

@@ -84,6 +84,41 @@ SWEEPER → BUILDER → DRIVER.
    prefer native child UI; use its display-only fallback only when needed.
    **Complete when:** visible state comes from lifecycle evidence, not task guesses.
 
+## Usage Examples
+
+### Show the active route
+
+```text
+Show routing. Compare the scoped profile with live bindings and report MATCH,
+MISMATCH, UNBOUND, NOT_ADDRESSABLE, or UNAVAILABLE for each role. Do not write.
+```
+
+### Set up a reusable profile
+
+```text
+Set up routing as "balanced". Ask me for exact DRIVER and BUILDER models, and a
+SWEEPER model or explicit degraded mode. Validate the live inventory, preview
+the changes, and wait for confirmation before applying and saving them.
+```
+
+### Route a task efficiently
+
+```text
+Use the active routing profile. Define acceptance first. Use deterministic local tools
+for exact work, BUILDER for bounded implementation with objective checks,
+and DRIVER only for ambiguity, trade-offs, synthesis, and acceptance. Delegate
+only when the savings exceed dispatch/context overhead. Keep child work visible
+with agent-lifecycle and independently verify the result.
+```
+
+### Escalate without repeating discovery
+
+```text
+The current route failed verification. Do not rerun the same prompt. Pass the
+failure delta, relevant artifacts, attempted checks, and remaining acceptance
+criteria to the next capable route.
+```
+
 ## Harness References
 
 | Harness | Reference |

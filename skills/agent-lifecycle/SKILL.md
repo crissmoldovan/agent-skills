@@ -1,7 +1,7 @@
 ---
 name: agent-lifecycle
 description: "Integrate live visibility for child-agent lifecycles."
-version: 0.2.0
+version: 0.2.1
 author: Criss, Hermes Agent
 license: MIT
 metadata:
@@ -118,6 +118,36 @@ adoption; do not claim pre-adoption history or control authority.
    the normalized projection; tasks and percent complete are auxiliary only.
    **Complete when:** removing all task-board data leaves lifecycle status
    correct.
+
+## Usage Examples
+
+### End-user status request
+
+```text
+Show the current child lifecycle status. For every child include child ID,
+literal state (running, waiting, completed, failed, cancelled, or lost), current
+activity or tool, freshness, and transcript/result reference where safe.
+Reconcile stale children before drawing a terminal conclusion.
+```
+
+### Host integration request
+
+```text
+Integrate agent-lifecycle into this orchestrator. Normalize child events, keep
+activity separate from heartbeat, reconcile complete snapshots after reconnect,
+and preserve immutable terminal states. Prefer native child UI.
+```
+
+### Display fallback when native UI is unavailable
+
+```text
+Render one active aggregate todo labelled display-only and one DISPLAY ONLY row
+per child with ID, state, activity/tool, and freshness. Treat those rows as a
+projection only; edits must not change lifecycle state.
+```
+
+If no lifecycle evidence source exists, create no child rows and state exactly:
+`Background work visibility unavailable; state unknown.`
 
 ## Quick Reference
 
