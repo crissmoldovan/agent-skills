@@ -20,3 +20,7 @@ The repository version records public catalog releases. Version and release note
 ## Changelog
 
 Maintain release notes in GitHub Releases. Notes must explain end-user behavior, not only internal implementation changes.
+
+Future publication work is tracked in the [roadmap](roadmap.md); roadmap items
+must not be described as shipped release behavior until implemented and
+verified.

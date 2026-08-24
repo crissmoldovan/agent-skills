@@ -63,6 +63,7 @@ The public catalog now ships both skill documents, their references, and grouped
 - [Two-skill composition](docs/composition.md)
 - [Architecture](docs/architecture.md)
 - [Release process](docs/releases.md)
+- [Future development](docs/roadmap.md)
 
 ## Verify
 

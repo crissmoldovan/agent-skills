@@ -30,3 +30,9 @@ No third skill belongs in the initial catalog without a deliberate product decis
 ## Automation
 
 GitHub Actions runs the same verifier using Node.js 24. Dependabot maintains GitHub Actions updates. CODEOWNERS routes changes in policy, automation, and skill content to maintainers.
+
+## Future architecture
+
+The planned bridge from the private CUE++ skills control plane to this public
+delivery repository is documented in the [roadmap](roadmap.md). The public
+repository remains independently installable and contains no private team state.
