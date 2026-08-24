@@ -1,10 +1,20 @@
 # Model routing
 
-`model-routing` binds named work roles to **exact, live model identifiers**. A role is not a model family or a tier nickname.
+`model-routing` minimizes model-token use and DRIVER-context growth while
+preserving the acceptance standard. It routes each task to the least expensive
+configured model that can own it completely, uses deterministic local tools
+before models, and escalates only on evidence.
+
+Exact, live model bindings and scoped profiles constrain that optimization; they
+are not its purpose. A role is not a model family or a tier nickname.
 
 - **DRIVER** owns planning, orchestration, phase-boundary verification, and user communication.
 - **BUILDER** owns delegated implementation, research fan-outs, and implementation review.
 - **SWEEPER** is only mechanical, zero-judgment work. If a harness cannot address it separately, record a mode rather than inventing a model binding.
+
+Read the normative [token/quality routing policy](../../skills/model-routing/references/routing-policy.md)
+for delegation thresholds, context bounds, parallelism, escalation, retries, and
+verification economy.
 
 ## Before dispatch
 

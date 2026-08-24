@@ -61,6 +61,9 @@ tests before it is listed as supported.
 - Do not place private content in a Skills.sh pack: pack URLs are unlisted, not
   access-controlled.
 
+The two individual Skills.sh pages are already live; the optional item above is
+only the combined pack convenience, not basic skill publication.
+
 ## Non-goals
 
 - A third coordinator skill that duplicates `model-routing` and

@@ -1,7 +1,7 @@
 {
   "name": "@cueplusplus/agent-skills",
   "version": "0.1.0",
-  "description": "Public, standards-first agent skills monorepo.",
+  "description": "Token-efficient model routing and observable agent lifecycles.",
   "type": "module",
   "engines": {
     "node": ">=24"

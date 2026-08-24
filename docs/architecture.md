@@ -18,7 +18,7 @@ skills/<name>/SKILL.md
 
 The public product starts with exactly two planned skills:
 
-- `model-routing`: exact model and profile selection for agent tiers.
+- `model-routing`: token-efficient, quality-preserving work routing with exact model bindings.
 - `agent-lifecycle`: automatic delegated-work visibility.
 
 No third skill belongs in the initial catalog without a deliberate product decision.

@@ -1,15 +1,30 @@
 # CUE++ Agent Skills
 
-A public Hermes bundle for **explicit model routing** and **truthful delegated-work visibility**. This catalog ships exactly two skills:
+**Use fewer model tokens without lowering the acceptance standard.** Route each
+task to the least expensive configured model that can own it completely, keep
+implementation detail out of the strongest model's context, and escalate only
+when verification or ambiguity shows a stronger route is needed.
 
-1. [`model-routing`](skills/model-routing/SKILL.md) — configures exact model identifiers and scoped routing profiles for delegated work.
+Profiles remember exact approved bindings; they are a convenience, not the
+goal. `agent-lifecycle` is the visibility companion that keeps delegated work
+observable. This catalog ships exactly two skills:
+
+1. [`model-routing`](skills/model-routing/SKILL.md) — routes work by judgment and acceptance needs to reduce token use while preserving quality responsibility.
 2. [`agent-lifecycle`](skills/agent-lifecycle/SKILL.md) — records and displays lifecycle evidence for delegated children.
 
 There is no third skill. The two compose intentionally: model routing chooses the exact models and profile; lifecycle makes delegation observable without mistaking task progress for child state. Read the [two-skill composition guide](docs/composition.md) for the ownership boundary.
 
 ## Model routing
 
-`model-routing` requires literal model identifiers selected by the user. It does not choose a provider default, infer a tier from a nickname, or treat an example as a configured model.
+`model-routing` prefers deterministic local tools before any model, reserves the
+strongest configured model for ambiguity, decisions, synthesis, and acceptance,
+uses builders for bounded substantive work, and uses a sweeper only for
+mechanically verifiable language work. It avoids fan-out when dispatch/context
+overhead exceeds the likely savings and requires fresh verification before
+acceptance.
+
+Exact model identifiers remain explicit and validated. The skill does not infer
+a model from a provider default, nickname, or example.
 
 For example, a profile may bind the exact identifiers `Fable`, `Opus`, and `Haiku` to DRIVER, BUILDER, and SWEEPER. `Sol`, `Terra`, and `Luna` are likewise illustrative names only. They are not defaults, model tiers, or a promise that any harness offers them.
 

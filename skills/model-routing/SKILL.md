@@ -1,35 +1,52 @@
 ---
 name: model-routing
-description: "Use when configuring exact models for delegated work."
+description: "Route work efficiently without lowering output quality."
 license: MIT
 compatibility: "Agent Skills-compatible harnesses; inventory, profiles, and child dispatch are harness-specific."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=cueplusplus"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 
-# Dependency-aware model routing
+# Token-efficient, quality-preserving model routing
 
-Assign explicit model identifiers to roles rather than treating provider defaults or tier names as choices. The strongest user-selected exact model drives important reasoning; parallel builders own implementation and substantive work; the cheapest exact sweeper is reserved for zero-judgment work.
+Complete work with the fewest model tokens and least DRIVER-context growth that
+still meets the acceptance criteria. Route each task to the least expensive
+configured model that can own it completely, and escalate only when evidence
+shows that route cannot meet quality. Profiles and exact identifiers preserve
+approved bindings; they are mechanisms, not the product goal.
 
 Fable/Opus/Haiku and Sol/Terra/Luna are illustrative names, not defaults or tiers. Never infer a model from one of those examples, a provider, a nickname, or a harness default.
 
 ## When to Use
 
-- A user asks to set up, inspect, change, switch, clear, reset, delete, or use a routing profile.
-- A task needs delegated research, implementation, review, or mechanical processing.
-- A harness has multiple selectable models and the user wants predictable cost and responsibility.
+- Work can be decomposed so expensive-model reasoning is reserved for judgment,
+  synthesis, and acceptance.
+- Delegated research, implementation, review, or mechanical processing would
+  otherwise inflate DRIVER context or use a stronger model than necessary.
+- A user asks to set up, inspect, change, switch, clear, reset, delete, or use a
+  routing profile.
 
-Don't use this to choose a model on the user's behalf when no exact selection or approved profile exists. Do not use a sweeper for work that requires interpretation, quality judgment, or taste.
+Don't delegate a task whose context-packaging and reconciliation overhead exceeds
+the likely savings. Do not optimize token count by weakening acceptance or
+verification. Do not use a sweeper for interpretation, quality judgment, or
+taste.
+
+Read [the routing policy](references/routing-policy.md) before planning a routed
+run. Its local-tool-first, decomposition, context-bound, escalation, retry, and
+verification rules are normative.
 
 ## Roles
 
 | Role | Assignment rule | Owns |
 |---|---|---|
-| **DRIVER** | The strongest exact model the user selected. | Important reasoning, scope, plans, orchestration, synthesis, acceptance decisions, and user communication. |
-| **BUILDER** | Exact user-selected model(s); use parallel builders when work is independent. | Implementation, substantive research, tests, debugging, and implementation-level review. |
-| **SWEEPER** | Cheapest exact user-selected model. | Deterministic, zero-judgment actions such as exact renames, formatting, extraction, and log filtering. |
+| **DRIVER** | Strongest approved model; use only where marginal reasoning quality matters. | Ambiguity, scope, trade-offs, architecture, orchestration, synthesis, acceptance, and user communication. |
+| **BUILDER** | Least-cost approved model that can meet bounded substantive acceptance criteria. | Implementation, research, tests, debugging, and implementation-level review. |
+| **SWEEPER** | Least-cost approved model for mechanically verifiable language work. | Only bounded zero-judgment transforms when deterministic local tools are insufficient. |
 
-A task moves upward when it requires a decision: sweeper → builder → driver. A driver should not silently become the implementation worker merely because a builder is unavailable; disclose the degradation and ask whether to proceed.
+Prefer deterministic local tools before any model for exact transformations,
+formatting, extraction, filtering, counting, and validation. A task moves upward
+only when evidence shows the lower route cannot meet acceptance: local tool →
+SWEEPER → BUILDER → DRIVER.
 
 ## Prerequisites
 
@@ -39,12 +56,33 @@ A task moves upward when it requires a decision: sweeper → builder → driver.
 
 ## Procedure
 
-1. **Resolve intent.** Interpret `setup`, `show`, `change`, `switch`, `clear intent`, `reset`, `delete`, and `use once` through [profile controls](references/profile-controls.md). **Complete when:** the requested scope and write/delete effect have been stated before mutation.
-2. **Select exact identifiers.** For a new profile or one-off run, ask the user to select an exact DRIVER and BUILDER; request a SWEEPER only if the harness can address it and zero-judgment work is expected. Confirm the complete role table. **Complete when:** no role is represented by a tier nickname or an illustrative model.
-3. **Validate and save/apply only as requested.** Validate every selected identifier against the live inventory. A scoped saved profile auto-loads in later sessions in that scope and is validated again before use. **Complete when:** the response distinguishes saved, active, inherited, invalid, and one-off bindings.
-4. **Dispatch by dependency.** Give independent builder tasks disjoint ownership and run them in parallel. Keep decisions and shared-file coordination with the DRIVER. Give SWEEPER only exact, mechanically verifiable operations. **Complete when:** no child has unbounded scope or overlapping write ownership.
-5. **Expose lifecycle truth.** Prefer the harness's native child-agent UI. Only when native UI is unavailable, apply the exact fallback contract: if a lifecycle source exists, render one aggregate active display-only todo plus individual DISPLAY ONLY child rows showing ID, state, activity/tool, and freshness; the lifecycle projection is authoritative and row edits are ignored. If no lifecycle source exists, render no child rows and state exactly `Background work visibility unavailable; state unknown.` Rebuild the fallback from the reconciled projection on reconnect and preserve terminal states literally. **Complete when:** state is derived from lifecycle evidence, not from task completion guesses.
-6. **Verify before reporting ready.** Re-read active bindings, validate identifiers, and distinguish selected/configured/dispatched/observed models. **Complete when:** a user can see what will run, what did run, and any degradation.
+1. **Set the acceptance standard.** State the required output, decisive checks, and
+   judgment/blast radius. **Complete when:** cost cannot be reduced by silently
+   reducing required quality.
+2. **Choose the lowest viable route.** Use deterministic tools first; otherwise
+   classify SWEEPER, BUILDER, or DRIVER by judgment required. **Complete when:**
+   each task has one owner and a reason the cheaper route is insufficient.
+3. **Resolve bindings only as needed.** Reuse and validate a matching scoped
+   profile. Enter profile setup/control mode only when requested or when a needed
+   binding is absent/invalid. **Complete when:** no setup ceremony is repeated
+   for an already valid profile.
+4. **Package minimum context.** Give children source paths, immutable decisions,
+   ownership, acceptance checks, stop conditions, and a bounded result contract;
+   never paste whole conversations/logs/plans. **Complete when:** the child can
+   work from source without receiving unrelated context.
+5. **Decompose only when savings exceed overhead.** Prefer one coherent owner.
+   Parallelize only independent, disjoint work with non-overlapping questions.
+   **Complete when:** no fan-out duplicates source reading, output, or ownership.
+6. **Escalate on evidence.** Stop at ambiguity, failed acceptance, quality risk,
+   or ownership conflict. Retry once only for a transient execution failure;
+   otherwise pass the failure delta/artifacts to a stronger route. **Complete
+   when:** no blind retry repeats full discovery/context.
+7. **Verify economically.** Run deterministic/focused checks first and broader
+   checks at risk or phase boundaries; DRIVER independently accepts the result.
+   **Complete when:** accepted output has fresh evidence and concise reporting.
+8. **Expose lifecycle truth.** Load `agent-lifecycle` for child delegation and
+   prefer native child UI; use its display-only fallback only when needed.
+   **Complete when:** visible state comes from lifecycle evidence, not task guesses.
 
 ## Harness References
 
@@ -53,6 +91,7 @@ A task moves upward when it requires a decision: sweeper → builder → driver.
 | Hermes Agent | [references/harness-hermes.md](references/harness-hermes.md) |
 | Generic Agent Skills harness | [references/harness-generic.md](references/harness-generic.md) |
 | User command semantics and profile scripts | [references/profile-controls.md](references/profile-controls.md) |
+| Token/quality routing policy | [references/routing-policy.md](references/routing-policy.md) |
 
 ## Pitfalls
 
@@ -60,6 +99,12 @@ A task moves upward when it requires a decision: sweeper → builder → driver.
 - A saved profile is not valid forever: model inventory can change, so validate at auto-load and before dispatch.
 - “Cheapest” applies only after the user has selected an exact sweeper model; it never authorizes an agent to pick an unapproved model.
 - Parallelism does not permit concurrent edits to shared files, manifests, or acceptance criteria.
+- Fan-out can spend more tokens than it saves; parallelize only independent work
+  whose wall-time or context benefit exceeds dispatch/reconciliation overhead.
+- Never send complete conversations, repositories, plans, or raw logs to every
+  child. Pass source references and bounded evidence.
+- Never blindly retry the same prompt. Preserve artifacts and escalate on the
+  failure delta.
 - A native task display is not lifecycle authority; a todo fallback is weaker still.
 - Never claim separate role models when the harness can run only one child model.
 
@@ -69,6 +114,10 @@ A task moves upward when it requires a decision: sweeper → builder → driver.
 - [ ] The DRIVER is the strongest model explicitly selected by the user for important reasoning.
 - [ ] Builder work is substantive and independent work is parallel only when ownership is disjoint.
 - [ ] Sweeper work is mechanically specified and contains zero judgment.
+- [ ] Deterministic local tools were preferred where no model judgment was needed.
+- [ ] Child context/results are bounded and do not duplicate broad source material.
+- [ ] Escalations follow failed evidence/ambiguity; no blind retry repeated discovery.
+- [ ] Token reduction did not weaken acceptance criteria or fresh verification.
 - [ ] The active scoped profile auto-load behavior and revalidation outcome are shown.
 - [ ] `agent-lifecycle` was loaded before child delegation, or its absence and approved installation decision are recorded.
 - [ ] Native lifecycle UI is used when present; otherwise the todo fallback is labelled non-authoritative.
