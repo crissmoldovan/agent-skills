@@ -7,6 +7,7 @@ import { resolve, relative, dirname, sep } from 'node:path';
 
 const root = process.cwd();
 const skillsRoot = resolve(root, 'skills');
+const runtimeRoot = resolve(root, 'packages', 'agent-lifecycle');
 const failures = [];
 const textExtensions = new Set(['.md', '.mdx', '.txt', '.json', '.yml', '.yaml', '.js', '.mjs', '.cjs', '.ts']);
 const ignoredDirectories = new Set(['.git', '.cache', '.next', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
@@ -100,6 +101,7 @@ for (const file of skillFiles) {
 for (const file of walk(root)) {
   const relativeFile = relative(root, file);
   if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
+  if (isWithin(file, runtimeRoot)) continue;
   const extension = relativeFile.slice(relativeFile.lastIndexOf('.')).toLowerCase();
   if (!textExtensions.has(extension) && !['README', 'LICENSE', 'CONTRIBUTING', 'SECURITY'].includes(relativeFile)) continue;
   const source = readFileSync(file, 'utf8');

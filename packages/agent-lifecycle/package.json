@@ -1,0 +1,61 @@
+{
+  "name": "@crissmoldovan/agent-lifecycle",
+  "version": "0.3.0",
+  "description": "Portable progress, reconciliation, and visibility for delegated agents.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./hermes-delegation-reconciliation": {
+      "types": "./dist/hermes-delegation-reconciliation.d.ts",
+      "import": "./dist/hermes-delegation-reconciliation.js",
+      "default": "./dist/hermes-delegation-reconciliation.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "node --input-type=module -e \"await (await import('node:fs/promises')).rm('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --experimental-strip-types --test test/*.ts",
+    "check:types": "tsc --noEmit -p tsconfig.json",
+    "check:package": "node --input-type=module -e \"const p=JSON.parse(await (await import('node:fs/promises')).readFile('package.json','utf8')); const e=p.exports?.['.']; const hermes=p.exports?.['./hermes-delegation-reconciliation']; if(!p.private||p.version!=='0.3.0'||p.license!=='MIT'||p.type!=='module'||p.main!=='./dist/index.js'||p.types!=='./dist/index.d.ts'||e?.import!=='./dist/index.js'||e?.types!=='./dist/index.d.ts'||hermes?.import!=='./dist/hermes-delegation-reconciliation.js'||hermes?.types!=='./dist/hermes-delegation-reconciliation.d.ts'||!Array.isArray(p.files)||!p.files.includes('dist/')||p.engines?.node!=='>=24.0.0'||!p.scripts?.clean||!p.scripts?.build||!p.scripts?.['verify:package']) throw new Error('package metadata does not match release policy'); console.log('package metadata OK')\"",
+    "check:markdown": "node --input-type=module -e \"const fs=await import('node:fs/promises'); const path=await import('node:path'); async function walk(d){const entries=await fs.readdir(d,{withFileTypes:true}); return (await Promise.all(entries.flatMap(e=>e.name==='.git'||e.name==='node_modules'||e.name==='dist'?[]:e.isDirectory()?walk(path.join(d,e.name)):e.name.endsWith('.md')?[path.join(d,e.name)]:[]))).flat()} const files=await walk('.'); if(!files.length) throw new Error('no Markdown files found'); for(const f of files){const s=await fs.readFile(f,'utf8'); if(!s.trim()||!s.endsWith('\\n')) throw new Error('invalid Markdown file: '+f)} console.log('Markdown hygiene OK ('+files.length+' files)')\"",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify": "npm run check:package && npm run check:markdown && npm run check:types && npm test && npm run build && npm run verify:package"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crissmoldovan/agent-skills.git",
+    "directory": "packages/agent-lifecycle"
+  },
+  "bugs": {
+    "url": "https://github.com/crissmoldovan/agent-skills/issues"
+  },
+  "homepage": "https://github.com/crissmoldovan/agent-skills/tree/main/packages/agent-lifecycle#readme",
+  "keywords": [
+    "agents",
+    "agent-lifecycle",
+    "subagents",
+    "delegation",
+    "observability"
+  ]
+}

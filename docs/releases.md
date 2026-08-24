@@ -2,7 +2,11 @@
 
 ## Published catalog
 
-This public catalog ships exactly two skills: `model-routing` and `agent-lifecycle`. Their composition is documented in [the two-skill composition guide](composition.md); neither is a scaffold or placeholder for a third coordinator skill.
+This public catalog ships exactly two skills, `model-routing` and
+`agent-lifecycle`, plus the canonical lifecycle runtime package under
+`packages/agent-lifecycle`. Their composition is documented in [the two-skill
+composition guide](composition.md); neither is a scaffold or placeholder for a
+third coordinator skill.
 
 ## Release checklist
 

@@ -1,16 +1,16 @@
 {
-  "name": "@cueplusplus/agent-skills",
-  "version": "0.1.0",
+  "name": "@crissmoldovan/agent-skills",
+  "version": "0.3.0",
   "description": "Token-efficient model routing and observable agent lifecycles.",
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.mjs",
     "verify:skills": "node scripts/verify-skills.mjs",
-    "verify:mirror": "node -e \"if (process.env.AGENT_LIFECYCLE_SOURCE) process.exitCode = require('node:child_process').spawnSync(process.execPath, ['scripts/check-agent-lifecycle-mirror.mjs', process.env.AGENT_LIFECYCLE_SOURCE], { stdio: 'inherit' }).status ?? 1\"",
-    "verify": "node --test && node scripts/verify-skills.mjs && npm run verify:mirror"
+    "verify:lifecycle": "npm --prefix packages/agent-lifecycle run verify",
+    "verify": "npm test && node scripts/verify-skills.mjs && npm run verify:lifecycle"
   },
   "license": "MIT"
 }

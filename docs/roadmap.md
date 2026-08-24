@@ -18,7 +18,7 @@ Planned work:
    submission model.
 2. Keep private drafts, revisions, audit entries, signals, and team review in
    the private platform for both targets.
-3. Open public-target pull requests against `cueplusplus/agent-skills` while
+3. Open public-target pull requests against `crissmoldovan/agent-skills` while
    private-target submissions continue to use the private catalog repository.
 4. Make publication-status checks target-aware: private catalog deployment for
    private skills, and public GitHub/Skills.sh availability for public skills.

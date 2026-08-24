@@ -6,7 +6,7 @@
 
 # Agent skills pack
 
-A public package of agent skills published by **CUE++**. It helps agents spend
+A public package of agent skills published by **Criss Moldovan**. It helps agents spend
 model tokens where they produce the most value while keeping delegated work
 observable and evidence-backed.
 
@@ -74,14 +74,14 @@ Install either skill on its own, or both for routed delegation with lifecycle vi
 
 ```bash
 # Model routing only
-npx skills add cueplusplus/agent-skills --skill model-routing
+npx skills add crissmoldovan/agent-skills --skill model-routing
 
 # Lifecycle visibility only
-npx skills add cueplusplus/agent-skills --skill agent-lifecycle
+npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
 
 # Both skills
-npx skills add cueplusplus/agent-skills --skill model-routing
-npx skills add cueplusplus/agent-skills --skill agent-lifecycle
+npx skills add crissmoldovan/agent-skills --skill model-routing
+npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
 ```
 
 The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
@@ -149,13 +149,9 @@ The public catalog now ships both skill documents, their references, and grouped
 npm run verify
 ```
 
-`verify` runs the repository's Node test suite and skill-catalog checker. To verify the vendored lifecycle mirror against its source checkout, set `AGENT_LIFECYCLE_SOURCE` to the **repository root** (the directory that contains `skills/agent-lifecycle`):
-
-```bash
-AGENT_LIFECYCLE_SOURCE=/path/to/agent-lifecycle npm run verify
-```
-
-Without that variable, catalog verification does not require a separate source checkout.
+`verify` runs the catalog tests, skill validator, and the complete lifecycle
+runtime package suite under `packages/agent-lifecycle`. The skill and its runtime
+now share this repository as their canonical public source.
 
 ## License
 
@@ -170,5 +166,5 @@ Without that variable, catalog verification does not require a separate source c
     <img alt="CUE++" src="assets/cue-logo-light.svg" width="72">
   </picture>
   <br>
-  <sub>Made by CUE++</sub>
+  <sub>Made by Criss Moldovan</sub>
 </p>

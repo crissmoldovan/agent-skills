@@ -29,14 +29,14 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('README carries the theme-aware CUE++ pack header and maker footer', () => {
+test('README carries the theme-aware pack header and public-author footer', () => {
   assert.match(readme, /prefers-color-scheme: dark/);
   assert.match(readme, /prefers-color-scheme: light/);
   assert.match(readme, /assets\/cue-logo-dark\.svg/);
   assert.match(readme, /assets\/cue-logo-light\.svg/);
   assert.match(readme, /Agent skills pack/);
-  assert.match(readme, /package of agent skills published by \*\*CUE\+\+\*\*/);
-  assert.match(readme, /Made by CUE\+\+/);
+  assert.match(readme, /package of agent skills published by \*\*Criss Moldovan\*\*/);
+  assert.match(readme, /Made by Criss Moldovan/);
 });
 
 test('README has a how-to and concrete examples for both skills', () => {
