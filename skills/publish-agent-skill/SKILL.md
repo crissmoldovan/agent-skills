@@ -131,7 +131,7 @@ each release independently, and do not infer any additional mirror or sidecar.
 - **Branch copy called publication:** installer discovery must read the merged
   source, not an indexed feature branch or cache.
 - **Silent external propagation:** mirrors, websites, private plugins, sidecars,
-  and all-agent local installs require explicit user mention.
+  and local-global installations require explicit user mention.
 - **Root `SKILL.md`:** some installers stop discovery there; follow the target's
   actual multi-skill layout.
 - **Description drift:** package README/catalog copy must match frontmatter where
