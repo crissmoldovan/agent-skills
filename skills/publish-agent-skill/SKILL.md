@@ -41,7 +41,7 @@ This workflow has one primary target by default.
 
 An external target includes any second repository, private plugin, marketplace,
 website, mirror, sidecar runtime, canonical-source repository, generated copy, or
-local all-agent installation outside the primary target.
+local-global installation outside the primary target.
 
 Touch one only when the user explicitly asks for or mentions that named target
 in the active request. Do not infer external propagation from repository history,
@@ -113,7 +113,9 @@ completion status. A primary release is not proof that a sidecar published.
 Publish this Agent Skill to the current repository. Discover its conventions,
 write contract tests first, validate and review the current head, then merge,
 release, verify installer discovery and provenance, and report any indexing lag.
-Do not touch any other repository or website.
+Do not touch any other repository, private plugin, marketplace, website, mirror,
+sidecar, canonical/generated copy, or local-global installation unless I
+explicitly name it.
 ```
 
 ```text
