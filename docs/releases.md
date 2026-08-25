@@ -3,7 +3,8 @@
 ## Published catalog
 
 This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
-`request-blocks-review`, and `derive-codebase-context`, plus the canonical
+`request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
+and `publish-agent-skill`, plus the canonical
 lifecycle runtime package under `packages/agent-lifecycle`. Their composition is documented in [the two-skill
 composition guide](composition.md). `blocks` is independent review tooling, not
 a routed-delegation coordinator.

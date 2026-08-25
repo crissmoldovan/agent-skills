@@ -1,205 +1,208 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
-  <img alt="CUE++" src="assets/cue-logo-light.svg" width="176">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
+    <img alt="CUE++" src="assets/cue-logo-light.svg" width="176">
+  </picture>
+</p>
 
-# Agent skills pack
+<h1 align="center">Agent skills pack</h1>
 
-A public package of agent skills published by **Criss Moldovan**. It helps agents spend
-model tokens where they produce the most value while keeping delegated work
-observable and evidence-backed.
+<p align="center">
+  Eight public, portable Agent Skills for routing, lifecycle visibility, Blocks
+  reviews, secure credentials, codebase context, and verified skill releases.
+</p>
 
-**Use fewer model tokens without lowering the acceptance standard.** Route each
-task to the least expensive configured model that can own it completely, keep
-implementation detail out of the strongest model's context, and escalate only
-when verification or ambiguity shows a stronger route is needed.
+A public package by **Criss Moldovan**. Every skill is independently discoverable
+under `skills/<name>/SKILL.md`, installable through Agent Skills-compatible
+harnesses, and tested as part of one release catalogue.
 
-Profiles remember exact approved bindings; they are a convenience, not the
-goal. `agent-lifecycle` is the visibility companion that keeps delegated work
-observable.
+## What is in the pack
 
-## Skills in this package
-
-Skills.sh and Agent Skills-compatible installers discover each
-`skills/<name>/SKILL.md` independently. The frontmatter description shown below
-is the same short description those catalogs display.
-
-| Skill | Description | Details |
+| Skill | What it owns | Details |
 |---|---|---|
 | `model-routing` | Route work efficiently without lowering output quality. | [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md) |
 | `agent-lifecycle` | Integrate live visibility for child-agent lifecycles. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
 | `blocks` | Interact with Blocks sessions, status, and bounded waits. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
-| `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) · [Blocks primitives](skills/blocks/SKILL.md) |
+| `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) |
 | `secure-credential-setup` | Place and verify secrets without exposing their values. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
 | `derive-codebase-context` | Derive agent context, enforced boundaries, and an operational atlas from the repo itself. Use when agents keep losing the shape of a large codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
 | `publish-agent-skill` | Publish an Agent Skill through a verified release. | [Skill](skills/publish-agent-skill/SKILL.md) |
+| `update-agent-skills` | Update Agent Skills across every requested local plane. | [Skill](skills/update-agent-skills/SKILL.md) |
 
-Model routing and lifecycle compose intentionally: routing chooses exact models
-and lifecycle makes delegation observable without mistaking task progress for
-child state. `blocks` is independent review tooling for GitHub pull requests.
-Read the [composition guide](docs/composition.md) for the ownership boundary.
+The pack contains distinct procedures, not one monolithic workflow. Use one skill
+on its own or compose the relevant ones. For example, `model-routing` chooses work
+ownership while `agent-lifecycle` exposes child truth; `request-blocks-review`
+uses `blocks`; a target-specific private publishing skill may fully override the
+generic `publish-agent-skill` workflow.
 
-## Model routing
+## Install — for humans
 
-`model-routing` prefers deterministic local tools before any model, reserves the
-strongest configured model for ambiguity, decisions, synthesis, and acceptance,
-uses builders for bounded substantive work, and uses a sweeper only for
-mechanically verifiable language work. It avoids fan-out when dispatch/context
-overhead exceeds the likely savings and requires fresh verification before
-acceptance.
-
-Exact model identifiers remain explicit and validated. The skill does not infer
-a model from a provider default, nickname, or example.
-
-For example, a profile may bind the exact identifiers `Fable`, `Opus`, and `Haiku` to DRIVER, BUILDER, and SWEEPER. `Sol`, `Terra`, and `Luna` are likewise illustrative names only. They are not defaults, model tiers, or a promise that any harness offers them.
-
-Profiles are persistent and scoped: a saved profile auto-loads in its saved scope in later sessions, then must be validated against the current model inventory before use. The skill supports these explicit actions:
-
-- **setup** — save a named profile and make it active;
-- **show** — inspect the active, saved, inherited, or invalid bindings;
-- **change** — replace one exact binding in the active profile;
-- **switch** — activate a different saved profile;
-- **clear** — remove the active selection while retaining saved profiles; and
-- **reset** — restore the host's previous routing configuration from its recorded receipt, then clear active routing intent. It never deletes all saved profiles.
-
-Use a one-off selection when it should not be saved. Before delegating, `model-routing` automatically depends on `agent-lifecycle`; if lifecycle support is unavailable, the resulting visibility limit must be stated rather than silently replaced with a todo list.
-
-## Delegation visibility
-
-When a host has a native child-agent interface, use that UI first. `agent-lifecycle` remains the authority for lifecycle state: created, running, waiting, completed, failed, cancelled, and lost are backed by lifecycle evidence and reconciliation, not task checkboxes or a final result.
-
-If the native UI is unavailable, use the fallback only under this contract:
-
-- **Lifecycle source available:** render exactly one aggregate **active, display-only** todo and individual **DISPLAY ONLY** child rows. Each child row shows its ID, literal lifecycle state, activity or active tool, and freshness. The normalized lifecycle projection is authoritative; edits to these fallback rows are ignored. Preserve terminal states literally: `completed`, `failed`, `cancelled`, and `lost` are terminal display states, never remapped to a successful or cancelled todo.
-- **No lifecycle source:** render no child rows and state exactly: `Background work visibility unavailable; state unknown.`
-
-On reconnect, rebuild the fallback from the normalized projection after reconciliation; do not retain or infer child state from prior todo rows. See the [lifecycle guide](docs/lifecycle/index.md) and [Hermes adapter notes](docs/harnesses/hermes.md) for the shipped boundary.
-
-## Install
-
-Install either skill on its own, or both for routed delegation with lifecycle visibility:
+Install the complete pack for the current project:
 
 ```bash
-# Model routing only
-npx skills add crissmoldovan/agent-skills --skill model-routing
+npx skills add crissmoldovan/agent-skills
+```
 
-# Lifecycle visibility only
-npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
+Install the complete pack globally for every agent supported by the installed
+Skills CLI:
 
-# Blocks reviews and direct Sessions API
-npx skills add crissmoldovan/agent-skills --skill blocks
+```bash
+npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
+```
 
-# Completed-PR review/fix/re-review workflow
-npx skills add crissmoldovan/agent-skills --skill request-blocks-review
+Install selected skills:
 
-# Safe one-at-a-time credential placement
+```bash
+# Observable routed delegation
+npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
+
+# Blocks interaction plus the completed-PR review loop
+npx skills add crissmoldovan/agent-skills --skill blocks request-blocks-review
+
+# Secure credential placement
 npx skills add crissmoldovan/agent-skills --skill secure-credential-setup
 
-# Derived codebase context, boundaries, and atlas
+# Repository context and boundaries
 npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
 
-# Generic verified Agent Skill publication
+# Verified Agent Skill publication
 npx skills add crissmoldovan/agent-skills --skill publish-agent-skill
 
-# Complete pack
-npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup derive-codebase-context publish-agent-skill
+# Changelog/README/release communication plus all-plane updates
+npx skills add crissmoldovan/agent-skills --skill update-agent-skills
 ```
 
-The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
+`--agent '*'` means every agent the installed CLI supports, not every agent that
+exists. The CLI reports unsupported clients separately. Use `--copy` only when a
+copied installation is intentional; otherwise preserve the existing
+copy/symlink form.
 
-## How to use the skills
+## Install — for agents and LLMs
 
-Skills are instruction sets for your agent. After installing, ask naturally or
-invoke the installed skill/bundle in the syntax your harness supports.
-Use `model-routing` for routing/profile requests and `agent-lifecycle` for
-status/integration requests; load both for observable routed delegation.
-
-### Inspect or configure routing
+Give an agent with terminal access this prompt:
 
 ```text
-Show routing. Compare the active scoped profile with the live model bindings.
+Install or update the eight public skills from crissmoldovan/agent-skills.
+Inventory project and global scopes in JSON first. Preserve source provenance,
+managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
+skills. Install the requested scope for every supported agent, report unsupported
+clients separately, then verify each installed path and source. Do not treat one
+successful agent or scope as proof that all local libraries are current.
+```
+
+The agent should preview destructive replacement when a stale directory has no
+managed provenance. It must not remove a private namespaced skill merely because
+a public standalone skill has the same bare name.
+
+## Update the pack
+
+Inventory before updating:
+
+```bash
+# Project scope (the default scope for list)
+npx skills list --json
+
+# User/global scope
+npx skills list --global --json
+```
+
+Update CLI-managed skills at an explicit scope:
+
+```bash
+# All managed project skills
+npx skills update --project --yes
+
+# All managed global skills
+npx skills update --global --yes
+
+# Named skills only
+npx skills update model-routing agent-lifecycle --global --yes
+```
+
+For a missing global projection across all supported agents, install from the
+canonical source rather than fabricating agent-specific directories:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
+```
+
+### All-plane update contract
+
+An honest “updated locally” claim covers each requested plane independently:
+
+| Plane | Update rule | Required proof |
+|---|---|---|
+| Project-scoped Skills CLI | `npx skills update … --project --yes` from the exact project | project inventory, provenance, consuming agent path/precedence |
+| Global Skills CLI | `npx skills update … --global --yes` | global inventory and every requested supported-agent projection |
+| Copied vs symlinked | Preserve the current form unless the user requests conversion | installed path/form and published-byte comparison where no version exists |
+| Unmanaged/provenance-less | Ask before removing only that identity and reinstalling from the canonical source | old path accounted for; new source and bytes verified |
+| Native plugin/package | Use its marketplace or registry updater, not the generic CLI | exact native version, namespace, install path, and bytes |
+| Manual upload/raw file | Replace the released artifact through the owning UI/channel | artifact verified; otherwise `manual action required` |
+| Remote machine/container | Treat as another explicitly named target | independent readback on that target |
+| Unsupported client | Do not invent a destination | literal `unsupported` or `deferred` outcome |
+
+Restart or reload an affected agent when its skill loader caches installed files.
+A current conversation may continue using the old skill until a new session.
+
+## Use the skills
+
+Ask naturally or invoke the name in the syntax your harness supports.
+
+```text
+Use model-routing and agent-lifecycle for this task. Keep acceptance quality
+fixed, route bounded implementation economically, and make every child visibly
+reconciled.
 ```
 
 ```text
-Set up routing as "balanced". Keep important judgment with my strongest model,
-use a cheaper builder for bounded implementation, and fold sweeps into the
-builder where the harness cannot address a separate sweeper. Show every exact
-binding and ask before writing configuration.
+Use request-blocks-review on this finished PR. Keep the wait visible, fix accepted
+findings, rerun verification, and request current-head re-review until clean.
 ```
-
-### Run token-efficient delegated work
 
 ```text
-Use the active routing profile for this task. Set the acceptance checks first,
-use deterministic local tools wherever possible, delegate only coherent work
-whose context/time savings exceed overhead, and escalate only on evidence.
-Keep child work visible through agent-lifecycle and verify the final result.
+Use secure-credential-setup. Ask for one credential at the exact gate, give me a
+hidden terminal-entry command, and verify authentication without printing any
+part of the value.
 ```
-
-Expected behavior: exact mechanical work stays local; mechanically verifiable
-language work may use SWEEPER; bounded substantive work uses BUILDER; ambiguity,
-trade-offs, synthesis, and acceptance remain with DRIVER.
-
-### Inspect lifecycle status
 
 ```text
-Show the current child lifecycle status. For each child report its ID, literal
-state, current activity/tool, freshness, and terminal evidence. Reconcile stale
-children; do not infer completion from silence or a todo checkbox.
+Use derive-codebase-context. Reuse what exists, derive only missing context,
+boundaries, and atlas layers, and mutation-test every new enforcement gate.
 ```
-
-If the harness has native child UI, it is preferred. Otherwise the lifecycle
-skill defines a display-only fallback whose rows never become lifecycle
-authority. See [the composition guide](docs/composition.md) for the boundary.
-
-### Request and await a Blocks review
 
 ```text
-Ask Blocks to review this branch's pull request. Await up to ten minutes and
-report requested, reviewing, clean, or findings without mistaking an eyes
-reaction or acknowledgement for completion.
+Use publish-agent-skill for the current repository. Verify release, discovery,
+and provenance. Synchronize real local libraries only if I explicitly name the
+scope, agents, machines, plugin, or manual channel.
 ```
-
-For direct Blocks sessions, set `BLOCKS_API_KEY` and ask:
 
 ```text
-Start a Blocks session with the Claude agent to review this architecture. Wait
-up to ten minutes for the final message and preserve the session/dashboard URL.
+Use update-agent-skills. Make the changelog, catalogue README, release notes, and
+agent update guidance agree with the published release; then update only the
+local scopes and channels I explicitly named and report every plane separately.
 ```
 
-### Publish an Agent Skill
+## Composition and boundaries
 
-```text
-Publish this Agent Skill to the current repository. Discover its owner, layout,
-tests, review and release contract; verify CLI discovery and provenance after
-release. Do not touch another repository, website, plugin, mirror, sidecar, or
-local-global target unless I explicitly name it.
-```
+- [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership.
+- [`docs/blocks.md`](docs/blocks.md) — Blocks REST/GitHub separation and bounded waits.
+- [`docs/architecture.md`](docs/architecture.md) — catalogue/discovery architecture.
+- [`docs/releases.md`](docs/releases.md) — release process and versioning.
+- [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
 
-## What ships
+The [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml) is
+a load-time helper for routing plus lifecycle. It does not install skills or add a
+separate coordinator skill.
 
-The public catalog now ships seven skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, the derived codebase-context procedure, and repository-agnostic verified skill publication. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, a default model selection, or implicit external/sidecar publication.
-
-- [Model-routing documentation](docs/model-routing/index.md)
-- [Profile controls](docs/model-routing/profiles.md)
-- [Agent-lifecycle documentation](docs/lifecycle/index.md)
-- [Blocks documentation](docs/blocks.md)
-- [Codebase-context onboarding runbook](skills/derive-codebase-context/references/onboarding.md)
-- [Two-skill composition](docs/composition.md)
-- [Architecture](docs/architecture.md)
-- [Release process](docs/releases.md)
-- [Future development](docs/roadmap.md)
-
-## Verify
+## Verify this repository
 
 ```bash
 npm run verify
 ```
 
-`verify` runs the catalog tests, skill validator, and the complete lifecycle
-runtime package suite under `packages/agent-lifecycle`. The skill and its runtime
-now share this repository as their canonical public source.
+The command runs catalogue tests, skill validation, the complete lifecycle
+runtime suite, TypeScript build, and package-consumer verification.
 
 ## License
 
@@ -207,7 +210,7 @@ now share this repository as their canonical public source.
 
 ---
 
-<p>
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
