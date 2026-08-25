@@ -266,7 +266,12 @@ each release independently, and do not infer any additional mirror or sidecar.
 - [ ] Main-branch source and release were read back.
 - [ ] CLI discovery and isolated install report exact skill identity and provenance.
 - [ ] Every explicitly requested local plane was inventoried before mutation.
+- [ ] A deduplicated target manifest was presented before every local write.
 - [ ] Managed updates preserved scope, source, agent set, and copy/symlink form.
+- [ ] Upstream-missing skills are removal candidates requiring separate destructive
+      confirmation, not ordinary update deletions.
+- [ ] Without a comparable authoritative version/ref/digest, freshness is
+      `unknown`, never inferred from command success or timestamps.
 - [ ] Native, manual, remote, and unsupported channels have independent outcomes.
 - [ ] Installed bytes/version/namespace were read back and affected runtimes were
       restarted or reloaded where required.

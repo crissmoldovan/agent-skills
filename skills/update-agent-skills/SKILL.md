@@ -119,9 +119,9 @@ update does not prove a native plugin updated.
 
 Verify the released ZIP/raw file/artifact. Perform the UI replacement only when
 that target is requested and controllable; otherwise report `manual action
-required`. Update each remote machine/container independently. Report an
-undocumented or unsupported agent as `unsupported` or `deferred`; never invent a
-folder.
+required`. Update each remote machine/container independently. Report an agent
+the owning installer explicitly rejects as `unsupported`; report an explicitly
+requested but currently unreachable target as `deferred`. Never invent a folder.
 
 ## Verify and Report
 
@@ -135,7 +135,7 @@ folder.
 4. Restart or reload affected agents whose loaders cache skills; an active session
    may continue using old instructions until reopened.
 5. Report `scope × agent/channel × identity` as `updated`, `already current`,
-   `manual action required`, `unsupported`, `failed`, or `out of scope`.
+   `manual action required`, `unsupported`, `deferred`, `failed`, or `out of scope`.
 6. Include the release-note/update link and encourage affected humans and agents to
    update, but never collapse partial success into “everything is updated.”
 
@@ -178,7 +178,12 @@ Do not update any local library.
       guidance agree.
 - [ ] Every mutated scope/machine/agent/channel was explicitly requested.
 - [ ] Global and project inventories were captured before and after.
+- [ ] A deduplicated target manifest was presented before every local write.
 - [ ] Managed/unmanaged and copy/symlink ownership was preserved.
+- [ ] Upstream-missing skills are removal candidates requiring separate destructive
+      confirmation, not ordinary update deletions.
+- [ ] Without a comparable authoritative version/ref/digest, freshness is
+      `unknown`, never inferred from command success or timestamps.
 - [ ] Native, manual/upload, remote, and unsupported planes have literal outcomes.
 - [ ] Installed bytes/version/namespace and runtime reload were verified.
 - [ ] Users and agents receive exact update guidance without false completion.

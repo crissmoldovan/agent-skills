@@ -41,7 +41,7 @@ generic `publish-agent-skill` workflow.
 Install the complete pack for the current project:
 
 ```bash
-npx skills add crissmoldovan/agent-skills
+npx skills add crissmoldovan/agent-skills --skill '*'
 ```
 
 Install the complete pack globally for every agent supported by the installed
