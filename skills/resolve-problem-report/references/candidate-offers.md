@@ -20,9 +20,9 @@ is the only version of this gate that produces a comparison rather than a recomm
 decoration. Where a map genuinely cannot be produced for one candidate, say so in that
 candidate's row: "effects reasoned, not enumerated."
 
-## The three candidate classes that must be considered every time
+## The four candidate classes that must be considered every time
 
-These are the ones a pipeline drops, because none of them is satisfying to say and all three are
+These are the ones a pipeline drops, because none of them is satisfying to say and all four are
 frequently correct.
 
 ### 1. Already fixed, or retracted
@@ -67,6 +67,28 @@ in cost order:
 Matching an existing solution costs less to review, less to maintain, and arrives with a blast
 area someone has already walked. Diverging from one is a legitimate choice — say why in one
 sentence, because the next reader will ask.
+
+### 4. The sibling requirement already in the ticket
+
+Reports and requests rarely carry one requirement. When the one that stalled is ambiguous,
+expensive, or blocked on a limit, look at what sits **next to it in the same ticket**: an
+adjacent requirement, usually better specified, frequently delivering most of the value the
+reporter actually described, at a fraction of the cost and with nothing left to interpret.
+
+That sibling is **a real candidate**, ranked in the same table as the others — not a consolation
+prize produced after the ambiguous one fails, and not a scope reduction smuggled in as a
+simplification. It carries the same five fields as everything else, including **what it does not
+fix**, which is where the part of the ask it drops has to be stated plainly and in the reporter's
+own terms.
+
+Two rules keep it honest:
+
+- **The reporter or owner chooses it, not the agent** — swapping one requirement for its
+  neighbour changes what gets delivered, so it goes through the same choice as any other
+  candidate, above the light band.
+- **The stalled requirement stays on the table.** Offering the sibling is not a verdict that the
+  first one is infeasible; where the block was a limit, that claim needs the limit decomposed at
+  G1 before it can be made at all.
 
 ## The comparison table
 

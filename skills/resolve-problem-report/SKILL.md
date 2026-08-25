@@ -37,24 +37,21 @@ companions that own the work, and the pipeline can correctly terminate at any of
 | **G4 implement** | the **landed change with its budget and gate ladder** | `land-complex-change` returns them; this skill declares no budget and arms no gates of its own |
 | **G5 verify + describe** | the **resolution note**, plus **one filed report per disagreement** | each requirement is checked at its own evidence class, the reporter's original numbers are re-measured, and anything that disagrees is filed rather than chased |
 
-A gate that cannot open is information: the artifact underneath it is missing, and that is a
-far better thing to say at G1 than to discover at G5, with a change landed and somebody waiting
-for a mail.
+A gate that cannot open is information: the artifact under it is missing, which is far better
+said at G1 than discovered at G5, with a change landed and somebody waiting for a mail.
 
 ### What this skill does not own
 
-| The job | Whose it is | What this skill does with it |
-|---|---|---|
-| Answering a question about the code with checkable evidence | `investigate-codebase` | Delegates G1 entirely, and **inherits its complexity rubric, control rule and contradiction table rather than restating them**. |
-| What a set of changes would affect | `blast-area` | Calls it **once per candidate** at G2, and again whenever a budget is breached. |
-| Drawing that map | `visualise-blast-area` | Optional — when candidates have to be compared by someone who will not read a table. |
-| Landing a change inside a declared budget with a gate per surface | `land-complex-change` | Hands it the contract and the paths at G4. Runs no budget, no ladder, no act gates of its own. |
-| Which model runs which role | `model-routing` | Names **roles** and bands only; chooses no models and does not override its routing. |
-| Dispatching children and seeing what they did | `agent-lifecycle` | Consumes it; keeps no child bookkeeping. |
-| Durable, regenerable, CI-gated repo artifacts | `derive-codebase-context` | Reads what already exists; builds nothing durable. |
-| Describing what the change did | `describe-changes` | Hands it the landed diff at G5; the resolution note is built from its registers. |
-| The review loop over the pull request | `request-blocks-review` and `blocks` | Hands over the contract, the budget, the ladder and the residuals; runs no review loop. |
-| Finding improvements nobody has reported yet | `new-ux-discovery` | Receives chosen candidates from it; performs no sweep of its own. |
+`investigate-codebase` owns G1's searching, and this skill **inherits its complexity rubric,
+control rule and contradiction table rather than restating them**. `blast-area` is called **once
+per candidate** at G2 and again on every budget breach; `visualise-blast-area` draws its map when
+candidates must be compared by someone who will not read a table. `land-complex-change` receives
+the contract and the paths at G4 and returns the budget, the ladder and the change band — this
+skill runs none of its own. `describe-changes` writes the resolution note from the landed diff at
+G5; `request-blocks-review` and `blocks` run the review loop, given the contract, the budget, the
+ladder and the residuals. `new-ux-discovery` hands *in* chosen candidates; no sweep happens here.
+`model-routing` chooses models — this skill names roles and bands only; `agent-lifecycle` keeps
+the child bookkeeping; `derive-codebase-context` builds the durable artifacts this one reads.
 
 Install the companions with `npx skills add crissmoldovan/agent-skills`.
 
@@ -66,32 +63,31 @@ Install the companions with `npx skills add crissmoldovan/agent-skills`.
 - A feature request needs its implications worked out before anyone agrees to it.
 - Two reports may be the same report, or the same report may be two.
 - The obvious patch would fix the symptom described and leave the mechanism in place.
-- A report has been open long enough that "is this still true?" is a real question, or closing
-  it means writing to a person who will believe the message.
+- A report has been open long enough that "is this still true?" is a real question.
 - The last attempt at this one turned into a scope argument, because nobody wrote down what the
   chosen fix was **not** going to do.
 
 Do not use it to answer a question about how the code works — that is `investigate-codebase`,
 which this skill calls at G1 rather than improvising its own searching. Do not use it to map
 what a change would hit; `blast-area` owns that, and this skill calls it per candidate. Do not
-use it to build a change that has already been decided and has no report behind it — a roadmap
-item, a dependency bump, a deprecation with a date — that is `land-complex-change`, which this
-skill delegates to at G4 and which is **not a superset of this one, in either direction**. A
-report can correctly end with no change at all; a change frequently starts with no report, and
-manufacturing one to get a pipeline produces intake artifacts that are fiction. Do not use it to
-describe a change that already landed — `describe-changes` reads the diff. Do not use it to run
-the review loop over a pull request: `request-blocks-review` and `blocks` own that. Do not use it
-to go looking for improvements nobody has filed; `new-ux-discovery` sweeps for those and hands
-the chosen ones here. And do not use it as ticket hygiene — a pipeline that always produces a
-change will produce one for the report whose correct answer was a question.
+use it to build a change already decided with no report behind it — a roadmap item, a dependency
+bump, a deprecation with a date — that is `land-complex-change`, which this skill delegates to at
+G4 and which is **not a superset of this one, in either direction**: a report can correctly end
+with no change at all, a change frequently starts with no report, and manufacturing one to feed a
+pipeline produces intake artifacts that are fiction. Do not use it to describe a change that
+already landed — `describe-changes` reads the diff — or to run the review loop over a pull
+request, which is `request-blocks-review` and `blocks`. Do not use it to go looking for
+improvements nobody has filed; `new-ux-discovery` sweeps for those and hands the chosen ones
+here. And do not use it as ticket hygiene: a pipeline that always produces a change will produce
+one for the report whose correct answer was a question.
 
 ## Prerequisites
 
-1. **The report in its original words, with its numbers intact.** Not a summary. The reporter's
-   phrasing carries which surface they were on and what they expected, and paraphrase silently
-   repairs the false premise you most needed to see.
-   **Complete when:** the text, its date, the reporter's role and every number in it are in
-   hand — or their absence is recorded.
+1. **The report in its original words, with its numbers intact.** Not a summary: the phrasing
+   carries which surface they were on and what they expected, and paraphrase silently repairs
+   the false premise you most needed to see.
+   **Complete when:** the text, its date, the reporter's role and every number in it are in hand
+   — or their absence is recorded.
 2. **A readable checkout at a named revision.** The sha, and whether the tree is dirty. A cause
    measured against uncommitted work describes a state nobody else has.
    **Complete when:** revision and dirty state are recorded.
@@ -108,10 +104,10 @@ change will produce one for the report whose correct answer was a question.
    build, and any manual step that constitutes a check.
    **Complete when:** each is named with the command that runs it, and at least one has been run
    in this checkout to prove the apparatus works.
-6. **Every irreversible act this resolution could reach, enumerated.** Applying a migration,
-   writing to production data, deleting anything not restorable, **closing the report** and
-   **any outbound message to the reporter** — the last two get forgotten because they are cheap
-   to perform and impossible to retract.
+6. **Every irreversible act this resolution could reach, enumerated.** A migration, a
+   production write, a deletion nothing restores, **closing the report**, **any outbound message
+   to the reporter** — the last two get forgotten for being cheap to perform and impossible to
+   retract.
    **Complete when:** the list exists — or is empty and says so.
 7. **Attendance declared, conservatively.** If you cannot confirm a human will see and answer a
    question in this run it is unattended, which changes the act policy and the run record.
@@ -120,15 +116,13 @@ change will produce one for the report whose correct answer was a question.
 ## Procedure
 
 1. **Score the band before spending anything, and announce it on one code path.** The rubric
-   belongs to `investigate-codebase` — five signals scored 0–2 against observables you actually
-   ran, summed into light / normal / deep, boundary totals rounding up. Run *that* rubric; do
-   not restate it and do not invent a second one. Two things are this skill's own: **a report
-   whose resolution ends in closing the report or mailing the reporter scores
-   cost-of-being-wrong 2**, which forces at least the normal band and arms the act gates in
-   step 6; and the rubric is **re-scored after G1**, because reproduction routinely changes the
-   scope signal by an order of magnitude. Announce band, each signal's score with its
-   observable, any override, and the caps it buys — before the first child is dispatched,
-   whether or not anyone is watching. Never ask which mode to run.
+   belongs to `investigate-codebase`: run *that* one, do not restate it and do not invent a
+   second. Two things are this skill's own: **a report whose resolution ends in closing the
+   report or mailing the reporter scores cost-of-being-wrong 2**, which forces at least the
+   normal band and arms the act gates in step 6; and the rubric is **re-scored after G1**, in
+   either direction, because reproduction routinely moves the scope signal by an order of
+   magnitude. Announce band, signal scores with their observables, any override and the caps it
+   buys — before the first child is dispatched, watched or not. Never ask which mode to run.
 
 2. **G0 — restate the report as a claim that could be false, and write its falsifier.** One
    sentence, nouns resolved to things you can point at, next to one sentence saying what
@@ -141,9 +135,16 @@ change will produce one for the report whose correct answer was a question.
    hold, reject the one that does not, and reject it with a number. The card's fields and the
    worked restatements are in [the gate contracts](references/gate-contracts.md).
 
+   **Enumerate the readings from the requirement's own words.** The ambiguity that stops a build
+   lives in the wording a builder will be held to — not in the failure symptom, which is one
+   thing that went wrong once. Read the requirement clause by clause, list every reading its own
+   words admit, and **cost each one**; where two imply different work and no bounded probe
+   separates them, that is the blocking question, and it blocks G3 rather than being settled by
+   whoever writes the contract.
+
    **Cannot proceed until:** the claim is falsifiable, the falsifier is checkable with the reach
-   declared in prerequisite 3, and the report's asserted cause is written as a premise rather
-   than absorbed into the claim.
+   declared in prerequisite 3, the report's asserted cause is written as a premise rather than
+   absorbed into the claim, and the readings its own words admit are enumerated and costed.
 
 3. **G1 — analyse, at the class the claim requires, and reproduce every number.** Delegate the
    searching to `investigate-codebase`: it owns the decomposition axes, the child result
@@ -175,16 +176,25 @@ change will produce one for the report whose correct answer was a question.
    resolution. Class rules, the table worked through, and unreproducible claims are in
    [reproducing the claim](references/reproducing-the-claim.md).
 
+   **Decompose every limit before arguing about it.** Where the report or the requirement cites
+   a size, a duration, a count or a quota, measure **what the number is made of** — each
+   contributor, its share, and whether the change would move it — before reasoning about
+   remedies. **An infeasibility claim built on an aggregate is an over-claim.** In one measured
+   case a payload declared too large for its limit was dominated by a single field nothing
+   downstream read; removing it fitted the limit with room to spare, against a redesign that was
+   already on the table.
+
    **Cannot proceed until:** the cause (bug) or the implications (feature) are stated at the
    required class with `path:line` at a sha behind them; every reported number has a verdict;
-   every load-bearing negative names a control that fired; and every inherited claim is dated.
+   every cited limit is decomposed into its contributors; every load-bearing negative names a
+   control that fired; and every inherited claim is dated.
 
 4. **G2 — offer 2–4 candidates, and make the honest ones real candidates.** Call `blast-area`
    **once per candidate** — comparing fixes by what each disturbs is the entire point of the
    gate, and it is the comparison that a list of approaches cannot make. Every candidate carries
    five fields: its **blast area** (surfaces, break times, deploy ordering), **what it does not
    fix**, **reversibility** (what a revert restores and what it does not), **size**, and the
-   **evidence it rests on**. Three candidate classes must be considered every time, and included
+   **evidence it rests on**. Four candidate classes must be considered every time, and included
    whenever they survive contact with G1:
 
    - **Already fixed, or retracted.** The behaviour changed at some revision after the report
@@ -196,6 +206,11 @@ change will produce one for the report whose correct answer was a question.
    - **The precedent this repository already used.** The same problem, solved elsewhere in the
      tree, possibly under another word. Search for it before inventing a fourth approach: an
      existing solution costs less to review and maintain, and its blast area is already known.
+   - **The sibling requirement already in the ticket.** When the requirement that stalled is
+     ambiguous or blocked on a limit, the better-specified one beside it frequently delivers most
+     of the value at a fraction of the cost. It is a real candidate carrying the same five fields
+     — ranked in the table, chosen by the reporter or the owner, and stating what it does **not**
+     fix — never a consolation prize produced once the first one fails.
 
    Rank by consequence, not by elegance, and say which one you would take and why in one
    sentence. Then apply step 6: above the light band the choice is the reporter's or the owner's,
@@ -203,9 +218,10 @@ change will produce one for the report whose correct answer was a question.
    [candidate offers](references/candidate-offers.md).
 
    **Cannot proceed until:** at least two candidates exist with all five fields filled; the
-   already-fixed and do-nothing lines have each been evaluated and are present or explicitly
-   dismissed with a reason; each candidate's blast area came from the mapping skill or names the
-   reason it could not; and the chosen candidate is recorded with who chose it.
+   already-fixed, do-nothing and sibling-requirement lines have each been evaluated and are
+   present or explicitly dismissed with a reason; each candidate's blast area came from the
+   mapping skill or names the reason it could not; and the chosen candidate is recorded with who
+   chose it.
 
 5. **G3 — write the build contract, and make every requirement provable.** The spec is not
    prose about an approach; it is a contract a builder can be held to and a reviewer can check
@@ -254,8 +270,8 @@ change will produce one for the report whose correct answer was a question.
    | neither | a light-band report whose candidates are equally revertible | **default OFF**, with a one-line notice naming the candidate taken and how to undo it |
 
    Default-off is deliberate: a pipeline that stops to ask about every typo in help text stops
-   being run unattended, and then stops being run. Above that line one confirmation at G2 — the
-   candidate, not the implementation — carries the rest of the pipeline.
+   being run. Above that line one confirmation at G2 — the candidate, not the implementation —
+   carries the rest of the pipeline.
 
    Separately and always: **any irreversible act is confirmed at the moment of the act**, with
    four things stated — what is about to happen, what it touches, what it cannot undo, and what
@@ -266,20 +282,18 @@ change will produce one for the report whose correct answer was a question.
    [the confirmation policy](references/confirmation-policy.md).
 
 7. **G4 — hand the build to `land-complex-change`, with the contract and the paths and nothing
-   else.** That skill owns the change-landing half and produces three artifacts this one does
-   not: the **side-effect budget** (the declared touch-set derived from the blast map, the
-   out-of-bounds classes, the on-breach rule), the **regression gate ladder** (per affected
-   surface, the guard that catches a regression there, watched failing before and passing after,
-   with unguarded surfaces recorded visibly), and the **change band with its act gates**. Its
-   breach rule applies here as written: work that strays outside the budget **stops**, re-enters
-   `blast-area`, and resolves to **extend, split or abandon** — never silent absorption. A
-   breach that invalidates the chosen candidate returns to G2, not to the reporter as a
-   surprise.
+   else.** That skill owns the landing half and returns three artifacts this one does not build:
+   the **side-effect budget** (the touch-set declared from the blast map, with its out-of-bounds
+   classes and its on-breach rule), the **regression gate ladder** (one guard per affected
+   surface, watched failing before and passing after, unguarded surfaces recorded visibly), and
+   the **change band with its act gates**. Its breach rule applies here as written: work outside
+   the budget **stops**, re-enters `blast-area`, and resolves to **extend, split or abandon** —
+   never silent absorption. A breach that invalidates the chosen candidate returns to G2, not to
+   the reporter as a surprise.
 
-   **Context is the contract plus the file paths — never the investigation transcript.** The
-   transcript carries discarded hypotheses, refuted premises and the reporter's own diagnosis,
-   and a builder handed all of it will implement some of it. It belongs in the run record, where
-   it is read on purpose.
+   **Context is the contract plus the file paths — never the investigation transcript**, which
+   carries discarded hypotheses, refuted premises and the reporter's own diagnosis; a builder
+   handed all of it will implement some of it. It belongs in the run record.
 
    **Cannot proceed until:** the budget and the ladder come back with the diff; every affected
    surface has a ladder row with its rung; every rung-1 guard has quoted fail-before evidence;
@@ -292,11 +306,10 @@ change will produce one for the report whose correct answer was a question.
    is evidence about the other surfaces.
 
    **A verification that opens a new report is a success.** When the re-measurement turns up a
-   figure that disagrees with the system's own — the classic shape is two counts of the same
-   thing differing by more than a hundred rows — **file that as its own report and close this
-   one on its own contract**. In one measured case the disagreement was chased instead: the
-   original stayed open for weeks, the new finding was never filed under its own name, and both
-   were invisible in every status view.
+   figure that disagrees with the system's own — two counts of the same thing differing by more
+   than a hundred rows is the classic shape — **file it as its own report and close this one on
+   its own contract**. Chased instead, in one measured case, the original stayed open for weeks
+   and the new finding was never filed under its own name: two problems, invisible in one row.
 
    Hand the landed diff to `describe-changes` for the resolution note — its short register is
    the reporter's line, its detailed register is the reviewer's — and the pull request loop to
@@ -313,11 +326,11 @@ change will produce one for the report whose correct answer was a question.
      deliverable is that question with its established facts, the branches with their costs, and
      the default if nobody answers. Probe what a probe can settle; ask only the rest.
    - **A refutation with no action** — the premise does not hold, the thing was fixed already,
-     or the requested action has no referent. In one measured case a report asked for a nightly
-     run of a pipeline that had no runnable entry point at all; the correct output was the
-     refutation plus the two things that did exist, not a job pointed at nothing. **Resisting a
-     wrong fact and resisting a wrong instruction are different behaviours** — the second
-     returns a decision brief and a question, not a completed action with a caveat attached.
+     or the requested action has no referent: one report asked for a nightly run of a pipeline
+     with no runnable entry point, and the correct output was the refutation plus the two things
+     that did exist. **Resisting a wrong fact and resisting a wrong instruction are different
+     behaviours** — the second returns a decision brief and a question, not a completed action
+     with a caveat attached.
 
 10. **Document the run when the branch calls for it.** The convention is below, and it is
     identical in every skill of this family that supports it.
@@ -338,53 +351,31 @@ earlier record, and never let writing one change the answer.
 
 Records are written per [the run-record convention](references/documenting-the-run.md).
 
-For a report, the five headings carry the report's own material: the claim card and the
-reproduction table under *what each found*; the refuted premises and the contradiction table
-under *how it reconciled*; the candidate table, the choice and who made it under *what was
-decided and why*; the unreproducible claims, the unguarded surfaces and anything filed as a new
-report in *what this run could not see*. Quote the reporter only as far as the claim needs.
-
 ## Usage Examples
 
 ```text
-Here is the report exactly as it came in. Before you touch anything, turn it into one sentence
-that could be false and tell me what observation would falsify it — and keep the cause they
-suggested separate from what they actually observed.
+Here is the report as it came in. Turn it into one sentence that could be false, tell me what
+would falsify it, and keep the cause they suggested separate from what they observed.
 ```
 
 ```text
 They say the nightly total double-counts and they quote nine figures. Reproduce all nine before
-you go near the code. If some come out right and some do not, the ones that do not are what I
-want to hear about first, not an average.
+you go near the code — and if only some come out right, the ones that did not are the answer.
 ```
 
 ```text
-Give me three options with what each one does not fix and what a revert of each would leave
-behind. Include doing nothing, and check whether we already solved this somewhere else in the
-tree before you invent a fourth approach.
+Three options, each with what it does not fix and what a revert leaves behind. Include doing
+nothing, and check what the ticket already asks for next to it before inventing a new approach.
 ```
 
 ```text
-This ticket is four months old. Check whether it is still true at HEAD before you spec anything
-— if it was fixed on the way past, I want the revision that fixed it and a note to the
-reporter, not a change.
+Spec the option I picked: disjoint file sets, a test per requirement, the mutation that has to
+kill each test. If a requirement contradicts the code, come back instead of guessing at it.
 ```
 
 ```text
-Spec the option I picked: file sets that do not overlap, a test per requirement, and the
-mutation that has to kill each test. If any requirement contradicts the code, come back and
-tell me instead of building your best guess at what I meant.
-```
-
-```text
-Land it, but do not close the report and do not mail them — leave both for me, and tell me
-which surfaces ended up with nothing watching them.
-```
-
-```text
-Run this one unattended overnight and document the run (--document). Stop at anything you
-cannot take back. If verification finds a number that disagrees with the report's, file that as
-its own report rather than holding this one open.
+Run this one unattended overnight and document the run (--document). Stop at anything you cannot
+take back, and file any number that disagrees as its own report rather than holding this open.
 ```
 
 ## Pitfalls
@@ -398,6 +389,12 @@ its own report rather than holding this one open.
   believed because it has figures in it.
 - **Treating a partial reproduction as a failure to reproduce.** Six of nine reproducing is the
   most informative result available: the three that did not are a filter on the mechanism.
+- **Infeasibility declared over an aggregate.** "It will not fit" is a claim about every
+  contributor at once, made without measuring one of them — and the dominant one is usually the
+  one nothing downstream reads.
+- **The ambiguity located in the symptom.** The words a builder is held to are the
+  requirement's, and a reading nobody costed is one the builder resolves silently, in favour of
+  whichever is cheapest to write.
 - **A stale claim built on.** The report describes a past state; anything inherited from it
   answers "was it true?" and needs a current-state check before it becomes a requirement.
 - **All candidates propose doing something.** If "already fixed" and "do nothing" are never
@@ -413,15 +410,13 @@ its own report rather than holding this one open.
 - **Handing the builder the investigation transcript.** It contains the refuted premises and the
   discarded approaches, and some of them will end up in the diff.
 - **Confirmation asked at the plan and not at the act.** At plan time nothing irreversible is
-  imminent and the person answering has no context. At act time they have both.
-- **Forgetting that closing the report and mailing the reporter are irreversible.** Cheap to
-  perform, they reach a person, and no revert takes them back.
-- **Chasing the disagreement verification found.** File it. Holding this report open to chase it
-  hides two problems in one row that reads as in-progress.
-- **Closing on a green suite.** A suite that passes over an unguarded surface is evidence about
-  the surfaces it covers, not about the one the report was filed against — and a pipeline that
-  always outputs a change will find something to change in the report whose answer was a
-  question.
+  imminent and the person answering has no context; at act time they have both. Closing the
+  report and mailing the reporter are two of those acts — cheap to perform, and no revert takes
+  them back off a person's screen.
+- **Chasing the disagreement verification found.** File it: holding this report open to chase
+  it hides two problems in one row that reads as in-progress.
+- **Closing on a green suite.** A suite passing over an unguarded surface is evidence about the
+  surfaces it covers, not about the one the report was filed against.
 
 ## Verification
 
@@ -432,18 +427,24 @@ its own report rather than holding this one open.
 - [ ] **G0:** the claim is one falsifiable sentence with its falsifier written down, the report
       is classified bug / feature / question, and the reporter's asserted cause is recorded as a
       **premise**, separately.
+- [ ] **G0:** the readings the **requirement's own words** admit are enumerated and costed — not
+      only the ones the failure symptom suggested — and any unresolved reading blocks G3.
 - [ ] **G1:** the cause or implication is stated at the evidence class the claim requires, with
       `path:line` at a sha — or the required class is named as out of reach and the downstream
       claims are marked as resting on a lower one.
 - [ ] **G1:** every number in the report has a row and a verdict from the closed set, and a
       partial reproduction is reported as a finding rather than as a failure.
+- [ ] **G1:** every limit the report or the requirement cites was decomposed into its
+      contributors before any remedy was argued, and no infeasibility claim rests on an
+      aggregate nobody measured.
 - [ ] **G1:** every inherited claim is dated to a revision, anything that stopped holding is
       recorded as true at one sha and not at HEAD, and every load-bearing negative names a
       control that fired.
 - [ ] **G2:** 2–4 candidates carry blast area, what-it-does-not-fix, reversibility, size and
       evidence — each blast area from the mapping skill, or with the reason it could not be.
-- [ ] **G2:** already-fixed and do-nothing were each evaluated, and the repository was searched
-      for a precedent before a new approach was proposed.
+- [ ] **G2:** already-fixed, do-nothing and the **sibling requirement** already in the ticket
+      were each evaluated, and the repository was searched for a precedent before a new approach
+      was proposed.
 - [ ] The choice is recorded with **who made it**, and the two-column rule decided whether it
       needed confirming.
 - [ ] **G3:** every requirement names its files, its proving test and the mutation that must

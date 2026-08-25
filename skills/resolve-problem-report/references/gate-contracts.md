@@ -20,11 +20,31 @@ declared open because the next step was obvious.
 | `kind` | `bug` \| `feature` \| `question` — it decides what G1 has to produce |
 | `reported` | the date, the reporter's role, and the surface they were on |
 | `numbers[]` | every figure in the report, verbatim, with what the reporter says each one measured |
+| `readings[]` | every reading the requirement's **own wording** admits, one per row, each with what it would cost to build |
 | `consequence` | what a wrong resolution would cause someone to do |
 
 **Opens when:** the claim is falsifiable; the falsifier is checkable with the reach declared in
 the prerequisites, or its unreachability is recorded; the asserted cause sits in `premises[]`
-rather than inside `claim`; and `kind` is set.
+rather than inside `claim`; `readings[]` is enumerated from the requirement's own words; and
+`kind` is set.
+
+**Enumerate the ambiguity from the requirement's own words, not from the symptom.** A failure
+symptom is one thing that went wrong once; the requirement's wording is what a builder will be
+held to, and it is where the ambiguity that stops the build actually lives. Read the requirement
+clause by clause and write down every reading its own words admit, each with the work it implies:
+
+| reading | what the words that admit it say | what it would cost | what it would deliver |
+|---|---|---|---|
+
+Worked: *"the export must fit in one message"* admits at least three readings — one message per
+export, one message per record with the export split across many, or one message carrying a link
+to the export. They differ by an order of magnitude in cost and they are all faithful to the
+sentence. A run that enumerates only what the failure suggested — "the export was too big" —
+finds one of the three and builds it, and the disagreement surfaces at review.
+
+Where two readings imply different work and no bounded probe separates them, that is the blocking
+question. It blocks G3: the contract cannot be written over an unresolved reading, and a builder
+handed the ambiguity will resolve it silently, in favour of whichever is easiest to build.
 
 **Restatement, worked.** "Exports are broken" → claim: *the export endpoint returns rows for one
 account and zero rows for another, given the same filter*; falsifier: *a run of both returning
@@ -48,11 +68,27 @@ question in the pipeline and the one most worth asking.
 | `reproduction[]` | one row per reported number: reported, what it measured, measured here, delta, verdict |
 | `premise_verdicts[]` | each intake premise: `confirmed` \| `refuted` \| `unresolved` \| `inconclusive`, with what refuted it |
 | `dated[]` | every inherited claim with the sha it was checked at, and where it stopped holding |
+| `limits[]` | every size, duration, count or quota the report or the requirement cites, decomposed into its contributors with a measurement each |
 | `not_searched[]` | what was out of reach, and the probe that would settle it |
 
 **Opens when:** the finding is stated at the required class or the shortfall is named; every
-number has a verdict; every load-bearing negative names a control that fired; every inherited
-claim is dated.
+number has a verdict; every cited limit is decomposed; every load-bearing negative names a
+control that fired; every inherited claim is dated.
+
+**Decompose a limit before reasoning about it.** A cited limit — "must fit in 4 MB", "must
+finish inside the window", "no more than 200 rows" — is an aggregate, and an aggregate is the
+one number from which nothing follows. Measure the composition first:
+
+| contributor | measured size / duration / count | share | would the change move it? |
+|---|---|---|---|
+
+Then the remedies argue over the rows rather than over the total. **An infeasibility claim built
+on an aggregate is an over-claim** — "it cannot be done inside the limit" is a statement about
+every contributor at once, made without measuring any of them. The recurring shape: a payload
+declared too large for the limit turned out to be dominated by one field that nothing downstream
+read; dropping it put the payload inside the limit with room to spare, and the alternative on the
+table had been a redesign. The measurement costs one command, and it is also the thing that makes
+a genuine infeasibility believable when it is real.
 
 **What a blocked G1 hands back.** The reproduction table as far as it got, plus the missing
 reach stated as an access request — "this needs one query against the store that holds the
@@ -64,10 +100,11 @@ difficulty.
 **Artifact: the candidate table.** Fields per candidate, and the rules that decide which
 candidates must be present, are in the candidate-offers reference. The gate itself:
 
-**Opens when:** at least two candidates carry all five fields; the already-fixed and do-nothing
-lines have each been evaluated and are either present or dismissed with a reason; each blast
-area came from the mapping skill or names why it could not; and the chosen candidate is recorded
-**with who chose it** — the reporter, the owner, or the agent under the light-band default.
+**Opens when:** at least two candidates carry all five fields; the already-fixed, do-nothing and
+sibling-requirement lines have each been evaluated and are either present or dismissed with a
+reason; each blast area came from the mapping skill or names why it could not; and the chosen
+candidate is recorded **with who chose it** — the reporter, the owner, or the agent under the
+light-band default.
 
 **What a blocked G2 hands back.** The candidates that do exist, with the one field that could
 not be filled and why. A candidate with no blast area is not a candidate; it is a suggestion.
@@ -145,3 +182,19 @@ Every companion can be missing. The gates still hold; each one says what it lost
 | the review skill | review is human-only | "no automated review pass; findings from one reader" |
 | subagents | the bands become sequential passes | the wall-clock cost, stated |
 | a queryable store | data-resident references cannot be checked | "unchecked, not empty" — never the second |
+
+## What the run record's five headings carry, for a report
+
+The convention and its headings belong to the run-record reference; this is only which of a
+report's own artifacts goes under which heading:
+
+| Heading | What goes under it |
+|---|---|
+| What was searched | the searches G1 delegated, verbatim, with their controls |
+| Who searched it | the children and their axes, or the statement that the run was single-pass |
+| What each found | the claim card and the reproduction table |
+| How it reconciled | the refuted premises, the contradiction table, the readings that were costed |
+| What was decided and why | the candidate table, the choice, and who made it |
+| what this run could not see | unreproducible claims, unguarded surfaces, and anything filed as its own report |
+
+Quote the reporter only as far as the claim needs.
