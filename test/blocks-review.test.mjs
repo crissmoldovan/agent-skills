@@ -220,6 +220,32 @@ test('validates finite positive wait settings', async () => {
   }), /intervalMs/);
 });
 
+test('caller cancellation aborts a pending REST wait', async () => {
+  const controller = new AbortController();
+  controller.abort(new Error('cancelled by caller'));
+  await assert.rejects(waitForBlocksFinalMessage({
+    finalMessageUrl: 'https://api.blocks.team/rest/v1/sessions/s/threads/t/messages?type=final_message&role=assistant',
+    apiKey: 'example-key', signal: controller.signal,
+    fetchImpl: async () => response({ items: [] }),
+  }), /cancelled by caller/);
+});
+
+test('closed PR is a terminal review state', () => {
+  const result = classifyBlocksEvidence({ prState: 'CLOSED' }, { requestedAt });
+  assert.equal(result.state, 'pr_closed');
+  assert.equal(result.terminal, true);
+});
+
+test('rejects non-HTTPS, wrong-origin, and wrong-path final-message URLs', async () => {
+  for (const finalMessageUrl of [
+    'http://api.blocks.team/rest/v1/sessions/s/threads/t/messages?type=final_message&role=assistant',
+    'https://evil.example/rest/v1/sessions/s/threads/t/messages?type=final_message&role=assistant',
+    'https://api.blocks.team/rest/v1/sessions/s?type=final_message&role=assistant',
+  ]) {
+    await assert.rejects(waitForBlocksFinalMessage({ finalMessageUrl, apiKey: 'example-key' }), /Blocks|finalMessageUrl/);
+  }
+});
+
 test('resolves separate CUE and RGC workspace keys without exposing values', () => {
   const env = {
     BLOCKS_API_KEY_CUE: 'cue-example-key',
