@@ -212,7 +212,8 @@ plugin, or manual/upload target.
 4. Restart or reload each affected agent/runtime when its loader caches skills;
    current-session discovery may remain stale until then.
 5. Report a matrix with `scope × agent/channel × identity`: `updated`, `already
-   current`, `manual action required`, `unsupported`, `failed`, or `out of scope`.
+   current`, `manual action required`, `unsupported`, `deferred`, `failed`, or
+   `out of scope`.
    Never collapse partial multi-agent success into “local libraries updated.”
 
 ## Usage Examples
