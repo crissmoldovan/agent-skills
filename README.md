@@ -1,243 +1,202 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
-  <img alt="CUE++" src="assets/cue-logo-light.svg" width="176">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
+    <img alt="CUE++" src="assets/cue-logo-light.svg" width="176">
+  </picture>
+</p>
 
-# Agent skills pack
+<h1 align="center">Agent skills pack</h1>
 
-A public package of agent skills published by **Criss Moldovan**. It helps agents spend
-model tokens where they produce the most value while keeping delegated work
-observable and evidence-backed.
+<p align="center">
+  Eleven public, portable Agent Skills for agent operations, reviews, releases,
+  codebase context, secure setup, and change delivery.
+</p>
 
-**Use fewer model tokens without lowering the acceptance standard.** Route each
-task to the least expensive configured model that can own it completely, keep
-implementation detail out of the strongest model's context, and escalate only
-when verification or ambiguity shows a stronger route is needed.
+A public package by **Criss Moldovan**. Every skill is independently discoverable
+under `skills/<name>/SKILL.md`, installable through Agent Skills-compatible
+harnesses, and tested as part of one release catalogue.
 
-Profiles remember exact approved bindings; they are a convenience, not the
-goal. `agent-lifecycle` is the visibility companion that keeps delegated work
-observable.
-
-## Skills in this package
-
-Skills.sh and Agent Skills-compatible installers discover each
-`skills/<name>/SKILL.md` independently. The frontmatter description shown below
-is the same short description those catalogs display.
+## What is in the pack
 
 | Skill | Description | Details |
 |---|---|---|
 | `model-routing` | Route work efficiently without lowering output quality. | [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md) |
 | `agent-lifecycle` | Integrate live visibility for child-agent lifecycles. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
 | `blocks` | Interact with Blocks sessions, status, and bounded waits. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
-| `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) · [Blocks primitives](skills/blocks/SKILL.md) |
+| `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) |
 | `secure-credential-setup` | Place and verify secrets without exposing their values. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
 | `derive-codebase-context` | Derive agent context, enforced boundaries, and an operational atlas from the repo itself. Use when agents keep losing the shape of a large codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
 | `publish-agent-skill` | Publish an Agent Skill through a verified release. | [Skill](skills/publish-agent-skill/SKILL.md) |
-| `release-ledger` | Onboard a since-you-have-been-gone release ledger into any product: capture merged work, analyse and categorise it, and show each user what changed since they last looked. | [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md) · [Data model](skills/release-ledger/references/data-model.md) |
-| `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) · [Payload cookbook](skills/github-webhooks/references/payload-cookbook.md) |
-| `describe-changes` | Document what a change actually did: analyse a commit, PR, or merge, classify it, and write short, medium, and detailed descriptions anchored to the diff. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) · [Classification guide](skills/describe-changes/references/classification-guide.md) |
+| `update-agent-skills` | Update Agent Skills across every requested local plane. | [Skill](skills/update-agent-skills/SKILL.md) |
+| `release-ledger` | Onboard a since-you-have-been-gone release ledger into any product: capture merged work, analyse and categorise it, and show each user what changed since they last looked. | [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md) |
+| `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) |
+| `describe-changes` | Document what a change actually did: analyse a commit, PR, or merge, classify it, and write short, medium, and detailed descriptions anchored to the diff. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) |
 
-Model routing and lifecycle compose intentionally: routing chooses exact models
-and lifecycle makes delegation observable without mistaking task progress for
-child state. `blocks` is independent review tooling for GitHub pull requests.
-Read the [composition guide](docs/composition.md) for the ownership boundary.
+The pack contains distinct procedures, not one monolithic workflow. Compose only
+what the task needs. `model-routing` and `agent-lifecycle` cover economical,
+observable delegation; `request-blocks-review` uses `blocks`; `release-ledger`
+can compose with `github-webhooks` for capture and `describe-changes` for entries;
+a target-specific private publisher/updater may fully override the generic public
+workflow.
 
-The release trio composes the same way and is independent of routing:
-`release-ledger` orchestrates a since-you-were-away ledger, `github-webhooks`
-captures the merge events that feed it, and `describe-changes` writes each entry
-from the diff. Each is usable alone.
+## Install — for humans
 
-## Model routing
-
-`model-routing` prefers deterministic local tools before any model, reserves the
-strongest configured model for ambiguity, decisions, synthesis, and acceptance,
-uses builders for bounded substantive work, and uses a sweeper only for
-mechanically verifiable language work. It avoids fan-out when dispatch/context
-overhead exceeds the likely savings and requires fresh verification before
-acceptance.
-
-Exact model identifiers remain explicit and validated. The skill does not infer
-a model from a provider default, nickname, or example.
-
-For example, a profile may bind the exact identifiers `Fable`, `Opus`, and `Haiku` to DRIVER, BUILDER, and SWEEPER. `Sol`, `Terra`, and `Luna` are likewise illustrative names only. They are not defaults, model tiers, or a promise that any harness offers them.
-
-Profiles are persistent and scoped: a saved profile auto-loads in its saved scope in later sessions, then must be validated against the current model inventory before use. The skill supports these explicit actions:
-
-- **setup** — save a named profile and make it active;
-- **show** — inspect the active, saved, inherited, or invalid bindings;
-- **change** — replace one exact binding in the active profile;
-- **switch** — activate a different saved profile;
-- **clear** — remove the active selection while retaining saved profiles; and
-- **reset** — restore the host's previous routing configuration from its recorded receipt, then clear active routing intent. It never deletes all saved profiles.
-
-Use a one-off selection when it should not be saved. Before delegating, `model-routing` automatically depends on `agent-lifecycle`; if lifecycle support is unavailable, the resulting visibility limit must be stated rather than silently replaced with a todo list.
-
-## Delegation visibility
-
-When a host has a native child-agent interface, use that UI first. `agent-lifecycle` remains the authority for lifecycle state: created, running, waiting, completed, failed, cancelled, and lost are backed by lifecycle evidence and reconciliation, not task checkboxes or a final result.
-
-If the native UI is unavailable, use the fallback only under this contract:
-
-- **Lifecycle source available:** render exactly one aggregate **active, display-only** todo and individual **DISPLAY ONLY** child rows. Each child row shows its ID, literal lifecycle state, activity or active tool, and freshness. The normalized lifecycle projection is authoritative; edits to these fallback rows are ignored. Preserve terminal states literally: `completed`, `failed`, `cancelled`, and `lost` are terminal display states, never remapped to a successful or cancelled todo.
-- **No lifecycle source:** render no child rows and state exactly: `Background work visibility unavailable; state unknown.`
-
-On reconnect, rebuild the fallback from the normalized projection after reconciliation; do not retain or infer child state from prior todo rows. See the [lifecycle guide](docs/lifecycle/index.md) and [Hermes adapter notes](docs/harnesses/hermes.md) for the shipped boundary.
-
-## Install
-
-Install either skill on its own, or both for routed delegation with lifecycle visibility:
+Install the complete pack for the current project:
 
 ```bash
-# Model routing only
-npx skills add crissmoldovan/agent-skills --skill model-routing
+npx skills add crissmoldovan/agent-skills --skill '*'
+```
 
-# Lifecycle visibility only
-npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
+Install the complete pack globally for every agent supported by the installed
+Skills CLI:
 
-# Blocks reviews and direct Sessions API
-npx skills add crissmoldovan/agent-skills --skill blocks
+```bash
+npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
+```
 
-# Completed-PR review/fix/re-review workflow
-npx skills add crissmoldovan/agent-skills --skill request-blocks-review
+Install selected skills:
 
-# Safe one-at-a-time credential placement
+```bash
+# Observable routed delegation
+npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
+
+# Blocks interaction plus the completed-PR review loop
+npx skills add crissmoldovan/agent-skills --skill blocks request-blocks-review
+
+# Secure credential placement
 npx skills add crissmoldovan/agent-skills --skill secure-credential-setup
 
-# Derived codebase context, boundaries, and atlas
+# Repository context and boundaries
 npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
 
-# Generic verified Agent Skill publication
-npx skills add crissmoldovan/agent-skills --skill publish-agent-skill
+# Verified publication and all-plane updates
+npx skills add crissmoldovan/agent-skills --skill publish-agent-skill update-agent-skills
 
-# Since-you-have-been-gone release ledger onboarding
-npx skills add crissmoldovan/agent-skills --skill release-ledger
-
-# GitHub webhook endpoint, verification, and event routing
-npx skills add crissmoldovan/agent-skills --skill github-webhooks
-
-# Diff-anchored change descriptions and classification
-npx skills add crissmoldovan/agent-skills --skill describe-changes
-
-# Complete pack
-npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup derive-codebase-context publish-agent-skill release-ledger github-webhooks describe-changes
+# Release-ledger capture and change descriptions
+npx skills add crissmoldovan/agent-skills --skill release-ledger github-webhooks describe-changes
 ```
 
-The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
+`--agent '*'` means every agent the installed CLI supports, not every agent that
+exists. The CLI reports unsupported clients separately. Preserve the existing
+copy/symlink form unless conversion is explicitly requested.
 
-## How to use the skills
-
-Skills are instruction sets for your agent. After installing, ask naturally or
-invoke the installed skill/bundle in the syntax your harness supports.
-Use `model-routing` for routing/profile requests and `agent-lifecycle` for
-status/integration requests; load both for observable routed delegation.
-
-### Inspect or configure routing
+## Install — for agents and LLMs
 
 ```text
-Show routing. Compare the active scoped profile with the live model bindings.
+Install or update the eleven public skills from crissmoldovan/agent-skills.
+Inventory project and global scopes in JSON first. Preserve source provenance,
+managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
+skills. Install the requested scope for every supported agent, report unsupported
+clients separately, then verify each installed path and source. Do not treat one
+successful agent or scope as proof that all local libraries are current.
+```
+
+Preview destructive replacement when a stale directory has no managed
+provenance. Never remove a private namespaced skill merely because a public
+standalone skill has the same bare name.
+
+## Update the pack
+
+Inventory before updating:
+
+```bash
+npx skills list --json
+npx skills list --global --json
+```
+
+Update CLI-managed skills at an explicit scope:
+
+```bash
+npx skills update --project --yes
+npx skills update --global --yes
+npx skills update model-routing agent-lifecycle --global --yes
+```
+
+For missing global projections across all supported agents:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
+```
+
+### All-plane update contract
+
+| Plane | Update rule | Required proof |
+|---|---|---|
+| Project-scoped Skills CLI | `npx skills update … --project --yes` from the exact project | project inventory, provenance, consuming path/precedence |
+| Global Skills CLI | `npx skills update … --global --yes` | global inventory and every requested supported-agent projection |
+| Copied vs symlinked | Preserve the current form unless conversion is requested | installed path/form and published-byte comparison where possible |
+| Unmanaged/provenance-less | Ask before replacing only that identity | old path accounted for; new source and bytes verified |
+| Native plugin/package | Use its marketplace or registry updater | exact native version, namespace, install path, and bytes |
+| Manual upload/raw file | Replace through the owning UI/channel | artifact verified; otherwise `manual action required` |
+| Remote machine/container | Treat as another explicitly named target | independent readback on that target |
+| Unsupported client or unreachable target | Invent no destination | literal `unsupported` or `deferred` outcome |
+
+Restart or reload agents whose loaders cache installed files. A current session
+may continue using old instructions until reopened.
+
+## Use the skills
+
+```text
+Use model-routing and agent-lifecycle for this task. Keep acceptance quality fixed,
+route bounded implementation economically, and make every child visibly reconciled.
 ```
 
 ```text
-Set up routing as "balanced". Keep important judgment with my strongest model,
-use a cheaper builder for bounded implementation, and fold sweeps into the
-builder where the harness cannot address a separate sweeper. Show every exact
-binding and ask before writing configuration.
+Use request-blocks-review on this finished PR. Keep the wait visible, fix accepted
+findings, rerun verification, and request current-head re-review until clean.
 ```
-
-### Run token-efficient delegated work
 
 ```text
-Use the active routing profile for this task. Set the acceptance checks first,
-use deterministic local tools wherever possible, delegate only coherent work
-whose context/time savings exceed overhead, and escalate only on evidence.
-Keep child work visible through agent-lifecycle and verify the final result.
+Use secure-credential-setup. Ask for one credential at the exact gate and verify
+authentication without printing any part of the value.
 ```
-
-Expected behavior: exact mechanical work stays local; mechanically verifiable
-language work may use SWEEPER; bounded substantive work uses BUILDER; ambiguity,
-trade-offs, synthesis, and acceptance remain with DRIVER.
-
-### Inspect lifecycle status
 
 ```text
-Show the current child lifecycle status. For each child report its ID, literal
-state, current activity/tool, freshness, and terminal evidence. Reconcile stale
-children; do not infer completion from silence or a todo checkbox.
+Use derive-codebase-context. Reuse what exists, derive only missing context,
+boundaries, and atlas layers, and mutation-test every new enforcement gate.
 ```
-
-If the harness has native child UI, it is preferred. Otherwise the lifecycle
-skill defines a display-only fallback whose rows never become lifecycle
-authority. See [the composition guide](docs/composition.md) for the boundary.
-
-### Request and await a Blocks review
 
 ```text
-Ask Blocks to review this branch's pull request. Await up to ten minutes and
-report requested, reviewing, clean, or findings without mistaking an eyes
-reaction or acknowledgement for completion.
+Use publish-agent-skill for the current repository. Require catalogue README,
+human release notes, update guidance, discovery, and provenance. Synchronize real
+local libraries only if I explicitly name the target.
 ```
-
-For direct Blocks sessions, set `BLOCKS_API_KEY` and ask:
 
 ```text
-Start a Blocks session with the Claude agent to review this architecture. Wait
-up to ten minutes for the final message and preserve the session/dashboard URL.
+Use update-agent-skills. Make changelog, catalogue README, release notes, and agent
+update guidance agree; then update only the planes I explicitly named.
 ```
-
-### Publish an Agent Skill
 
 ```text
-Publish this Agent Skill to the current repository. Discover its owner, layout,
-tests, review and release contract; verify CLI discovery and provenance after
-release. Do not touch another repository, website, plugin, mirror, sidecar, or
-local-global target unless I explicitly name it.
+Use release-ledger to onboard a since-you-were-away system into this app.
+Investigate the stack first, decide the capture path with me, use github-webhooks
+when automatic GitHub capture is selected, and use describe-changes to write each
+entry from its diff in short, medium, and detailed registers.
 ```
 
-### Onboard a release ledger
+## Composition and references
 
-```text
-Onboard a release ledger into this app. Run the stack investigation first and
-show me the answers, then write docs/release-ledger/implementation.md mapping
-capture, analysis, popup, digest, and announcements onto what is actually here.
-Ask me whether capture is automatic or manual before you assume a webhook.
-```
+- [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership.
+- [`docs/blocks.md`](docs/blocks.md) — Blocks REST/GitHub separation.
+- [`skills/release-ledger/references/system-model.md`](skills/release-ledger/references/system-model.md) — release-ledger system model.
+- [`skills/github-webhooks/references/event-types.md`](skills/github-webhooks/references/event-types.md) — webhook event reference.
+- [`skills/describe-changes/references/output-contract.md`](skills/describe-changes/references/output-contract.md) — change-description contract.
+- [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
+- [`docs/releases.md`](docs/releases.md) — release process and versioning.
+- [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
 
-For the capture side, and for describing what each merge did:
+The [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml) is
+a load-time helper for routing plus lifecycle. It does not install skills.
 
-```text
-Set up the GitHub webhook endpoint: raw body, HMAC-SHA256 verification with a
-constant-time compare, routing on the event header plus action, and handlers
-that enqueue. Then describe each merged pull request from its diff with a
-classification and short, medium, and detailed registers.
-```
-
-## What ships
-
-The public catalog now ships ten skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, the derived codebase-context procedure, repository-agnostic verified skill publication, release-ledger onboarding, GitHub webhook adoption, and diff-anchored change description. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, a default model selection, or implicit external/sidecar publication.
-
-- [Model-routing documentation](docs/model-routing/index.md)
-- [Profile controls](docs/model-routing/profiles.md)
-- [Agent-lifecycle documentation](docs/lifecycle/index.md)
-- [Blocks documentation](docs/blocks.md)
-- [Codebase-context onboarding runbook](skills/derive-codebase-context/references/onboarding.md)
-- [Release-ledger system model](skills/release-ledger/references/system-model.md)
-- [GitHub webhook event reference](skills/github-webhooks/references/event-types.md)
-- [Change-description output contract](skills/describe-changes/references/output-contract.md)
-- [Two-skill composition](docs/composition.md)
-- [Architecture](docs/architecture.md)
-- [Release process](docs/releases.md)
-- [Future development](docs/roadmap.md)
-
-## Verify
+## Verify this repository
 
 ```bash
 npm run verify
 ```
 
-`verify` runs the catalog tests, skill validator, and the complete lifecycle
-runtime package suite under `packages/agent-lifecycle`. The skill and its runtime
-now share this repository as their canonical public source.
+The command runs catalogue tests, skill validation, the lifecycle runtime suite,
+TypeScript build, and package-consumer verification.
 
 ## License
 
@@ -245,7 +204,7 @@ now share this repository as their canonical public source.
 
 ---
 
-<p>
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
