@@ -13,6 +13,9 @@ const requestBlocksReview = await read('skills/request-blocks-review/SKILL.md');
 const secureCredentialSetup = await read('skills/secure-credential-setup/SKILL.md');
 const deriveCodebaseContext = await read('skills/derive-codebase-context/SKILL.md');
 const publishAgentSkill = await read('skills/publish-agent-skill/SKILL.md');
+const releaseLedger = await read('skills/release-ledger/SKILL.md');
+const githubWebhooks = await read('skills/github-webhooks/SKILL.md');
+const describeChanges = await read('skills/describe-changes/SKILL.md');
 
 function section(source, heading) {
   const start = source.indexOf(`## ${heading}`);
@@ -104,10 +107,37 @@ test('publish-agent-skill is generic and external targets are explicit opt-ins',
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = source.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1] ?? '';
     assert.ok(description.length > 0 && description.length <= 1024);
-    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase|publish|release)/i);
+    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase|publish|release|webhook|change)/i);
   }
+});
+
+test('release-ledger onboards a system rather than shipping a library', () => {
+  assert.match(releaseLedger, /implementation\.md/);
+  assert.match(releaseLedger, /watermark/i);
+  assert.match(releaseLedger, /github-webhooks/);
+  assert.match(releaseLedger, /describe-changes/);
+  assert.match(releaseLedger, /npx skills add crissmoldovan\/agent-skills/);
+  assert.match(releaseLedger, /references\/onboarding-checklist\.md/);
+  assert.doesNotMatch(releaseLedger, /\bCUE\b|\bRGC\b/);
+});
+
+test('github-webhooks verifies before routing and documents real event types', () => {
+  assert.match(githubWebhooks, /HMAC-SHA256/);
+  assert.match(githubWebhooks, /constant-time/i);
+  assert.match(githubWebhooks, /X-Hub-Signature-256/);
+  assert.match(githubWebhooks, /X-GitHub-Event/);
+  assert.match(githubWebhooks, /references\/event-types\.md/);
+  assert.doesNotMatch(githubWebhooks, /\bCUE\b|\bRGC\b/);
+});
+
+test('describe-changes classifies once and anchors claims in the diff', () => {
+  assert.match(describeChanges, /feature.*bug_fix.*improvement.*security.*ops.*docs.*breaking/s);
+  assert.match(describeChanges, /short.*medium.*detail/is);
+  assert.match(describeChanges, /never claim a change does something the diff does not show/i);
+  assert.match(describeChanges, /references\/output-contract\.md/);
+  assert.doesNotMatch(describeChanges, /\bCUE\b|\bRGC\b/);
 });
