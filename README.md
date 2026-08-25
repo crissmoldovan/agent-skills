@@ -32,6 +32,7 @@ is the same short description those catalogs display.
 | `blocks` | Interact with Blocks sessions, status, and bounded waits. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
 | `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) · [Blocks primitives](skills/blocks/SKILL.md) |
 | `secure-credential-setup` | Place and verify secrets without exposing their values. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
+| `derive-codebase-context` | Derive agent context, enforced boundaries, and an operational atlas from the repo itself. Use when agents keep losing the shape of a large codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
 | `publish-agent-skill` | Publish an Agent Skill through a verified release. | [Skill](skills/publish-agent-skill/SKILL.md) |
 
 Model routing and lifecycle compose intentionally: routing chooses exact models
@@ -95,11 +96,14 @@ npx skills add crissmoldovan/agent-skills --skill request-blocks-review
 # Safe one-at-a-time credential placement
 npx skills add crissmoldovan/agent-skills --skill secure-credential-setup
 
+# Derived codebase context, boundaries, and atlas
+npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
+
 # Generic verified Agent Skill publication
 npx skills add crissmoldovan/agent-skills --skill publish-agent-skill
 
 # Complete pack
-npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup publish-agent-skill
+npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup derive-codebase-context publish-agent-skill
 ```
 
 The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
@@ -169,18 +173,19 @@ up to ten minutes for the final message and preserve the session/dashboard URL.
 ```text
 Publish this Agent Skill to the current repository. Discover its owner, layout,
 tests, review and release contract; verify CLI discovery and provenance after
-release. Do not touch another repository, website, plugin, mirror, or sidecar
-unless I explicitly name it.
+release. Do not touch another repository, website, plugin, mirror, sidecar, or
+local-global target unless I explicitly name it.
 ```
 
 ## What ships
 
-The public catalog now ships six skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, and repository-agnostic verified skill publication. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, a default model selection, or implicit external/sidecar publication.
+The public catalog now ships seven skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, the derived codebase-context procedure, and repository-agnostic verified skill publication. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, a default model selection, or implicit external/sidecar publication.
 
 - [Model-routing documentation](docs/model-routing/index.md)
 - [Profile controls](docs/model-routing/profiles.md)
 - [Agent-lifecycle documentation](docs/lifecycle/index.md)
 - [Blocks documentation](docs/blocks.md)
+- [Codebase-context onboarding runbook](skills/derive-codebase-context/references/onboarding.md)
 - [Two-skill composition](docs/composition.md)
 - [Architecture](docs/architecture.md)
 - [Release process](docs/releases.md)

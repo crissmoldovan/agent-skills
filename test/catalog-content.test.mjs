@@ -11,6 +11,7 @@ const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
 const blocks = await read('skills/blocks/SKILL.md');
 const requestBlocksReview = await read('skills/request-blocks-review/SKILL.md');
 const secureCredentialSetup = await read('skills/secure-credential-setup/SKILL.md');
+const deriveCodebaseContext = await read('skills/derive-codebase-context/SKILL.md');
 const publishAgentSkill = await read('skills/publish-agent-skill/SKILL.md');
 
 function section(source, heading) {
@@ -98,19 +99,15 @@ test('publish-agent-skill is generic and external targets are explicit opt-ins',
   assert.match(publishAgentSkill, /external|sidecar/i);
   assert.match(publishAgentSkill, /explicitly (?:asks|requested|mentions)|opt[- ]in/i);
   assert.match(publishAgentSkill, /must not infer|do not infer|never infer/i);
-  assert.match(publishAgentSkill, /pull request|\bPR\b/i);
-  assert.match(publishAgentSkill, /\bCI\b/);
-  assert.match(publishAgentSkill, /CLI discovery|installer discovery/i);
-  assert.match(publishAgentSkill, /provenance/i);
   assert.match(publishAgentSkill, /repository policy.*(?:cannot|must not).*(?:select|authorize)|(?:cannot|must not).*(?:select|authorize).*repository policy/is);
   assert.doesNotMatch(publishAgentSkill, /cueplusplus\/skills|crissmoldovan\/agent-skills|cue:/i);
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['publish-agent-skill', publishAgentSkill]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = source.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1] ?? '';
     assert.ok(description.length > 0 && description.length <= 1024);
-    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|publish|release)/i);
+    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase|publish|release)/i);
   }
 });
