@@ -342,12 +342,13 @@ never checked, and what the picture is not showing.
 
 ## Deeper reading
 
-**Prior art, honestly.** The nearest live tool in this space visualises **agent sessions**, not
-codebases: a treemap of files touched during a run, with **no edges at all**, and a comparison
-mode that diffs one session against another rather than one state of a repository against
-another. It is real, actively maintained and good at its own job, and it is the wrong tool for
-this one — a blast map is edges, and a treemap has none. Four of its conventions were adopted
-anyway, because each solves a problem this skill also has:
+**Prior art, honestly.** The nearest live tool in this space is **mindwalk**
+(`cosmtrek/mindwalk` on GitHub), and it visualises **agent sessions**, not codebases: a treemap
+of files touched during a run, with **no edges at all**, and a comparison mode that diffs one
+session against another rather than one state of a repository against another. It is real,
+actively maintained and good at its own job, and it is the wrong tool for this one — a blast map
+is edges, and a treemap has none. Four of its conventions were adopted anyway, because each
+solves a problem this skill also has:
 
 - **Deepest-touch-wins**, one state per node, resolved once so a node never renders in two
   colours and never has to be reconciled by the reader.
