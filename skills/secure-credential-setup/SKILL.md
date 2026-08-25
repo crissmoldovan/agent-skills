@@ -54,13 +54,13 @@ composing a placement command.
 ## macOS Keychain
 
 ```bash
-printf "Paste the <PROFILE> API key, then press Enter: "; stty -echo; IFS= read -r API_KEY; stty echo; printf '\n'; security add-generic-password -U -a "$USER" -s "<service>-<profile>" -w "$API_KEY" >/dev/null; unset API_KEY; echo "<PROFILE> key saved in macOS Keychain."
+trap 'stty echo' INT TERM EXIT; printf "Paste the <PROFILE> API key, then press Enter: "; stty -echo; IFS= read -r API_KEY; stty echo; trap - INT TERM EXIT; printf '\n'; security add-generic-password -U -a "$USER" -s "<provider>-api-key-<profile>" -w "$API_KEY" >/dev/null; unset API_KEY; echo "<PROFILE> key saved in macOS Keychain."
 ```
 
 Presence check only:
 
 ```bash
-security find-generic-password -a "$USER" -s "<service>-<profile>" >/dev/null
+security find-generic-password -a "$USER" -s "<provider>-api-key-<profile>" >/dev/null 2>&1
 ```
 
 Use the consuming provider's harmless authenticated read to prove validity.
@@ -88,6 +88,10 @@ explicit profile in runtime code.
 - **Presence mistaken for validity:** always run a harmless auth probe.
 - **Leaky diagnostics:** never print prefixes, lengths, hashes, or raw bodies that
   might echo request credentials.
+- **Process-list exposure on macOS:** `security -w "$API_KEY"` briefly passes the
+  value to the Keychain CLI. State this limitation where other local users can
+  inspect process arguments; use an approved native/enterprise secret-store UI
+  instead when that threat model applies.
 - **Cross-workspace fallback:** authentication success does not prove the chosen
   workspace is intended.
 - **Batching:** request and verify one credential before discussing the next.
