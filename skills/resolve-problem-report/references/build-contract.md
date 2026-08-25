@@ -108,7 +108,7 @@ the cheapest moment to fix the brief has gone.
 ## A worked contract
 
 ```text
-BUILD CONTRACT  export-zero-rows  base 4f1c9ab  band normal  candidate C3 (scope the filter at
+BUILD CONTRACT  export-zero-rows  base 4f1c9ab  band deep    candidate C3 (scope the filter at
                                   the query, matching the precedent in the reporting module)
 
 CLAIM       The export endpoint returns rows for one account and zero rows for another, for the

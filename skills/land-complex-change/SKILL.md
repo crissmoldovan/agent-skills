@@ -386,8 +386,9 @@ you could not guard, and the residual risks the tests cannot see. The diff I can
       claim that shape makes is written down.
 - [ ] The band was scored with `investigate-codebase`'s rubric (not a second, local one) before
       anything was spent, and announced before any child was dispatched.
-- [ ] **Cost-of-being-wrong was scored 2 because the plan contains an irreversible act**, the
-      floor was raised to at least normal, and the act gates were armed.
+- [ ] **Where the plan contains an irreversible act, cost-of-being-wrong was scored 2**, the
+      floor was raised to at least normal, and the act gates were armed — or the plan contains
+      none and says so.
 - [ ] The band was re-scored after the map arrived, and any change of band was announced.
 - [ ] The budget was declared **before the first edit**, and it lists ALLOWED entries, expected
       effects per surface, the out-of-bounds classes, and the on-breach rule.

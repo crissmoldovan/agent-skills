@@ -107,7 +107,7 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    |---|---|---|
    | light | local tools and one cheap pass; **no driver is dispatched** | 1 round, no children |
    | normal | parallel children on disjoint axes, plus a mid-tier reconciler | 2–4 children, 2 rounds |
-   | deep | the above, plus the adversarial pair; strongest tier judges only | 3 rounds, adversaries once each per round |
+   | deep | the above, plus the adversarial pair; strongest tier judges only | 3 rounds, of which the adversaries run at most two |
 
    Most questions are answered by a search and a file, and
    **a top-tier driver is not the default**: routing every one to the strongest
@@ -121,7 +121,7 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    child is dispatched**, whether or not anyone is watching. Never ask which mode to run.
 
    ```text
-   investigate-codebase · normal band — scope 2 (41 hits/18 files), contradiction 2 (two
+   investigate-codebase · deep band — scope 2 (41 hits/18 files), contradiction 2 (two
    registries disagree), size 1 (14 packages), ambiguity 0, cost-of-being-wrong 1 = 6;
    boundary: scored 6, rounding up to deep → 4 children + reconciler, 3 rounds max
    ```

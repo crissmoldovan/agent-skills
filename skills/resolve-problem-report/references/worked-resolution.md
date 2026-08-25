@@ -30,8 +30,8 @@ consequence  A wrong answer authorises a change to a shared query builder and a 
 ```
 
 Band, scored before anything is spent: scope 1, contradiction 2 (two counts disagree), size 1,
-ambiguity 0, cost-of-being-wrong 2 (closes a report and mails a person) — **6, normal**,
-announced with the caps it buys.
+ambiguity 0, cost-of-being-wrong 2 (closes a report and mails a person) — **6, one point below
+the deep threshold, so it rounds up to deep** — announced with the caps it buys.
 
 ## G1 — analyse
 

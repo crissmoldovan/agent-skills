@@ -146,7 +146,7 @@ contradiction 0 (nothing attributed), size 1 (2 toolchains), ambiguity 0, cost-o
 ```
 
 ```text
-investigate-codebase · normal band — scope 2 (git grep -n "registerJob(" → 41 hits in 18 files),
+investigate-codebase · deep band — scope 2 (git grep -n "registerJob(" → 41 hits in 18 files),
 contradiction 2 (two registries disagree), size 1 (14 packages), ambiguity 0,
 cost-of-being-wrong 1 = 6; boundary: scored 6, rounding up to deep → 4 children + reconciler,
 adversarial pair, 3 rounds max
