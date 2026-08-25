@@ -29,8 +29,13 @@ is the same short description those catalogs display.
 |---|---|---|
 | `model-routing` | Route work efficiently without lowering output quality. | [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md) |
 | `agent-lifecycle` | Integrate live visibility for child-agent lifecycles. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
+| `blocks` | Interact with Blocks sessions, status, and bounded waits. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
+| `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) · [Blocks primitives](skills/blocks/SKILL.md) |
 
-There is no third skill. The two compose intentionally: model routing chooses the exact models and profile; lifecycle makes delegation observable without mistaking task progress for child state. Read the [two-skill composition guide](docs/composition.md) for the ownership boundary.
+Model routing and lifecycle compose intentionally: routing chooses exact models
+and lifecycle makes delegation observable without mistaking task progress for
+child state. `blocks` is independent review tooling for GitHub pull requests.
+Read the [composition guide](docs/composition.md) for the ownership boundary.
 
 ## Model routing
 
@@ -79,9 +84,14 @@ npx skills add crissmoldovan/agent-skills --skill model-routing
 # Lifecycle visibility only
 npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
 
-# Both skills
-npx skills add crissmoldovan/agent-skills --skill model-routing
-npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
+# Blocks reviews and direct Sessions API
+npx skills add crissmoldovan/agent-skills --skill blocks
+
+# Completed-PR review/fix/re-review workflow
+npx skills add crissmoldovan/agent-skills --skill request-blocks-review
+
+# Complete pack
+npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review
 ```
 
 The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
@@ -131,13 +141,29 @@ If the harness has native child UI, it is preferred. Otherwise the lifecycle
 skill defines a display-only fallback whose rows never become lifecycle
 authority. See [the composition guide](docs/composition.md) for the boundary.
 
+### Request and await a Blocks review
+
+```text
+Ask Blocks to review this branch's pull request. Await up to ten minutes and
+report requested, reviewing, clean, or findings without mistaking an eyes
+reaction or acknowledgement for completion.
+```
+
+For direct Blocks sessions, set `BLOCKS_API_KEY` and ask:
+
+```text
+Start a Blocks session with the Claude agent to review this architecture. Wait
+up to ten minutes for the final message and preserve the session/dashboard URL.
+```
+
 ## What ships
 
-The public catalog now ships both skill documents, their references, and grouped documentation. It includes a Hermes adapter foundation for lifecycle observations and scoped routing guidance. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, or a default model selection.
+The public catalog now ships four skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, and the separate completed-PR Blocks review loop. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, or a default model selection.
 
 - [Model-routing documentation](docs/model-routing/index.md)
 - [Profile controls](docs/model-routing/profiles.md)
 - [Agent-lifecycle documentation](docs/lifecycle/index.md)
+- [Blocks documentation](docs/blocks.md)
 - [Two-skill composition](docs/composition.md)
 - [Architecture](docs/architecture.md)
 - [Release process](docs/releases.md)
