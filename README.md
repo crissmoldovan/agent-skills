@@ -34,11 +34,19 @@ is the same short description those catalogs display.
 | `secure-credential-setup` | Place and verify secrets without exposing their values. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
 | `derive-codebase-context` | Derive agent context, enforced boundaries, and an operational atlas from the repo itself. Use when agents keep losing the shape of a large codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
 | `publish-agent-skill` | Publish an Agent Skill through a verified release. | [Skill](skills/publish-agent-skill/SKILL.md) |
+| `release-ledger` | Onboard a since-you-have-been-gone release ledger into any product: capture merged work, analyse and categorise it, and show each user what changed since they last looked. | [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md) · [Data model](skills/release-ledger/references/data-model.md) |
+| `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) · [Payload cookbook](skills/github-webhooks/references/payload-cookbook.md) |
+| `describe-changes` | Document what a change actually did: analyse a commit, PR, or merge, classify it, and write short, medium, and detailed descriptions anchored to the diff. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) · [Classification guide](skills/describe-changes/references/classification-guide.md) |
 
 Model routing and lifecycle compose intentionally: routing chooses exact models
 and lifecycle makes delegation observable without mistaking task progress for
 child state. `blocks` is independent review tooling for GitHub pull requests.
 Read the [composition guide](docs/composition.md) for the ownership boundary.
+
+The release trio composes the same way and is independent of routing:
+`release-ledger` orchestrates a since-you-were-away ledger, `github-webhooks`
+captures the merge events that feed it, and `describe-changes` writes each entry
+from the diff. Each is usable alone.
 
 ## Model routing
 
@@ -102,8 +110,17 @@ npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
 # Generic verified Agent Skill publication
 npx skills add crissmoldovan/agent-skills --skill publish-agent-skill
 
+# Since-you-have-been-gone release ledger onboarding
+npx skills add crissmoldovan/agent-skills --skill release-ledger
+
+# GitHub webhook endpoint, verification, and event routing
+npx skills add crissmoldovan/agent-skills --skill github-webhooks
+
+# Diff-anchored change descriptions and classification
+npx skills add crissmoldovan/agent-skills --skill describe-changes
+
 # Complete pack
-npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup derive-codebase-context publish-agent-skill
+npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup derive-codebase-context publish-agent-skill release-ledger github-webhooks describe-changes
 ```
 
 The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
@@ -177,15 +194,36 @@ release. Do not touch another repository, website, plugin, mirror, sidecar, or
 local-global target unless I explicitly name it.
 ```
 
+### Onboard a release ledger
+
+```text
+Onboard a release ledger into this app. Run the stack investigation first and
+show me the answers, then write docs/release-ledger/implementation.md mapping
+capture, analysis, popup, digest, and announcements onto what is actually here.
+Ask me whether capture is automatic or manual before you assume a webhook.
+```
+
+For the capture side, and for describing what each merge did:
+
+```text
+Set up the GitHub webhook endpoint: raw body, HMAC-SHA256 verification with a
+constant-time compare, routing on the event header plus action, and handlers
+that enqueue. Then describe each merged pull request from its diff with a
+classification and short, medium, and detailed registers.
+```
+
 ## What ships
 
-The public catalog now ships seven skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, the derived codebase-context procedure, and repository-agnostic verified skill publication. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, a default model selection, or implicit external/sidecar publication.
+The public catalog now ships ten skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, the derived codebase-context procedure, repository-agnostic verified skill publication, release-ledger onboarding, GitHub webhook adoption, and diff-anchored change description. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, a default model selection, or implicit external/sidecar publication.
 
 - [Model-routing documentation](docs/model-routing/index.md)
 - [Profile controls](docs/model-routing/profiles.md)
 - [Agent-lifecycle documentation](docs/lifecycle/index.md)
 - [Blocks documentation](docs/blocks.md)
 - [Codebase-context onboarding runbook](skills/derive-codebase-context/references/onboarding.md)
+- [Release-ledger system model](skills/release-ledger/references/system-model.md)
+- [GitHub webhook event reference](skills/github-webhooks/references/event-types.md)
+- [Change-description output contract](skills/describe-changes/references/output-contract.md)
 - [Two-skill composition](docs/composition.md)
 - [Architecture](docs/architecture.md)
 - [Release process](docs/releases.md)

@@ -3,10 +3,14 @@
 ## Published catalog
 
 This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
-`request-blocks-review`, and `derive-codebase-context`, plus the canonical
+`request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
+`publish-agent-skill`, `release-ledger`, `github-webhooks`, and
+`describe-changes`, plus the canonical
 lifecycle runtime package under `packages/agent-lifecycle`. Their composition is documented in [the two-skill
 composition guide](composition.md). `blocks` is independent review tooling, not
-a routed-delegation coordinator.
+a routed-delegation coordinator. `release-ledger`, `github-webhooks`, and
+`describe-changes` compose as a release trio — orchestration, capture, and entry
+authoring — and each is usable alone.
 
 ## Release checklist
 
