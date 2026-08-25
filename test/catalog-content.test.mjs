@@ -8,6 +8,7 @@ const read = (path) => readFile(new URL(path, root), 'utf8');
 const readme = await read('README.md');
 const routing = await read('skills/model-routing/SKILL.md');
 const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
+const blocks = await read('skills/blocks/SKILL.md');
 
 function section(source, heading) {
   const start = source.indexOf(`## ${heading}`);
@@ -62,11 +63,18 @@ test('agent-lifecycle skill contains integration and end-user visibility example
   }
 });
 
+test('blocks skill documents GitHub review interaction and bounded waiting', () => {
+  const examples = section(blocks, 'Usage Examples');
+  assert.match(examples, /Ask Blocks to review/i);
+  assert.match(blocks, /official REST Sessions API/i);
+  assert.match(blocks, /bounded wait helper/i);
+});
+
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = source.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1] ?? '';
     assert.ok(description.length > 0 && description.length <= 1024);
-    assert.match(description, /(?:route|child|lifecycle|delegat)/i);
+    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review)/i);
   }
 });

@@ -1,7 +1,7 @@
 {
   "name": "@crissmoldovan/agent-skills",
-  "version": "0.3.0",
-  "description": "Token-efficient model routing and observable agent lifecycles.",
+  "version": "0.4.0",
+  "description": "Model routing, agent lifecycles, and Blocks reviews.",
   "type": "module",
   "engines": {
     "node": ">=24"

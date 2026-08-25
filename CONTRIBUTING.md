@@ -4,7 +4,10 @@ Thanks for helping build a safe, portable public catalog.
 
 ## Before adding a skill
 
-This public catalog ships exactly two skills: `model-routing` and `agent-lifecycle`. They compose intentionally, but remain separate: routing owns exact model selection and scoped intent; lifecycle owns evidence-backed child visibility. Do not add a third skill without maintainer approval.
+This public catalog ships `model-routing`, `agent-lifecycle`, and `blocks`.
+Routing owns exact model selection and scoped intent; lifecycle owns
+evidence-backed child visibility; Blocks owns GitHub-hosted review interaction
+and bounded status waits.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 
