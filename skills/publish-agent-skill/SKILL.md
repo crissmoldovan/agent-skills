@@ -139,6 +139,9 @@ plugin, or manual/upload target.
    status, copy/symlink form, and every agent path that consumes it. A shared
    canonical copy linked into several agents is one managed installation with
    several projections; copied directories can drift independently.
+   Present a deduplicated target manifest before writes: `machine × scope/profile
+   × agent/channel × physical path × mechanism`. “All supported agents” covers
+   only this discovered set, not unknown profiles or guessed locations.
 3. Discover native plugin/package channels from the target's own release contract.
    A plugin-native skill and a standalone skill with the same bare name are
    separate identities; do not replace or remove one to update the other.
@@ -179,6 +182,8 @@ plugin, or manual/upload target.
   the exact path and proposed source, obtain approval for destructive replacement,
   then remove only that identity/scope and reinstall from the authoritative
   source. Preserve unrelated and namespaced skills.
+- **Upstream deletion:** report a removal candidate; require separate explicit
+  destructive approval before deleting any local skill.
 - **Native plugin/package channel:** use that channel's marketplace/registry
   refresh and update commands, then read back its declared version and skill
   namespace. Do not use the generic Skills CLI as proof that a native plugin
@@ -197,6 +202,8 @@ plugin, or manual/upload target.
 2. Compare installed bytes or a cryptographic hash with the authoritative
    published artifact when the channel exposes no trustworthy version. A command
    exiting zero is not freshness proof.
+   Where no authoritative version/ref/digest is comparable, report freshness as
+   `unknown`; do not infer it from a rewritten local timestamp or command success.
 3. For native plugins, read back the exact installed version and namespace. For
    project scope, verify the consuming project sees the project copy rather than
    a higher-precedence global/plugin copy.

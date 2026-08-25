@@ -63,6 +63,12 @@ copy/symlink form, and every consuming agent projection. Also discover:
 - remote machines, containers, browser-only agents, and other runtimes;
 - unsupported clients reported by the owning installer.
 
+Before writes, present a deduplicated target manifest: `machine × scope/profile ×
+agent/channel × physical path × mechanism`. Several agents may consume one shared
+physical store; update it once and report every covered consumer. “All supported
+agents” authorizes only the discovered set shown in this manifest—not unknown
+profiles, undetected clients, or guessed directories.
+
 A native plugin identity and a standalone bare skill are separate. A shared
 symlinked canonical copy and several copied agent directories are different
 freshness models. Never infer that this machine represents another target.
@@ -77,6 +83,12 @@ For CLI-managed skills, specify scope rather than relying on the current folder:
 npx skills update <skill...> --global --yes
 npx skills update <skill...> --project --yes
 ```
+
+`skills update` has no agent selector. It updates managed records at the selected
+scope; it is not proof that every copied agent projection changed. Re-inventory
+and verify each selected target path afterwards. Use an explicit `skills add`
+only for missing selected projections, never as a substitute for provenance-aware
+update.
 
 For a missing global projection across all supported agents:
 
@@ -94,6 +106,8 @@ selected by the user or existing install.
 Do not overwrite them as managed. Show the exact path, identity, requested scope,
 and authoritative replacement source. Ask before destructive replacement, remove
 only that identity/scope, reinstall, and preserve unrelated or namespaced skills.
+Do not delete a local skill merely because it disappeared upstream. Report it as
+a removal candidate and require separate destructive confirmation.
 
 ### Native plugin/package plane
 
@@ -116,6 +130,8 @@ folder.
    projection.
 3. Where no trustworthy version exists, compare installed bytes or a cryptographic
    hash with the published artifact.
+   If the authoritative source exposes no comparable version/ref/digest, report
+   freshness as `unknown` after update rather than manufacturing certainty.
 4. Restart or reload affected agents whose loaders cache skills; an active session
    may continue using old instructions until reopened.
 5. Report `scope × agent/channel × identity` as `updated`, `already current`,
@@ -144,6 +160,12 @@ Do not update any local library.
 - **One scope called all:** project and global inventories are independent.
 - **One agent called all:** `--agent '*'` covers only the installed CLI's supported
   set; native/manual/remote and unsupported clients remain separate.
+- **Shared path counted repeatedly:** deduplicate physical targets while still
+  reporting each consuming agent.
+- **Portable name, nonportable payload:** validate standard `SKILL.md`, relative
+  carried files, and absence of one-agent-only interpolation before copying.
+- **Upstream deletion mirrored:** deletion is a separately confirmed destructive
+  operation, never an ordinary update.
 - **Unmanaged overwritten:** absence of provenance requires approval, not guessing.
 - **Successful command called current:** verify version, namespace, bytes, or hash.
 - **Changelog as commit dump:** write outcomes and update action for a human reader.
