@@ -102,6 +102,7 @@ test('publish-agent-skill is generic and external targets are explicit opt-ins',
   assert.match(publishAgentSkill, /\bCI\b/);
   assert.match(publishAgentSkill, /CLI discovery|installer discovery/i);
   assert.match(publishAgentSkill, /provenance/i);
+  assert.match(publishAgentSkill, /repository policy.*(?:cannot|must not).*(?:select|authorize)|(?:cannot|must not).*(?:select|authorize).*repository policy/is);
   assert.doesNotMatch(publishAgentSkill, /cueplusplus\/skills|crissmoldovan\/agent-skills|cue:/i);
 });
 

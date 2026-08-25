@@ -60,8 +60,9 @@ completion status. A primary release is not proof that a sidecar published.
 4. Inventory external targets mentioned by the user. Record all others as out of
    scope; do not modify them.
 5. Confirm authorization before remote writes, merge, publication, destructive
-   replacement, or cross-account changes when the user's request or repository
-   policy has not already granted it.
+   replacement, or cross-account changes. Every external target must be named
+   explicitly by the user in the active request; repository policy may add
+   safeguards but cannot select or authorize an unmentioned target.
 
 ## Procedure
 
