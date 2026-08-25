@@ -313,3 +313,43 @@ test('the byte-identity assertion fails when one carried copy is altered', async
     /blast-area carries a divergent documenting-the-run\.md/,
   );
 });
+
+// The convention file marks one block "copy verbatim" and one sentence "exactly"; both are
+// embedded in every carrier's body so the rules survive a reader who never opens the file.
+// Nothing else asserted that the embedded copies still match the convention they came from.
+function fencedBlockAfter(source, marker, label) {
+  const anchor = source.indexOf(marker);
+  assert.ok(anchor >= 0, `documenting-the-run.md no longer contains the ${label} marker: ${marker}`);
+  const open = source.indexOf('```markdown\n', anchor);
+  assert.ok(open >= 0, `documenting-the-run.md has no fenced ${label} block after its marker`);
+  const start = open + '```markdown\n'.length;
+  const close = source.indexOf('\n```', start);
+  assert.ok(close > start, `documenting-the-run.md leaves the ${label} block unterminated`);
+  return source.slice(start, close);
+}
+
+const runRecordConvention = await read('skills/investigate-codebase/references/documenting-the-run.md');
+const inBodyCoreTemplate = fencedBlockAfter(runRecordConvention, '## In-body core (copy verbatim)', 'in-body core');
+const runRecordPointer = fencedBlockAfter(runRecordConvention, 'Follow it, in the same section, with this sentence exactly:', 'pointer sentence');
+
+test('every --document skill embeds the verbatim in-body core and the exact pointer sentence', () => {
+  assert.ok(inBodyCoreTemplate.includes('<skill-name>'), 'the in-body core template lost its <skill-name> placeholder');
+  assert.ok(inBodyCoreTemplate.split('\n').length > 5, 'the in-body core template is too short to be the core block');
+
+  const sources = new Map([
+    ['investigate-codebase', investigateCodebase],
+    ['blast-area', blastArea],
+    ['visualise-blast-area', visualiseBlastArea],
+    ['land-complex-change', landComplexChange],
+    ['resolve-problem-report', resolveProblemReport],
+    ['new-ux-discovery', newUxDiscovery],
+  ]);
+  assert.deepEqual([...sources.keys()], documentingRunCarriers);
+
+  for (const [name, source] of sources) {
+    const expected = inBodyCoreTemplate.replaceAll('<skill-name>', name);
+    assert.ok(source.includes(expected), `${name}/SKILL.md does not embed the verbatim in-body core block from documenting-the-run.md`);
+    assert.ok(!source.includes(inBodyCoreTemplate), `${name}/SKILL.md left the <skill-name> placeholder unsubstituted`);
+    assert.ok(source.includes(runRecordPointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence`);
+  }
+});
