@@ -22,6 +22,26 @@ function combinedDeadlineSignal(timeoutMs, signal) {
   return { timeoutSignal, signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal };
 }
 
+export function parseBlocksWorkspaceId(value) {
+  if (!value) return null;
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (!['blocks.team', 'www.blocks.team'].includes(url.hostname)) return null;
+  const match = url.pathname.match(/^\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\/|$)/iu);
+  return match?.[1] ?? null;
+}
+
+export function resolveBlocksWorkspace({ repo, workspaceId, workspaceUrl, workspaces = [] } = {}) {
+  const parsedId = workspaceId ?? parseBlocksWorkspaceId(workspaceUrl);
+  const byId = parsedId ? workspaces.filter((workspace) => workspace.id === parsedId) : [];
+  const byRepo = repo ? workspaces.filter((workspace) => (workspace.repositories ?? []).includes(repo)) : [];
+  const matches = byId.length ? byId : byRepo;
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) throw new Error('Multiple Blocks workspaces match; ask the user to confirm the workspace ID or URL');
+  if (repo) throw new Error(`Blocks workspace is not known for repository ${repo}; ask the user to confirm a workspace URL or ID`);
+  throw new Error('Cannot infer the Blocks workspace; ask the user to confirm a workspace URL or ID');
+}
+
 export function resolveBlocksApiKey({ profile, env = process.env } = {}) {
   if (!profile) throw new Error('Blocks profile is required');
   const normalized = profile.toLowerCase();

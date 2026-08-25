@@ -10,10 +10,10 @@ import { execFileSync } from 'node:child_process';
 
 function usage() {
   console.log(`Usage:
-  blocks-session create --profile cue --agent claude --message "..." [--wait] [--timeout 600]
-  blocks-session get --profile cue --session <uuid>
-  blocks-session follow-up --profile rgc --session <uuid> --message "..." [--wait]
-  blocks-session wait --profile cue --final-url <opaque Blocks final_message URL> [--timeout 600]
+  blocks-session create --profile <workspace-profile> --agent claude --message "..." [--wait] [--timeout 600]
+  blocks-session get --profile <workspace-profile> --session <uuid>
+  blocks-session follow-up --profile <workspace-profile> --session <uuid> --message "..." [--wait]
+  blocks-session wait --profile <workspace-profile> --final-url <opaque Blocks final_message URL> [--timeout 600]
 
 Profiles are user-defined identifiers and map to BLOCKS_API_KEY_<PROFILE>. Never pass keys as arguments.`);
 }

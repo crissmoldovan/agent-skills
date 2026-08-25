@@ -1,9 +1,9 @@
 # Blocks reviews
 
-The `blocks` skill interacts with Blocks through its GitHub integration. It can
-request reviews, ask PR-scoped questions, distinguish queued activity from a
-real review, report status, await completion with a bounded timeout, triage
-findings, and request re-review.
+The `blocks` skill is the final code-review loop after implementation and local
+verification on a GitHub PR are finished. It requests review, visibly awaits a
+real verdict, fixes and verifies findings, then requests re-review until the
+current PR head is green.
 
 ## Supported integration
 
@@ -16,13 +16,18 @@ The supported evidence surface is GitHub:
 - Blocks dashboard links included in comments.
 
 Blocks documents a REST Sessions API at `https://api.blocks.team/rest/v1`.
-With a profile-scoped key such as `BLOCKS_API_KEY_CUE` or
-`BLOCKS_API_KEY_RGC`, the skill can create or inspect sessions, send follow-ups,
+With a profile-scoped key such as `BLOCKS_API_KEY_PERSONAL` or another
+user-chosen `BLOCKS_API_KEY_<PROFILE>`, the skill can create or inspect sessions, send follow-ups,
 and poll the opaque final-message URL returned by the API. The API does not
 document a session status enum: completion for a turn means the filtered final
 message page has a non-empty `items` array. GitHub review requests remain a
 separate path because Blocks does not document a public mapping from a GitHub
 comment to a REST session ID.
+
+Before a direct REST call, resolve the workspace from a known repository mapping
+or a Blocks URL such as `https://blocks.team/app/<workspace-id>/settings/api-keys`.
+If neither yields one unique workspace, ask the user to confirm the workspace
+URL or ID; never guess from whichever key happens to be installed.
 
 ## Status and wait
 
@@ -59,14 +64,14 @@ APIs.
 ## Direct REST sessions
 
 ```bash
-node skills/blocks/scripts/blocks-session-cli.mjs create --profile cue \
+node skills/blocks/scripts/blocks-session-cli.mjs create --profile <workspace-profile> \
   --agent claude --message "Review this architecture" --wait --timeout 600
 ```
 
 ```bash
-node skills/blocks/scripts/blocks-session-cli.mjs get --session <uuid>
+node skills/blocks/scripts/blocks-session-cli.mjs get --profile <workspace-profile> --session <uuid>
 node skills/blocks/scripts/blocks-session-cli.mjs follow-up \
-  --session <uuid> --message "Focus on security" --wait
+  --profile <workspace-profile> --session <uuid> --message "Focus on security" --wait
 ```
 
 Create and follow-up responses carry their own `_links.final_message.href`.

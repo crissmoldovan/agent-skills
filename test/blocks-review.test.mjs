@@ -6,7 +6,9 @@ import {
   collectBlocksStatus,
   createBlocksSession,
   getBlocksSession,
+  parseBlocksWorkspaceId,
   resolveBlocksApiKey,
+  resolveBlocksWorkspace,
   sendBlocksFollowUp,
   waitForBlocksFinalMessage,
   waitForBlocksReview,
@@ -246,15 +248,32 @@ test('rejects non-HTTPS, wrong-origin, and wrong-path final-message URLs', async
   }
 });
 
-test('resolves separate CUE and RGC workspace keys without exposing values', () => {
+test('resolves arbitrary named workspace keys without product-specific names', () => {
   const env = {
-    BLOCKS_API_KEY_CUE: 'cue-example-key',
-    BLOCKS_API_KEY_RGC: 'rgc-example-key',
+    BLOCKS_API_KEY_ACME: 'acme-example-key',
+    BLOCKS_API_KEY_CLIENT_B: 'client-example-key',
   };
-  assert.equal(resolveBlocksApiKey({ profile: 'cue', env }), 'cue-example-key');
-  assert.equal(resolveBlocksApiKey({ profile: 'rgc', env }), 'rgc-example-key');
+  assert.equal(resolveBlocksApiKey({ profile: 'acme', env }), 'acme-example-key');
+  assert.equal(resolveBlocksApiKey({ profile: 'client_b', env }), 'client-example-key');
   assert.throws(() => resolveBlocksApiKey({ env }), /profile is required/i);
   assert.throws(() => resolveBlocksApiKey({ profile: '../other', env }), /invalid Blocks profile/i);
+});
+
+test('parses a workspace ID from Blocks workspace and settings URLs', () => {
+  const id = 'dcd858f1-c0d8-4e86-a42d-3d847c428862';
+  assert.equal(parseBlocksWorkspaceId(`https://www.blocks.team/app/${id}/settings/api-keys`), id);
+  assert.equal(parseBlocksWorkspaceId(`https://blocks.team/app/${id}/sessions/session-id`), id);
+  assert.equal(parseBlocksWorkspaceId('https://blocks.team/settings'), null);
+});
+
+test('resolves workspace profile by repository and refuses ambiguous or unknown context', () => {
+  const workspaces = [
+    { id: '11111111-1111-4111-8111-111111111111', profile: 'personal', repositories: ['owner/public-pack'] },
+    { id: '22222222-2222-4222-8222-222222222222', profile: 'client', repositories: ['client/app'] },
+  ];
+  assert.equal(resolveBlocksWorkspace({ repo: 'client/app', workspaces }).profile, 'client');
+  assert.throws(() => resolveBlocksWorkspace({ repo: 'unknown/repo', workspaces }), /workspace.*not known/i);
+  assert.throws(() => resolveBlocksWorkspace({ workspaces }), /confirm.*workspace/i);
 });
 
 function response(body, status = 200) {

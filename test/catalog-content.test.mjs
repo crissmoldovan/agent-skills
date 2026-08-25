@@ -67,7 +67,10 @@ test('blocks skill documents GitHub review interaction and bounded waiting', () 
   const examples = section(blocks, 'Usage Examples');
   assert.match(examples, /Ask Blocks to review/i);
   assert.match(blocks, /official REST Sessions API/i);
-  assert.match(blocks, /bounded wait helper/i);
+  assert.match(blocks, /bounded wait|await visibly/i);
+  assert.match(blocks, /final code-review gate/i);
+  assert.match(blocks, /repeat until green|re-run Blocks until/i);
+  assert.doesNotMatch(blocks, /\bCUE\b|\bRGC\b/);
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
