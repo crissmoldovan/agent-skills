@@ -77,7 +77,7 @@ regenerated in CI; that is `derive-codebase-context`, and its artifacts outlive 
 
 1. **A validated blast-area envelope.** Not a file list, not prose — the envelope, with
    `meta`, `surfaces`, `nodes`, `edges`, `blindspots`.
-   **Complete when:** all eleven surface ids are present including the empty ones; every node
+   **Complete when:** all twelve surface ids are present including the empty ones; every node
    has exactly one `state` and a `break`; every edge has both `confidence` and `evidence`;
    every blindspot has a `reason` and a `probe`.
 2. **The audience and the surface it will be read on.** A forge comment, a docs page, a chat
@@ -102,7 +102,7 @@ regenerated in CI; that is `derive-codebase-context`, and its artifacts outlive 
 
 1. **Validate the envelope before drawing a single node.** A renderer inherits every silence in
    its input and then makes it invisible. Check the validity conditions from the map's own
-   contract: eleven surfaces present; one state and one break per node; a `note` on every
+   contract: twelve surfaces present; one state and one break per node; a `note` on every
    `silent` node; confidence and evidence on every edge; every empty surface carrying either a
    negative with a fired control or a `not checked` confidence; `meta.notScanned` non-empty or
    explicitly empty. Where the envelope fails, **say so and render the failure** — an empty
@@ -138,9 +138,10 @@ regenerated in CI; that is `derive-codebase-context`, and its artifacts outlive 
    - **Fixed-order surface subgraphs with fixed ids, present even when empty.** The order is
      the map's order: `callers`, `data-contracts`, `jobs`, `ui`, `tests-and-guards`,
      `config-and-toolchains`, `deploy-ordering`, `docs-and-data-resident`,
-     `external-consumers`, `second-order`, `reversibility`. The subgraph id is the surface id
-     with hyphens as underscores and an `s_` prefix, so two renders diff cleanly and a reader
-     who has seen one of these diagrams can find a surface without reading the labels.
+     `external-consumers`, `second-order`, `reversibility`, `work-in-flight`. The subgraph id
+     is the surface id with hyphens as underscores and an `s_` prefix, so two renders diff
+     cleanly and a reader who has seen one of these diagrams can find a surface without
+     reading the labels.
    - **An empty subgraph gets one node stating its coverage** — `checked · empty` or
      `not checked` — because an empty box with nothing in it is read as "nothing here", which
      is a claim the map may not have made.
@@ -234,7 +235,7 @@ Records are written per [the run-record convention](references/documenting-the-r
 ## Usage Examples
 
 ```text
-Here is the blast map for the column drop. Draw it — mermaid, one diagram, all eleven surfaces
+Here is the blast map for the column drop. Draw it — mermaid, one diagram, all twelve surfaces
 including the empty ones — and put the blind spots on the diagram itself rather than in a note
 underneath. I am pasting this into a pull request comment.
 ```
@@ -307,7 +308,7 @@ never checked, and what the picture is not showing.
       smoothed over.
 - [ ] The diagram is `flowchart LR` — not `graph` — and edges are plain `-->` with kind and
       confidence in the label.
-- [ ] **All eleven surface subgraphs are present in the fixed order with their fixed ids,
+- [ ] **All twelve surface subgraphs are present in the fixed order with their fixed ids,
       including the empty ones**, and each empty one states its coverage.
 - [ ] Changed, affected and unknown are visually distinct, and `silent` breaks are
       distinguishable from `compile` breaks at a glance.

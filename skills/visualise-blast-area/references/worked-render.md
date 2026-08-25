@@ -86,6 +86,10 @@ flowchart LR
   subgraph s_reversibility["11 · Reversibility — measured"]
     n15["revert restores the column, not the rows written in the window"]
   end
+  subgraph s_work_in_flight["12 · Work in flight — enumerated"]
+    n16["open PR renaming the same worker · workers/retry.ts · compile"]
+    n17["written, unapplied migration on the same table · migrations/ · silent"]
+  end
   subgraph s_legend["Legend"]
     L1["changed"]
     L2["affected"]
@@ -111,7 +115,7 @@ flowchart LR
   classDef coverage  fill:#ffffff,stroke:#9ca3af,stroke-width:1px,color:#6b7280
 
   class n1,n11,n12 changed
-  class n2,n3,n4,n5,n6,n9,n10,n14,n15 affected
+  class n2,n3,n4,n5,n6,n9,n10,n14,n15,n16,n17 affected
   class n13 unknown
   class b1,b2 blindspot
   class c1,L5 coverage
@@ -119,10 +123,13 @@ flowchart LR
 
 ## What to notice in it
 
-- **All eleven surfaces are there**, in order, with their coverage word in the subgraph title.
+- **All twelve surfaces are there**, in order, with their coverage word in the subgraph title.
   Surface 4 is empty and says which kind of empty it is: checked, with a control that fired.
   Surface 8 is empty of nodes and says `not checked`, and carries the blind spot that explains
   why.
+- **Surface 12 is the one no checkout could have shown.** An open pull request renames the same
+  worker and a written-but-unapplied migration touches the same table; neither exists in the
+  tree the rest of the map was drawn against, and both meet this change in one tree later.
 - **The two blind spots are nodes**, inside their own surfaces, each with its probe in the
   label. Neither is a caption. They are the first thing a reader's eye lands on, which is
   correct: they are the reason the rest of the picture is trustworthy.

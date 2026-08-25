@@ -17,7 +17,7 @@ layout keeps `path:line` labels legible instead of stacking them into a tower.
 
 ## Fixed ids, fixed order, always present
 
-Eleven subgraphs, in the map's order, whether or not they contain anything. The id is the
+Twelve subgraphs, in the map's order, whether or not they contain anything. The id is the
 surface id with hyphens replaced by underscores and prefixed `s_` — mermaid ids are safest
 without hyphens, and a fixed scheme means two renders of the same repository diff cleanly.
 
@@ -34,6 +34,7 @@ without hyphens, and a fixed scheme means two renders of the same repository dif
 | 9 | `external-consumers` | `s_external_consumers` |
 | 10 | `second-order` | `s_second_order` |
 | 11 | `reversibility` | `s_reversibility` |
+| 12 | `work-in-flight` | `s_work_in_flight` |
 
 Plus `s_legend`, last.
 
@@ -119,7 +120,7 @@ behaviour at the ceiling:
 
 - **Collapse within a surface.** Replace the tail of a surface's nodes with one count node that
   keeps the confidence of what it stands for: `+14 more callers · measured`. The count is exact.
-- **Or split by surface**, one diagram each, with a fixed index listing all eleven so the
+- **Or split by surface**, one diagram each, with a fixed index listing all twelve so the
   missing ones are visibly deliberate.
 - **Never truncate silently.** A shortened diagram with no marker is a map with a lie in it.
 - **Never collapse a blindspot.** They are the smallest set on the page and the reason the page

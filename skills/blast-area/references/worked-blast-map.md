@@ -42,7 +42,7 @@ Two of three premises fail. The map continues on the surviving one rather than r
 brief; the refutation itself is the most consequential line in the deliverable, because it
 changes the change.
 
-## Step 2 — the eleven surfaces
+## Step 2 — the twelve surfaces
 
 | Surface | Nodes | Break | Confidence |
 |---|---|---|---|
@@ -57,6 +57,7 @@ changes the change.
 | `external-consumers` | none found; warehouse sync does not select it | `none` | `measured` — control fired |
 | `second-order` | `health_score` consumers: 1 report, 1 alert threshold | **`silent`** — the alert stops firing | `measured` |
 | `reversibility` | column drop is **irreversible** for the data; job deletion is revertible | — | `enumerated` |
+| `work-in-flight` | 1 open pull request renames the same job key; 1 written, unapplied migration touches the same table | **`compile`** for the rename collision at merge; **`silent`** for the two migrations, which claim the same version | `enumerated` (forge queried, applied history read) |
 
 ### The three silent breaks
 
@@ -92,6 +93,22 @@ The first attempt at this search used `git grep -E '\bsync_state\b'` and returne
 always would, because POSIX ERE has no `\b`. Without the control, the map would have recorded an
 absence that was a property of the regular expression, on the one surface where being wrong meant
 breaking somebody else's system.
+
+The literal search on the data-contract surface returned nine hits and kept four, so the map
+carries the five it dropped — each opened, each classified by the table its query names rather
+than by the module it sits in:
+
+```text
+discarded | reports/health.ts:44   | SELECT ... FROM document_health_daily | document_health_daily | rollup table, not the base table
+discarded | export/csv.ts:19       | SELECT ... FROM exports              | exports               | different table, shared column name
+discarded | jobs/backfill.ts:71    | comment naming sync_state            | —                     | comment, not a query
+discarded | test/fixtures/doc.ts:6 | fixture literal                      | —                     | fixture, not a read
+discarded | api/status.ts:33       | SELECT ... FROM documents            | documents             | selects the row, never the column
+```
+
+The last row is the one that matters: it is a query against the changed table, kept out on what
+it selects rather than on where it lives. The map's claim is "two readers, both in the ingest
+path" — which is an exclusivity claim, and the five rows above are its evidence.
 
 ## Step 4 — deploy ordering, with its reason
 
@@ -145,5 +162,6 @@ than `enumerated`.
 The brief asked for a column drop and a job deletion. The map returned a two-step deploy, three
 silent breaks with what each one would look like instead of an error, one guard that needed
 re-arming, one datastore row that no code search would have found, an irreversibility on the data
-half — and a refutation of two of the brief's three premises, with counts. The change that got
-made was not the change that was asked for, which is the point.
+half, one open pull request renaming the same job key — and a refutation of two of the brief's
+three premises, with counts. The change that got made was not the change that was asked for,
+which is the point.

@@ -14,7 +14,7 @@ All of them, or comparison does not run:
 2. **The same `resolver` in both.** One map built with a compiler-resolved index and one built
    name-based will differ mostly in resolution, not in the code. The delta would be a report on
    the tooling wearing the costume of a report on the repository.
-3. **The same eleven surface ids.** They are fixed, so this holds unless one envelope is
+3. **The same twelve surface ids.** They are fixed, so this holds unless one envelope is
    malformed — check anyway, because a missing surface reads as "everything here was removed".
 4. **Both revisions recorded**, base and head, with dirty state. A delta against uncommitted
    work describes a tree nobody else has.
@@ -50,7 +50,7 @@ Shape:
 |---|---|---|---|---|---|
 | callers | 0 | 3 | 1 | — | — |
 | data-contracts | 1 | 0 | 0 | `inferred` → `measured` | −1 closed |
-| … all eleven, including the empty rows … | | | | | |
+| … all twelve, including the empty rows … | | | | | |
 
 Every non-zero cell expands to the specific node or edge ids underneath the table. A count with
 no list is a number nobody can check.

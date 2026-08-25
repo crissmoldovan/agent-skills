@@ -1,4 +1,4 @@
-# The eleven-surface checklist
+# The twelve-surface checklist
 
 Walk them in this order, every time, including the ones you expect to be empty. The order is
 fixed for two reasons: two maps of the same repository become comparable, and an empty surface
@@ -52,6 +52,27 @@ derivers.
 **The trap:** the writer and the reader both stay correct while the transformation between them
 quietly changes what the value means. In one measured case the defect lived exactly there, and
 both ends passed review.
+
+**The second trap — the discard by filename.** Every literal search on this surface returns hits
+you will not keep, and how they are dropped decides whether the surface is measured or merely
+plausible. **Classify a hit by the table its query text targets, read out of the query.** Not by
+the file's name, not by the directory, not by the module's apparent domain: a report module can
+hold a query against the ingest table, an "export" helper can select from three tables, and a
+generic data-access file can name every table in the schema. Open the hit, find the `FROM` or
+the builder call, and record the target.
+
+An **exclusivity claim** — "only this service reads the column" — is a statement about the
+discards, so it ships with them:
+
+```text
+discarded | path:line | query text as written | target it resolves to | why it is not this table
+```
+
+Worked failure: a string-literal `SELECT` against the changed table was discarded because it
+lived in a module whose name belonged to another subject. Nothing about the query was read. The
+map went out claiming a single reader, the drop was approved on that basis, and the second
+reader failed at runtime — silently, because the query was assembled as text and no type system
+ever saw it.
 
 **Ceiling:** `enumerated` for constrained relationships the database itself knows (foreign keys,
 view dependencies); `measured` for literal searches; `not checked` for any language you did not
@@ -226,3 +247,37 @@ surface constrains the deploy ordering rather than merely reporting on it.
 
 **Ceiling:** `enumerated` — this one is a property of the change set you wrote down, so there is
 no excuse for `inferred` here.
+
+---
+
+## 12. Work in flight — `work-in-flight`
+
+**Enumerate:** every piece of unmerged or unapplied work that touches the same objects as this
+change set — open branches, open pull requests, stacked or draft changes, and **migrations that
+are written but not yet run**. The unit is the object, not the file: a branch renaming the same
+symbol collides even where the two diffs share no line.
+
+**How:** three commands and one query, all cheap.
+
+```sh
+git branch -a --sort=-committerdate --contains HEAD~0 | head          # what exists
+git log --oneline HEAD..origin/<default> -- <paths>                   # landed ahead of you
+git log --all --oneline -S"<symbol>" -- <paths>                       # who else touched it
+```
+
+Then the forge, for open pull requests naming the same symbol, path or table — a code search
+scoped to open PRs where the host offers one, or a listing plus a diff scan where it does not.
+And the migration directory: anything present in the tree and absent from the applied history is
+in flight by definition, including a version number another open branch has already claimed.
+
+**The trap:** a checkout is one state of the repository, and the map reads as though it were the
+whole of it. Two changes that each pass every check alone meet in one tree later; the collision
+is reported by this map as an absence, because nothing in the working tree ever mentioned it.
+Version collisions are the sharpest case — two migrations stamped identically, the second
+silently skipped as already applied — but a rename landing on a branch while you delete the same
+symbol is the common one.
+
+**Ceiling:** `enumerated` where the forge is queryable and the applied-migration history is
+readable; `measured` where you searched branches locally; `not checked` where the forge was out
+of reach — say which, on the page. A surface reported empty because nobody could reach the forge
+is the failure this surface exists to prevent.

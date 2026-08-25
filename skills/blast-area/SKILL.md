@@ -16,7 +16,7 @@ search would have returned. A column name inside a string literal. A job that st
 registering and simply never runs. A guard that starts passing because its pattern now
 matches nothing. A prompt row in a table naming a tool that got renamed.
 
-This skill produces a decision surface instead: eleven effect surfaces walked in a fixed
+This skill produces a decision surface instead: twelve effect surfaces walked in a fixed
 order; **when** each break would surface — compile time, runtime, or silently — stated per
 item; a deploy ordering with the reason it is that way round; the searches that established
 every empty cell; and a mandatory statement of what the map could not see, at a confidence
@@ -90,7 +90,7 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    **Complete when:** the best available resolver is named and the ceiling clause is drafted.
 4. **The reach of your searches declared.** Which references live somewhere code search
    cannot go: rows in a datastore, a hosted flag service, an infrastructure repository you do
-   not have, a vendor console.
+   not have, a vendor console, the forge's open branches and pull requests.
    **Complete when:** each store is either queryable and queried, or named as out of reach.
 5. **The consumers outside this checkout listed.** Other repositories, published packages,
    API clients, webhook subscribers, warehouse jobs, dashboards.
@@ -118,11 +118,11 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    whenever it authorises a migration, a deletion or a deploy, which forces at least the normal
    band before anything is spent.
 
-3. **Walk all eleven surfaces, in the fixed order, including the ones you expect to be empty.**
+3. **Walk all twelve surfaces, in the fixed order, including the ones you expect to be empty.**
    The order is fixed so that two maps of the same repository are comparable, and so that an
    empty surface is visibly empty rather than quietly missing. Full probes, worked examples and
    the trap each surface exists to catch are in
-   [the eleven-surface checklist](references/surface-checklist.md).
+   [the twelve-surface checklist](references/surface-checklist.md).
 
    | # | Surface (id) | What to enumerate | Where the break usually surfaces |
    |---|---|---|---|
@@ -137,11 +137,20 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    | 9 | **External consumers** (`external-consumers`) | other repositories, published packages, API clients, webhook subscribers, warehouse jobs | **runtime, in somebody else's system**, often days later |
    | 10 | **Second-order readers** (`second-order`) | whoever reads what the changed thing writes — then whoever reads that | **runtime or silent** — typically an aggregate that quietly changes value |
    | 11 | **Reversibility and the undo path** (`reversibility`) | what a revert restores, what it does not, and the data a rollback cannot bring back | not a break — the timing of the **recovery**; say whether undo is a revert, a compensating change, or nothing |
+   | 12 | **Work in flight** (`work-in-flight`) | open branches and pull requests touching the same files, symbols, tables or migrations — and staged, unapplied migrations already written but not yet run | **compile** where two changes collide in one file; **silent** where they never touch the same line and are only wrong together — or where two migrations claim the same version |
 
    Surface 8 needs a **query**, not a grep, and surface 6 needs the toolchains **counted**: in
    one measured monorepo, four separate build pipelines processed overlapping file sets, and a
    module specifier that typechecked and passed tests was unresolvable in exactly one of them —
    discovered after deploy, because only that pipeline's bundler ever saw the construct.
+
+   Surface 12 is the one a checkout cannot see. The working tree is one state of the
+   repository; the objects in the change set may already be being changed on a branch nobody
+   has merged, in a pull request opened this morning, or by a migration written last week and
+   still unapplied. A map drawn against HEAD alone reports a collision as absence — and the
+   collision surfaces at merge, or worse, after both halves land and each was correct alone. It
+   costs three commands: the branches and pull requests that touch the same paths, and the
+   migration directory that has not been run.
 
 4. **Put a break time on every item.** Three values, and the third is the reason this skill
    exists: `compile` (a typechecker, linter, or build rejects it before it ships), `runtime` (it
@@ -150,14 +159,28 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    taxonomy, its decision questions and the language-specific cases are in
    [break timing](references/break-timing.md).
 
-5. **Write the negatives down as findings.** Every empty cell carries either the search that
-   established it — verbatim query, tool, hit count, the control and whether the control
-   fired — or the single word `inconclusive`. A search whose control never fired proves nothing
-   about the codebase; the canonical failure is `git grep -E '\b…'`, which returns nothing and
-   never could, because POSIX ERE has no `\b`. Read as absence, that is proof of a typo. In one
-   measured case the load-bearing finding of an entire map was an absence: the consumer everyone
-   assumed existed did not, and the map was only trustworthy because the search that established
-   it was on the page next to a control that fired.
+5. **Write the negatives down as findings — and the discards with them.** Every empty cell
+   carries either the search that established it — verbatim query, tool, hit count, the control
+   and whether the control fired — or the single word `inconclusive`. A search whose control
+   never fired proves nothing about the codebase; the canonical failure is `git grep -E '\b…'`,
+   which returns nothing and never could, because POSIX ERE has no `\b`. Read as absence, that
+   is proof of a typo. In one measured case the load-bearing finding of an entire map was an
+   absence: the consumer everyone assumed existed did not, and the map was only trustworthy
+   because the search that established it was on the page next to a control that fired.
+
+   **Discard by the table, never by the filename.** A data-contract hit is classified by **the
+   table the query actually targets, read from the query text** — not by the name of the file
+   it sits in, nor by the domain the module appears to belong to. A string-built `SELECT`
+   inside a module named for another subject is still a read of this table, and dropping it
+   because the path looked unrelated is an **unverified discard**: in the finished map it is
+   indistinguishable from a hit that was opened and ruled out. Open the hit, read the target
+   out of the query, and record what the target was.
+
+   **An exclusivity claim carries its discard list.** "Only the reporting service reads this
+   column" is a claim about every hit you did not keep, so the claim ships with them: each
+   discarded hit as `path:line`, the query text that was read, and the target it resolved to.
+   Without the list, exclusivity is an impression with a citation attached — and it is the
+   exact claim that authorises the drop.
 
 6. **Decide the deploy ordering, and say why it is that way round.** Derive it from one
    question — **which half breaks the other when it runs alone?**
@@ -186,7 +209,7 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    never a sixth word.
 
 8. **Assemble the output contract.** One envelope, which `visualise-blast-area` consumes
-   directly. Eleven surfaces in the fixed order with their fixed ids, **present even when
+   directly. Twelve surfaces in the fixed order with their fixed ids, **present even when
    empty**; one state per node; **every edge carrying its confidence and its evidence**.
 
    ```json
@@ -197,7 +220,10 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
      "surfaces": [{ "id": "callers", "label": "Callers", "confidence": "measured",
                     "searched": [{ "query": "verbatim", "tool": "git grep", "hits": 41 }],
                     "negatives": [{ "target": "…", "query": "verbatim", "control": "…",
-                                    "control_fired": true, "verdict": "absent | inconclusive" }] }],
+                                    "control_fired": true, "verdict": "absent | inconclusive" }],
+                    "discarded": [{ "hit": "path:line", "queryText": "the SELECT as written",
+                                    "resolvedTarget": "the table it actually names",
+                                    "reason": "why it is not a hit on this change" }] }],
      "nodes": [{ "id": "n1", "label": "…", "path": "path:line", "surface": "callers",
                  "state": "changed | affected | unknown", "break": "compile | runtime | silent | none",
                  "note": "…" }],
@@ -270,7 +296,7 @@ it is that way round.
 ```
 
 ```text
-We are renaming this exported helper across the monorepo. Walk all eleven surfaces, including
+We are renaming this exported helper across the monorepo. Walk all twelve surfaces, including
 the ones you think are empty — and for every empty one, show me the search and the control
 that proves the search was working. I have been burned by a clean grep before.
 ```
@@ -304,6 +330,15 @@ the surprise was a prompt row in the database that no code search would ever hav
 - **Grepping for data-resident references.** Prompt rows, saved queries and flag definitions
   live in a datastore. No code search will ever return them, and the break they cause is silent
   — the system keeps running and does something else.
+- **Discarding a hit because the filename looked unrelated.** A string-built `SELECT` on this
+  table sat in a module named for another subject; it was dropped on the module name, never
+  opened, and the map went out saying one service read the column. Two did.
+- **Exclusivity claimed without the discards.** "Only X reads this" is a statement about the
+  hits that were dropped, and a claim whose evidence was thrown away cannot be checked by the
+  person it authorises to drop the column.
+- **Mapping HEAD as though it were the repository.** An open branch renaming the same symbol
+  and a written-but-unapplied migration are both invisible to a clean checkout, and both meet
+  this change in one tree later — at merge if you are lucky, in production if you are not.
 - **Counting one compiler.** The file is processed by every toolchain configured to process it,
   and they disagree. A construct that typechecks, passes tests, and is unresolvable in the
   deploy bundle is found after deploy or not at all.
@@ -333,7 +368,7 @@ the surprise was a prompt row in the database that no code search would ever hav
       premises were carried forward rather than the whole brief refused.
 - [ ] The searching was delegated to `investigate-codebase`, and every by-symbol child was
       briefed with a definition site rather than a bare name.
-- [ ] **All eleven surfaces appear in the output in the fixed order, including empty ones.**
+- [ ] **All twelve surfaces appear in the output in the fixed order, including empty ones.**
 - [ ] Every item carries a break time: `compile`, `runtime`, or `silent`.
 - [ ] Surface 8 states whether the datastore was queried, and names it — or records that no
       store was reachable.
@@ -341,6 +376,14 @@ the surprise was a prompt row in the database that no code search would ever hav
       than assumed.
 - [ ] Every empty cell carries its verbatim query, the control, whether the control fired, and
       a verdict of `absent` or `inconclusive`.
+- [ ] Every data-contract hit was classified by **the table its query text targets**, opened
+      rather than judged by filename or module domain, and every discard names the target it
+      resolved to.
+- [ ] **Every exclusivity claim ships its discard list** — each dropped hit as `path:line` with
+      the query text and the target it resolved to.
+- [ ] Surface 12 names the open branches and pull requests touching the same objects and the
+      staged, unapplied migrations — or records that the forge and the migration directory were
+      not reachable, rather than leaving the surface empty.
 - [ ] Deploy ordering is stated **with its reason and its direction**, plus what runs in the
       window between the halves — or is recorded as expand-migrate-contract when neither half
       can go first.
@@ -361,7 +404,7 @@ the surprise was a prompt row in the database that no code search would ever hav
 
 ## Deeper reading
 
-- [The eleven-surface checklist](references/surface-checklist.md): every surface with what to
+- [The twelve-surface checklist](references/surface-checklist.md): every surface with what to
   enumerate, the probe that enumerates it, the trap it exists to catch, and its default
   confidence ceiling.
 - [Break timing](references/break-timing.md): the compile / runtime / silent taxonomy, the

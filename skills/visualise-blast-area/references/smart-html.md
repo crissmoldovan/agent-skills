@@ -25,7 +25,7 @@ searching the file finds it immediately:
 ```js
 const BLAST = {
   meta:       { /* … */ },
-  surfaces:   [ /* eleven, fixed order, including empty */ ],
+  surfaces:   [ /* twelve, fixed order, including empty */ ],
   nodes:      [ /* one state and one break each */ ],
   edges:      [ /* confidence and evidence on every one */ ],
   blindspots: [ /* reason and probe on every one */ ]
@@ -60,7 +60,7 @@ without viewing source:
 
 Enough to explore, and no more. Every one of these is derivable from `BLAST` alone:
 
-- **Expand and collapse a surface.** Eleven surfaces open at once is a wall. Collapsed by
+- **Expand and collapse a surface.** Twelve surfaces open at once is a wall. Collapsed by
   default with counts on the header is readable; a surface that is empty shows its coverage word
   in the header rather than a zero.
 - **Filter by state** — changed, affected, unknown.

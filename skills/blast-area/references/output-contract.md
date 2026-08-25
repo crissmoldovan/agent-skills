@@ -80,12 +80,12 @@ nothing here exists because it renders well.
 
 ## `surfaces`
 
-**All eleven, in the fixed order, always present — including the empty ones.** The ids are fixed
+**All twelve, in the fixed order, always present — including the empty ones.** The ids are fixed
 so that renderers can lay out stable subgraphs and so that two maps diff cleanly:
 
 `callers`, `data-contracts`, `jobs`, `ui`, `tests-and-guards`, `config-and-toolchains`,
 `deploy-ordering`, `docs-and-data-resident`, `external-consumers`, `second-order`,
-`reversibility`.
+`reversibility`, `work-in-flight`.
 
 - **`confidence`** — one word from the fixed vocabulary, describing the *coverage of this
   surface*, not the certainty of any single node.
@@ -96,6 +96,14 @@ so that renderers can lay out stable subgraphs and so that two maps diff cleanly
   fired; a negative whose control did not fire has `verdict: "inconclusive"`, never `"absent"`.
   An empty `negatives` array on an empty surface means the surface was **not checked**, and the
   surface's `confidence` must say `not checked` to match.
+- **`discarded`** — the hits that were returned and not kept. Each carries the `hit` as
+  `path:line`, the `queryText` as written, the `resolvedTarget` it actually names, and the
+  `reason` it is not a hit on this change. A discard is a decision, and a decision with no
+  record is indistinguishable from a hit nobody opened. **Required wherever the surface makes an
+  exclusivity claim** — "only X reads this" is a claim about exactly these rows, and it is the
+  claim that authorises a drop. On the `data-contracts` surface the `resolvedTarget` is read out
+  of the query text: a hit is classified by the table the query targets, never by the file's
+  name or the module's domain.
 
 ## `nodes`
 
@@ -139,8 +147,8 @@ it will be read as absence.
 
 ## Validity
 
-An envelope is complete when: all eleven surfaces are present; every node has a state and a break
+An envelope is complete when: all twelve surfaces are present; every node has a state and a break
 class; every `silent` node has its `note`; every edge has confidence and evidence; every empty
-surface either has a negative with a control or a `not checked` confidence; and `meta.notScanned`
-agrees with the prose "what this map cannot see". A renderer may assume all of this, which is why
-the map must actually do it.
+surface either has a negative with a control or a `not checked` confidence; every exclusivity
+claim carries a non-empty `discarded`; and `meta.notScanned` agrees with the prose "what this map
+cannot see". A renderer may assume all of this, which is why the map must actually do it.
