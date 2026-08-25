@@ -96,9 +96,14 @@ test('default GitHub inline collection requests every page', async () => {
     return args[0] === 'pr' ? { state: 'OPEN', comments: [], reviews: [] } : [];
   };
   await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, runGh });
-  assert.ok(calls[1].includes('--paginate'));
-  assert.ok(calls[1].includes('--slurp'));
-  assert.ok(calls[1].includes('per_page=100'));
+  assert.deepEqual(calls[1], [
+    'api',
+    '--method',
+    'GET',
+    'repos/owner/repo/pulls/17/comments?per_page=100',
+    '--paginate',
+    '--slurp',
+  ]);
 });
 
 test('active wait returns immediately on terminal evidence', async () => {
