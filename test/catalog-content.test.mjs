@@ -9,6 +9,7 @@ const readme = await read('README.md');
 const routing = await read('skills/model-routing/SKILL.md');
 const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
 const blocks = await read('skills/blocks/SKILL.md');
+const requestBlocksReview = await read('skills/request-blocks-review/SKILL.md');
 
 function section(source, heading) {
   const start = source.indexOf(`## ${heading}`);
@@ -65,12 +66,19 @@ test('agent-lifecycle skill contains integration and end-user visibility example
 
 test('blocks skill documents GitHub review interaction and bounded waiting', () => {
   const examples = section(blocks, 'Usage Examples');
-  assert.match(examples, /Ask Blocks to review/i);
-  assert.match(blocks, /official REST Sessions API/i);
+  assert.match(examples, /Blocks|session|status/i);
+  assert.match(blocks, /REST Sessions API/i);
   assert.match(blocks, /bounded wait|await visibly/i);
-  assert.match(blocks, /final code-review gate/i);
-  assert.match(blocks, /repeat until green|re-run Blocks until/i);
+  assert.match(blocks, /Generic Blocks interaction primitives/i);
   assert.doesNotMatch(blocks, /\bCUE\b|\bRGC\b/);
+});
+
+test('request-blocks-review uses blocks and loops completed PRs until current-head green', () => {
+  assert.match(requestBlocksReview, /final code-review gate/i);
+  assert.match(requestBlocksReview, /Load the public `blocks` skill/i);
+  assert.match(requestBlocksReview, /Repeat until green/i);
+  assert.match(requestBlocksReview, /current head clean/i);
+  assert.doesNotMatch(requestBlocksReview, /\bCUE\b|\bRGC\b/);
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {

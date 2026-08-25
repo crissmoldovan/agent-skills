@@ -1,9 +1,9 @@
 # Blocks reviews
 
-The `blocks` skill is the final code-review loop after implementation and local
-verification on a GitHub PR are finished. It requests review, visibly awaits a
-real verdict, fixes and verifies findings, then requests re-review until the
-current PR head is green.
+The `blocks` skill provides generic Blocks interaction primitives: workspace and
+session resolution, GitHub evidence collection, status classification, and
+visible bounded waits. The separate public `request-blocks-review` skill uses
+those primitives for the completed-PR review/fix/re-review-until-green workflow.
 
 ## Supported integration
 
