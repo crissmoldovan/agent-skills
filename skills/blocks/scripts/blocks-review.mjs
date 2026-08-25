@@ -192,7 +192,7 @@ async function ghJson(args) {
 export async function collectBlocksStatus({ repo, pr, requestedAt, baselineIds, read, runGh = ghJson }) {
   const reader = read ?? (async (kind) => {
     if (kind === 'pr') return runGh(['pr', 'view', String(pr), '--repo', repo, '--json', 'state,comments,reviews,reviewRequests']);
-    const pages = await runGh(['api', `repos/${repo}/pulls/${pr}/comments`, '--paginate', '--slurp', '-f', 'per_page=100']);
+    const pages = await runGh(['api', '--method', 'GET', `repos/${repo}/pulls/${pr}/comments?per_page=100`, '--paginate', '--slurp']);
     return Array.isArray(pages?.[0]) ? pages.flat() : pages;
   });
   const prData = await reader('pr');

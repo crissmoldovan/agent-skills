@@ -1,7 +1,7 @@
 {
   "name": "@crissmoldovan/agent-skills",
   "version": "0.6.0",
-  "description": "Model routing, agent lifecycles, and Blocks reviews.",
+  "description": "Verified Agent Skill publication, routing, lifecycles, Blocks reviews, and secure credentials.",
   "type": "module",
   "engines": {
     "node": ">=24"
