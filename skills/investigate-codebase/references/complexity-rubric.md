@@ -30,6 +30,14 @@ git ls-files -- <surface> | wc -l            # size of the surface named in the 
 Score from the count, not from the noun. "Just one function" is a claim about scope, and
 `git grep` either supports it or does not.
 
+**Score the artifact the question names, not the term repo-wide.** If the ask is "why does
+`shouldSkipRow` in `import/filter.ts` drop this record", the scope signal is the reach of
+**that function at that definition site** — its callers, its call sites, what it returns to —
+and not the hit count for the word "skip" across the tree. Repo-wide hits for a term that
+happens to appear in the question measure the repository, not the question, and scoring them
+is how a one-file question buys a fan-out. Where the question names no artifact, the repo-wide
+count is the right observable and a 2 for "unknown until you search" is honest.
+
 ### 2. Contradiction risk — does the ask assert a checkable attribution?
 
 | Score | Anchor |
@@ -56,6 +64,12 @@ Observables:
 git ls-files | wc -l
 git ls-files '*package.json' 'pyproject.toml' 'go.mod' 'Cargo.toml' '*.gemspec' | wc -l
 ```
+
+**Where the question names its artifact, this signal contributes at most 1.** Size is scored
+because it changes what an *unresolved* search means; a question that already resolves to one
+file or one definition site has spent that risk before the first command runs. A monorepo does
+not make "why does this function return early" a big question, and scoring it 2 because
+`git ls-files` returned a large number is the most common way a light question is escalated.
 
 Size matters because it changes what a search means. In a monorepo of roughly 2,500
 TypeScript files and 592k lines, one measured pass found 184 exported names defined in
@@ -99,17 +113,28 @@ These thresholds are tunable. They are provisional numbers calibrated against a 
 scenario suite, and the suite penalises needless escalation as hard as it penalises an
 under-resourced answer — so moving them is a measurement, not a preference.
 
-## The two overrides
+## The two overrides and the one start rule
 
 1. **Cost-of-being-wrong = 2 forces at least normal.** No matter what the total says. A
    one-line question whose answer authorises a deletion does not get a light-band answer.
    This override never produces a question at mode time; it raises the band and arms the
    consent gates at the irreversible action itself.
-2. **Re-score after pass 1.** The first pass changes its own inputs — a scope you guessed
-   at is now counted, an ambiguity has resolved or hardened, a contradiction has surfaced
-   that nobody asserted. Re-score, and if the band moves, announce again. A run that
-   discovers a contradiction and keeps its light band is choosing its budget over its
-   answer.
+2. **Re-score after pass 1, in either direction.** The first pass changes its own inputs — a
+   scope you guessed at is now counted, an ambiguity has resolved or hardened, a contradiction
+   has surfaced that nobody asserted. Re-score, and if the band moves, announce again. A run
+   that discovers a contradiction and keeps its light band is choosing its budget over its
+   answer — and a run whose pass 1 resolved the ambiguity, found the artifact and closed the
+   scope keeps a deep band for exactly the same bad reason. **A downward re-score is as
+   legitimate as an upward one.** The band is a decision about the evidence in hand, not a
+   commitment made at minute one, and "we already announced deep" is not evidence.
+3. **A named artifact asked *why* or *how* starts light.** When the question names one file or
+   one function and asks why or how it behaves, the run **starts at the light band**: the
+   boundary round-up below does not fire on it before pass 1, and it escalates only on evidence
+   pass 1 actually produced — a contradiction that surfaced, a scope that turned out to cross
+   surfaces, a referent that split in two. In exchange, the re-score after pass 1 is
+   **mandatory** rather than merely allowed: a light start is a cheap first look, not a cap.
+   Only rule 1 outranks it; a question whose answer authorises something irreversible still
+   starts at normal.
 
 ## Boundary round-up
 
@@ -124,6 +149,11 @@ boundary: scored 2, rounding up to normal
 The rule is deterministic and biased towards safety, and it is applied without asking. A
 human in the loop at this point buys nothing: the information needed to decide is the five
 observables, and they are already written down.
+
+**One suspension, stated so it can be checked:** the round-up does not fire before pass 1 on a
+question that names one file or one function and asks why or how (rule 3 above). Such a run
+starts light and re-scores after pass 1, where the round-up applies normally to the new total.
+Nothing else suspends it.
 
 ## The announcement
 
@@ -147,9 +177,35 @@ contradiction 0 (nothing attributed), size 1 (2 toolchains), ambiguity 0, cost-o
 
 ```text
 investigate-codebase · deep band — scope 2 (git grep -n "registerJob(" → 41 hits in 18 files),
-contradiction 2 (two registries disagree), size 1 (14 packages), ambiguity 0,
-cost-of-being-wrong 1 = 6; boundary: scored 6, rounding up to deep → 4 children + reconciler,
-adversarial pair, 3 rounds max
+contradiction 2 (two registries disagree), size 1 (14 packages, capped: the ask names its
+artifact), ambiguity 0, cost-of-being-wrong 1 = 6; boundary: scored 6, rounding up to deep
+→ 4 children + reconciler, adversarial pair, 3 rounds max
+```
+
+A light start on a named artifact, with the mandatory re-score flagged in the line itself:
+
+```text
+investigate-codebase · light band — scope 0 (the ask names one function; git grep -n
+"shouldSkipRow" -- src → 3 hits in 1 file), contradiction 0 (nothing attributed), size 1
+(monorepo, capped: the ask names its artifact), ambiguity 0, cost-of-being-wrong 0 = 1
+→ no children, single pass, 1 round; named-artifact start, re-score after pass 1 is mandatory
+```
+
+And the same run again after pass 1 turned up nothing that widens it — a band that stays where
+it is, said out loud, so that "light" is visibly a decision rather than an omission:
+
+```text
+investigate-codebase · light band held after pass 1 — scope 0 (the branch that decided it is
+at import/filter.ts:41), contradiction 0, size 1, ambiguity 0, cost-of-being-wrong 0 = 1
+→ single pass, answer delivered with its coverage
+```
+
+A downward re-score, which is the same mechanism running the other way:
+
+```text
+investigate-codebase · normal band, re-scored DOWN from deep after pass 1 — scope 2 → 1 (the
+41 hits resolve to one package once the definition site is fixed), contradiction 2, size 1,
+ambiguity 0, cost-of-being-wrong 1 = 5 → 3 children + reconciler, 2 rounds max
 ```
 
 ```text

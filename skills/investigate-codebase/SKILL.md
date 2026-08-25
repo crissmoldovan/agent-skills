@@ -90,14 +90,20 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
 
    | Signal | Observable probe | 0 | 1 | 2 |
    |---|---|---|---|---|
-   | Scope | `git grep -n "<term>" -- <paths> \| wc -l`, files touched | one file or one definition site | one package or surface | crosses surfaces, or the count is unknown until you search |
+   | Scope | hits and files **for the artifact the question names**, never repo-wide for the term | one file or one definition site | one package or surface | crosses surfaces, or the count is unknown until you search |
    | Contradiction risk | does the ask assert a checkable attribution? | pure lookup | asserted, single source | two sources disagree, or the attribution decides the answer |
-   | Repo size + toolchains | `git ls-files \| wc -l`; count of build manifests | one package, one build | a few packages, two toolchains | monorepo, >2 toolchains, generated code, several deploy targets |
+   | Repo size + toolchains | `git ls-files \| wc -l`; build manifests — **at most 1 where the question names its artifact** | one package, one build | a few packages, two toolchains | monorepo, >2 toolchains, generated code, several deploy targets |
    | Ambiguity | do two plausible referents exist? | every noun resolves | one obvious, one unlikely | two plausible, leading different ways |
    | Cost of being wrong | what does the answer authorise? | informs a conversation | informs a change review would catch | authorises a migration, deletion, production write, outbound message, or ticket close |
 
-   Two overrides: **cost-of-being-wrong = 2 forces at least normal**, whatever the total; and
-   **re-score after pass 1**, because the first pass changes its own inputs. A total exactly
+   Score scope and size on **what the question names**, not on how large the repository is: a
+   question naming one artifact is not a big question because it lives in a monorepo. Two
+   overrides and one start rule: **cost-of-being-wrong = 2 forces at least normal**, whatever
+   the total; **re-score after pass 1**, because the first pass changes its own inputs, and a
+   re-score that moves the band **down** is exactly as legitimate as one that moves it up; and
+   **a question that names one file or one function and asks *why* or *how* starts light** —
+   the boundary round-up does not fire on it before pass 1, the re-score after pass 1 is then
+   mandatory, and only cost-of-being-wrong = 2 outranks the start. Otherwise a total exactly
    one point below a threshold **rounds up** one band and says so. The thresholds are tunable
    and are calibrated against a scored scenario suite that penalises needless escalation.
 
@@ -129,7 +135,8 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    The line carries the **band**, **each signal's score with the observable that scored it**,
    **any override applied**, and **the cap it buys** — fan-out width and round cap. At the
    deep band add a priced estimate where the harness can produce one; never invent a figure.
-   A boundary round-up says so in the line ("boundary: scored 2, rounding up to normal").
+   A boundary round-up says so in the line ("boundary: scored 2, rounding up to normal"), and
+   so does a re-score after pass 1 — in either direction, a band that moves is announced again.
    Overrides are user-initiated intents — "go deep on this", "light is fine" — which force a
    re-score and a fresh announcement; the skill never solicits one. A cost-of-being-wrong of
    2 never produces a mode-time question: it raises the floor and arms the consent gates at
@@ -140,8 +147,14 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    current revision. A generated artifact is evidence of what its generator saw — code-reading
    class, and stale-able. A citation that no longer resolves is a finding.
 
-5. **Decompose on an axis where the children CAN disagree.** Five axes, detailed with briefs
-   in [decomposition and the child contract](references/decomposition-and-children.md):
+5. **Decompose on an axis where the children CAN disagree — around the instance that was
+   named.** **THE NAMED-INSTANCE RULE: when the asker names an instance — this call site, this
+   run, this row, this file — open THAT instance before generalising to another of the same
+   shape.** A sibling instance is a second question; answering it produces prose that is
+   fluent, cited, and about something nobody asked. Generalise only after the named one has
+   been read, and say which one the finding came from. Where the named instance does not
+   exist, that is the finding. Five axes, detailed with briefs in
+   [decomposition and the child contract](references/decomposition-and-children.md):
 
    - **by-surface** — directory, package, deploy target, language.
    - **by-symbol** — one **definition site** per child, **never a bare name**. In a monorepo
@@ -168,7 +181,7 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
      "question": "the slice this child was asked",
      "findings": [{ "claim": "…", "evidence": "path:line", "basis": "measured | inferred", "confidence": "basis x coverage, in words" }],
      "searched": [{ "query": "verbatim", "tool": "git grep", "hits": 41 }],
-     "not_found": [{ "target": "…", "control": "the positive variant that was run", "control_fired": true }],
+     "not_found": [{ "target": "…", "control": "the positive variant that was run", "control_fired": true, "reach": "direct references only | walked: <the hop>" }],
      "blockers": ["what this child could not do, and why"]
    }
    ```
@@ -179,6 +192,16 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    canonical failure: `git grep -E '\b…'` returns nothing and never could, because POSIX ERE
    has no `\b`. Read as absence, that is proof of a typo. Others in the reference: a pathspec
    that excluded the answer, a file type git never tracked, `job_name` against `jobName`.
+
+   **THE TRANSITIVE-NEGATIVE RULE: a zero-hit direct-reference search proves the direct hop and
+   nothing further.** A claim about reachability or flow — "cannot reach", "no path", "never
+   loaded" — is admissible only after walking the graph at least one hop through everything the
+   surface **does** reference: its imports, its registrations, its dynamic lookups, whatever
+   re-exports it. Until that walk is done the negative is recorded as **"direct references
+   only"**, which is a true statement, rather than as absence, which is not. The reconciler's
+   *what this evidence CAN prove* column is applied to **your own negatives**, not only to the
+   contradictions between children — a fired control proves the search worked, never that the
+   question it answered was the question asked.
 
 7. **Reconcile with a contradiction table — do not merge summaries.** The reconciler
    **re-reads the cited hits** rather than building the answer out of children's prose;
@@ -201,6 +224,13 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    crossed with what was searched plus what was provably not searched and the control that
    proves it. "85% confident" is a number nobody computed; it cannot be checked and it cannot
    be reproduced.
+
+   **THE REPRODUCE-THE-MISS RULE: a why-answer about a detector, a guard, a filter or any other
+   check is `measured` only when the exact input was located and the branch that decided it was
+   traced.** Find the record, the row, the argument the check actually saw; follow it to the
+   line that returned the verdict; quote that line. A mechanism that merely *could* produce the
+   observed outcome is `inferred` and is labelled so in the same sentence that states it —
+   plausible mechanisms are cheap, and the one that fired is frequently not the plausible one.
 
 9. **Date every inherited claim.** Anything carried in from a ticket, a pull request, a design
    doc, or an earlier investigation answers "was it true?" only. Resolve the citation at the
@@ -299,6 +329,15 @@ every file that mentions the name.
 - **The zero-hit search read as absence.** The most expensive mistake in the family, and the
   cheapest to prevent — one extra command. `git grep -E '\b…'` matching nothing is not
   evidence about the codebase; it is evidence about POSIX ERE.
+- **A reachability claim built on a direct-reference search.** "Nothing imports it, so it
+  cannot run" — measured on the module's own name, while the loader reached it one hop away
+  through a barrel file that never names it. The negative was true; the claim was false.
+- **Explaining a miss with the mechanism that sounds right.** A guard was reported as dropping
+  a record "because the field was empty"; the field was populated and a length check two
+  branches earlier had already returned. Nothing was opened, and it read like the real answer.
+- **Answering about a sibling of the instance that was named.** The question named one call
+  site; the run traced another with the same function name, found a genuine defect there, and
+  delivered it as the answer to a question about a different line.
 - **Fan-out as theatre.** Four children over the same files, agreeing. That is one reading at
   four times the price, and its agreement reads like corroboration in the write-up.
 - **Briefing a child with a bare symbol name.** In a real monorepo the common names are the
@@ -326,6 +365,11 @@ every file that mentions the name.
 
 - [ ] The rubric was scored, with a stated observable behind each of the five signals, before
       any search was dispatched.
+- [ ] Scope was scored on **the artifact the question named** rather than repo-wide, repo size
+      contributed at most 1 where an artifact was named, and a named-artifact why/how question
+      started at light.
+- [ ] Where pass 1 lowered the observables, the band was re-scored **downward** and announced
+      again, rather than the declared band being spent because it had been declared.
 - [ ] The **band, signal scores, override and cap were stated before any child was dispatched**.
 - [ ] Mode was announced, not asked: **no run blocked on a mode question**.
 - [ ] A boundary total said so in the announcement and rounded up, not down.
@@ -339,6 +383,13 @@ every file that mentions the name.
       and `blockers[]`.
 - [ ] Every load-bearing `not_found` names its control and whether the control fired; every
       negative without a fired control is recorded `inconclusive`, not `absent`.
+- [ ] Every reachability or flow claim resting on a negative was walked **at least one hop**
+      through what the surface does reference, or the negative is recorded as **"direct
+      references only"** rather than as absence.
+- [ ] Every why-answer about a detector, guard, filter or check names the exact input and the
+      branch that decided it; a mechanism nobody watched decide is marked `inferred`.
+- [ ] The instance the asker named is the instance that was traced, and any generalisation
+      beyond it says which instance the finding came from.
 - [ ] The contradiction table carries all eight columns, "what each evidence CAN prove" is
       filled, and every verdict is from the closed set.
 - [ ] The reconciler re-read the cited hits rather than merging child summaries.
@@ -358,14 +409,14 @@ every file that mentions the name.
 ## Deeper reading
 
 - [The complexity rubric](references/complexity-rubric.md): every signal's anchors and probe
-  commands, both overrides, the boundary round-up, the announcement format with worked lines,
-  user-initiated overrides, and the degradations.
+  commands, the two overrides and the light start on a named artifact, the boundary round-up,
+  the announcement format with worked lines, user-initiated overrides, and the degradations.
 - [Decomposition and the child contract](references/decomposition-and-children.md): the five
-  axes with the trap each avoids, child briefs, the result contract field by field, and the
-  control rule with its measured failures.
+  axes with the trap each avoids, briefing the named instance, the result contract field by
+  field, the control rule with its measured failures, and the transitive-negative rule.
 - [Reconciling evidence](references/reconciling-evidence.md): the contradiction table worked
-  through, evidence classes and reach, independence, confidence, dated findings, and the stop
-  rule.
+  through, the CAN-prove column run over the run's own negatives, evidence classes and reach,
+  independence, confidence and reproducing a miss, dated findings, and the stop rule.
 - [Deep mode](references/deep-mode-adversaries.md): the refuter and coverage auditor briefs,
   adjudication, why this is not a code review, and the single-reviewer degradation.
 - [Clarifying questions](references/clarifying-questions.md): the two tests, the four must-ask

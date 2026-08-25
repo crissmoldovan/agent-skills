@@ -22,7 +22,9 @@ single search runs, and "delete" makes cost-of-being-wrong a 2.
 | ambiguity | "the registry" resolves to two artifacts | 1 |
 | cost of being wrong | authorises a deletion | 2 |
 
-Total 8 → deep. (It would have reached normal on the cost override alone.)
+Total 8 → deep. (It would have reached normal on the cost override alone.) Size is 1 under the
+cap for a question that names its artifacts; scored 2 on the repository instead, the total is 9
+and the band is the same — the band here is carried by contradiction and cost, not by size.
 
 ```text
 investigate-codebase · deep band — scope 2 (41 hits/18 files), contradiction 2 (authority and

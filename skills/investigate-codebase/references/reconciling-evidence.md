@@ -49,6 +49,23 @@ Worked:
 `residual` is not decoration. It is what remains true and unexplained after the verdict, and
 it is what the next reader needs in order to reopen the question honestly.
 
+### Run the CAN-prove column over your own negatives
+
+The column exists to stop the louder child winning, but its cheapest use is on the evidence
+**nobody is arguing about** — the run's own searched negatives. A zero-hit search with a fired
+control proves that the search worked and that the pattern is absent from the paths searched.
+It does not prove that the thing is unreachable, unused, or never loaded: those are claims
+about a graph, and a direct-reference search walks no edges at all.
+
+| the negative | what it CAN prove | what it does NOT prove |
+|---|---|---|
+| `git grep -n "modules/report"` → 0, control fired | no tracked file names that path literally | that nothing loads it — a barrel re-export, a registry keyed by string, or a glob import each reach it without naming it |
+| `git grep -n "status" -- app/` → 0, control fired | no file under `app/` mentions the field | that no screen renders it — the screen may read a mapped DTO field with another name |
+
+So write the negative at the reach it has: **"direct references only"**, plus the hop that was
+walked if one was. A claim about reachability is admissible only after at least one hop through
+what the surface **does** reference, and the row says which hop that was.
+
 ## Evidence classes
 
 Class breaks ties. **Reach decides admissibility.**
@@ -84,6 +101,28 @@ Never a percentage. Confidence is **basis × coverage**, stated in words.
 So: "measured at three cited sites; two of five surfaces searched, the other three not
 searched and recorded as such" is a confidence statement. "85% confident" is a decoration —
 nobody computed it, and it cannot be checked or reproduced.
+
+### Reproduce the miss before explaining it
+
+A question of the form *why did this check not catch that?* has a mechanism as its answer, and
+mechanisms are the easiest thing in this skill to invent convincingly. The basis is `measured`
+only when two things were done:
+
+1. **The exact input was located** — the record, the row, the argument, the payload the check
+   actually saw, at a citation, not a reconstruction of what it probably saw.
+2. **The deciding branch was traced** — the line that returned the verdict for that input,
+   quoted. Not the first condition that could plausibly have matched: the one that did.
+
+Anything short of both is `inferred`, and the sentence that states it says so. The failure this
+prevents: a run explained a skipped record by a null check in the guard's first branch, named
+the real cause in passing and moved on; the field was populated, and a length threshold two
+branches earlier had already returned. The plausible mechanism and the actual one were both in
+the same function, and only one of them ran.
+
+Where the input cannot be obtained — it lives in a system you cannot reach, or it is gone —
+say that, mark the mechanism `inferred`, and name the probe that would settle it. An honest
+`inferred` costs the reader nothing; a `measured` that was never watched deciding costs them
+the next hour.
 
 ## Dated findings
 

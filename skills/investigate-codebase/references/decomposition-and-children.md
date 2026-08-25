@@ -67,11 +67,23 @@ honest:
 - Confirm by opening the cited file at the current revision. A registry entry pointing at a
   path that no longer exists is a finding, not a lookup failure.
 
+## Brief the instance that was named
+
+When the ask names an instance — this call site, this run id, this row, this file — the brief
+carries **that** instance, and the child opens it before it looks at anything of the same
+shape. A sibling instance answers a different question: the finding may be real, the evidence
+may be sound, and it is still not about the line the asker pointed at. Generalise afterwards,
+explicitly, and say which instance the finding came from.
+
+Where the named instance cannot be found, that is the child's finding — `not_found` with its
+control — not a licence to substitute the nearest thing with a similar name.
+
 ## The child brief
 
 Give each child, and nothing else:
 
 - **The question**, narrowed to its slice, in one sentence.
+- **The instance it names**, verbatim, where the ask named one.
 - **Its axis and its slice** — the paths, the definition site, the range, the artifact.
 - **What is withheld and why.** The runtime child does not get source. The adversaries do
   not get each other's inputs. Withholding is the mechanism that makes agreement mean
@@ -103,7 +115,8 @@ Context packaging is `model-routing`'s subject; child visibility and lifecycle e
     {
       "target": "a runtime read of the generated registry",
       "control": "git grep -n \"atlas\" -- worker",
-      "control_fired": true
+      "control_fired": true,
+      "reach": "direct references only"
     }
   ],
   "blockers": ["deploy manifests are not readable from this checkout"]
@@ -120,6 +133,10 @@ Field rules:
 - **`confidence`** is basis × coverage, in words. Never a percentage.
 - **`searched`** holds queries **verbatim** with their hit counts. A paraphrased query
   cannot be re-run, and re-running is the point.
+- **`reach`** says what the negative covers: `direct references only` where a name search
+  returned nothing and no edge was walked, or `walked: <the hop>` naming what was followed. A
+  negative with no `reach` field cannot carry a claim about reachability, and the reconciler
+  treats it as the narrower statement.
 - **`blockers`** is where a child says what it could not do. An empty `blockers` on a child
   that hit a permission wall is the most expensive kind of silence.
 
@@ -150,6 +167,37 @@ Worked failures, each measured at least once:
 
 Record the control **and whether it fired**, in `not_found[]`, every time. This is the
 single highest-value mechanical rule in this family, and it costs one extra command.
+
+## THE TRANSITIVE-NEGATIVE RULE
+
+> A zero-hit direct-reference search proves the **direct hop** and nothing beyond it. A claim
+> about reachability or flow requires at least one hop through what the surface **does**
+> reference; until that walk happens the negative is recorded as **"direct references only"**.
+
+A fired control upgrades a negative from *inconclusive* to *absent*. It says nothing about the
+**reach** of the question that negative is being used to answer, and that is the second half
+people skip. "No file imports this module" and "this module cannot be reached" are different
+statements, and the second is the one that authorises a deletion.
+
+The hop is cheap. Take the surface the search covered and follow what it references outward
+one level — barrel files and re-exports, registry tables keyed by string, dynamic or glob
+imports, dependency-injection containers, generated entrypoints, configuration that names a
+module as text. Any of those reaches a target it never spells, so a search for the target's
+name over the importing file returns zero forever.
+
+Worked failure: a run concluded "there is no import path to this module" from a single
+direct-name search with a control that fired, and recorded it as absence. The loader reached
+the module through an index file that re-exported a whole directory; nothing in the chain
+spelled the module's name until the last hop. Both statements were true — the search was clean
+and the module ran in production every night.
+
+Write the negative at the reach it has:
+
+```json
+{ "target": "an import of modules/report", "control": "git grep -n \"modules/\" -- src",
+  "control_fired": true, "reach": "direct references only",
+  "hops_walked": ["src/index.ts re-exports ./modules/*"] }
+```
 
 ## Fan-out width and independence
 
