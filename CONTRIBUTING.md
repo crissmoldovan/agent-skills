@@ -5,10 +5,19 @@ Thanks for helping build a safe, portable public catalog.
 ## Before adding a skill
 
 This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
-`request-blocks-review`, and `derive-codebase-context`. Routing owns exact model
-selection and scoped intent; lifecycle owns evidence-backed child visibility;
-Blocks owns GitHub-hosted review interaction and bounded status waits;
-`derive-codebase-context` owns generated repository context and its CI gates.
+`request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
+`publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
+`describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
+`land-complex-change`, `resolve-problem-report`, and `new-ux-discovery`. Routing
+owns exact model selection and scoped intent; lifecycle owns evidence-backed child
+visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
+`derive-codebase-context` owns generated repository context and its CI gates;
+`investigate-codebase` owns evidence-backed answers about a codebase; `blast-area`
+owns what a proposed change would affect and `visualise-blast-area` owns drawing it;
+`land-complex-change` owns the declared touch-set budget and the regression gate
+ladder; `resolve-problem-report` owns the arc from a report to a resolution; and
+`new-ux-discovery` owns gated UX opportunity discovery. A new skill must state which
+of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

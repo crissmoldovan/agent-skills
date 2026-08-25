@@ -76,8 +76,9 @@ completion status. A primary release is not proof that a sidecar published.
    missing or stale behavior. **Complete when:** RED proves the intended contract.
 3. **Author the minimum skill.** Match peer structure and progressive disclosure.
    Keep triggers and counter-triggers precise; make boundaries, prerequisites,
-   ordered steps, pitfalls, and verification executable. Add references/scripts
-   only when the main file would otherwise carry bulky or repeated detail.
+   ordered steps, pitfalls, and verification executable. Add carried reference
+   files or scripts only when the main file would otherwise carry bulky or
+   repeated detail.
    Update the repository README/catalogue entry in the same change so humans and
    agents can discover the exact skill description, install coordinates, and how
    to update it. Add human-readable release notes or changelog prose that explains

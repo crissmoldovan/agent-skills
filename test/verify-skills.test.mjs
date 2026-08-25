@@ -73,3 +73,42 @@ test('verifier rejects realistic quoted credentials', async () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /README\.md: contains a likely secret/);
 });
+
+test('verifier rejects a bare carried-file token the skill does not carry', async () => {
+  const root = await fixture();
+  const skill = path.join(root, 'skills', 'valid-skill');
+  await writeFile(path.join(skill, 'SKILL.md'), '---\nname: valid-skill\ndescription: Valid fixture\n---\n\nSee references/missing.md for detail.\n');
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /names a carried file the skill does not carry: references\/missing\.md/);
+});
+
+test('verifier accepts a carried-file token when the skill carries that exact file', async () => {
+  const root = await fixture();
+  const skill = path.join(root, 'skills', 'valid-skill');
+  await mkdir(path.join(skill, 'references'), { recursive: true });
+  await writeFile(path.join(skill, 'references', 'present.md'), '# Present\n');
+  await writeFile(path.join(skill, 'SKILL.md'), '---\nname: valid-skill\ndescription: Valid fixture\n---\n\nSee references/present.md for detail.\n');
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('verifier caps the SKILL.md body at 484 lines and admits a body of exactly 484', async () => {
+  const frontmatter = '---\nname: valid-skill\ndescription: Valid fixture\n---\n';
+  const body = (lines) => `${'body line\n'.repeat(lines)}`;
+
+  const atCap = await fixture();
+  await writeFile(path.join(atCap, 'skills', 'valid-skill', 'SKILL.md'), frontmatter + body(484));
+  const admitted = await verify(atCap);
+  assert.equal(admitted.status, 0, admitted.stderr);
+
+  const overCap = await fixture();
+  await writeFile(path.join(overCap, 'skills', 'valid-skill', 'SKILL.md'), frontmatter + body(485));
+  const rejected = await verify(overCap);
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /body is 485 lines; the cap is 484/);
+});

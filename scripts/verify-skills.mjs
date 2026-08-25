@@ -10,6 +10,13 @@ const skillsRoot = resolve(root, 'skills');
 const runtimeRoot = resolve(root, 'packages', 'agent-lifecycle');
 const failures = [];
 const textExtensions = new Set(['.md', '.mdx', '.txt', '.json', '.yml', '.yaml', '.js', '.mjs', '.cjs', '.ts']);
+// A SKILL.md body — everything after the frontmatter — is capped so that detail lives in
+// carried reference files instead of the always-loaded instruction file.
+const MAX_BODY_LINES = 484;
+// Any bare references/, scripts/, or assets/ token in a skill's prose is read as a promise
+// that the skill carries that exact file. Prose that means "reference files, or scripts"
+// must not be written as a path.
+const CARRIED_FILE_PATTERN = /(?:^|[^A-Za-z0-9._/-])((?:references|scripts|assets)\/[A-Za-z0-9._/-]+)/g;
 const ignoredDirectories = new Set(['.git', '.cache', '.next', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
 
 function fail(message) {
@@ -54,6 +61,26 @@ function parseFrontmatter(source, file) {
   return result;
 }
 
+function bodyLineCount(source) {
+  if (!source.startsWith('---\n')) return source.split('\n').length;
+  const close = source.indexOf('\n---\n', 4);
+  if (close < 0) return source.split('\n').length;
+  const body = source.slice(close + 5);
+  if (body === '') return 0;
+  return body.split('\n').length - (body.endsWith('\n') ? 1 : 0);
+}
+
+// Bare tokens are resolved against the skill directory, which is the form the authoring
+// rule prescribes; markdown links are separately resolved against their containing file.
+function validateCarriedFiles(source, file, skillDirectory) {
+  for (const match of source.matchAll(CARRIED_FILE_PATTERN)) {
+    const token = match[1].replace(/[.,;:)\]]+$/, '');
+    if (!existsSync(resolve(skillDirectory, token))) {
+      fail(`${relative(root, file)}: names a carried file the skill does not carry: ${token}`);
+    }
+  }
+}
+
 function validateLinks(source, file, skillDirectory) {
   const markdownLink = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+['"][^)]*['"])?\)/g;
   for (const match of source.matchAll(markdownLink)) {
@@ -95,7 +122,16 @@ for (const file of skillFiles) {
     if (!frontmatter.description) fail(`${relative(root, file)}: missing frontmatter description`);
     else if (readme !== null && !readme.includes(frontmatter.description)) fail(`${relative(root, file)}: README must list the exact frontmatter description`);
   }
+  const bodyLines = bodyLineCount(source);
+  if (bodyLines > MAX_BODY_LINES) {
+    fail(`${relative(root, file)}: body is ${bodyLines} lines; the cap is ${MAX_BODY_LINES} — move detail into carried reference files`);
+  }
   validateLinks(source, file, skillDirectory);
+  for (const carried of walk(skillDirectory)) {
+    const extension = carried.slice(carried.lastIndexOf('.')).toLowerCase();
+    if (!['.md', '.mdx', '.txt'].includes(extension)) continue;
+    validateCarriedFiles(readFileSync(carried, 'utf8'), carried, skillDirectory);
+  }
 }
 
 for (const file of walk(root)) {

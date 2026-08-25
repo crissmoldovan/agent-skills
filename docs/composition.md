@@ -1,6 +1,6 @@
 # Two-skill composition
 
-This catalog deliberately composes **exactly two skills**:
+The catalog ships seventeen skills; this composition deliberately joins **exactly two skills**:
 
 1. [`model-routing`](model-routing/index.md) reduces model-token and DRIVER-context cost by routing work to the least expensive configured model that can meet acceptance; profiles preserve its exact approved bindings.
 2. [`agent-lifecycle`](lifecycle/index.md) makes the dispatched child observable and reconciles its lifecycle evidence.
