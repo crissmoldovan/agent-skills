@@ -10,6 +10,7 @@ const routing = await read('skills/model-routing/SKILL.md');
 const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
 const blocks = await read('skills/blocks/SKILL.md');
 const requestBlocksReview = await read('skills/request-blocks-review/SKILL.md');
+const secureCredentialSetup = await read('skills/secure-credential-setup/SKILL.md');
 
 function section(source, heading) {
   const start = source.indexOf(`## ${heading}`);
@@ -81,11 +82,20 @@ test('request-blocks-review uses blocks and loops completed PRs until current-he
   assert.doesNotMatch(requestBlocksReview, /\bCUE\b|\bRGC\b/);
 });
 
+test('secure-credential-setup requests one secret at a time without disclosure', () => {
+  assert.match(secureCredentialSetup, /one credential at a time/i);
+  assert.match(secureCredentialSetup, /Never request a secret in chat/i);
+  assert.match(secureCredentialSetup, /two stages/i);
+  assert.match(secureCredentialSetup, /verify.*authentication/i);
+  assert.match(secureCredentialSetup, /explicit profile/i);
+  assert.match(secureCredentialSetup, /references\/terminal-entry-patterns\.md/);
+});
+
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = source.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1] ?? '';
     assert.ok(description.length > 0 && description.length <= 1024);
-    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review)/i);
+    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential)/i);
   }
 });
