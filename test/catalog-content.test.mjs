@@ -11,6 +11,7 @@ const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
 const blocks = await read('skills/blocks/SKILL.md');
 const requestBlocksReview = await read('skills/request-blocks-review/SKILL.md');
 const secureCredentialSetup = await read('skills/secure-credential-setup/SKILL.md');
+const deriveCodebaseContext = await read('skills/derive-codebase-context/SKILL.md');
 
 function section(source, heading) {
   const start = source.indexOf(`## ${heading}`);
@@ -92,10 +93,10 @@ test('secure-credential-setup requests one secret at a time without disclosure',
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = source.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1] ?? '';
     assert.ok(description.length > 0 && description.length <= 1024);
-    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential)/i);
+    assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase)/i);
   }
 });
