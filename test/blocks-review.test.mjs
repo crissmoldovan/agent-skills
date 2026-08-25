@@ -186,6 +186,25 @@ test('official REST wait returns empty current state on timeout', async () => {
   assert.equal(result.current._links.new_messages.href, 'https://api.blocks.team/next');
 });
 
+test('REST wait reports visible progress while the final message is pending', async () => {
+  let reads = 0;
+  const progress = [];
+  const result = await waitForBlocksFinalMessage({
+    finalMessageUrl: 'https://api.blocks.team/rest/v1/sessions/s/threads/t/messages?type=final_message&role=assistant',
+    apiKey: 'example-key',
+    fetchImpl: async () => response(reads++ ? {
+      items: [{ type: 'final_message', role: 'assistant', message: 'Done.' }],
+    } : { items: [] }),
+    timeoutMs: 1_000,
+    intervalMs: 1,
+    sleep: async () => {},
+    onProgress: (event) => progress.push(event),
+  });
+  assert.equal(result.message.message, 'Done.');
+  assert.deepEqual(progress.map((event) => event.state), ['waiting', 'completed']);
+  assert.ok(progress[0].elapsedMs >= 0);
+});
+
 test('rejects a non-final-message Blocks URL', async () => {
   await assert.rejects(waitForBlocksFinalMessage({
     finalMessageUrl: 'https://api.blocks.team/rest/v1/sessions/session-1/messages',

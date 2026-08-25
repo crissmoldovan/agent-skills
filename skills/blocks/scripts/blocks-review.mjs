@@ -70,7 +70,7 @@ export function sendBlocksFollowUp({ sessionId, message, apiKey = process.env.BL
   });
 }
 
-export async function waitForBlocksFinalMessage({ finalMessageUrl, apiKey = process.env.BLOCKS_API_KEY, fetchImpl, timeoutMs = 60_000, intervalMs = 5_000, signal, now = Date.now, sleep }) {
+export async function waitForBlocksFinalMessage({ finalMessageUrl, apiKey = process.env.BLOCKS_API_KEY, fetchImpl, timeoutMs = 60_000, intervalMs = 5_000, signal, now = Date.now, sleep, onProgress = () => {} }) {
   positive('timeoutMs', timeoutMs);
   positive('intervalMs', intervalMs);
   const finalUrl = validateFinalMessageUrl(finalMessageUrl);
@@ -90,7 +90,11 @@ export async function waitForBlocksFinalMessage({ finalMessageUrl, apiKey = proc
       if (deadlineSignals.timeoutSignal.aborted && !signal?.aborted) return { message: null, current: current ?? null, timedOut: true };
       throw error;
     }
-    if (current.items?.length) return { message: current.items[0], current, timedOut: false };
+    if (current.items?.length) {
+      await onProgress({ state: 'completed', elapsedMs: Math.max(0, now() - started), message: current.items[0] });
+      return { message: current.items[0], current, timedOut: false };
+    }
+    await onProgress({ state: 'waiting', elapsedMs: Math.max(0, now() - started), message: null });
     const remaining = deadline - now();
     if (remaining <= 0) return { message: null, current, timedOut: true };
     await pause(Math.min(intervalMs, remaining));
