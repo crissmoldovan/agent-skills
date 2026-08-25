@@ -192,7 +192,9 @@ plugin, or manual/upload target.
   and give the user the replacement/upload action. If the agent cannot perform
   that UI action, report `manual action required`; never mark it updated.
 - **Unsupported agent:** report the literal unsupported result and leave it
-  deferred. Do not fabricate a path or copy files into an undocumented folder.
+  `unsupported`. Use `deferred` only for an explicitly requested target that is
+  temporarily unreachable. Do not fabricate a path or copy files into an
+  undocumented folder.
 
 ### Verify every requested plane
 
