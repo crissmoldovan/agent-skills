@@ -31,6 +31,7 @@ is the same short description those catalogs display.
 | `agent-lifecycle` | Integrate live visibility for child-agent lifecycles. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
 | `blocks` | Interact with Blocks sessions, status, and bounded waits. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
 | `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) · [Blocks primitives](skills/blocks/SKILL.md) |
+| `secure-credential-setup` | Place and verify secrets without exposing their values. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
 | `derive-codebase-context` | Derive agent context, enforced boundaries, and an operational atlas from the repo itself. Use when agents keep losing the shape of a large codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
 
 Model routing and lifecycle compose intentionally: routing chooses exact models
@@ -91,11 +92,14 @@ npx skills add crissmoldovan/agent-skills --skill blocks
 # Completed-PR review/fix/re-review workflow
 npx skills add crissmoldovan/agent-skills --skill request-blocks-review
 
+# Safe one-at-a-time credential placement
+npx skills add crissmoldovan/agent-skills --skill secure-credential-setup
+
 # Derived codebase context, boundaries, and atlas
 npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
 
 # Complete pack
-npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review derive-codebase-context
+npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle blocks request-blocks-review secure-credential-setup derive-codebase-context
 ```
 
 The repository also includes the [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml). It is a load-time helper for the two skills; it does not install them and does not add a third skill.
@@ -162,7 +166,7 @@ up to ten minutes for the final message and preserve the session/dashboard URL.
 
 ## What ships
 
-The public catalog now ships five skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, and the derived codebase-context procedure. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, or a default model selection.
+The public catalog now ships six skill documents, their references, and grouped documentation. It includes the lifecycle runtime and Hermes adapter foundation, scoped routing guidance, generic Blocks interaction primitives, the separate completed-PR Blocks review loop, safe one-at-a-time credential placement, and the derived codebase-context procedure. It does **not** add Hermes Desktop core integration, a task board, arbitrary foreign-process adoption, or a default model selection.
 
 - [Model-routing documentation](docs/model-routing/index.md)
 - [Profile controls](docs/model-routing/profiles.md)
