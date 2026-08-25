@@ -62,7 +62,7 @@ builds the artifacts; it does not replace how agents read.
 | Context and atlas generation | Node 22+, builtins only | local and CI | No dependencies at all. |
 | Boundary enforcement | `dependency-cruiser` ^18 | local and CI | One dev dependency at the root. |
 | Boundary graph image | `graphviz` (`dot`) | local only | Optional. CI never needs it. |
-| Symbol navigation (companion) | `uv` / `uvx` plus Serena | local only | Spawns a language server. Produces no committed artifact. |
+| Symbol navigation (companion) | `uv` / `uvx` plus Serena | local only | Spawns a language server; the server itself indexes nothing you commit. Its memory files usually ARE tracked — see below. |
 | Symbol index (layer 4) | `scip-typescript` or your language's SCIP indexer | local, and CI only if you keep it | Emits a protobuf index. Gitignored, rebuilt on demand. |
 | Index storage (layer 4) | SQLite or DuckDB **as a library** | local | An embedded file, not a server. |
 
@@ -190,8 +190,27 @@ SQLite or DuckDB file. Gitignore the index. It is tens of megabytes of protobuf
 that changes every commit, and committing it is putting `node_modules` in git.
 
 A language server exposed over MCP (Serena, run through `uvx`) is a useful
-companion at any point and is not a layer: it gives symbol-level navigation with
-no committed artifact and nothing to keep in sync.
+companion at any point and is not a layer: it answers "who calls this" from the
+tree as it is, with no index to build and nothing to rebuild after a pull.
+
+Two things to settle before turning it on.
+
+**Its memory system is a second store, and it drifts like any other.** Serena
+reuses project memories across sessions and its memory directory is normally
+tracked, so they reach the whole team through git. That puts them squarely under
+layer 1's rule: memories must **point at** the generated context files, never
+restate the facts in them. A memory that copies a hard rule is the exact drift
+this skill exists to prevent, rebuilt inside the tool meant to help. Write them
+for what the generated files cannot carry — commands, local traps, the
+verification standard — and say so in the entry-point memory so the next reader
+does not add a copy. Run its onboarding once and review what it writes; do not
+accept a generated memory that duplicates your context files.
+
+**An empty reference result is not zero references.** For a very-high-fan-out
+symbol the reference query returns an empty object, because the answer exceeds
+its size cap rather than because nothing calls it. Read it as "too many to
+serialize" and reach for the atlas or a grep count instead. Measured on a symbol
+imported by roughly a thousand files.
 
 ## The discipline: a gate you have not watched fail is not a gate
 
