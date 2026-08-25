@@ -9,7 +9,8 @@
   "scripts": {
     "test": "node --test test/*.mjs",
     "verify:skills": "node scripts/verify-skills.mjs",
-    "verify:lifecycle": "npm --prefix packages/agent-lifecycle run verify",
+    "prepare:lifecycle": "npm ci --prefix packages/agent-lifecycle --ignore-scripts --no-audit --no-fund",
+    "verify:lifecycle": "npm run prepare:lifecycle && npm --prefix packages/agent-lifecycle run verify",
     "verify": "npm test && node scripts/verify-skills.mjs && npm run verify:lifecycle"
   },
   "license": "MIT"
