@@ -85,7 +85,7 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
 ## Procedure
 
 1. **Score the rubric before spending anything.** Five signals, each 0–2 against an
-   observable you actually ran. Sum: **0–2 light, 3–6 normal, 7+ deep.** Anchors, probe
+   observable you actually ran. Sum: **0–2 light, 3–7 normal, 8+ deep.** Anchors, probe
    commands and worked scoring are in [the complexity rubric](references/complexity-rubric.md).
 
    | Signal | Observable probe | 0 | 1 | 2 |
@@ -104,8 +104,20 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    **a question that names one file or one function and asks *why* or *how* starts light** —
    the boundary round-up does not fire on it before pass 1, the re-score after pass 1 is then
    mandatory, and only cost-of-being-wrong = 2 outranks the start. Otherwise a total exactly
-   one point below a threshold **rounds up** one band and says so. The thresholds are tunable
-   and are calibrated against a scored scenario suite that penalises needless escalation.
+   one point below a threshold **rounds up** one band and says so — a 2 becomes normal, a 7
+   becomes deep. The thresholds are tunable and are calibrated against a scored scenario suite
+   that penalises needless escalation.
+
+   **Score from the QUESTION's shape** — the artifact it names, the attribution it asserts, the
+   referents it leaves open, what its answer authorises — never from the size of the repository
+   or from how much apparatus the run would enjoy using. Over-escalation is a scored failure,
+   not diligence. Three calibrations, each pinning a reading observed runs got wrong upward:
+
+   | The ask | Scores | Band |
+   |---|---|---|
+   | change a function with exactly two call sites; one authoritative-looking attribution to check | scope 1, contradiction 1, size ≤1, ambiguity 0–1, cost 1 = 4–5 | **normal**, never deep |
+   | a finite, enumerable triage list, each item the same two-question check | scope 1, contradiction 0, size 1 (capped), ambiguity 0, cost 1 = 3 | **normal** in a repository of any size — scored 2 on the repo it is 4, still normal |
+   | why did this named detector miss this case | scope 0, contradiction 0, size 1 (capped), ambiguity 0, cost 1 = 2 | **light start** under the named-artifact rule; pass-1 re-score mandatory |
 
 2. **Map the band to roles, never to model names.**
 
@@ -127,9 +139,9 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    child is dispatched**, whether or not anyone is watching. Never ask which mode to run.
 
    ```text
-   investigate-codebase · deep band — scope 2 (41 hits/18 files), contradiction 2 (two
-   registries disagree), size 1 (14 packages), ambiguity 0, cost-of-being-wrong 1 = 6;
-   boundary: scored 6, rounding up to deep → 4 children + reconciler, 3 rounds max
+   investigate-codebase · normal band — scope 2 (41 hits/18 files), contradiction 2 (two
+   registries disagree), size 1 (14 packages), ambiguity 0, cost-of-being-wrong 1 = 6
+   → 3 children + reconciler, 2 rounds max
    ```
 
    The line carries the **band**, **each signal's score with the observable that scored it**,
@@ -435,7 +447,8 @@ every file that mentions the name.
 
 - [The complexity rubric](references/complexity-rubric.md): every signal's anchors and probe
   commands, the two overrides and the light start on a named artifact, the boundary round-up,
-  the announcement format with worked lines, user-initiated overrides, and the degradations.
+  the calibration examples that pin the bands against inflation, the announcement format with
+  worked lines, user-initiated overrides, and the degradations.
 - [Decomposition and the child contract](references/decomposition-and-children.md): the five
   axes with the trap each avoids, briefing the named instance and enumerating a described one,
   the result contract field by field, the control rule with its measured failures, and the

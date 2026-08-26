@@ -106,8 +106,8 @@ Sum the five scores, maximum 10.
 | Total | Band |
 |---|---|
 | 0–2 | light |
-| 3–6 | normal |
-| 7+ | deep |
+| 3–7 | normal |
+| 8+ | deep |
 
 These thresholds are tunable. They are provisional numbers calibrated against a scored
 scenario suite, and the suite penalises needless escalation as hard as it penalises an
@@ -138,8 +138,8 @@ under-resourced answer — so moving them is a measurement, not a preference.
 
 ## Boundary round-up
 
-The thresholds are 3 (normal) and 7 (deep). **A total exactly one point below a threshold
-rounds up one band, and the announcement says so.** So a 2 becomes normal and a 6 becomes
+The thresholds are 3 (normal) and 8 (deep). **A total exactly one point below a threshold
+rounds up one band, and the announcement says so.** So a 2 becomes normal and a 7 becomes
 deep. Nothing rounds down.
 
 ```text
@@ -154,6 +154,72 @@ observables, and they are already written down.
 question that names one file or one function and asks why or how (rule 3 above). Such a run
 starts light and re-scores after pass 1, where the round-up applies normally to the new total.
 Nothing else suspends it.
+
+## Calibration examples
+
+The five signals are scored from **the question's shape** — the artifact it names, the
+attribution it asserts, the referents it leaves open, what its answer authorises. Not from the
+size of the repository, and not from how much apparatus the run would enjoy using. The suite
+these thresholds are tuned against penalises needless escalation exactly as hard as an
+under-resourced answer, because the cost lands on the same person either way: **over-escalation
+is a scored failure, not diligence.**
+
+Three scorings, each pinning a reading that observed runs got wrong in the same direction.
+
+### (a) A small change with one attribution to check
+
+> "Change this function — it has exactly two call sites; the ticket says the retry wrapper is
+> the cause."
+
+| signal | observable | score |
+|---|---|---|
+| scope | the definition site's call sites → 2, in 2 files | 1 |
+| contradiction | one authoritative-looking attribution, single source | 1 |
+| size | monorepo, capped: the ask names its artifact | ≤1 |
+| ambiguity | the function resolves; a second reading of "the wrapper" is unlikely | 0–1 |
+| cost | informs a change review would catch | 1 |
+
+Total 4–5 → **normal, and never deep.** Two call sites is a bounded scope, and one attribution
+is one check — `git log -S` on the fragment, the wrapper opened, the branch read. The deep band
+buys an adversarial pair to attack an answer; there is no answer here large enough to attack.
+
+### (b) A finite, enumerable list in a very large repository
+
+> "Work through these 14 flagged rows: for each, is it still failing, and is the fix merged?"
+
+| signal | observable | score |
+|---|---|---|
+| scope | 14 items, enumerable up front, each the same two-question check | 1 |
+| contradiction | nothing attributed | 0 |
+| size | 2,500 files and 4 toolchains — capped: each item names its artifact | 1 |
+| ambiguity | every row carries its own identifier | 0 |
+| cost | informs a triage decision review would catch | 1 |
+
+Total 3 → **normal, in a repository of any size.** This is the scoring the size signal distorts
+most often: scored 2 on the repository instead of on the question, the total is 4 — still
+normal. **Size cannot carry a finite, enumerable list into the deep band.** What makes such a
+list expensive is the number of items, and the band buys depth per question, not throughput; a
+deep band here multiplies the adversarial machinery by 14 and answers nothing it did not.
+
+### (c) Why a named detector missed a named case
+
+> "Why did `shouldSkipRow` not flag this record?"
+
+| signal | observable | score |
+|---|---|---|
+| scope | one detector at one definition site | 0 |
+| contradiction | nothing attributed — the miss is observed, not explained | 0 |
+| size | capped: the ask names its artifact | 1 |
+| ambiguity | both the detector and the record resolve | 0 |
+| cost | informs a fix review would catch | 1 |
+
+Total 2 → **light start** under rule 3: a named artifact asked *why*, so the round-up is
+suspended before pass 1 and the run spends its first pass where the answer is — the record the
+check actually saw, and the branch that returned the verdict (the reproduce-the-miss rule).
+The **re-score after pass 1 is mandatory**, and that is where this question is allowed to become
+expensive: a second referent, a contradicting source, or a scope that turns out to cross
+surfaces bands the new total normally. A 2 that survives pass 1 unchanged rounds up to normal —
+the suspension covers the first look, not the run.
 
 ## The announcement
 
@@ -176,9 +242,18 @@ contradiction 0 (nothing attributed), size 1 (2 toolchains), ambiguity 0, cost-o
 ```
 
 ```text
-investigate-codebase · deep band — scope 2 (git grep -n "registerJob(" → 41 hits in 18 files),
-contradiction 2 (two registries disagree), size 1 (14 packages, capped: the ask names its
-artifact), ambiguity 0, cost-of-being-wrong 1 = 6; boundary: scored 6, rounding up to deep
+investigate-codebase · normal band — scope 2 (git grep -n "registerJob(" → 41 hits in 18
+files), contradiction 2 (two registries disagree), size 1 (14 packages, capped: the ask names
+its artifact), ambiguity 0, cost-of-being-wrong 1 = 6 → 3 children + reconciler, 2 rounds max
+```
+
+The same question once the deletion is on the table and "the registry" turns out to name two
+artifacts — a deep band carried by contradiction and cost, not by the size of the tree:
+
+```text
+investigate-codebase · deep band — scope 2 (41 hits in 18 files), contradiction 2 (authority
+and absence both asserted), size 1 (14 packages, capped: the ask names its artifact),
+ambiguity 1 ("the registry" → 2 artifacts), cost-of-being-wrong 2 (authorises a deletion) = 8
 → 4 children + reconciler, adversarial pair, 3 rounds max
 ```
 
