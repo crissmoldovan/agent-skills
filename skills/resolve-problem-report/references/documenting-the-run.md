@@ -226,8 +226,8 @@ shape matters more than the length.
 # Which registry is authoritative for job names?
 
 - repo: `acme/platform` @ `3f9c1ab` — clean
-- run: investigate-codebase, deep band (scope 2, contradiction 2, size 1, ambiguity 0,
-  cost-of-being-wrong 1 = 6, rounded up at the boundary), 2026-08-26T09:14Z
+- run: investigate-codebase, normal band (scope 2, contradiction 2, size 1, ambiguity 0,
+  cost-of-being-wrong 1 = 6), 2026-08-26T09:14Z
 - question: two registries list job names; which one does the runtime read?
 
 ## What was searched
