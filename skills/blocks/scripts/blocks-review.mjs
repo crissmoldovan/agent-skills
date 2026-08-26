@@ -161,9 +161,15 @@ function isVerdict(body = '') {
 // "no actionable findings" and "that finding is fixed" are both completion, not work
 // left. Only a counted or plural mention surviving those two readings means findings
 // remain in a verdict that left no inline comment to read.
+//
+// A resolution reaches back over however much attribution names the findings it
+// clears — a module list can run long — so bound that span by punctuation rather
+// than by a character count. Stop it at a clause break or a contrasting "but", where
+// the sentence turns to what is still outstanding: "two findings in the retry path,
+// but the null dereference is fixed" must keep its findings, not lose them to the fix.
 function reportsFindings(body = '') {
   const outstanding = String(body)
-    .replace(/\b(?:findings?|inline\s+comments?)\b[^.!?\n]{0,48}?\b(?:is|are|was|were|has been|have been)\s+(?:now\s+)?(?:fixed|resolved|addressed|cleared)\b/gi, ' ')
+    .replace(/\b(?:findings?|inline\s+comments?)\b(?:(?!\bbut\b)[^.!?;\n])*?\b(?:is|are|was|were|has been|have been)\s+(?:now\s+)?(?:fixed|resolved|addressed|cleared)\b/gi, ' ')
     .replace(/\b(?:no|zero|0)\s+(?:\w+\s+){0,2}?(?:findings?|inline\s+comments?)\b/gi, ' ');
   return /\b(?:\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|several|multiple|some|few|new)\s+(?:\w+\s+){0,2}?(?:findings?|inline\s+comments?)\b/i.test(outstanding)
     || /\b(?:findings|inline\s+comments)\b/i.test(outstanding);

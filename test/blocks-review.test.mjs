@@ -144,6 +144,44 @@ test('a verdict comment is only evidence when Blocks posted it after the baselin
   assert.equal(human.terminal, false);
 });
 
+// However much attribution a re-review puts between the findings it names and the
+// verb that clears them, the verdict is still clean.
+test('a clean re-review survives a long attribution before its resolving verb', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 19,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Re-review complete. The critical findings in the authentication and session management modules are now resolved.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a clean re-review survives an attribution listing every module it touched', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 20,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Re-review complete. The three high-severity findings in the authentication middleware, the session management store, and the refresh-token rotation path have been addressed.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a verdict resolving one finding while leaving others keeps reporting findings', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 21,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Review complete. I left two new inline findings in the retry path and the token refresh helper, but the null dereference from the last round is fixed.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'findings');
+  assert.equal(result.terminal, true);
+});
+
 test('ignores Blocks evidence older than the request baseline', () => {
   const result = classifyBlocksEvidence(snapshot({ comments: [{
     id: 6,
