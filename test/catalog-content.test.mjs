@@ -17,6 +17,19 @@ const updateAgentSkills = await read('skills/update-agent-skills/SKILL.md');
 const releaseLedger = await read('skills/release-ledger/SKILL.md');
 const githubWebhooks = await read('skills/github-webhooks/SKILL.md');
 const describeChanges = await read('skills/describe-changes/SKILL.md');
+const investigateCodebase = await read('skills/investigate-codebase/SKILL.md');
+const blastArea = await read('skills/blast-area/SKILL.md');
+const visualiseBlastArea = await read('skills/visualise-blast-area/SKILL.md');
+const landComplexChange = await read('skills/land-complex-change/SKILL.md');
+const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
+const newUxDiscovery = await read('skills/new-ux-discovery/SKILL.md');
+
+// A description may be a double-quoted scalar containing apostrophes, a single-quoted
+// scalar, or a bare value; all three forms yield the exact published description.
+function descriptionOf(source) {
+  const match = source.match(/^description:[ \t]*(?:"([^"\n]*)"|'([^'\n]*)'|([^\n]+?))[ \t]*$/m);
+  return match ? (match[1] ?? match[2] ?? match[3]) : '';
+}
 
 function section(source, heading) {
   const start = source.indexOf(`## ${heading}`);
@@ -31,7 +44,7 @@ test('package README lists every discovered skill with description and detail li
   for (const entry of await skillNames) {
     if (!entry.isDirectory()) continue;
     const manifest = await read(`skills/${entry.name}/SKILL.md`);
-    const description = manifest.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1];
+    const description = descriptionOf(manifest);
     assert.ok(description, `${entry.name} description missing`);
     assert.match(readme, new RegExp(`skills/${entry.name}/SKILL\\.md`));
     assert.ok(readme.includes(description), `${entry.name} README description differs from frontmatter`);
@@ -50,7 +63,7 @@ test('README carries the theme-aware pack header and public-author footer', () =
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /eleven public, portable Agent Skills/i);
+  assert.match(readme, /seventeen public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -67,7 +80,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -161,9 +174,9 @@ test('update-agent-skills maintains communication and every local plane', () => 
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['visualise-blast-area', visualiseBlastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
-    const description = source.match(/^description:\s*["']?([^"'\n]+)["']?$/m)?.[1] ?? '';
+    const description = descriptionOf(source);
     assert.ok(description.length > 0 && description.length <= 1024);
     assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase|publish|release|update|webhook|change)/i);
   }
@@ -194,4 +207,149 @@ test('describe-changes classifies once and anchors claims in the diff', () => {
   assert.match(describeChanges, /never claim a change does something the diff does not show/i);
   assert.match(describeChanges, /references\/output-contract\.md/);
   assert.doesNotMatch(describeChanges, /\bCUE\b|\bRGC\b/);
+});
+
+test('investigate-codebase scores before spending and refuses uncontrolled absence', () => {
+  assert.match(investigateCodebase, /a top-tier driver is not the default/);
+  assert.match(investigateCodebase, /complexity/i);
+  assert.match(investigateCodebase, /control/i);
+  assert.match(investigateCodebase, /inconclusive/);
+  assert.match(investigateCodebase, /contradiction table/i);
+  assert.match(investigateCodebase, /references\/complexity-rubric\.md/);
+  assert.match(investigateCodebase, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(investigateCodebase, /\bCUE\b|\bRGC\b/);
+});
+
+test('blast-area states when each break surfaces and what the map cannot see', () => {
+  assert.match(blastArea, /compile time, runtime, or silently/);
+  assert.match(blastArea, /deploy ordering/i);
+  assert.match(blastArea, /What this map cannot see/);
+  assert.match(blastArea, /searched negative/i);
+  assert.match(blastArea, /references\/surface-checklist\.md/);
+  assert.match(blastArea, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(blastArea, /\bCUE\b|\bRGC\b/);
+});
+
+test('visualise-blast-area draws flowcharts and puts blind spots on the page', () => {
+  assert.match(visualiseBlastArea, /flowchart LR/);
+  assert.match(visualiseBlastArea, /Always `flowchart`, never/);
+  assert.match(visualiseBlastArea, /blind spots occupy space on the page/i);
+  assert.match(visualiseBlastArea, /blast-area/);
+  assert.match(visualiseBlastArea, /references\/mermaid-contract\.md/);
+  assert.match(visualiseBlastArea, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(visualiseBlastArea, /\bCUE\b|\bRGC\b/);
+});
+
+test('land-complex-change budgets the touch-set and arms a gate per surface', () => {
+  assert.match(landComplexChange, /side-effect budget/i);
+  assert.match(landComplexChange, /watch it fail/i);
+  assert.match(landComplexChange, /unguarded surface/i);
+  assert.match(landComplexChange, /outside the budget/i);
+  assert.match(landComplexChange, /references\/side-effect-budget\.md/);
+  assert.match(landComplexChange, /references\/regression-gates\.md/);
+  assert.match(landComplexChange, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(landComplexChange, /\bCUE\b|\bRGC\b/);
+});
+
+test('resolve-problem-report gates the arc and delegates landing, description, and review', () => {
+  assert.match(resolveProblemReport, /G0[\s\S]*G1[\s\S]*G2[\s\S]*G3[\s\S]*G4[\s\S]*G5/);
+  assert.match(resolveProblemReport, /falsif/i);
+  assert.match(resolveProblemReport, /land-complex-change/);
+  assert.match(resolveProblemReport, /describe-changes/);
+  assert.match(resolveProblemReport, /request-blocks-review/);
+  assert.match(resolveProblemReport, /references\/gate-contracts\.md/);
+  assert.match(resolveProblemReport, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(resolveProblemReport, /\bCUE\b|\bRGC\b/);
+});
+
+test('new-ux-discovery gates every candidate and keeps the dropped ones on record', () => {
+  assert.match(newUxDiscovery, /NOT-ALREADY-IMPLEMENTED/);
+  assert.match(newUxDiscovery, /NO-CONFUSION/);
+  assert.match(newUxDiscovery, /DROPPED/);
+  assert.match(newUxDiscovery, /NOT SWEPT|NOT-SWEPT/);
+  assert.match(newUxDiscovery, /investigate-codebase/);
+  assert.match(newUxDiscovery, /blast-area/);
+  assert.match(newUxDiscovery, /references\/gates\.md/);
+  assert.match(newUxDiscovery, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(newUxDiscovery, /\bCUE\b|\bRGC\b/);
+});
+
+const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
+
+async function assertRunRecordCopiesIdentical(directory) {
+  const { createHash } = await import('node:crypto');
+  const hashes = new Map();
+  for (const skill of documentingRunCarriers) {
+    const bytes = await readFile(new URL(`skills/${skill}/references/documenting-the-run.md`, directory));
+    hashes.set(skill, createHash('sha256').update(bytes).digest('hex'));
+  }
+  const [reference] = hashes.values();
+  for (const [skill, digest] of hashes) {
+    assert.equal(digest, reference, `${skill} carries a divergent documenting-the-run.md (${digest} vs ${reference})`);
+  }
+  return reference;
+}
+
+test('every --document skill carries a byte-identical run-record reference', async () => {
+  const digest = await assertRunRecordCopiesIdentical(root);
+  assert.match(digest, /^[0-9a-f]{64}$/);
+});
+
+test('the byte-identity assertion fails when one carried copy is altered', async () => {
+  const { cp, mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+
+  const scratch = await mkdtemp(path.join(tmpdir(), 'run-record-mutation-'));
+  await cp(new URL('skills/', root), path.join(scratch, 'skills'), { recursive: true });
+  const target = path.join(scratch, 'skills', 'blast-area', 'references', 'documenting-the-run.md');
+  const original = await readFile(target, 'utf8');
+  await writeFile(target, `${original.slice(0, 1)}${original.charCodeAt(1) === 32 ? '\t' : ' '}${original.slice(2)}`);
+
+  const mutated = pathToFileURL(`${scratch}${path.sep}`);
+  await assert.rejects(
+    () => assertRunRecordCopiesIdentical(mutated),
+    /blast-area carries a divergent documenting-the-run\.md/,
+  );
+});
+
+// The convention file marks one block "copy verbatim" and one sentence "exactly"; both are
+// embedded in every carrier's body so the rules survive a reader who never opens the file.
+// Nothing else asserted that the embedded copies still match the convention they came from.
+function fencedBlockAfter(source, marker, label) {
+  const anchor = source.indexOf(marker);
+  assert.ok(anchor >= 0, `documenting-the-run.md no longer contains the ${label} marker: ${marker}`);
+  const open = source.indexOf('```markdown\n', anchor);
+  assert.ok(open >= 0, `documenting-the-run.md has no fenced ${label} block after its marker`);
+  const start = open + '```markdown\n'.length;
+  const close = source.indexOf('\n```', start);
+  assert.ok(close > start, `documenting-the-run.md leaves the ${label} block unterminated`);
+  return source.slice(start, close);
+}
+
+const runRecordConvention = await read('skills/investigate-codebase/references/documenting-the-run.md');
+const inBodyCoreTemplate = fencedBlockAfter(runRecordConvention, '## In-body core (copy verbatim)', 'in-body core');
+const runRecordPointer = fencedBlockAfter(runRecordConvention, 'Follow it, in the same section, with this sentence exactly:', 'pointer sentence');
+
+test('every --document skill embeds the verbatim in-body core and the exact pointer sentence', () => {
+  assert.ok(inBodyCoreTemplate.includes('<skill-name>'), 'the in-body core template lost its <skill-name> placeholder');
+  assert.ok(inBodyCoreTemplate.split('\n').length > 5, 'the in-body core template is too short to be the core block');
+
+  const sources = new Map([
+    ['investigate-codebase', investigateCodebase],
+    ['blast-area', blastArea],
+    ['visualise-blast-area', visualiseBlastArea],
+    ['land-complex-change', landComplexChange],
+    ['resolve-problem-report', resolveProblemReport],
+    ['new-ux-discovery', newUxDiscovery],
+  ]);
+  assert.deepEqual([...sources.keys()], documentingRunCarriers);
+
+  for (const [name, source] of sources) {
+    const expected = inBodyCoreTemplate.replaceAll('<skill-name>', name);
+    assert.ok(source.includes(expected), `${name}/SKILL.md does not embed the verbatim in-body core block from documenting-the-run.md`);
+    assert.ok(!source.includes(inBodyCoreTemplate), `${name}/SKILL.md left the <skill-name> placeholder unsubstituted`);
+    assert.ok(source.includes(runRecordPointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence`);
+  }
 });
