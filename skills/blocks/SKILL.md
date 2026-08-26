@@ -77,6 +77,13 @@ Always compare against a baseline containing timestamp and stable IDs. Help text
 eyes reactions, queue messages, and “taking a look” are nonterminal. Return one of
 `requested`, `reviewing`, `clean`, `findings`, or `pr_closed`.
 
+Blocks states completion in a top-level comment as often as in a formal review. A
+post-baseline comment that names its own completion is terminal even when no review
+was submitted; its wording then chooses the state — outstanding findings mean
+`findings`, a fixed or empty finding list means `clean`. Acknowledgement wording
+still wins: a comment that merely quotes the words a finished review would use
+remains nonterminal.
+
 ```bash
 node skills/blocks/scripts/blocks-review-cli.mjs status \
   --repo <owner/repo> --pr <N> --requested-at <ISO>
