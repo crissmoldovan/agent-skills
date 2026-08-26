@@ -62,9 +62,10 @@ about a graph, and a direct-reference search walks no edges at all.
 | `git grep -n "modules/report"` → 0, control fired | no tracked file names that path literally | that nothing loads it — a barrel re-export, a registry keyed by string, or a glob import each reach it without naming it |
 | `git grep -n "status" -- app/` → 0, control fired | no file under `app/` mentions the field | that no screen renders it — the screen may read a mapped DTO field with another name |
 
-So write the negative at the reach it has: **"direct references only"**, plus the hop that was
-walked if one was. A claim about reachability is admissible only after at least one hop through
-what the surface **does** reference, and the row says which hop that was.
+So write the negative at the reach it has: **"no reference to depth N"**, with N and the hops
+that were walked. A claim about reachability is admissible only from a walk to closure over a
+named boundary, or from a resolver that answers reachability directly; anything shallower stays
+the depth-bounded statement, which is the one that is true.
 
 ## Evidence classes
 

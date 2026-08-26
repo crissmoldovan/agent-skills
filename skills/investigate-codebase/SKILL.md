@@ -181,7 +181,7 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
      "question": "the slice this child was asked",
      "findings": [{ "claim": "…", "evidence": "path:line", "basis": "measured | inferred", "confidence": "basis x coverage, in words" }],
      "searched": [{ "query": "verbatim", "tool": "git grep", "hits": 41 }],
-     "not_found": [{ "target": "…", "control": "the positive variant that was run", "control_fired": true, "reach": "direct references only | walked: <the hop>" }],
+     "not_found": [{ "target": "…", "control": "the positive variant that was run", "control_fired": true, "reach": "no reference to depth N (<what was walked>) | closure over <boundary> | resolver: <name>" }],
      "blockers": ["what this child could not do, and why"]
    }
    ```
@@ -193,12 +193,15 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    has no `\b`. Read as absence, that is proof of a typo. Others in the reference: a pathspec
    that excluded the answer, a file type git never tracked, `job_name` against `jobName`.
 
-   **THE TRANSITIVE-NEGATIVE RULE: a zero-hit direct-reference search proves the direct hop and
-   nothing further.** A claim about reachability or flow — "cannot reach", "no path", "never
-   loaded" — is admissible only after walking the graph at least one hop through everything the
-   surface **does** reference: its imports, its registrations, its dynamic lookups, whatever
-   re-exports it. Until that walk is done the negative is recorded as **"direct references
-   only"**, which is a true statement, rather than as absence, which is not. The reconciler's
+   **THE TRANSITIVE-NEGATIVE RULE: a zero-hit direct-reference search proves the direct hop, and
+   one more hop proves two.** A claim about reachability or flow — "cannot reach", "no path",
+   "never loaded" — is admissible only from a walk to **closure over the relevant boundary**:
+   keep following what each reached surface references — imports, registrations, dynamic
+   lookups, re-exports — until the frontier stops growing or leaves the boundary you named. A
+   resolver that answers reachability directly (a language server's reference graph, a bundler's
+   module graph, an import-boundary checker) substitutes for the walk and is recorded as its
+   source. Anything less is recorded as **"no reference to depth N"**, naming N and what was
+   walked — which is true — and **never as "no path"**, which is not. The reconciler's
    *what this evidence CAN prove* column is applied to **your own negatives**, not only to the
    contradictions between children — a fired control proves the search worked, never that the
    question it answered was the question asked.
@@ -332,6 +335,10 @@ every file that mentions the name.
 - **A reachability claim built on a direct-reference search.** "Nothing imports it, so it
   cannot run" — measured on the module's own name, while the loader reached it one hop away
   through a barrel file that never names it. The negative was true; the claim was false.
+- **Stopping the walk at one hop and calling it "no path".** A run walked exactly one hop, found
+  every direct importer clean, and concluded there was no import path. The chain was three hops
+  deep, through a shared utility barrel that spelled nothing in it. A hop count is a depth, not
+  a closure: "no reference to depth 1" was true and would have said so.
 - **Explaining a miss with the mechanism that sounds right.** A guard was reported as dropping
   a record "because the field was empty"; the field was populated and a length check two
   branches earlier had already returned. Nothing was opened, and it read like the real answer.
@@ -383,9 +390,9 @@ every file that mentions the name.
       and `blockers[]`.
 - [ ] Every load-bearing `not_found` names its control and whether the control fired; every
       negative without a fired control is recorded `inconclusive`, not `absent`.
-- [ ] Every reachability or flow claim resting on a negative was walked **at least one hop**
-      through what the surface does reference, or the negative is recorded as **"direct
-      references only"** rather than as absence.
+- [ ] Every reachability or flow claim rests on a walk to **closure over a named boundary** or
+      on a resolver's answer; anything shallower is recorded as **"no reference to depth N"**,
+      with N and what was walked, and never as "no path".
 - [ ] Every why-answer about a detector, guard, filter or check names the exact input and the
       branch that decided it; a mechanism nobody watched decide is marked `inferred`.
 - [ ] The instance the asker named is the instance that was traced, and any generalisation

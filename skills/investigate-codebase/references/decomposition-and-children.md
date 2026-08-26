@@ -116,7 +116,7 @@ Context packaging is `model-routing`'s subject; child visibility and lifecycle e
       "target": "a runtime read of the generated registry",
       "control": "git grep -n \"atlas\" -- worker",
       "control_fired": true,
-      "reach": "direct references only"
+      "reach": "no reference to depth 1"
     }
   ],
   "blockers": ["deploy manifests are not readable from this checkout"]
@@ -133,10 +133,11 @@ Field rules:
 - **`confidence`** is basis × coverage, in words. Never a percentage.
 - **`searched`** holds queries **verbatim** with their hit counts. A paraphrased query
   cannot be re-run, and re-running is the point.
-- **`reach`** says what the negative covers: `direct references only` where a name search
-  returned nothing and no edge was walked, or `walked: <the hop>` naming what was followed. A
-  negative with no `reach` field cannot carry a claim about reachability, and the reconciler
-  treats it as the narrower statement.
+- **`reach`** says what the negative covers, at the depth it actually reached: `no reference to
+  depth N` with N and the hops walked, `closure over <boundary>` where the frontier stopped
+  growing inside a named boundary, or `resolver: <name>` where a reference graph answered
+  instead of a walk. A negative with no `reach` field cannot carry a claim about reachability,
+  and the reconciler treats it as the narrowest statement it could be.
 - **`blockers`** is where a child says what it could not do. An empty `blockers` on a child
   that hit a permission wall is the most expensive kind of silence.
 
@@ -170,33 +171,62 @@ single highest-value mechanical rule in this family, and it costs one extra comm
 
 ## THE TRANSITIVE-NEGATIVE RULE
 
-> A zero-hit direct-reference search proves the **direct hop** and nothing beyond it. A claim
-> about reachability or flow requires at least one hop through what the surface **does**
-> reference; until that walk happens the negative is recorded as **"direct references only"**.
+> A zero-hit direct-reference search proves the **direct hop** and nothing beyond it, and one
+> more hop proves two. A claim about reachability or flow requires a walk to **closure over the
+> relevant boundary**, or a resolver that answers reachability directly. Anything shallower is
+> recorded as **"no reference to depth N"** — never as "no path".
 
 A fired control upgrades a negative from *inconclusive* to *absent*. It says nothing about the
 **reach** of the question that negative is being used to answer, and that is the second half
 people skip. "No file imports this module" and "this module cannot be reached" are different
 statements, and the second is the one that authorises a deletion.
 
-The hop is cheap. Take the surface the search covered and follow what it references outward
-one level — barrel files and re-exports, registry tables keyed by string, dynamic or glob
-imports, dependency-injection containers, generated entrypoints, configuration that names a
-module as text. Any of those reaches a target it never spells, so a search for the target's
-name over the importing file returns zero forever.
+The walk is cheap, and it ends at a **frontier, not at a hop count**. Take the surface the
+search covered and follow what it references outward — barrel files and re-exports, registry
+tables keyed by string, dynamic or glob imports, dependency-injection containers, generated
+entrypoints, configuration that names a module as text — then repeat over everything that walk
+reached, until the set of newly reached surfaces is empty or the boundary you named is crossed.
+Any of those edges reaches a target it never spells, so a search for the target's name over the
+importing file returns zero forever, at every depth.
 
-Worked failure: a run concluded "there is no import path to this module" from a single
-direct-name search with a control that fired, and recorded it as absence. The loader reached
-the module through an index file that re-exported a whole directory; nothing in the chain
-spelled the module's name until the last hop. Both statements were true — the search was clean
-and the module ran in production every night.
+**Name the boundary, or closure is unverifiable.** "Closure" over what: this package, this
+deploy target, this repository? A frontier that stopped because the walk left the package is a
+closure over the package and a depth-N negative over everything else, and the record says which.
+
+**A resolver substitutes for the walk.** A language server's reference graph, a bundler's module
+graph, an import-boundary checker: each answers reachability rather than name-presence, and the
+negative is then recorded as `resolver: <name>` rather than as a hop count. It is still bounded
+by what the resolver can see — generated entrypoints and string-keyed registries usually sit
+outside it — and that bound is stated with the answer.
+
+Two worked failures, one at each depth:
+
+- **Zero hops.** A run concluded "there is no import path to this module" from a single
+  direct-name search with a control that fired, and recorded it as absence. The loader reached
+  the module through an index file that re-exported a whole directory; nothing in the chain
+  spelled the module's name until the last hop. Both statements were true — the search was
+  clean, and the module ran in production every night.
+- **Exactly one hop.** A later run did take the hop: it walked the module's direct importers,
+  found every one of them clean, and concluded "no import path". The chain was **three hops**
+  deep, through a shared utility barrel that spelled nothing in it. One hop is a depth, and the
+  admissible statement was "no reference to depth 1" — which nobody would have acted on.
 
 Write the negative at the reach it has:
 
 ```json
 { "target": "an import of modules/report", "control": "git grep -n \"modules/\" -- src",
-  "control_fired": true, "reach": "direct references only",
-  "hops_walked": ["src/index.ts re-exports ./modules/*"] }
+  "control_fired": true, "reach": "no reference to depth 2",
+  "hops_walked": ["src/index.ts re-exports ./modules/*", "utils/index.ts re-exports ./loader"],
+  "boundary": "the app package; the worker package was not walked" }
+```
+
+The same negative after the frontier stopped growing inside the boundary:
+
+```json
+{ "target": "an import of modules/report", "control": "git grep -n \"modules/\" -- src",
+  "control_fired": true, "reach": "closure over the app package",
+  "hops_walked": ["3 rounds, frontier empty at round 3"],
+  "boundary": "the app package; the worker package is reported separately" }
 ```
 
 ## Fan-out width and independence
