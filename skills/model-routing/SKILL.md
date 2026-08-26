@@ -3,7 +3,7 @@ name: model-routing
 description: "Route work efficiently without lowering output quality."
 license: MIT
 compatibility: "Agent Skills-compatible harnesses; inventory, profiles, and child dispatch are harness-specific."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=cueplusplus"
+metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 

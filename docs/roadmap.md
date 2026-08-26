@@ -6,7 +6,7 @@ already available.
 
 ## Private control plane → public delivery
 
-The private CUE++ skills platform remains the team control plane for drafts,
+A private skills platform remains the team control plane for drafts,
 validation, review, audit history, feedback, statuses, stacks, and private
 delivery. A future publication bridge should allow an approved skill to target
 either the private catalog or this public repository without moving those team

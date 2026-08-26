@@ -1,11 +1,3 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
-    <img alt="CUE++" src="assets/cue-logo-light.svg" width="176">
-  </picture>
-</p>
-
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
@@ -264,11 +256,5 @@ TypeScript build, and package-consumer verification.
 ---
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/cue-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/cue-logo-light.svg">
-    <img alt="CUE++" src="assets/cue-logo-light.svg" width="72">
-  </picture>
-  <br>
   <sub>Made by Criss Moldovan</sub>
 </p>
