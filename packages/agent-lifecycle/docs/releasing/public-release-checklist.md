@@ -46,7 +46,7 @@
 
 - [x] Prepare a skills.sh-compatible skill and verify local repository discovery with the official `skills` CLI.
 - [ ] Submit to skills.sh only after the repository is public and listing metadata is reviewed.
-- [ ] Prepare a cueplusplus.com/oss listing with the public repository URL, license, status, and maintainership details.
-- [ ] Submit to cueplusplus.com/oss only after a public release is available.
+- [ ] Prepare a public OSS listing with the public repository URL, license, status, and maintainership details.
+- [ ] Publish the listing only after a public release is available.
 
-No public package release, npm publication, signed release, skills.sh submission, or cueplusplus.com/oss submission has been verified from this repository.
+No public package release, npm publication, signed release, skills.sh submission, or OSS-listing submission has been verified from this repository.

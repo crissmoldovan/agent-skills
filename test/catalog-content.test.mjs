@@ -51,11 +51,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('README carries the theme-aware pack header and public-author footer', () => {
-  assert.match(readme, /prefers-color-scheme: dark/);
-  assert.match(readme, /prefers-color-scheme: light/);
-  assert.match(readme, /assets\/cue-logo-dark\.svg/);
-  assert.match(readme, /assets\/cue-logo-light\.svg/);
+test('README carries the pack header and public-author footer, and no CUE++ branding', () => {
+  // The pack is published under the maintainer's own name; the CUE++ marks
+  // were removed deliberately and must not drift back in.
+  assert.doesNotMatch(readme, /cue-logo|CUE\+\+/i);
   assert.match(readme, /Agent skills pack/);
   assert.match(readme, /public package by \*\*Criss Moldovan\*\*/);
   assert.match(readme, /Made by Criss Moldovan/);
