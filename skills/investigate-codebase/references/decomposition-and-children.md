@@ -78,6 +78,29 @@ explicitly, and say which instance the finding came from.
 Where the named instance cannot be found, that is the child's finding — `not_found` with its
 control — not a licence to substitute the nearest thing with a similar name.
 
+### When the ask names a description, not an identity
+
+"A PR", "the ticket", "that migration", "the failing job" is a **description**. It becomes an
+instance only when exactly one thing matches it, and whether that holds is a question with a
+command behind it: list the open pull requests touching this path, the tickets carrying this
+title, the migrations at this version — and count what comes back.
+
+- **One candidate.** That is the named instance. Proceed, and cite its identifier in the answer
+  so the asker can see which one was opened.
+- **More than one, attended.** Ask. This is a must-ask case rather than a probe: the readings
+  send the work to different artifacts, so no amount of searching settles which was meant.
+  List the candidates with the one fact that distinguishes them.
+- **More than one, unattended.** Cover each candidate, or answer for one and say **which and
+  why at the top of the answer**, not in a closing caveat where it arrives after the reader has
+  already believed the wrong thing.
+- **None.** The finding is that nothing matches — `not_found` with its control — and the
+  nearest-named thing is not a substitute.
+
+Two independent runs skipped the count, resolved "a PR" to the first plausible match, and
+investigated a pull request the asker had not asked about. Both answers were internally sound.
+Neither was about the right instance, and nothing in either write-up said a choice had been
+made — which is what made the failure invisible until somebody acted on it.
+
 ## The child brief
 
 Give each child, and nothing else:

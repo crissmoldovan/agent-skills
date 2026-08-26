@@ -153,7 +153,18 @@ the review loop over a real pull request belongs to `request-blocks-review` and 
    shape.** A sibling instance is a second question; answering it produces prose that is
    fluent, cited, and about something nobody asked. Generalise only after the named one has
    been read, and say which one the finding came from. Where the named instance does not
-   exist, that is the finding. Five axes, detailed with briefs in
+   exist, that is the finding.
+
+   **Where the subject is named by DESCRIPTION — "a PR", "the ticket", "that migration" —
+   enumerate the candidates before resolving it.** A description becomes an instance only when
+   exactly one thing matches, so count first: the pull requests touching this path, the tickets
+   with this title, the migrations at this version. More than one match and the choice is not
+   yours to make silently — **ask** when attended, and when unattended **cover each candidate,
+   or answer for one and say at the top which and why**. Silently taking the first plausible
+   match is the trap: two independent runs resolved "a PR" that way and investigated a
+   different pull request than the asker meant, with citations, at length.
+
+   Five axes, detailed with briefs in
    [decomposition and the child contract](references/decomposition-and-children.md):
 
    - **by-surface** — directory, package, deploy target, language.
@@ -345,6 +356,10 @@ every file that mentions the name.
 - **Answering about a sibling of the instance that was named.** The question named one call
   site; the run traced another with the same function name, found a genuine defect there, and
   delivered it as the answer to a question about a different line.
+- **Resolving "a PR" to the first plausible PR.** The subject arrived as a description, more
+  than one candidate matched, and the run picked one without ever saying it had chosen. Two
+  independent runs did this and investigated a different instance than the asker meant — the
+  enumeration that would have caught it costs one listing command.
 - **Fan-out as theatre.** Four children over the same files, agreeing. That is one reading at
   four times the price, and its agreement reads like corroboration in the write-up.
 - **Briefing a child with a bare symbol name.** In a real monorepo the common names are the
@@ -397,6 +412,9 @@ every file that mentions the name.
       branch that decided it; a mechanism nobody watched decide is marked `inferred`.
 - [ ] The instance the asker named is the instance that was traced, and any generalisation
       beyond it says which instance the finding came from.
+- [ ] Where the subject was named by description, the matching candidates were **enumerated**,
+      and the run either asked which was meant or covered each and named the one it answered
+      for — never resolved to the first plausible match in silence.
 - [ ] The contradiction table carries all eight columns, "what each evidence CAN prove" is
       filled, and every verdict is from the closed set.
 - [ ] The reconciler re-read the cited hits rather than merging child summaries.
@@ -419,8 +437,9 @@ every file that mentions the name.
   commands, the two overrides and the light start on a named artifact, the boundary round-up,
   the announcement format with worked lines, user-initiated overrides, and the degradations.
 - [Decomposition and the child contract](references/decomposition-and-children.md): the five
-  axes with the trap each avoids, briefing the named instance, the result contract field by
-  field, the control rule with its measured failures, and the transitive-negative rule.
+  axes with the trap each avoids, briefing the named instance and enumerating a described one,
+  the result contract field by field, the control rule with its measured failures, and the
+  transitive-negative rule with its closure boundary.
 - [Reconciling evidence](references/reconciling-evidence.md): the contradiction table worked
   through, the CAN-prove column run over the run's own negatives, evidence classes and reach,
   independence, confidence and reproducing a miss, dated findings, and the stop rule.
