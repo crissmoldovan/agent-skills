@@ -182,7 +182,10 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    inside a module named for another subject is still a read of this table, and dropping it
    because the path looked unrelated is an **unverified discard**: in the finished map it is
    indistinguishable from a hit that was opened and ruled out. Open the hit, read the target
-   out of the query, and record what the target was.
+   out of the query, and record what the target was. The evidence in a discard row is the
+   query or statement at the hit itself — the very line the sweep matched — never a different
+   line elsewhere in the same file; a discard justified by the file's apparent domain, or by
+   any line other than the hit, is unverified and does not count toward the identity.
 
    **An exclusivity claim carries its discard list.** "Only the reporting service reads this
    column" is a claim about every hit you did not keep, so the claim ships with them: each

@@ -119,6 +119,8 @@ so that renderers can lay out stable subgraphs and so that two maps diff cleanly
   name or the module's domain. `discarded` is also the **other half of the accounting identity**:
   a hit that is in neither `nodes` nor `discarded` is invisible on its own, and becomes visible
   only as a number — `hits` exceeding `consumers + discards` by exactly the hits nobody bucketed.
+  Each discard's `evidence` quotes the statement at the hit line itself; citing a different line
+  in the same file leaves the discard unverified.
 
 ## `nodes`
 
