@@ -57,6 +57,131 @@ test('recognizes real reviews and inline findings without treating courtesy as c
   ]);
 });
 
+// Blocks posts verdicts as top-level comments as well as formal reviews. Each body
+// below is the shape of a verdict observed on a real pull request.
+test('a re-review verdict comment reporting a fixed finding is terminal and clean', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 10,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Re-review complete: the unchecked null dereference in src/a.ts is fixed. Nothing else to flag.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+  assert.equal(result.findings.length, 0);
+});
+
+test('a "Reviewed PR" verdict comment without a summary review is terminal and clean', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 11,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Reviewed PR #42. No actionable findings at severity ≥ 7.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a verdict comment counting inline findings is terminal findings', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 12,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Review complete. I left two inline findings on this pull request.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'findings');
+  assert.equal(result.terminal, true);
+});
+
+test('a bare verdict comment defers to inline comments left since the baseline', () => {
+  const result = classifyBlocksEvidence(snapshot({
+    comments: [{ id: 13, author: 'blocksorg', createdAt: '2026-08-24T23:50:00Z', body: 'Review complete.' }],
+    inline: [{ id: 14, author: 'blocksorg', createdAt: '2026-08-24T23:50:01Z', path: 'src/b.ts', line: 7, body: '**Severity: 7** Unhandled rejection.' }],
+  }), { requestedAt });
+
+  assert.equal(result.state, 'findings');
+  assert.equal(result.terminal, true);
+  assert.deepEqual(result.findings.map(({ path, line }) => ({ path, line })), [{ path: 'src/b.ts', line: 7 }]);
+});
+
+test('an acknowledgement of the review request is never a verdict', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 15,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:44:20Z',
+    body: "I'm working on this request and will report back here.",
+  }] }), { requestedAt });
+
+  assert.equal(result.terminal, false);
+  assert.equal(result.findings.length, 0);
+});
+
+test('help text quoting the words of a finished review stays nonterminal', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 16,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:44:20Z',
+    body: 'Mention Blocks like a regular teammate. I post a "Review complete" comment when I am done.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'reviewing');
+  assert.equal(result.terminal, false);
+});
+
+test('a verdict comment is only evidence when Blocks posted it after the baseline', () => {
+  const body = 'Review complete. I left two inline findings on this pull request.';
+  const stale = classifyBlocksEvidence(snapshot({ comments: [
+    { id: 17, author: 'blocksorg', createdAt: '2026-08-24T22:00:00Z', body },
+  ] }), { requestedAt });
+  const human = classifyBlocksEvidence(snapshot({ comments: [
+    { id: 18, author: 'maintainer', createdAt: '2026-08-24T23:50:00Z', body },
+  ] }), { requestedAt });
+
+  assert.equal(stale.terminal, false);
+  assert.equal(human.terminal, false);
+});
+
+// However much attribution a re-review puts between the findings it names and the
+// verb that clears them, the verdict is still clean.
+test('a clean re-review survives a long attribution before its resolving verb', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 19,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Re-review complete. The critical findings in the authentication and session management modules are now resolved.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a clean re-review survives an attribution listing every module it touched', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 20,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Re-review complete. The three high-severity findings in the authentication middleware, the session management store, and the refresh-token rotation path have been addressed.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a verdict resolving one finding while leaving others keeps reporting findings', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 21,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Review complete. I left two new inline findings in the retry path and the token refresh helper, but the null dereference from the last round is fixed.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'findings');
+  assert.equal(result.terminal, true);
+});
+
 test('ignores Blocks evidence older than the request baseline', () => {
   const result = classifyBlocksEvidence(snapshot({ comments: [{
     id: 6,

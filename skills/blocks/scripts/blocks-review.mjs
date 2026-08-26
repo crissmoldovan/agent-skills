@@ -150,6 +150,31 @@ function isClean(body = '') {
     && /no actionable findings|no findings|\blgtm\b|looks good|left no inline comments/i.test(body);
 }
 
+// Blocks also posts its verdict as a plain top-level comment, not only as a formal
+// review. Such a comment names its own completion; an acknowledgement or help text
+// never does, so courtesy phrasing keeps a comment nonterminal even when it quotes
+// the words a finished review would use.
+function isVerdict(body = '') {
+  return /\b(?:re-)?review complete\b|\breviewed pr\b/i.test(body) && !isCourtesy(body);
+}
+
+// "no actionable findings" and "that finding is fixed" are both completion, not work
+// left. Only a counted or plural mention surviving those two readings means findings
+// remain in a verdict that left no inline comment to read.
+//
+// A resolution reaches back over however much attribution names the findings it
+// clears — a module list can run long — so bound that span by punctuation rather
+// than by a character count. Stop it at a clause break or a contrasting "but", where
+// the sentence turns to what is still outstanding: "two findings in the retry path,
+// but the null dereference is fixed" must keep its findings, not lose them to the fix.
+function reportsFindings(body = '') {
+  const outstanding = String(body)
+    .replace(/\b(?:findings?|inline\s+comments?)\b(?:(?!\bbut\b)[^.!?;\n])*?\b(?:is|are|was|were|has been|have been)\s+(?:now\s+)?(?:fixed|resolved|addressed|cleared)\b/gi, ' ')
+    .replace(/\b(?:no|zero|0)\s+(?:\w+\s+){0,2}?(?:findings?|inline\s+comments?)\b/gi, ' ');
+  return /\b(?:\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|several|multiple|some|few|new)\s+(?:\w+\s+){0,2}?(?:findings?|inline\s+comments?)\b/i.test(outstanding)
+    || /\b(?:findings|inline\s+comments)\b/i.test(outstanding);
+}
+
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));
@@ -165,12 +190,19 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
     url: item.url ?? item.htmlUrl ?? null,
   }));
   const summaryFindingReviews = relevantReviews.filter((item) => ['CHANGES_REQUESTED'].includes((item.state ?? '').toUpperCase()) || (/\S/.test(item.body ?? '') && /issue|finding|severity|requesting changes/i.test(item.body)));
+  const verdictComment = relevantComments.find((item) => isVerdict(item.body));
   const cleanComment = relevantComments.find((item) => isClean(item.body));
   const cleanReview = relevantReviews.find((item) => isClean(item.body) || (item.state ?? '').toUpperCase() === 'APPROVED');
   const dashboardUrl = [...relevantComments, ...relevantReviews].map((item) => dashboard(item.body)).find(Boolean) ?? null;
 
   if (findings.length || summaryFindingReviews.length) {
     return { state: 'findings', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+  }
+  // Inline comments and formal reviews above are the stronger evidence and already
+  // returned. A verdict comment is the next authority: reaching here means the inline
+  // sweep found nothing, so the verdict's own wording decides between the two states.
+  if (verdictComment) {
+    return { state: reportsFindings(verdictComment.body) ? 'findings' : 'clean', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl };
   }
   if (cleanComment || cleanReview) {
     return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };

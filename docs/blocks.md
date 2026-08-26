@@ -50,8 +50,8 @@ Possible states are:
 |---|---|
 | `requested` | Request exists; no later Blocks activity proves work started. |
 | `reviewing` | Blocks acknowledged/queued/started, but no terminal review exists. |
-| `clean` | Blocks posted a clean review or clean terminal summary. |
-| `findings` | A substantive review or inline finding exists. |
+| `clean` | Blocks posted a clean review, or a completion comment with nothing outstanding. |
+| `findings` | A substantive review, an inline finding, or a completion comment reporting findings exists. |
 | `pr_closed` | The PR closed before a terminal Blocks review was observed. |
 
 The wait helper adapts Trigger.dev's open-source
