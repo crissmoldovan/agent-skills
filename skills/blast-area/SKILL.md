@@ -168,6 +168,14 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    absence: the consumer everyone assumed existed did not, and the map was only trustworthy
    because the search that established it was on the page next to a control that fired.
 
+   **The accounting identity: every hit is either a consumer or a discard.** For every sweep,
+   the raw hit count must equal the consumers kept plus the discards recorded, and the map
+   **states the arithmetic** next to the query: `git grep -c <term> → N hits: C consumers +
+   D discards, N = C + D`. A hit that appears in neither list is a hit nobody accounted for —
+   the sweep is incomplete, and the map does not ship until it balances. Each discard row
+   carries its own evidence by the rule below; the identity is what makes a hit dropped in
+   silence **visible**, because a row that is missing changes a number on the page.
+
    **Discard by the table, never by the filename.** A data-contract hit is classified by **the
    table the query actually targets, read from the query text** — not by the name of the file
    it sits in, nor by the domain the module appears to belong to. A string-built `SELECT`
@@ -218,7 +226,8 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
                "resolver": "language-server | index | registries | name-based",
                "toolsUsed": ["git grep", "…"], "notScanned": ["…"] },
      "surfaces": [{ "id": "callers", "label": "Callers", "confidence": "measured",
-                    "searched": [{ "query": "verbatim", "tool": "git grep", "hits": 41 }],
+                    "searched": [{ "query": "verbatim", "tool": "git grep", "hits": 41,
+                                   "consumers": 36, "discards": 5 }],
                     "negatives": [{ "target": "…", "query": "verbatim", "control": "…",
                                     "control_fired": true, "verdict": "absent | inconclusive" }],
                     "discarded": [{ "hit": "path:line", "queryText": "the SELECT as written",
@@ -236,7 +245,9 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    ```
 
    An edge without evidence is a guess with an arrowhead on it, and it renders identically to a
-   measured one. Field-by-field semantics, the node-state rules and a full worked envelope are in
+   measured one. A sweep whose `hits` do not equal `consumers + discards` has lost a hit between
+   the search and the map. Field-by-field semantics, the node-state rules and a full worked
+   envelope are in
    [the output contract](references/output-contract.md).
 
 9. **Write "What this map cannot see". It is not optional.** Four named limits, each answered
@@ -333,6 +344,10 @@ the surprise was a prompt row in the database that no code search would ever hav
 - **Discarding a hit because the filename looked unrelated.** A string-built `SELECT` on this
   table sat in a module named for another subject; it was dropped on the module name, never
   opened, and the map went out saying one service read the column. Two did.
+- **A hit that reached neither list.** A preview tool's string-literal `SELECT` was bucketed by
+  its filename's domain and appeared in neither the consumer map nor the discard list, so an
+  exclusivity claim shipped with nothing to falsify it. Nobody re-ran the query; nobody had to.
+  The identity would have shown N−1 and refused the map.
 - **Exclusivity claimed without the discards.** "Only X reads this" is a statement about the
   hits that were dropped, and a claim whose evidence was thrown away cannot be checked by the
   person it authorises to drop the column.
@@ -376,6 +391,9 @@ the surprise was a prompt row in the database that no code search would ever hav
       than assumed.
 - [ ] Every empty cell carries its verbatim query, the control, whether the control fired, and
       a verdict of `absent` or `inconclusive`.
+- [ ] **Every sweep balances**: the raw hit count equals consumers plus discards, and the map
+      states the arithmetic (`N hits: C consumers + D discards, N = C + D`). No hit sits in
+      neither list.
 - [ ] Every data-contract hit was classified by **the table its query text targets**, opened
       rather than judged by filename or module domain, and every discard names the target it
       resolved to.

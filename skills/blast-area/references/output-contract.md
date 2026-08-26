@@ -20,7 +20,9 @@ nothing here exists because it renders well.
       "id": "callers",
       "label": "Callers",
       "confidence": "measured",
-      "searched": [{ "query": "verbatim", "tool": "git grep", "hits": 41 }],
+      "searched": [
+        { "query": "verbatim", "tool": "git grep", "hits": 41, "consumers": 36, "discards": 5 }
+      ],
       "negatives": [
         {
           "target": "what was looked for",
@@ -29,6 +31,14 @@ nothing here exists because it renders well.
           "control": "the positive variant that was run",
           "control_fired": true,
           "verdict": "absent | inconclusive"
+        }
+      ],
+      "discarded": [
+        {
+          "hit": "path:line",
+          "queryText": "the SELECT as written",
+          "resolvedTarget": "the table it actually names",
+          "reason": "why it is not a hit on this change"
         }
       ]
     }
@@ -89,9 +99,12 @@ so that renderers can lay out stable subgraphs and so that two maps diff cleanly
 
 - **`confidence`** — one word from the fixed vocabulary, describing the *coverage of this
   surface*, not the certainty of any single node.
-- **`searched`** — the queries that produced the nodes, verbatim, with tool and hit count.
-  Verbatim matters: a query paraphrased into prose cannot be re-run, and re-running it is the
-  only way anybody checks this map.
+- **`searched`** — the queries that produced the nodes, verbatim, with tool and hit count, and
+  the hit count **split**: `consumers` kept plus `discards` recorded. Verbatim matters: a query
+  paraphrased into prose cannot be re-run, and re-running it is the only way anybody checks this
+  map. **The accounting identity holds per sweep: `hits = consumers + discards`.** A sweep that
+  does not balance has lost a hit somewhere between the search and the map, and the surface is
+  incomplete until it does — the map states the arithmetic rather than leaving it to be derived.
 - **`negatives`** — the searched-empty results. Each carries its control and whether the control
   fired; a negative whose control did not fire has `verdict: "inconclusive"`, never `"absent"`.
   An empty `negatives` array on an empty surface means the surface was **not checked**, and the
@@ -103,7 +116,9 @@ so that renderers can lay out stable subgraphs and so that two maps diff cleanly
   exclusivity claim** — "only X reads this" is a claim about exactly these rows, and it is the
   claim that authorises a drop. On the `data-contracts` surface the `resolvedTarget` is read out
   of the query text: a hit is classified by the table the query targets, never by the file's
-  name or the module's domain.
+  name or the module's domain. `discarded` is also the **other half of the accounting identity**:
+  a hit that is in neither `nodes` nor `discarded` is invisible on its own, and becomes visible
+  only as a number — `hits` exceeding `consumers + discards` by exactly the hits nobody bucketed.
 
 ## `nodes`
 
@@ -149,6 +164,7 @@ it will be read as absence.
 
 An envelope is complete when: all twelve surfaces are present; every node has a state and a break
 class; every `silent` node has its `note`; every edge has confidence and evidence; every empty
-surface either has a negative with a control or a `not checked` confidence; every exclusivity
-claim carries a non-empty `discarded`; and `meta.notScanned` agrees with the prose "what this map
-cannot see". A renderer may assume all of this, which is why the map must actually do it.
+surface either has a negative with a control or a `not checked` confidence; **every sweep in
+`searched` balances, `hits = consumers + discards`**; every exclusivity claim carries a non-empty
+`discarded`; and `meta.notScanned` agrees with the prose "what this map cannot see". A renderer
+may assume all of this, which is why the map must actually do it.

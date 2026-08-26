@@ -96,7 +96,9 @@ breaking somebody else's system.
 
 The literal search on the data-contract surface returned nine hits and kept four, so the map
 carries the five it dropped — each opened, each classified by the table its query names rather
-than by the module it sits in:
+than by the module it sits in. The arithmetic is on the page, because that is what makes a
+silently dropped hit visible: `git grep -c sync_state → 9 hits: 4 consumers + 5 discards,
+9 = 4 + 5`.
 
 ```text
 discarded | reports/health.ts:44   | SELECT ... FROM document_health_daily | document_health_daily | rollup table, not the base table
