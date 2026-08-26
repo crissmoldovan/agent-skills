@@ -44,5 +44,17 @@ Repository README and agent-facing update prompts must agree with the published
 catalogue. Encouraging an update never authorizes mutation of a user's machine;
 local synchronization remains an explicit target handled by `update-agent-skills`.
 
+Release notes reach a reader only if they learn the release happened.
+`update-agent-skills` carries a read-only freshness check that compares an
+installed pack against the published tree and prints the stale skills, the latest
+release, and the exact scoped command, plus an installer for an optional
+`SessionStart` hook that runs it. The check never invokes the Skills CLI, whose
+`check` is a mutating alias for `update`. Its notify mode reports and stops;
+installing its auto mode is the user's standing consent to update that source at
+that scope, and is withdrawn by removing the hook. Announcement remains
+communication, and mutation remains something a user asks for. The update-check
+design—asymmetric cache lifetimes, a fenced network call, and the split between
+notifying and applying—is informed by garrytan/gstack's update-check design.
+
 Future publication work is tracked in the [roadmap](roadmap.md); roadmap items
 must not be described as shipped until implemented and verified.
