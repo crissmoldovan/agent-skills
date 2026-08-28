@@ -31,7 +31,7 @@ companions that own the work, and the pipeline can correctly terminate at any of
 | Gate | Artifact | Does not open until |
 |---|---|---|
 | **G0 intake** | the **claim card** | the report is restated as one claim that could be false, with what would falsify it written next to it |
-| **G1 analyse** | the **finding at its class**, plus the **reproduction table** | the cause (or, for a feature, the implication) is stated at the evidence class the claim requires, every number in the report has been measured, and every inherited claim is dated to a revision |
+| **G1 analyse** | the **finding at its class**, plus the **reproduction table** | the cause (or, for a feature, the implication) is stated at the evidence class the claim requires, every number in the report has been measured, **every causal claim has been separately falsified**, and every inherited claim is dated to a revision |
 | **G2 offer** | the **candidate table** | 2–4 candidates carry a blast area, what each does **not** fix, reversibility and size — and the do-nothing line is a real row, not a courtesy |
 | **G3 spec** | the **build contract** | every requirement names its files, its proving test and the **mutation** that must kill that test, and the requirements' file sets are disjoint |
 | **G4 implement** | the **landed change with its budget and gate ladder** | `land-complex-change` returns them; this skill declares no budget and arms no gates of its own |
@@ -175,6 +175,47 @@ one for the report whose correct answer was a question.
    *true at `<sha>`, not true at HEAD* where it has stopped holding — frequently the entire
    resolution. Class rules, the table worked through, and unreproducible claims are in
    [reproducing the claim](references/reproducing-the-claim.md).
+
+   **THE SEPARATE-DIAGNOSIS RULE: reproducing every number does not test the cause. Falsify the
+   report's mechanism as its own claim, or the table goes green and the fix does harm.** A number
+   is evidence *for* a cause; it is not the cause. A report states two things — what was observed,
+   and why — and they carry independent truth values. The table above tests only the first, so a
+   report can pass it completely and still be wrong about everything that decides the fix.
+
+   The failure this catches is the one where the reporter is **competent**. A careless report is
+   caught by the numbers; a careful one supplies accurate numbers *and* a plausible mechanism
+   inferred from them, and the mechanism is where the error lives. Three measured cases in one
+   day, same reporter, every reported figure `reproduced`, and a build against each stated cause
+   already written and passing its own tests:
+
+   - "the join table contains duplicate rows — delete them". The counts were exact. Duplicates:
+     **zero**. The extra rows were a legitimate one-to-many the same reporter had asked for in an
+     earlier ticket; the deletion would have destroyed them.
+   - "the original value survives in the backup column, so it is recoverable". The fill rate was
+     exact. But most of that column was a byte-identical copy of the clean source and corrupted at
+     half its rate — so the proposed recovery preferred the *dirtier* of the two. Simulated, it
+     repaired none of the damaged rows and rewrote thousands of clean ones.
+   - "these records have been through human review". Zero of them had. No reviewer column existed
+     in the schema at all, so review was not merely unused but unrecordable — and the fix wrote
+     "verified" into every downstream prompt, where the artifact it produced would launder the
+     false provenance into something later readers take as fact.
+
+   So add a row per causal claim, verdict from the same closed set, and **make the test a
+   falsification**: name what must be true in the data if the mechanism holds, then go looking for
+   its absence. "Are there duplicates?" is settled by a grouped count returning nothing — not by
+   rows exceeding entities, which a legitimate one-to-many produces just as readily. Confirmation
+   is cheap and proves little; the absence is the test.
+
+   Where the two verdicts disagree, **the symptom is still real**. Record the observation as
+   confirmed and the mechanism as refuted, carry the corrected cause into G2, and say so plainly:
+   a reporter who found a real problem is owed the finding, not a rebuttal.
+
+   **This raises the stakes at G2, so weight them there.** An unverified diagnosis makes the
+   do-nothing row heavier, because a faithful build against a wrong cause is not merely wasted
+   effort — it is frequently *destructive*, and it arrives with green tests, a confident note and
+   nothing in its presentation to distinguish it from a correct one. Where G1 could not falsify
+   the mechanism, put that in the candidate table rather than letting the report's confidence
+   carry unexamined into the build contract.
 
    **Decompose every limit before arguing about it.** Where the report or the requirement cites
    a size, a duration, a count or a quota, measure **what the number is made of** — each
@@ -397,6 +438,12 @@ take back, and file any number that disagrees as its own report rather than hold
   whichever is cheapest to write.
 - **A stale claim built on.** The report describes a past state; anything inherited from it
   answers "was it true?" and needs a current-state check before it becomes a requirement.
+- **Accurate numbers taken as a verified cause.** The most expensive miss in this pipeline is not
+  a report that is wrong — it is a careful one whose figures all reproduce and whose *mechanism*
+  does not, because nothing downstream reopens a question the table appeared to close. Measured:
+  three such reports in one day from one reporter, every figure `reproduced`, and in two of them
+  the build against the stated cause was destructive rather than merely useless. Reproduce the
+  numbers **and** falsify the mechanism; they are separate claims with separate verdicts.
 - **All candidates propose doing something.** If "already fixed" and "do nothing" are never
   offered they were never considered, and the pipeline has an outcome it cannot reach. The
   fourth invented approach usually already exists in the tree under a different word, which is
@@ -434,6 +481,10 @@ take back, and file any number that disagrees as its own report rather than hold
       claims are marked as resting on a lower one.
 - [ ] **G1:** every number in the report has a row and a verdict from the closed set, and a
       partial reproduction is reported as a finding rather than as a failure.
+- [ ] **G1:** every causal claim has its own row and its own falsification — what must be true in
+      the data if the mechanism holds, and the search for its absence — and where the numbers
+      reproduce but the mechanism does not, the symptom is recorded as confirmed and the corrected
+      cause is what reaches G2.
 - [ ] **G1:** every limit the report or the requirement cites was decomposed into its
       contributors before any remedy was argued, and no infeasibility claim rests on an
       aggregate nobody measured.
