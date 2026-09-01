@@ -82,7 +82,32 @@ post-baseline comment that names its own completion is terminal even when no rev
 was submitted; its wording then chooses the state — outstanding findings mean
 `findings`, a fixed or empty finding list means `clean`. Acknowledgement wording
 still wins: a comment that merely quotes the words a finished review would use
-remains nonterminal.
+remains nonterminal, and so does a partial pass that makes the claim and then
+withdraws it (“reviewed up to `packages/guards/` … I need another pass”).
+
+**Completion is a past-tense claim, not a phrase.** Do not match a fixed list of
+openers. This classifier once demanded the literal “reviewed PR” or “review
+complete”, and a real verdict opening “Reviewed \`67b6d36\` and its
+documentation-only diff” matched nothing — a caller waited forty minutes for a
+verdict that had arrived in four seconds. Recognise the claim, then let two things
+veto it: courtesy wording, and an admission of unfinished work.
+
+**`clean` must be earned; ambiguity means `findings`.** A verdict is clean only when
+it states its own emptiness — no/zero findings, `Findings: none`, a table row
+reporting `0`, LGTM with nothing contrasted against it. A verdict that merely fails
+to mention findings is **not** clean. The three ways to be wrong do not cost the
+same: a false `findings` costs a reader the seconds it takes to open the comment, a
+false nonterminal costs a timeout, and a false `clean` accepts an unreviewed or
+unclean head — the only one of the three that merges. Bias every uncertain case away
+from `clean`.
+
+**Never decide from a bare mention.** “No new severity ≥7 findings” contains the
+word `findings`; so does a `/findings` path segment in a dashboard URL, and so does
+a quoted verdict from an earlier round that the next sentence retracts. Scope every
+mention — negated, resolved, quoted, or outstanding — instead of testing whether the
+noun appears. Watch for the inversion too: “zero of these findings have been
+addressed” is the strongest possible findings statement and reads, to a naive
+stripper, like the weakest.
 
 ```bash
 node skills/blocks/scripts/blocks-review-cli.mjs status \
