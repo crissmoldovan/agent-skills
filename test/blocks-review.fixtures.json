@@ -8,19 +8,19 @@
   {
     "id": "real-B",
     "expected": "clean",
-    "body": "Reviewed PR #29 at `4248476`.\n\nThe route-entry filename guard closes the previously reported shared-helper bypass. I found no new severity ≥7 issues, so I left no additional PR comments.\n\nFocused local test execution wasn't possible because this checkout has neither `pnpm` nor dependencies installed; the branch is clean and `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/bc5ccafb)**",
+    "body": "Reviewed PR #29 at `4248476`.\n\nThe route-entry filename guard closes the previously reported shared-helper bypass. I found no new severity \u22657 issues, so I left no additional PR comments.\n\nFocused local test execution wasn't possible because this checkout has neither `pnpm` nor dependencies installed; the branch is clean and `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/bc5ccafb)**",
     "source": "observed on cueplusplus/skills#29"
   },
   {
     "id": "real-C",
     "expected": "clean",
-    "body": "Reviewed `67b6d36` and its documentation-only diff.\n\nNo new severity ≥7 findings. The current CI run is green for this exact head SHA, and `git diff --check` passes. I left no PR comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/5b459a6a)**",
+    "body": "Reviewed `67b6d36` and its documentation-only diff.\n\nNo new severity \u22657 findings. The current CI run is green for this exact head SHA, and `git diff --check` passes. I left no PR comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/5b459a6a)**",
     "source": "observed on cueplusplus/skills#29"
   },
   {
     "id": "real-D",
     "expected": "clean",
-    "body": "Reviewed PR #29 at `7d8bb2c`.\n\nNo new severity ≥7 findings; no PR comments posted. The documentation amendment matches the recorded PR discussion, and `git diff --check` passes. Current head CI is successful.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/8c43ac8a)**",
+    "body": "Reviewed PR #29 at `7d8bb2c`.\n\nNo new severity \u22657 findings; no PR comments posted. The documentation amendment matches the recorded PR discussion, and `git diff --check` passes. Current head CI is successful.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/8c43ac8a)**",
     "source": "observed on cueplusplus/skills#29"
   },
   {
@@ -88,7 +88,7 @@
     "expected": "nonterminal",
     "body": "Mention me in a comment to get started:\n\n`@blocks review this pull request`\n`@blocks fix the findings you left`\n\nWhen a pass finishes I reply with **Reviewed PR #<number>** and either the findings I left inline or `No actionable findings.` Run `@blocks /help` for the full command list.",
     "source": "generated",
-    "why": "Onboarding text that documents the bot's own terminal vocabulary — it quotes \"Reviewed PR\", \"findings\" and \"No actionable findings\" — and currently classifies as 'findings', sending an agent hunting for a finding that was never made."
+    "why": "Onboarding text that documents the bot's own terminal vocabulary \u2014 it quotes \"Reviewed PR\", \"findings\" and \"No actionable findings\" \u2014 and currently classifies as 'findings', sending an agent hunting for a finding that was never made."
   },
   {
     "id": "gen-7",
@@ -144,7 +144,7 @@
     "expected": "nonterminal",
     "body": "Reviewed `67b6d36` down to the worker package so far. I am now pulling the CI logs for that head and will read `packages/queue/` after that, so please treat this as progress rather than a result.",
     "source": "generated",
-    "why": "It opens exactly like the misclassified true-clean body [C] — \"Reviewed `sha`\" — so it is the direct counterweight to the obvious fix of treating \"Reviewed <sha>\" as a verdict opener."
+    "why": "It opens exactly like the misclassified true-clean body [C] \u2014 \"Reviewed `sha`\" \u2014 so it is the direct counterweight to the obvious fix of treating \"Reviewed <sha>\" as a verdict opener."
   },
   {
     "id": "gen-15",
@@ -165,7 +165,7 @@
     "expected": "clean",
     "body": "Reviewed `c0d41ab` on `feat/rate-limit-window`.\n\nThe diff is confined to `src/lib/rate-limit.ts` and its unit test. The sliding-window reset now uses a monotonic clock, and the two callers in `app/api/ingest/route.ts` pass the same bucket key they did before. Nothing at or above severity 7 turned up, so I posted nothing inline.\n\nI could not execute the suite here because dependencies are not installed in this checkout, but CI for this exact head SHA is green and `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/41/runs/8812)**",
     "source": "generated",
-    "why": "A finished review reporting nothing outstanding, but it opens with a bare SHA and never says \"findings\", \"LGTM\" or \"pull request\" — the exact [C] seam, and today it falls all the way through to nonterminal 'requested'."
+    "why": "A finished review reporting nothing outstanding, but it opens with a bare SHA and never says \"findings\", \"LGTM\" or \"pull request\" \u2014 the exact [C] seam, and today it falls all the way through to nonterminal 'requested'."
   },
   {
     "id": "gen-18",
@@ -193,14 +193,14 @@
     "expected": "clean",
     "body": "I have reviewed this pull request end to end at `4c7db90`.\n\nNo new severity >=7 findings. The auth middleware short-circuits before the session lookup for public routes, which is the behaviour the issue asked for, and the added test covers both branches. I posted no inline comments.\n\nLocal test execution was not possible in this environment, but the head CI run is successful.",
     "source": "generated",
-    "why": "It hits the first half of the clean test but says \"posted no inline comments\" instead of the hardcoded \"left no inline comments\", and \"No new severity >=7 findings\" is three tokens wide — so a plainly finished, plainly empty review is nonterminal."
+    "why": "It hits the first half of the clean test but says \"posted no inline comments\" instead of the hardcoded \"left no inline comments\", and \"No new severity >=7 findings\" is three tokens wide \u2014 so a plainly finished, plainly empty review is nonterminal."
   },
   {
     "id": "gen-22",
     "expected": "clean",
     "body": "Review complete for `9ac1f02`.\n\nThe preview deployment that was queued at push time finished successfully, and I read its build log alongside the diff. Zero findings at severity 7 or above; I posted nothing inline and requested no changes.\n\nOne observation for later, not blocking: `docs/deploy.md` still references the old preview URL scheme.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/61/runs/9101)**",
     "source": "generated",
-    "why": "An explicit \"Review complete\" is cancelled because the word \"queued\" appears in an incidental sentence about CI, demoting a terminal verdict to nonterminal 'reviewing' — the failure mode that burns the whole timeout."
+    "why": "An explicit \"Review complete\" is cancelled because the word \"queued\" appears in an incidental sentence about CI, demoting a terminal verdict to nonterminal 'reviewing' \u2014 the failure mode that burns the whole timeout."
   },
   {
     "id": "gen-23",
@@ -221,26 +221,26 @@
     "expected": "clean",
     "body": "Reviewed `81ae44c`.\n\n0 findings at severity >= 7. The change deletes a dead feature flag and its two branches, and nothing else reads `ENABLE_LEGACY_UPLOAD`. LGTM.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/70/runs/9310)**",
     "source": "generated",
-    "why": "Control case that the current code already gets right via \"LGTM\" — it guards against a rewrite that over-rotates on the failures and starts losing the numeric-zero-plus-LGTM shape."
+    "why": "Control case that the current code already gets right via \"LGTM\" \u2014 it guards against a rewrite that over-rotates on the failures and starts losing the numeric-zero-plus-LGTM shape."
   },
   {
     "id": "gen-26",
     "expected": "clean",
-    "body": "Reviewed PR #63 at `0aa9e31` and left no comments.\n\nI weighed one issue around the cache key in `src/server/cache.ts` — it omits the locale, so two locales share an entry — but the affected surface is a static footer fragment, which puts it at severity 4, below the reporting bar. I have not opened it as a finding.\n\nEverything else in the diff is straightforward: a dependency bump and the lockfile it implies. Head CI is green.",
+    "body": "Reviewed PR #63 at `0aa9e31` and left no comments.\n\nI weighed one issue around the cache key in `src/server/cache.ts` \u2014 it omits the locale, so two locales share an entry \u2014 but the affected surface is a static footer fragment, which puts it at severity 4, below the reporting bar. I have not opened it as a finding.\n\nEverything else in the diff is straightforward: a dependency bump and the lockfile it implies. Head CI is green.",
     "source": "generated",
-    "why": "Nothing is outstanding — the bot explicitly declined to open the observation as a finding and posted no comment — but \"not opened it as a finding\" is a negation form the stripper does not model, so it reads as a reported finding and sends an agent hunting for a fix that was never requested."
+    "why": "Nothing is outstanding \u2014 the bot explicitly declined to open the observation as a finding and posted no comment \u2014 but \"not opened it as a finding\" is a negation form the stripper does not model, so it reads as a reported finding and sends an agent hunting for a fix that was never requested."
   },
   {
     "id": "gen-27",
     "expected": "clean",
-    "body": "Review complete — PR #66 at `5c72b04`.\n\nThe findings section of the dashboard is empty for this run, and that is accurate: I read all nine changed files and none of them cross the severity bar. The new `withRetry` helper is only used by the two idempotent handlers, which is the correct restriction.\n\n`git diff --check` passes and the branch is clean.",
+    "body": "Review complete \u2014 PR #66 at `5c72b04`.\n\nThe findings section of the dashboard is empty for this run, and that is accurate: I read all nine changed files and none of them cross the severity bar. The new `withRetry` helper is only used by the two idempotent handlers, which is the correct restriction.\n\n`git diff --check` passes and the branch is clean.",
     "source": "generated",
     "why": "\"The findings section is empty\" states the absence using the word itself with no \"no/zero/0\" prefix, which is precisely what the bare-mention fallback cannot survive."
   },
   {
     "id": "gen-28",
     "expected": "clean",
-    "body": "**Review complete** — PR #72 at `abc1234`\n\n| Metric | Value |\n| --- | --- |\n| Files reviewed | 9 |\n| Findings (severity >= 7) | 0 |\n| Comments posted | 0 |\n\nThe worker now acknowledges the message after the write commits rather than before, which is what the previous round asked for. Nothing else in the diff needs attention.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/72/runs/9402)**",
+    "body": "**Review complete** \u2014 PR #72 at `abc1234`\n\n| Metric | Value |\n| --- | --- |\n| Files reviewed | 9 |\n| Findings (severity >= 7) | 0 |\n| Comments posted | 0 |\n\nThe worker now acknowledges the message after the write commits rather than before, which is what the previous round asked for. Nothing else in the diff needs attention.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/72/runs/9402)**",
     "source": "generated",
     "why": "A markdown summary table puts the count after the label (\"Findings (severity >= 7) | 0\"), inverting the word order the negation regex requires, so a table that literally reports zero is read as findings."
   },
@@ -254,9 +254,9 @@
   {
     "id": "gen-30",
     "expected": "clean",
-    "body": "Done — I reviewed the pull request at `e4410cd`.\n\nNothing actionable. The schema migration is additive, the backfill is chunked with a resumable cursor, and the rollback path drops only the column it added. I checked that no query in `src/db/queries` selects `*` from the affected table.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/75/runs/9503)**",
+    "body": "Done \u2014 I reviewed the pull request at `e4410cd`.\n\nNothing actionable. The schema migration is additive, the backfill is chunked with a resumable cursor, and the rollback path drops only the column it added. I checked that no query in `src/db/queries` selects `*` from the affected table.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/75/runs/9503)**",
     "source": "generated",
-    "why": "\"Nothing actionable\" differs from the hardcoded \"no actionable findings\" by two words, so the clean test's second clause fails even though the first matches — a finished review classed nonterminal on vocabulary alone."
+    "why": "\"Nothing actionable\" differs from the hardcoded \"no actionable findings\" by two words, so the clean test's second clause fails even though the first matches \u2014 a finished review classed nonterminal on vocabulary alone."
   },
   {
     "id": "gen-31",
@@ -268,16 +268,16 @@
   {
     "id": "gen-32",
     "expected": "clean",
-    "body": "Reviewed PR #80 at `9d0c3ae` and approved it.\n\nThe extraction of `parseFrontmatter` into its own module is a pure move, the tests moved with it, and the public export list is unchanged. Looks good to me — nothing outstanding.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/80/runs/9611)**",
+    "body": "Reviewed PR #80 at `9d0c3ae` and approved it.\n\nThe extraction of `parseFrontmatter` into its own module is a pure move, the tests moved with it, and the public export list is unchanged. Looks good to me \u2014 nothing outstanding.\n\n**[View on dashboard](https://blocks.team/beamtech/pr/80/runs/9611)**",
     "source": "generated",
-    "why": "Control case that passes today on \"looks good\" and an approval with no findings vocabulary at all — the shape a rewrite must keep classifying clean without leaning on the word \"findings\"."
+    "why": "Control case that passes today on \"looks good\" and an approval with no findings vocabulary at all \u2014 the shape a rewrite must keep classifying clean without leaning on the word \"findings\"."
   },
   {
     "id": "gen-33",
     "expected": "findings",
     "body": "Reviewed `9c41ea2` and the queue-drain changes.\n\nOne finding at severity 7. `apps/worker/src/drain.ts` acknowledges the SQS message before `flushBatch()` resolves, so if the process is killed between the ack and the flush the batch is dropped with no trace. Acking after the await, or routing a rejected flush to the dead-letter queue, would close it.\n\nI did not open an inline thread because the ack and the flush sit twelve lines apart and a comment would only anchor to one of them. `pnpm` is unavailable in this environment so the worker suite did not run; `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/pr/412/review/9c41ea2)**",
     "source": "generated",
-    "why": "A finished single-finding verdict opened with a bare sha (\"Reviewed `9c41ea2`\") rather than \"Reviewed PR\", so it stresses the same isVerdict gap that hung 40 minutes on [C] — the current code calls it nonterminal 'requested'."
+    "why": "A finished single-finding verdict opened with a bare sha (\"Reviewed `9c41ea2`\") rather than \"Reviewed PR\", so it stresses the same isVerdict gap that hung 40 minutes on [C] \u2014 the current code calls it nonterminal 'requested'."
   },
   {
     "id": "gen-34",
@@ -289,21 +289,21 @@
   {
     "id": "gen-35",
     "expected": "findings",
-    "body": "Reviewed PR #52 at `3ad9c11`.\n\nThe finding about the missing retry budget in the billing retry helper is still open and I would block the merge on it — the earlier concern about debug logging in that same file has been addressed. Without a budget a provider 500 retries forever at the queue's redelivery rate, and the customer's card is charged on every attempt that does succeed.\n\nNothing is posted inline this round: the hunk moved, and GitHub anchors the comment to the wrong line.\n\n**[View on dashboard](https://blocks.team/pr/52/review/3ad9c11)**",
+    "body": "Reviewed PR #52 at `3ad9c11`.\n\nThe finding about the missing retry budget in the billing retry helper is still open and I would block the merge on it \u2014 the earlier concern about debug logging in that same file has been addressed. Without a budget a provider 500 retries forever at the queue's redelivery rate, and the customer's card is charged on every attempt that does succeed.\n\nNothing is posted inline this round: the hunk moved, and GitHub anchors the comment to the wrong line.\n\n**[View on dashboard](https://blocks.team/pr/52/review/3ad9c11)**",
     "source": "generated",
-    "why": "The outstanding finding is stated first and a resolved concern trails it in the same sentence, so the fixed-stripping regex swallows the span from \"finding\" all the way to \"has been addressed\" and the live finding vanishes — the current code returns a false 'clean'."
+    "why": "The outstanding finding is stated first and a resolved concern trails it in the same sentence, so the fixed-stripping regex swallows the span from \"finding\" all the way to \"has been addressed\" and the live finding vanishes \u2014 the current code returns a false 'clean'."
   },
   {
     "id": "gen-36",
     "expected": "findings",
-    "body": "Reviewed PR #61 at `de92f04`.\n\nTwo severity >=7 findings, both in `src/auth/token.ts`:\n\n1. `verifyToken()` compares the signature with `===`, which leaks timing information. Use `crypto.timingSafeEqual` over equal-length buffers.\n2. The refresh path accepts a token with no `exp` claim at all, because `undefined < now` is false and the expiry check passes silently.\n\nNeither is posted inline — they live in a block this diff rewrites wholesale, so the anchors kept landing on the deleted side. Focused tests were not runnable here (`pnpm` missing).\n\n**[View on dashboard](https://blocks.team/pr/61/review/de92f04)**",
+    "body": "Reviewed PR #61 at `de92f04`.\n\nTwo severity >=7 findings, both in `src/auth/token.ts`:\n\n1. `verifyToken()` compares the signature with `===`, which leaks timing information. Use `crypto.timingSafeEqual` over equal-length buffers.\n2. The refresh path accepts a token with no `exp` claim at all, because `undefined < now` is false and the expiry check passes silently.\n\nNeither is posted inline \u2014 they live in a block this diff rewrites wholesale, so the anchors kept landing on the deleted side. Focused tests were not runnable here (`pnpm` missing).\n\n**[View on dashboard](https://blocks.team/pr/61/review/de92f04)**",
     "source": "generated",
-    "why": "The positive mirror of [D]'s severity phrasing — \"Two severity >=7 findings\" — which the count regex cannot parse (\">=7\" is not \\w+) and which only survives today via the bare-mention fallback a repair is likely to delete."
+    "why": "The positive mirror of [D]'s severity phrasing \u2014 \"Two severity >=7 findings\" \u2014 which the count regex cannot parse (\">=7\" is not \\w+) and which only survives today via the bare-mention fallback a repair is likely to delete."
   },
   {
     "id": "gen-37",
     "expected": "findings",
-    "body": "Review complete for `1e77b3a`.\n\nI found three problems worth fixing before this merges. The migration in `db/migrations/0042_add_org_id.sql` adds a NOT NULL column with no default to a table that already has rows, so it fails on any non-empty database. The backfill it pairs with is wired to run after that migration rather than before. And `OrgContext` reads `org_id` straight off the session without checking the session belongs to that org, so a stale cookie reads across tenants.\n\nNo inline comments — all three are cross-file and read better together. `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/pr/58/review/1e77b3a)**",
+    "body": "Review complete for `1e77b3a`.\n\nI found three problems worth fixing before this merges. The migration in `db/migrations/0042_add_org_id.sql` adds a NOT NULL column with no default to a table that already has rows, so it fails on any non-empty database. The backfill it pairs with is wired to run after that migration rather than before. And `OrgContext` reads `org_id` straight off the session without checking the session belongs to that org, so a stale cookie reads across tenants.\n\nNo inline comments \u2014 all three are cross-file and read better together. `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/pr/58/review/1e77b3a)**",
     "source": "generated",
     "why": "A clearly finished verdict reporting three defects without ever using the word \"finding\", so reportsFindings sees nothing and the current code emits a false 'clean' that would send an agent to merge unreviewed problems."
   },
@@ -312,12 +312,12 @@
     "expected": "findings",
     "body": "Reviewed `8bd4a19` and the round-four diff.\n\nNo new severity >=7 findings in the migration itself, but the finding I raised on the backfill script in round two is still present: it pages with `LIMIT 1000` and no stable cursor, so rows shift underneath it and roughly a third of the table is skipped on a live database. That remains the blocking item on this PR.\n\nNothing new posted inline. CI on this head is green and `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/pr/33/review/8bd4a19)**",
     "source": "generated",
-    "why": "Deliberate near-twin of the genuinely clean [C]/[D] wording — same \"No new severity >=7 findings\" opener — but a \"but\" clause carries an unresolved carry-over, so a fix that simply learns to treat that phrase as clean will invert this one."
+    "why": "Deliberate near-twin of the genuinely clean [C]/[D] wording \u2014 same \"No new severity >=7 findings\" opener \u2014 but a \"but\" clause carries an unresolved carry-over, so a fix that simply learns to treat that phrase as clean will invert this one."
   },
   {
     "id": "gen-39",
     "expected": "findings",
-    "body": "Reviewed PR #33 at `05e6ca7`.\n\nZero new findings this round — the diff is limited to `README.md` and the release workflow. The item from round one is untouched, though: `web/app/(dashboard)/layout.tsx` still calls `cookies()` above the `Suspense` boundary, which opts the entire dashboard out of static rendering. Until that is fixed or explicitly waived I cannot call this branch clean.\n\nI have not re-posted the comment; the round-one thread is still open and unresolved.\n\n**[View on dashboard](https://blocks.team/pr/33/review/05e6ca7)**",
+    "body": "Reviewed PR #33 at `05e6ca7`.\n\nZero new findings this round \u2014 the diff is limited to `README.md` and the release workflow. The item from round one is untouched, though: `web/app/(dashboard)/layout.tsx` still calls `cookies()` above the `Suspense` boundary, which opts the entire dashboard out of static rendering. Until that is fixed or explicitly waived I cannot call this branch clean.\n\nI have not re-posted the comment; the round-one thread is still open and unresolved.\n\n**[View on dashboard](https://blocks.team/pr/33/review/05e6ca7)**",
     "source": "generated",
     "why": "Zero new findings but an unresolved carry-over means issues are still outstanding, and the negation stripper removes the only \"findings\" token, so the current code returns a false 'clean' on a PR that is not clean."
   },
@@ -326,7 +326,7 @@
     "expected": "findings",
     "body": "Reviewed `7ac0f5b`.\n\nSeveral findings on the CSV export path, all under `apps/reports/src/export`:\n\n- The row stream is piped to the response with no back-pressure handling, so a 200k-row export buffers the whole file in memory.\n- `escapeCell()` does not prefix cells beginning with `=`, `+`, `-` or `@`, so a crafted value executes as a formula when the export is opened in Excel.\n- The temp file written under `/tmp` is never unlinked when the request aborts.\n\nI described them here instead of inline because they are three symptoms of one helper written against a small fixture. Tests were not runnable in this environment.\n\n**[View on dashboard](https://blocks.team/pr/71/review/7ac0f5b)**",
     "source": "generated",
-    "why": "An unmistakable multi-finding verdict — \"Several findings\" plus a bulleted list — that the current code still calls nonterminal purely because the opener is a bare sha, proving the verdict test, not the findings test, is the hang risk here."
+    "why": "An unmistakable multi-finding verdict \u2014 \"Several findings\" plus a bulleted list \u2014 that the current code still calls nonterminal purely because the opener is a bare sha, proving the verdict test, not the findings test, is the hang risk here."
   },
   {
     "id": "gen-41",
@@ -338,16 +338,16 @@
   {
     "id": "gen-42",
     "expected": "findings",
-    "body": "Re-review complete for `f3c81b2`.\n\nThe tracing guard I marked as cleared last round is back in its original shape: `isRouteEntry()` matches on the directory name alone again, so a shared helper under `app/` is approved even when a dynamic route imports it. Same defect as round two, reintroduced by the merge from `main` at `2b98c40`.\n\nNothing posted inline — the round-two thread is where that discussion already lives, and I would rather not fork it.\n\n**[View on dashboard](https://blocks.team/pr/29/review/f3c81b2)**",
+    "body": "Re-review complete for `f3c81b2`.\n\nThe tracing guard I marked as cleared last round is back in its original shape: `isRouteEntry()` matches on the directory name alone again, so a shared helper under `app/` is approved even when a dynamic route imports it. Same defect as round two, reintroduced by the merge from `main` at `2b98c40`.\n\nNothing posted inline \u2014 the round-two thread is where that discussion already lives, and I would rather not fork it.\n\n**[View on dashboard](https://blocks.team/pr/29/review/f3c81b2)**",
     "source": "generated",
     "why": "A recognised verdict reporting a regression using \"cleared\" language and no plural \"findings\" anywhere, so the current code reads the reappeared defect as resolved and returns 'clean'."
   },
   {
     "id": "gen-43",
     "expected": "findings",
-    "body": "Reviewed `bb417c9` and the two commits sitting on top of the round-three head.\n\n### Findings (2)\n\n**`packages/cli/src/config.ts`** — `loadConfig()` merges the user file over the defaults with `Object.assign`, so a nested key that exists in the defaults but not in the user file is dropped rather than inherited. Every project that sets `build.target` loses `build.sourcemap`.\n\n**`packages/cli/src/run.ts`** — the `--dry-run` flag is read after the first write to disk, so a dry run still truncates the lockfile.\n\nNeither is posted as an inline comment; the dashboard link carries the same detail.\n\n**[View on dashboard](https://blocks.team/pr/64/review/bb417c9)**",
+    "body": "Reviewed `bb417c9` and the two commits sitting on top of the round-three head.\n\n### Findings (2)\n\n**`packages/cli/src/config.ts`** \u2014 `loadConfig()` merges the user file over the defaults with `Object.assign`, so a nested key that exists in the defaults but not in the user file is dropped rather than inherited. Every project that sets `build.target` loses `build.sourcemap`.\n\n**`packages/cli/src/run.ts`** \u2014 the `--dry-run` flag is read after the first write to disk, so a dry run still truncates the lockfile.\n\nNeither is posted as an inline comment; the dashboard link carries the same detail.\n\n**[View on dashboard](https://blocks.team/pr/64/review/bb417c9)**",
     "source": "generated",
-    "why": "Structured markdown with a \"### Findings (2)\" heading and a parenthesised count that no count regex reaches, on a bare-sha opener — it tests whether headings and formatting are read at all, since the current code stops at nonterminal."
+    "why": "Structured markdown with a \"### Findings (2)\" heading and a parenthesised count that no count regex reaches, on a bare-sha opener \u2014 it tests whether headings and formatting are read at all, since the current code stops at nonterminal."
   },
   {
     "id": "gen-44",
@@ -361,7 +361,7 @@
     "expected": "findings",
     "body": "Reviewed PR #29 at `5e0b8d1`.\n\nThe filename guard now covers the shared-helper case from the previous round, and I left no additional PR comments. I did hit one new severity 8 issue while re-reading it: `normalisePath()` lowercases before comparing, so on a case-sensitive checkout `App/Page.tsx` and `app/page.tsx` collapse to the same entry and the second one is silently skipped by the guard.\n\nFocused local test execution was not possible; this checkout has neither `pnpm` nor dependencies installed. `git diff --check` passes.\n\n**[View on dashboard](https://blocks.team/pr/29/review/5e0b8d1)**",
     "source": "generated",
-    "why": "Deliberately shaped like the genuinely clean [B] — same opener, same \"left no additional PR comments\" and same environment caveat — but with one severity 8 issue reported in prose, so it separates the wording that made [B] clean from the substance that makes this one findings."
+    "why": "Deliberately shaped like the genuinely clean [B] \u2014 same opener, same \"left no additional PR comments\" and same environment caveat \u2014 but with one severity 8 issue reported in prose, so it separates the wording that made [B] clean from the substance that makes this one findings."
   },
   {
     "id": "gen-46",
@@ -375,7 +375,7 @@
     "expected": "clean",
     "body": "Reviewed PR #41 at `c0ffee1`.\n\nNone of the changed files produced findings above the severity >=7 bar. The migration is additive, the backfill script is idempotent, and the rollback note in `docs/ops/migrations.md` matches what the migration actually does.\n\nI did not post inline comments on this round. CI is green for this exact head SHA.\n\n**[View on dashboard](https://blocks.team/pr/41/review/c0ffee1)**",
     "source": "generated",
-    "why": "Nothing is outstanding, but both negations are lexical variants the stripper does not know — \"None of\" is not `\\bno\\b` and \"did not post inline comments\" is not \"no inline comments\" — so two clean statements each survive as evidence of findings (current output: findings)."
+    "why": "Nothing is outstanding, but both negations are lexical variants the stripper does not know \u2014 \"None of\" is not `\\bno\\b` and \"did not post inline comments\" is not \"no inline comments\" \u2014 so two clean statements each survive as evidence of findings (current output: findings)."
   },
   {
     "id": "gen-48",
@@ -424,7 +424,7 @@
     "expected": "clean",
     "body": "Reviewed PR #41 at `0ab77c9`.\n\nQuoting my earlier verdict so the history sits in one place:\n\n> Three findings at severity >=7, all in `lib/queue/consumer.ts`.\n\nAll three are addressed at this head. The consumer acks after the handler resolves, the dead-letter path has a test, and the retry ceiling is read from config rather than hard-coded. I have no further comments.\n\n**[View on dashboard](https://blocks.team/pr/41/review/0ab77c9)**",
     "source": "generated",
-    "why": "Combines the two hardest clean shapes — a quoted prior-round count and a resolution sentence — and the resolution stripper cannot bridge them because a dotted filename and a blockquote newline sit in the gap (current output: findings)."
+    "why": "Combines the two hardest clean shapes \u2014 a quoted prior-round count and a resolution sentence \u2014 and the resolution stripper cannot bridge them because a dotted filename and a blockquote newline sit in the gap (current output: findings)."
   },
   {
     "id": "gen-55",
@@ -452,7 +452,7 @@
     "expected": "clean",
     "body": "Re-reviewed `8e1c0b4` and its test-only diff.\n\nNo new severity >=7 issues, so I left no PR comments. The added cases cover both the timeout and the abort path, and they fail against the pre-fix helper, which is what I wanted to see.\n\n**[View on dashboard](https://blocks.team/pr/41/findings/8e1c0b4)**",
     "source": "generated",
-    "why": "The [C]-style hang — \"Re-reviewed `sha`\" matches no verdict pattern — booby-trapped so the obvious fix does not simply flip it to findings: the only occurrence of the word \"findings\" is inside the dashboard URL (current output: nonterminal requested)."
+    "why": "The [C]-style hang \u2014 \"Re-reviewed `sha`\" matches no verdict pattern \u2014 booby-trapped so the obvious fix does not simply flip it to findings: the only occurrence of the word \"findings\" is inside the dashboard URL (current output: nonterminal requested)."
   },
   {
     "id": "gen-59",
@@ -466,7 +466,7 @@
     "expected": "findings",
     "body": "Reviewed PR #41 at `6b0a91d`.\n\nThe two findings from round two are fixed. One new severity >=8 finding remains, and I could not attach it inline because the affected line sits outside the diff hunk: `packages/api/src/limiter.ts` increments the quota counter before the transaction commits, so a rollback leaves the quota consumed. Under concurrent retries this over-counts and locks the tenant out for the rest of the window.\n\nPlease treat that as outstanding; everything else in the diff is fine.\n\n**[View on dashboard](https://blocks.team/pr/41/review/6b0a91d)**",
     "source": "generated",
-    "why": "The mirror image of the clean set — resolved prior findings plus one genuinely outstanding singular finding reported in prose because it could not be posted inline — and it is correct today only by accident (the \"8\" in \">=8\" is read as a count), so any fix that strips severity thresholds or trusts the \"are fixed\" clause turns it into a false clean."
+    "why": "The mirror image of the clean set \u2014 resolved prior findings plus one genuinely outstanding singular finding reported in prose because it could not be posted inline \u2014 and it is correct today only by accident (the \"8\" in \">=8\" is read as a count), so any fix that strips severity thresholds or trusts the \"are fixed\" clause turns it into a false clean."
   },
   {
     "id": "gen-61",
@@ -501,7 +501,7 @@
     "expected": "findings",
     "body": "Overall this looks good: the documentation half matches the recorded discussion and CI is green for `8b1de07`.\n\nThe retry path is the exception. `withRetry` treats a thrown `AbortError` as retryable, which turns a cancelled upload into an unbounded loop against the storage API. That is a correctness finding at severity 8 and I would not merge over it.\n\n**[View on dashboard](https://blocks.team/pr/44/round-3)**",
     "source": "generated",
-    "why": "The verdict explicitly refuses merge over a severity 8 finding, yet the reassuring opener \"looks good\" wins the clean test outright — the phrase \"a correctness finding\" is never even consulted because clean is decided before findings are."
+    "why": "The verdict explicitly refuses merge over a severity 8 finding, yet the reassuring opener \"looks good\" wins the clean test outright \u2014 the phrase \"a correctness finding\" is never even consulted because clean is decided before findings are."
   },
   {
     "id": "gen-66",
@@ -534,7 +534,7 @@
   {
     "id": "gen-70",
     "expected": "findings",
-    "body": "Reviewed the diff end to end at `b0d4417` and left no inline comments — the annotations API rejected both because the lines are inside a generated file.\n\nThe two problems: `packages/tokens/src/build` writes outside its output directory when `--out` is relative, and the CLI exits 0 on a partial write, so CI goes green on a truncated bundle. Both are severity 7 or above by my read.\n\n**[View on dashboard](https://blocks.team/pr/70/round-1)**",
+    "body": "Reviewed the diff end to end at `b0d4417` and left no inline comments \u2014 the annotations API rejected both because the lines are inside a generated file.\n\nThe two problems: `packages/tokens/src/build` writes outside its output directory when `--out` is relative, and the CLI exits 0 on a partial write, so CI goes green on a truncated bundle. Both are severity 7 or above by my read.\n\n**[View on dashboard](https://blocks.team/pr/70/round-1)**",
     "source": "generated",
     "why": "Absence of inline comments here is a tooling failure, not an absence of findings, yet \"reviewed ... end to end\" plus \"left no inline comments\" satisfies both halves of the clean test before the two severity-7 problems are read."
   },
@@ -564,27 +564,34 @@
     "expected": "clean",
     "body": "Reviewed PR #58 at `9c1e0aa`.\n\nI found nothing at severity >=7 on this head. The three findings I raised on round two are gone: the retry loop is bounded, the tenant check is in place, and `AbortError` is rethrown. I left no PR comments.\n\n`git diff --check` passes and the CI run for this exact head SHA is green.\n\n**[View on dashboard](https://blocks.team/pr/58/round-5)**",
     "source": "generated",
-    "why": "Nothing is outstanding — the historical findings are enumerated only to confirm they are gone — so it guards against overcorrecting: a repair that treats any surviving mention of \"findings\" as outstanding sends an agent hunting for a finding that no longer exists."
+    "why": "Nothing is outstanding \u2014 the historical findings are enumerated only to confirm they are gone \u2014 so it guards against overcorrecting: a repair that treats any surviving mention of \"findings\" as outstanding sends an agent hunting for a finding that no longer exists."
   },
   {
     "id": "gen-75",
     "expected": "clean",
-    "body": "Reviewed `2f5aa30` and the follow-up commit on this branch.\n\nEvery inline comment I left earlier is resolved, and I found nothing new at severity >=7, so I left no comments this round. Focused tests still could not run here — this checkout has no dependencies installed — but `git diff --check` passes and CI is green for this exact head SHA.\n\n**[View on dashboard](https://blocks.team/pr/58/round-6)**",
+    "body": "Reviewed `2f5aa30` and the follow-up commit on this branch.\n\nEvery inline comment I left earlier is resolved, and I found nothing new at severity >=7, so I left no comments this round. Focused tests still could not run here \u2014 this checkout has no dependencies installed \u2014 but `git diff --check` passes and CI is green for this exact head SHA.\n\n**[View on dashboard](https://blocks.team/pr/58/round-6)**",
     "source": "generated",
-    "why": "A finished review with nothing outstanding that names a SHA instead of \"PR\" and reports cleanliness as \"nothing new at severity >=7\" — the exact shape that hung the loop for forty minutes, kept here so the repair is not narrowed to the literal phrases in the observed clean bodies."
+    "why": "A finished review with nothing outstanding that names a SHA instead of \"PR\" and reports cleanliness as \"nothing new at severity >=7\" \u2014 the exact shape that hung the loop for forty minutes, kept here so the repair is not narrowed to the literal phrases in the observed clean bodies."
   },
   {
     "id": "gen-76",
     "expected": "nonterminal",
-    "body": "Picking this back up after the force-push. My previous comment — \"Reviewed PR #29 at `4248476`\" — describes a head that no longer exists, so please disregard it for this round.\n\nI am re-reading the diff against `5b91cc2` now and will edit this comment with the result.\n\n**[View on dashboard](https://blocks.team/pr/29/round-6)**",
+    "body": "Picking this back up after the force-push. My previous comment \u2014 \"Reviewed PR #29 at `4248476`\" \u2014 describes a head that no longer exists, so please disregard it for this round.\n\nI am re-reading the diff against `5b91cc2` now and will edit this comment with the result.\n\n**[View on dashboard](https://blocks.team/pr/29/round-6)**",
     "source": "generated",
-    "why": "The review of the current head has not started, and the only verdict phrase in the body is a quotation of a superseded comment — a verdict matcher that ignores quoting and grammatical subject accepts an unreviewed head as clean."
+    "why": "The review of the current head has not started, and the only verdict phrase in the body is a quotation of a superseded comment \u2014 a verdict matcher that ignores quoting and grammatical subject accepts an unreviewed head as clean."
   },
   {
     "id": "gen-77",
     "expected": "nonterminal",
-    "body": "Starting on `d0c7f31` now. No findings yet — so far I have only walked the migration files. I will post the full result in this comment once the pass finishes.\n\n**[View on dashboard](https://blocks.team/pr/81/round-1)**",
+    "body": "Starting on `d0c7f31` now. No findings yet \u2014 so far I have only walked the migration files. I will post the full result in this comment once the pass finishes.\n\n**[View on dashboard](https://blocks.team/pr/81/round-1)**",
     "source": "generated",
     "why": "This is a progress note whose \"no findings yet\" is provisional, but the phrase satisfies both halves of the clean test with no completion marker present, so an in-flight review is accepted as a finished clean one."
+  },
+  {
+    "id": "real-H",
+    "expected": "clean",
+    "body": "Reviewed PR #29 at `0eefe942`.\n\nThe documentation correction is accurate; upstream PR #15 is still open, and the remaining wording consistently treats its fix as unmerged. No new severity \u22657 issues found, so I left no additional PR comments. CI for this head is successful.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/8eb593e7)**",
+    "source": "observed on cueplusplus/skills#29, round 6",
+    "why": "A clean verdict that says a PULL REQUEST is 'still open'. An unscoped still-open test reads that as an outstanding finding; the standing-predicate check must stay bound to a findings noun."
   }
 ]

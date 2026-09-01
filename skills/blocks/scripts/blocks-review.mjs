@@ -257,8 +257,11 @@ function reportsFindings(body = '') {
   // and must be settled BEFORE any resolution is stripped. Otherwise "two findings
   // remain open on the queue worker, and the bypass from round two was fixed" loses
   // its findings to a resolution that belongs to the other half of the sentence.
-  if (re(String.raw`${NOUN}[^.!?;\n]{0,40}?\b(?:remain|remains|stand|standing|persist|still\s+open|are\s+open|is\s+open|are\s+outstanding|reproduce)`).test(own)) return true;
-  if (/\bstill standing\b|\bstill open\b|\bremain open\b/i.test(own)) return true;
+  // The gap is wide because the noun and its predicate can be far apart — "the
+  // finding about the missing retry budget in the billing retry helper is still open"
+  // — but it is still bounded by clause punctuation, which is what keeps "…accurate;
+  // upstream PR #15 is still open" out: the semicolon ends the reach.
+  if (re(String.raw`${NOUN}[^.!?;\n]{0,80}?\b(?:remain|remains|stand|standing|persist|still\s+open|are\s+open|is\s+open|are\s+outstanding|reproduce)`).test(own)) return true;
   // A verdict can clear last round's findings and open new ones in the same breath:
   // "the three from round two are resolved and the new ones are listed below".
   if (/\bopen items\b|\bthe new ones\b|\bnew (?:findings?|issues?) (?:are|is) listed\b/i.test(own)) return true;
@@ -282,7 +285,11 @@ function reportsFindings(body = '') {
 
   if (re(String.raw`\b(?:\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|several|multiple|some|few|new|remaining|outstanding|both|each|every)\s+(?:\w+[\s-]+){0,3}?${NOUN}`).test(text)) return true;
   if (re(String.raw`\b${NOUN}\b[^.!?;\n]{0,40}?\b(?:remain|stand|outstanding|unresolved|untouched|reproduce)`).test(text)) return true;
-  if (/\b(?:untouched|unresolved|still (?:stands|open|outstanding)|not (?:been )?(?:fixed|addressed|resolved))\b/i.test(text)) return true;
+  // "still open" is NOT in this unscoped set, deliberately. Pull requests, issues and
+  // tickets are open; only the scoped check above may read "open" as a defect still
+  // standing, because there it has a findings noun in front of it. A verdict saying
+  // "upstream PR #15 is still open" is reporting news, not a finding.
+  if (/\b(?:untouched|unresolved|still (?:stands|outstanding)|not (?:been )?(?:fixed|addressed|resolved))\b/i.test(text)) return true;
 
   // A contrastive turn followed by a concrete defect is outstanding work even when
   // the word "finding" never appears: "LGTM apart from one blocker", "no actionable
