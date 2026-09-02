@@ -301,6 +301,71 @@ function reportsFindings(body = '') {
   return !statesEmptiness(own);
 }
 
+/**
+ * The commit a verdict says it reviewed, or null when it names none.
+ *
+ * Blocks writes the head into its summary — "Reviewed PR #29 at `a0eef8b`",
+ * "Reviewed `67b6d36` and its documentation-only diff" — which is the only thing
+ * that ties a verdict to a commit. A review of a superseded head cannot accept the
+ * current one, and nothing else in the payload says which head it read.
+ */
+export function reviewedSha(body = '') {
+  const match = String(body).match(/\b(?:reviewed|re-?reviewed|review complete[^\n]{0,20}?)\b[^\n]{0,60}?`([0-9a-f]{7,40})`/i)
+    ?? String(body).match(/\b(?:at|for|on)\s+`([0-9a-f]{7,40})`/i);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Whether a verdict may be acted on, given the commit it read and what CI said.
+ *
+ * A `clean` review is not acceptance on its own, and this is the gap that made it
+ * worth writing down. Two failures motivated it, both observed rather than imagined:
+ *
+ * 1. **A verdict for a superseded head.** Every push moves the branch; a review that
+ *    named the previous commit says nothing about the current one, and its wording
+ *    gives no hint that it is stale.
+ * 2. **A green check name for a commit it never tested.** `gh pr checks` reported
+ *    pass while the run under it belonged to the previous head, because the new run
+ *    had not registered yet. A poll keyed on the check name exited satisfied.
+ *
+ * So acceptance asks for three things at once: a clean verdict, a verdict that names
+ * the head under consideration, and CI success **on that same commit**. Anything less
+ * is reported with a reason rather than silently downgraded, because a caller that
+ * cannot tell "not yet" from "no" will read both as "go".
+ *
+ * @param state One of the classifier's states.
+ * @param verdictSha The commit the verdict named, from {@link reviewedSha}.
+ * @param headSha The pull request's current head.
+ * @param ciConclusion The required check's conclusion on `headSha` — `success`,
+ *   something else, or null when no run for that commit exists yet.
+ * @param verdictAt When the verdict was posted. Used only when it names no commit.
+ * @param headCommittedAt When the head commit was authored. Same.
+ */
+export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, verdictAt, headCommittedAt }) {
+  const reasons = [];
+  if (state !== 'clean') reasons.push(`review state is \`${state}\`, not clean`);
+  if (!headSha) reasons.push('the pull request head is unknown');
+  else if (verdictSha) {
+    // A named commit is the strong form: compare it directly.
+    if (!String(headSha).startsWith(String(verdictSha)) && !String(verdictSha).startsWith(String(headSha))) {
+      reasons.push(`the verdict reviewed \`${verdictSha}\` but the head is \`${String(headSha).slice(0, 7)}\``);
+    }
+  } else if (verdictAt && headCommittedAt) {
+    // Not every verdict names a commit, and refusing those outright would block a
+    // perfectly good review over its wording — the mistake this file keeps making in
+    // other forms. A verdict posted after the head was committed cannot have read an
+    // earlier one, so the timestamps settle it without asking the prose to.
+    if (Date.parse(verdictAt) < Date.parse(headCommittedAt)) {
+      reasons.push('the verdict predates this head, so it reviewed an earlier commit');
+    }
+  } else {
+    reasons.push('the verdict names no commit and cannot be dated against this head');
+  }
+  if (ciConclusion === null || ciConclusion === undefined) reasons.push('no CI run for this head has completed');
+  else if (ciConclusion !== 'success') reasons.push(`CI on this head concluded \`${ciConclusion}\``);
+  return { acceptable: reasons.length === 0, reasons };
+}
+
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));

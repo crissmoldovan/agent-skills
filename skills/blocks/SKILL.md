@@ -114,6 +114,22 @@ node skills/blocks/scripts/blocks-review-cli.mjs status \
   --repo <owner/repo> --pr <N> --requested-at <ISO>
 ```
 
+**A clean verdict is not acceptance.** `status` also reports whether the verdict can
+actually be acted on, and refuses for a named reason when it cannot. Three things
+must hold at once: the state is `clean`, the verdict covers the head under
+consideration, and CI **succeeded on that same commit**.
+
+Both halves were learned from real failures. A review names the commit it read
+("Reviewed PR #29 at `a0eef8b`"); every push moves the branch, and a verdict for the
+previous head says nothing about the current one while reading exactly like one that
+does. Separately, `gh pr checks` reported pass while the run underneath belonged to
+the previous head, because the new run had not registered yet — so **key CI on the
+sha, never on the check name**. A run that has not finished is not a pass.
+
+A verdict that names no commit is dated against the head rather than refused: one
+posted after the head was committed cannot have read an earlier one. Refusing it for
+its wording would be the same mistake one layer up.
+
 ## Visible Bounded Wait
 
 Mirror Trigger.dev's active-wait contract, not its transport:
