@@ -317,6 +317,30 @@ function reportsFindings(body = '') {
 }
 
 /**
+ * Every commit a verdict mentions, in the order it mentions them.
+ *
+ * Asking "which sha did it review" turned out to be the wrong question. A verdict
+ * routinely names two — "Review of `f38ec17` (two commits since `3190f35`)" — and
+ * picking one by position picked the wrong one: `reviewedSha` matched the earlier
+ * mention and reported a review of the superseded commit, on a comment whose own
+ * title named the current head. Then a rephrasing it did not know ("Review of ...",
+ * "sync on ...") returned null and the verdict could not be tied to anything.
+ *
+ * The answerable question is whether the head under consideration appears at all.
+ * A verdict that names this commit covers it; one that names only older commits
+ * does not. No phrasing has to be anticipated for that.
+ */
+export function mentionedShas(body = '') {
+  return [...String(body).matchAll(/`([0-9a-f]{7,40})`/g)].map((m) => m[1]);
+}
+
+/** Whether any of those is the head — prefix either way, since lengths differ. */
+export function coversHead(body = '', headSha = '') {
+  if (!headSha) return false;
+  return mentionedShas(body).some((sha) => String(headSha).startsWith(sha) || sha.startsWith(String(headSha)));
+}
+
+/**
  * The commit a verdict says it reviewed, or null when it names none.
  *
  * Blocks writes the head into its summary — "Reviewed PR #29 at `a0eef8b`",

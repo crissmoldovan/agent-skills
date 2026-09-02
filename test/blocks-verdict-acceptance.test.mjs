@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { chooseVerdictAt, classifyBlocksEvidence, reviewedSha, subThresholdCount, verdictAcceptance } from '../skills/blocks/scripts/blocks-review.mjs';
+import { chooseVerdictAt, classifyBlocksEvidence, coversHead, mentionedShas, reviewedSha, subThresholdCount, verdictAcceptance } from '../skills/blocks/scripts/blocks-review.mjs';
 
 // A clean verdict is not acceptance, and both halves of that were learned the hard
 // way on a real pull request rather than imagined here.
@@ -145,4 +145,42 @@ test('a resolution in the active voice is not a report of outstanding work', () 
   // "the two commits address the severity-4 finding from the prior round" describes
   // what was fixed; the passive pattern alone read it as what is broken.
   assert.equal(classify('Reviewed PR #14 at `f38ec17`. The commits address the severity-4 finding from the prior round. No findings at or above severity 7.'), 'clean');
+});
+
+// Asking "which sha did this verdict review" was the wrong question, and both ways
+// of getting it wrong were observed on one pull request.
+test('a verdict naming two commits is read as covering the head, not the older one', () => {
+  // "Review of `f38ec17` (two commits since `3190f35`)" — taking the first sha by
+  // position reported a review of the superseded commit, on a comment whose own
+  // title named the current head.
+  const body = 'Review of `f38ec17` (two commits since `3190f35`). No findings at or above severity 7.';
+  assert.deepEqual(mentionedShas(body), ['f38ec17', '3190f35']);
+  assert.equal(coversHead(body, 'f38ec17aa1122'), true);
+  assert.equal(coversHead(body, '3190f35'), true);
+  assert.equal(coversHead(body, 'deadbee'), false);
+});
+
+test('coverage does not depend on a phrasing being anticipated', () => {
+  // Each of these returned null from the phrase-matching version, which left the
+  // verdict tied to nothing and refused for a reason that was not true.
+  for (const body of [
+    'Review of `f38ec17`.',
+    '## Review — PR #14 sync on `f38ec17`',
+    'I have everything I need. Reviewed `f38ec17` end to end.',
+    'Verdict for `f38ec17`: nothing outstanding.',
+  ]) {
+    assert.equal(coversHead(body, 'f38ec17'), true, body);
+  }
+});
+
+test('a verdict naming only older commits does not cover this head', () => {
+  const body = 'Reviewed PR #14 at `3190f35`. No findings at or above severity 7.';
+  assert.equal(coversHead(body, 'f38ec17'), false);
+  const stale = verdictAcceptance({ state: 'clean', verdictSha: '3190f35', headSha: 'f38ec17', ciConclusion: 'success' });
+  assert.equal(stale.acceptable, false);
+});
+
+test('no commit mentioned at all is not coverage', () => {
+  assert.equal(coversHead('Reviewed the pull request end to end. No findings.', 'f38ec17'), false);
+  assert.deepEqual(mentionedShas('no backticked shas here'), []);
 });
