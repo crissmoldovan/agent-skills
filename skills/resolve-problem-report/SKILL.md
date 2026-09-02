@@ -363,8 +363,9 @@ Records are written per [the run-record convention](references/documenting-the-r
 ## Usage Examples
 
 ```text
-Here is the report as it came in. Turn it into one sentence that could be false, tell me what
-would falsify it, and keep the cause they suggested separate from what they observed.
+Here is the report as it came in. Turn it into one sentence that could be false and keep the
+cause they suggested separate from what they observed. When you reach options, include doing
+nothing and check what the ticket already asks for before inventing a new approach.
 ```
 
 ```text

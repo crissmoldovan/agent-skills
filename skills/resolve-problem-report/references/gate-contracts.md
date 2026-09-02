@@ -72,8 +72,9 @@ question in the pipeline and the one most worth asking.
 | `not_searched[]` | what was out of reach, and the probe that would settle it |
 
 **Opens when:** the finding is stated at the required class or the shortfall is named; every
-number has a verdict; every cited limit is decomposed; every load-bearing negative names a
-control that fired; every inherited claim is dated.
+number has a verdict; **every causal claim has its own row and its own falsification**; every
+cited limit is decomposed; every load-bearing negative names a control that fired; every
+inherited claim is dated.
 
 **Decompose a limit before reasoning about it.** A cited limit — "must fit in 4 MB", "must
 finish inside the window", "no more than 200 rows" — is an aggregate, and an aggregate is the
