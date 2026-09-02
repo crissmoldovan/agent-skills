@@ -398,10 +398,9 @@ take back, and file any number that disagrees as its own report rather than hold
   whichever is cheapest to write.
 - **A stale claim built on.** The report describes a past state; anything inherited from it
   answers "was it true?" and needs a current-state check before it becomes a requirement.
-- **Accurate numbers taken as a verified cause.** The expensive miss is not a wrong report but a
-  careful one whose figures reproduce and whose mechanism does not, because nothing downstream
-  reopens a question the table appeared to close. Falsify the cause separately — see
-  [falsifying the diagnosis](references/separate-diagnosis.md).
+- **Accurate numbers taken as a verified cause.** The expensive miss is a careful report whose
+  figures reproduce and whose mechanism does not, because nothing downstream reopens a question
+  the table appeared to close — see [falsifying the diagnosis](references/separate-diagnosis.md).
 - **All candidates propose doing something.** If "already fixed" and "do nothing" are never
   offered they were never considered, and the pipeline has an outcome it cannot reach. The
   fourth invented approach usually already exists in the tree under a different word, which is
