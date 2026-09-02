@@ -202,7 +202,12 @@ test('baseline IDs exclude pre-existing evidence at the same timestamp', () => {
   assert.equal(result.state, 'requested');
 });
 
-test('collects comments, reviews, and inline comments through an injected GitHub reader', async () => {
+test('collects comments, reviews, inline comments and checks through an injected GitHub reader', async () => {
+  // `checks` is the third channel and it is not optional. Which one a finished
+  // review arrives on depends on how the integration is configured: one repository
+  // gets a summary comment naming the head, another gets only help text and a
+  // `Blocks PR Review` check. Reading comments alone left a completed, clean,
+  // zero-finding review looking like `reviewing` forever.
   const calls = [];
   const read = async (kind) => {
     calls.push(kind);
@@ -210,8 +215,70 @@ test('collects comments, reviews, and inline comments through an injected GitHub
     return [];
   };
   const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
-  assert.deepEqual(calls, ['pr', 'inline']);
+  assert.deepEqual(calls, ['pr', 'inline', 'checks']);
   assert.equal(result.state, 'requested');
+});
+
+test('a completed Blocks check is terminal when nothing else reported anything', async () => {
+  const read = async (kind) => {
+    if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+    if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion: 'success' }];
+    return [];
+  };
+  const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a Blocks check still running is not terminal', async () => {
+  const read = async (kind) => {
+    if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+    if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'in_progress', conclusion: null }];
+    return [];
+  };
+  const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+  assert.equal(result.terminal, false);
+});
+
+test('a check that completed without succeeding is not an all-clear', async () => {
+  // The false clean this whole gate exists to prevent. A check can finish badly —
+  // the review that found this bug concluded `action_required` — and reading that as
+  // "nothing to report" infers an all-clear from silence. Its own findings may not
+  // have been posted at all, which is exactly when a network error would strand them.
+  for (const conclusion of ['failure', 'action_required', 'cancelled', 'timed_out']) {
+    const read = async (kind) => {
+      if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+      if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion }];
+      return [];
+    };
+    const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+    assert.notEqual(result.state, 'clean', conclusion);
+    assert.equal(result.terminal, false, conclusion);
+  }
+});
+
+test('neutral and skipped conclusions still count as a finished, empty review', async () => {
+  for (const conclusion of ['success', 'neutral', 'skipped']) {
+    const read = async (kind) => {
+      if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+      if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion }];
+      return [];
+    };
+    const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+    assert.equal(result.state, 'clean', conclusion);
+  }
+});
+
+test('a completed check does not overrule inline findings', async () => {
+  // The check says the review FINISHED, never that it was clean. What it found is
+  // still decided by the findings, or a false clean would merge on a green check.
+  const read = async (kind) => {
+    if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+    if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion: 'success' }];
+    return [{ id: 9, user: { login: 'blocksorg' }, created_at: '2026-08-24T23:50:00Z', path: 'a.ts', line: 3, body: 'Severity 8/10 — unbounded retry.' }];
+  };
+  const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+  assert.equal(result.state, 'findings');
 });
 
 test('default GitHub inline collection requests every page', async () => {

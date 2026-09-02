@@ -70,8 +70,17 @@ GitHub-originated review evidence remains GitHub-authoritative:
 - top-level PR comments;
 - formal reviews;
 - all paginated inline review comments;
+- **check runs on the head commit** — a completed `Blocks PR Review` check;
 - PR open/closed state;
 - Blocks dashboard links included in comments.
+
+**Read every channel, not the one you expect.** Which one a finished review arrives
+on depends on how the integration is configured: one repository gets a summary
+comment naming the head, another gets only help text and reports the verdict as a
+check. Reading comments alone leaves a completed, clean, zero-finding review looking
+like `reviewing` until the wait times out. A completed check means the review
+**finished**, never that it was clean — what it found is still decided by the inline
+comments, or a false clean would ride in on a green check.
 
 Always compare against a baseline containing timestamp and stable IDs. Help text,
 eyes reactions, queue messages, and “taking a look” are nonterminal. Return one of
@@ -82,12 +91,53 @@ post-baseline comment that names its own completion is terminal even when no rev
 was submitted; its wording then chooses the state — outstanding findings mean
 `findings`, a fixed or empty finding list means `clean`. Acknowledgement wording
 still wins: a comment that merely quotes the words a finished review would use
-remains nonterminal.
+remains nonterminal, and so does a partial pass that makes the claim and then
+withdraws it (“reviewed up to `packages/guards/` … I need another pass”).
+
+**Completion is a past-tense claim, not a phrase.** Do not match a fixed list of
+openers. This classifier once demanded the literal “reviewed PR” or “review
+complete”, and a real verdict opening “Reviewed \`67b6d36\` and its
+documentation-only diff” matched nothing — a caller waited forty minutes for a
+verdict that had arrived in four seconds. Recognise the claim, then let two things
+veto it: courtesy wording, and an admission of unfinished work.
+
+**`clean` must be earned; ambiguity means `findings`.** A verdict is clean only when
+it states its own emptiness — no/zero findings, `Findings: none`, a table row
+reporting `0`, LGTM with nothing contrasted against it. A verdict that merely fails
+to mention findings is **not** clean. The three ways to be wrong do not cost the
+same: a false `findings` costs a reader the seconds it takes to open the comment, a
+false nonterminal costs a timeout, and a false `clean` accepts an unreviewed or
+unclean head — the only one of the three that merges. Bias every uncertain case away
+from `clean`.
+
+**Never decide from a bare mention.** “No new severity ≥7 findings” contains the
+word `findings`; so does a `/findings` path segment in a dashboard URL, and so does
+a quoted verdict from an earlier round that the next sentence retracts. Scope every
+mention — negated, resolved, quoted, or outstanding — instead of testing whether the
+noun appears. Watch for the inversion too: “zero of these findings have been
+addressed” is the strongest possible findings statement and reads, to a naive
+stripper, like the weakest.
 
 ```bash
 node skills/blocks/scripts/blocks-review-cli.mjs status \
   --repo <owner/repo> --pr <N> --requested-at <ISO>
 ```
+
+**A clean verdict is not acceptance.** `status` also reports whether the verdict can
+actually be acted on, and refuses for a named reason when it cannot. Three things
+must hold at once: the state is `clean`, the verdict covers the head under
+consideration, and CI **succeeded on that same commit**.
+
+Both halves were learned from real failures. A review names the commit it read
+("Reviewed PR #29 at `a0eef8b`"); every push moves the branch, and a verdict for the
+previous head says nothing about the current one while reading exactly like one that
+does. Separately, `gh pr checks` reported pass while the run underneath belonged to
+the previous head, because the new run had not registered yet — so **key CI on the
+sha, never on the check name**. A run that has not finished is not a pass.
+
+A verdict that names no commit is dated against the head rather than refused: one
+posted after the head was committed cannot have read an earlier one. Refusing it for
+its wording would be the same mistake one layer up.
 
 ## Visible Bounded Wait
 
