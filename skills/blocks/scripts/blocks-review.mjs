@@ -366,7 +366,24 @@ export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, ve
   return { acceptable: reasons.length === 0, reasons };
 }
 
-export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
+/**
+ * A finished Blocks review reported as a CHECK RUN rather than as a comment.
+ *
+ * Which channel it uses depends on how the integration is configured: on one
+ * repository Blocks posts a summary comment naming the head, on another it posts
+ * only help text and reports the verdict as a `Blocks PR Review` check. Reading
+ * comments alone made a completed, clean, zero-finding review look like `reviewing`
+ * forever — the same defect this file keeps producing, one channel over.
+ *
+ * A completed check is evidence that the review FINISHED, not that it was clean.
+ * What it found is still decided by the inline comments and summary above, which is
+ * why this only ever contributes terminality.
+ */
+function blocksCheckCompleted(checks = []) {
+  return checks.some((check) => /blocks/i.test(check.name ?? '') && (check.status ?? '') === 'completed');
+}
+
+export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));
   const relevantComments = comments.filter(after('comments'));
@@ -398,6 +415,12 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
   if (cleanComment || cleanReview) {
     return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
   }
+  // No verdict in prose, but the integration may report completion as a check
+  // instead. Nothing was found above — no inline comments, no findings review — so a
+  // finished review with nothing to show is clean.
+  if (blocksCheckCompleted(checks)) {
+    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+  }
   if (relevantComments.some((item) => isCourtesy(item.body)) || relevantReviews.length) {
     return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
   }
@@ -414,12 +437,19 @@ async function ghJson(args) {
 
 export async function collectBlocksStatus({ repo, pr, requestedAt, baselineIds, read, runGh = ghJson }) {
   const reader = read ?? (async (kind) => {
-    if (kind === 'pr') return runGh(['pr', 'view', String(pr), '--repo', repo, '--json', 'state,comments,reviews,reviewRequests']);
+    if (kind === 'pr') return runGh(['pr', 'view', String(pr), '--repo', repo, '--json', 'state,comments,reviews,reviewRequests,headRefOid']);
+    if (kind === 'checks') {
+      const head = prData?.headRefOid;
+      if (!head) return [];
+      const runs = await runGh(['api', `repos/${repo}/commits/${head}/check-runs`]);
+      return runs?.check_runs ?? [];
+    }
     const pages = await runGh(['api', '--method', 'GET', `repos/${repo}/pulls/${pr}/comments?per_page=100`, '--paginate', '--slurp']);
     return Array.isArray(pages?.[0]) ? pages.flat() : pages;
   });
   const prData = await reader('pr');
   const inlineRaw = await reader('inline');
+  const checks = await reader('checks').catch(() => []);
   const normalize = (item) => ({
     ...item,
     author: item.author?.login ?? item.author ?? item.user?.login,
@@ -428,6 +458,7 @@ export async function collectBlocksStatus({ repo, pr, requestedAt, baselineIds, 
     htmlUrl: item.htmlUrl ?? item.html_url,
   });
   return classifyBlocksEvidence({
+    checks,
     prState: prData.state,
     comments: (prData.comments ?? []).map(normalize),
     reviews: (prData.reviews ?? []).map(normalize),

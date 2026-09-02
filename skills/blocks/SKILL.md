@@ -70,8 +70,17 @@ GitHub-originated review evidence remains GitHub-authoritative:
 - top-level PR comments;
 - formal reviews;
 - all paginated inline review comments;
+- **check runs on the head commit** — a completed `Blocks PR Review` check;
 - PR open/closed state;
 - Blocks dashboard links included in comments.
+
+**Read every channel, not the one you expect.** Which one a finished review arrives
+on depends on how the integration is configured: one repository gets a summary
+comment naming the head, another gets only help text and reports the verdict as a
+check. Reading comments alone leaves a completed, clean, zero-finding review looking
+like `reviewing` until the wait times out. A completed check means the review
+**finished**, never that it was clean — what it found is still decided by the inline
+comments, or a false clean would ride in on a green check.
 
 Always compare against a baseline containing timestamp and stable IDs. Help text,
 eyes reactions, queue messages, and “taking a look” are nonterminal. Return one of
