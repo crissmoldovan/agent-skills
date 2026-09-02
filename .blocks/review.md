@@ -30,8 +30,10 @@ once been allowed to see it. We cannot tell which, and that is the problem.
 
 **So put them in the summary comment instead.** The drop applies to inline comments;
 prose in your summary is not filtered. One short line each: the severity you
-assigned, the file, and what you saw. Do not open them as inline comments — those
-will be discarded before anyone reads them.
+assigned, the file, and what you saw. Do not open **sub-threshold** findings as
+inline comments — those specific ones are what the platform discards. Inline
+comments at 7 and above still reach the pull request normally, and remain the right
+place for them.
 
 If there genuinely were none, **say so explicitly** — "no sub-threshold
 observations" — so that the absence is a statement you made rather than a silence we
