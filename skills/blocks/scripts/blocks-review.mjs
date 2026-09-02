@@ -301,7 +301,120 @@ function reportsFindings(body = '') {
   return !statesEmptiness(own);
 }
 
-export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
+/**
+ * The commit a verdict says it reviewed, or null when it names none.
+ *
+ * Blocks writes the head into its summary — "Reviewed PR #29 at `a0eef8b`",
+ * "Reviewed `67b6d36` and its documentation-only diff" — which is the only thing
+ * that ties a verdict to a commit. A review of a superseded head cannot accept the
+ * current one, and nothing else in the payload says which head it read.
+ */
+export function reviewedSha(body = '') {
+  const match = String(body).match(/\b(?:reviewed|re-?reviewed|review complete[^\n]{0,20}?)\b[^\n]{0,60}?`([0-9a-f]{7,40})`/i)
+    ?? String(body).match(/\b(?:at|for|on)\s+`([0-9a-f]{7,40})`/i);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Whether a verdict may be acted on, given the commit it read and what CI said.
+ *
+ * A `clean` review is not acceptance on its own, and this is the gap that made it
+ * worth writing down. Two failures motivated it, both observed rather than imagined:
+ *
+ * 1. **A verdict for a superseded head.** Every push moves the branch; a review that
+ *    named the previous commit says nothing about the current one, and its wording
+ *    gives no hint that it is stale.
+ * 2. **A green check name for a commit it never tested.** `gh pr checks` reported
+ *    pass while the run under it belonged to the previous head, because the new run
+ *    had not registered yet. A poll keyed on the check name exited satisfied.
+ *
+ * So acceptance asks for three things at once: a clean verdict, a verdict that names
+ * the head under consideration, and CI success **on that same commit**. Anything less
+ * is reported with a reason rather than silently downgraded, because a caller that
+ * cannot tell "not yet" from "no" will read both as "go".
+ *
+ * @param state One of the classifier's states.
+ * @param verdictSha The commit the verdict named, from {@link reviewedSha}.
+ * @param headSha The pull request's current head.
+ * @param ciConclusion The required check's conclusion on `headSha` — `success`,
+ *   something else, or null when no run for that commit exists yet.
+ * @param verdictAt When the verdict was posted. Used only when it names no commit.
+ * @param headCommittedAt When the head commit was authored. Same.
+ */
+/**
+ * When a verdict was delivered, in order of how much each source is worth.
+ *
+ * A comment naming the head is best. The Blocks CHECK's completion is next, and it
+ * is not optional: when a review arrives only as a check there is no comment to
+ * date, so without it the check-run path could never be accepted — one of the two
+ * delivery modes, refused forever.
+ *
+ * `latest` is last and nearly a trap. It can be the integration's help text, posted
+ * when the pull request opened, and dating a verdict by an unrelated courtesy
+ * comment is an accident that reads exactly like a decision. It stays only because a
+ * comment from the reviewer is still better evidence than nothing at all.
+ */
+export function chooseVerdictAt({ namedAt = null, blocksCheckCompletedAt = null, latestAt = null } = {}) {
+  return namedAt ?? blocksCheckCompletedAt ?? latestAt ?? null;
+}
+
+export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, verdictAt, headCommittedAt }) {
+  const reasons = [];
+  if (state !== 'clean') reasons.push(`review state is \`${state}\`, not clean`);
+  if (!headSha) reasons.push('the pull request head is unknown');
+  else if (verdictSha) {
+    // A named commit is the strong form: compare it directly.
+    if (!String(headSha).startsWith(String(verdictSha)) && !String(verdictSha).startsWith(String(headSha))) {
+      reasons.push(`the verdict reviewed \`${verdictSha}\` but the head is \`${String(headSha).slice(0, 7)}\``);
+    }
+  } else if (verdictAt && headCommittedAt) {
+    // Not every verdict names a commit, and refusing those outright would block a
+    // perfectly good review over its wording — the mistake this file keeps making in
+    // other forms. A verdict posted after the head was committed cannot have read an
+    // earlier one, so the timestamps settle it without asking the prose to.
+    if (Date.parse(verdictAt) < Date.parse(headCommittedAt)) {
+      reasons.push('the verdict predates this head, so it reviewed an earlier commit');
+    }
+  } else {
+    reasons.push('the verdict names no commit and cannot be dated against this head');
+  }
+  if (ciConclusion === null || ciConclusion === undefined) reasons.push('no CI run for this head has completed');
+  else if (ciConclusion !== 'success') reasons.push(`CI on this head concluded \`${ciConclusion}\``);
+  return { acceptable: reasons.length === 0, reasons };
+}
+
+/**
+ * A finished Blocks review reported as a CHECK RUN rather than as a comment.
+ *
+ * Which channel it uses depends on how the integration is configured: on one
+ * repository Blocks posts a summary comment naming the head, on another it posts
+ * only help text and reports the verdict as a `Blocks PR Review` check. Reading
+ * comments alone made a completed, clean, zero-finding review look like `reviewing`
+ * forever — the same defect this file keeps producing, one channel over.
+ *
+ * A completed check is evidence that the review FINISHED, not that it was clean.
+ * What it found is still decided by the inline comments and summary above, which is
+ * why this only ever contributes terminality.
+ *
+ * The conclusion is checked as well as the status, and the first version of this did
+ * not — it asked only whether the check had finished. That version reached `clean`
+ * with no findings for a check that completed as `failure`, which is the exact
+ * false clean this file calls the only error that merges. It is not a hypothetical
+ * either: the review that caught it concluded `action_required` on this very
+ * repository, so a Blocks check plainly can finish without succeeding.
+ *
+ * A check that concluded anything other than success, neutral or skipped therefore
+ * says the review finished BADLY, and inferring "nothing to report" from it would be
+ * reading silence as an all-clear. The same three conclusions are treated as passing
+ * in the CLI's CI gate, for the same reason.
+ */
+function blocksCheckCompleted(checks = []) {
+  return checks.some((check) => /blocks/i.test(check.name ?? '')
+    && (check.status ?? '') === 'completed'
+    && ['success', 'neutral', 'skipped'].includes(check.conclusion ?? ''));
+}
+
+export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));
   const relevantComments = comments.filter(after('comments'));
@@ -333,6 +446,12 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
   if (cleanComment || cleanReview) {
     return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
   }
+  // No verdict in prose, but the integration may report completion as a check
+  // instead. Nothing was found above — no inline comments, no findings review — so a
+  // finished review with nothing to show is clean.
+  if (blocksCheckCompleted(checks)) {
+    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+  }
   if (relevantComments.some((item) => isCourtesy(item.body)) || relevantReviews.length) {
     return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
   }
@@ -349,12 +468,19 @@ async function ghJson(args) {
 
 export async function collectBlocksStatus({ repo, pr, requestedAt, baselineIds, read, runGh = ghJson }) {
   const reader = read ?? (async (kind) => {
-    if (kind === 'pr') return runGh(['pr', 'view', String(pr), '--repo', repo, '--json', 'state,comments,reviews,reviewRequests']);
+    if (kind === 'pr') return runGh(['pr', 'view', String(pr), '--repo', repo, '--json', 'state,comments,reviews,reviewRequests,headRefOid']);
+    if (kind === 'checks') {
+      const head = prData?.headRefOid;
+      if (!head) return [];
+      const runs = await runGh(['api', `repos/${repo}/commits/${head}/check-runs`]);
+      return runs?.check_runs ?? [];
+    }
     const pages = await runGh(['api', '--method', 'GET', `repos/${repo}/pulls/${pr}/comments?per_page=100`, '--paginate', '--slurp']);
     return Array.isArray(pages?.[0]) ? pages.flat() : pages;
   });
   const prData = await reader('pr');
   const inlineRaw = await reader('inline');
+  const checks = await reader('checks').catch(() => []);
   const normalize = (item) => ({
     ...item,
     author: item.author?.login ?? item.author ?? item.user?.login,
@@ -363,6 +489,7 @@ export async function collectBlocksStatus({ repo, pr, requestedAt, baselineIds, 
     htmlUrl: item.htmlUrl ?? item.html_url,
   });
   return classifyBlocksEvidence({
+    checks,
     prState: prData.state,
     comments: (prData.comments ?? []).map(normalize),
     reviews: (prData.reviews ?? []).map(normalize),

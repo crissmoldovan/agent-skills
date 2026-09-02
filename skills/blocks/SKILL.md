@@ -70,8 +70,17 @@ GitHub-originated review evidence remains GitHub-authoritative:
 - top-level PR comments;
 - formal reviews;
 - all paginated inline review comments;
+- **check runs on the head commit** — a completed `Blocks PR Review` check;
 - PR open/closed state;
 - Blocks dashboard links included in comments.
+
+**Read every channel, not the one you expect.** Which one a finished review arrives
+on depends on how the integration is configured: one repository gets a summary
+comment naming the head, another gets only help text and reports the verdict as a
+check. Reading comments alone leaves a completed, clean, zero-finding review looking
+like `reviewing` until the wait times out. A completed check means the review
+**finished**, never that it was clean — what it found is still decided by the inline
+comments, or a false clean would ride in on a green check.
 
 Always compare against a baseline containing timestamp and stable IDs. Help text,
 eyes reactions, queue messages, and “taking a look” are nonterminal. Return one of
@@ -113,6 +122,22 @@ stripper, like the weakest.
 node skills/blocks/scripts/blocks-review-cli.mjs status \
   --repo <owner/repo> --pr <N> --requested-at <ISO>
 ```
+
+**A clean verdict is not acceptance.** `status` also reports whether the verdict can
+actually be acted on, and refuses for a named reason when it cannot. Three things
+must hold at once: the state is `clean`, the verdict covers the head under
+consideration, and CI **succeeded on that same commit**.
+
+Both halves were learned from real failures. A review names the commit it read
+("Reviewed PR #29 at `a0eef8b`"); every push moves the branch, and a verdict for the
+previous head says nothing about the current one while reading exactly like one that
+does. Separately, `gh pr checks` reported pass while the run underneath belonged to
+the previous head, because the new run had not registered yet — so **key CI on the
+sha, never on the check name**. A run that has not finished is not a pass.
+
+A verdict that names no commit is dated against the head rather than refused: one
+posted after the head was committed cannot have read an earlier one. Refusing it for
+its wording would be the same mistake one layer up.
 
 ## Visible Bounded Wait
 

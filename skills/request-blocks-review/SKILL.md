@@ -61,6 +61,12 @@ and known local failures remain unfinished.
 9. **Repeat until green.** Continue review → findings → fixes → verification →
    re-review until Blocks reports the current head clean and CI remains green.
 
+Acceptance is not the word "clean". It is a clean verdict **for the head you are
+about to merge**, with CI green **on that same commit** — `blocks` reports this and
+names its reason when it refuses. Check the sha, never the check name: a green check
+can belong to the previous head when the new run has not registered yet, and a
+verdict for a superseded commit reads exactly like one for this commit.
+
 Stop only for a clean current-head review, explicit user cancellation, closed PR,
 or non-convergence that must be escalated to the user. Never merge implicitly.
 
