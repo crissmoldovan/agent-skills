@@ -240,6 +240,35 @@ test('a Blocks check still running is not terminal', async () => {
   assert.equal(result.terminal, false);
 });
 
+test('a check that completed without succeeding is not an all-clear', async () => {
+  // The false clean this whole gate exists to prevent. A check can finish badly —
+  // the review that found this bug concluded `action_required` — and reading that as
+  // "nothing to report" infers an all-clear from silence. Its own findings may not
+  // have been posted at all, which is exactly when a network error would strand them.
+  for (const conclusion of ['failure', 'action_required', 'cancelled', 'timed_out']) {
+    const read = async (kind) => {
+      if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+      if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion }];
+      return [];
+    };
+    const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+    assert.notEqual(result.state, 'clean', conclusion);
+    assert.equal(result.terminal, false, conclusion);
+  }
+});
+
+test('neutral and skipped conclusions still count as a finished, empty review', async () => {
+  for (const conclusion of ['success', 'neutral', 'skipped']) {
+    const read = async (kind) => {
+      if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+      if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion }];
+      return [];
+    };
+    const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+    assert.equal(result.state, 'clean', conclusion);
+  }
+});
+
 test('a completed check does not overrule inline findings', async () => {
   // The check says the review FINISHED, never that it was clean. What it found is
   // still decided by the findings, or a false clean would merge on a green check.

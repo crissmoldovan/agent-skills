@@ -378,9 +378,23 @@ export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, ve
  * A completed check is evidence that the review FINISHED, not that it was clean.
  * What it found is still decided by the inline comments and summary above, which is
  * why this only ever contributes terminality.
+ *
+ * The conclusion is checked as well as the status, and the first version of this did
+ * not — it asked only whether the check had finished. That version reached `clean`
+ * with no findings for a check that completed as `failure`, which is the exact
+ * false clean this file calls the only error that merges. It is not a hypothetical
+ * either: the review that caught it concluded `action_required` on this very
+ * repository, so a Blocks check plainly can finish without succeeding.
+ *
+ * A check that concluded anything other than success, neutral or skipped therefore
+ * says the review finished BADLY, and inferring "nothing to report" from it would be
+ * reading silence as an all-clear. The same three conclusions are treated as passing
+ * in the CLI's CI gate, for the same reason.
  */
 function blocksCheckCompleted(checks = []) {
-  return checks.some((check) => /blocks/i.test(check.name ?? '') && (check.status ?? '') === 'completed');
+  return checks.some((check) => /blocks/i.test(check.name ?? '')
+    && (check.status ?? '') === 'completed'
+    && ['success', 'neutral', 'skipped'].includes(check.conclusion ?? ''));
 }
 
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
