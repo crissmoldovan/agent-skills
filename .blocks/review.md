@@ -18,6 +18,29 @@ To run only the tests: `npm test`. To run one file:
 run and why.** A verdict that did not run them and does not mention it reads
 exactly like one that did.
 
+## Say what you dropped
+
+Your platform drops inline comments below severity 7 before they reach the pull
+request, and the summary then says "no new severity >=7 findings" whether you found
+five sub-threshold things or none. From outside those two are identical: there is no
+count, no list, no trace. Across four pull requests and roughly a dozen rounds on
+these repositories, every finding we have ever received was a 7 or an 8 and not one
+was below — which tells us either that nothing below exists, or that we have never
+once been allowed to see it. We cannot tell which, and that is the problem.
+
+**So put them in the summary comment instead.** The drop applies to inline comments;
+prose in your summary is not filtered. One short line each: the severity you
+assigned, the file, and what you saw. Do not open them as inline comments — those
+will be discarded before anyone reads them.
+
+If there genuinely were none, **say so explicitly** — "no sub-threshold
+observations" — so that the absence is a statement you made rather than a silence we
+have to interpret. An unfalsifiable all-clear is worth less than a small honest list.
+
+This is not an invitation to pad the review. A sub-threshold observation is still
+something you actually believe; if you would not have written it down at any
+severity, it does not belong here either.
+
 ## What this repository is, and where it breaks
 
 Most of it is executable logic rather than prose, and the failure mode that keeps
