@@ -31,7 +31,7 @@ companions that own the work, and the pipeline can correctly terminate at any of
 | Gate | Artifact | Does not open until |
 |---|---|---|
 | **G0 intake** | the **claim card** | the report is restated as one claim that could be false, with what would falsify it written next to it |
-| **G1 analyse** | the **finding at its class**, plus the **reproduction table** | the cause (or, for a feature, the implication) is stated at the evidence class the claim requires, every number in the report has been measured, and every inherited claim is dated to a revision |
+| **G1 analyse** | the **finding at its class**, plus the **reproduction table** | the cause (or, for a feature, the implication) is stated at the evidence class the claim requires, every number in the report has been measured, **every causal claim has been separately falsified**, and every inherited claim is dated to a revision |
 | **G2 offer** | the **candidate table** | 2–4 candidates carry a blast area, what each does **not** fix, reversibility and size — and the do-nothing line is a real row, not a courtesy |
 | **G3 spec** | the **build contract** | every requirement names its files, its proving test and the **mutation** that must kill that test, and the requirements' file sets are disjoint |
 | **G4 implement** | the **landed change with its budget and gate ladder** | `land-complex-change` returns them; this skill declares no budget and arms no gates of its own |
@@ -175,6 +175,15 @@ one for the report whose correct answer was a question.
    *true at `<sha>`, not true at HEAD* where it has stopped holding — frequently the entire
    resolution. Class rules, the table worked through, and unreproducible claims are in
    [reproducing the claim](references/reproducing-the-claim.md).
+
+   **THE SEPARATE-DIAGNOSIS RULE: reproducing every number does not test the cause.** A number is
+   evidence *for* a mechanism, not the mechanism, and the two carry independent truth values. So
+   add a row per causal claim and **make its test a falsification** — name what must be true if
+   the mechanism holds, then look for its absence. Where the verdicts disagree the symptom is
+   still real: confirm the observation, refute the mechanism, carry the corrected cause into G2.
+   This catches the *competent* reporter, and a build against a wrong cause is frequently
+   destructive while looking exactly like a correct one — three measured cases, the shape of the
+   test and its weight at G2 are in [falsifying the diagnosis](references/separate-diagnosis.md).
 
    **Decompose every limit before arguing about it.** Where the report or the requirement cites
    a size, a duration, a count or a quota, measure **what the number is made of** — each
@@ -354,23 +363,15 @@ Records are written per [the run-record convention](references/documenting-the-r
 ## Usage Examples
 
 ```text
-Here is the report as it came in. Turn it into one sentence that could be false, tell me what
-would falsify it, and keep the cause they suggested separate from what they observed.
+Here is the report as it came in. Turn it into one sentence that could be false and keep the
+cause they suggested separate from what they observed. When you reach options, include doing
+nothing and check what the ticket already asks for before inventing a new approach.
 ```
 
 ```text
 They say the nightly total double-counts and they quote nine figures. Reproduce all nine before
 you go near the code — and if only some come out right, the ones that did not are the answer.
-```
-
-```text
-Three options, each with what it does not fix and what a revert leaves behind. Include doing
-nothing, and check what the ticket already asks for next to it before inventing a new approach.
-```
-
-```text
-Spec the option I picked: disjoint file sets, a test per requirement, the mutation that has to
-kill each test. If a requirement contradicts the code, come back instead of guessing at it.
+Falsify the mechanism they proposed as its own claim while you are there.
 ```
 
 ```text
@@ -397,6 +398,9 @@ take back, and file any number that disagrees as its own report rather than hold
   whichever is cheapest to write.
 - **A stale claim built on.** The report describes a past state; anything inherited from it
   answers "was it true?" and needs a current-state check before it becomes a requirement.
+- **Accurate numbers taken as a verified cause.** The expensive miss is a careful report whose
+  figures reproduce and whose mechanism does not, because nothing downstream reopens a question
+  the table appeared to close — see [falsifying the diagnosis](references/separate-diagnosis.md).
 - **All candidates propose doing something.** If "already fixed" and "do nothing" are never
   offered they were never considered, and the pipeline has an outcome it cannot reach. The
   fourth invented approach usually already exists in the tree under a different word, which is
@@ -434,6 +438,8 @@ take back, and file any number that disagrees as its own report rather than hold
       claims are marked as resting on a lower one.
 - [ ] **G1:** every number in the report has a row and a verdict from the closed set, and a
       partial reproduction is reported as a finding rather than as a failure.
+- [ ] **G1:** every causal claim has its own row and its own falsification, and where the numbers
+      reproduce but the mechanism does not, the corrected cause is what reaches G2.
 - [ ] **G1:** every limit the report or the requirement cites was decomposed into its
       contributors before any remedy was argued, and no infeasibility claim rests on an
       aggregate nobody measured.
@@ -473,20 +479,14 @@ take back, and file any number that disagrees as its own report rather than hold
 
 ## Deeper reading
 
-- [The gate contracts](references/gate-contracts.md): all six gates with their artifact fields,
-  the cannot-proceed-until conditions as checks, what a blocked gate produces instead, re-entry
-  from a later gate, and the degradations when a companion is absent.
-- [Reproducing the claim](references/reproducing-the-claim.md): the class each kind of claim
-  requires, reach versus class, the reproduction table worked, partial and unreproducible
-  claims, dating, and false premises.
-- [Candidate offers](references/candidate-offers.md): the five fields per candidate, the three
-  mandatory classes with the precedent search, the comparison table, sizing, and the choice.
-- [The build contract](references/build-contract.md): the template field by field, disjoint file
-  sets, mutation forms per requirement kind, the brief-error instruction, and a worked contract.
-- [The confirmation policy](references/confirmation-policy.md): the two-column rule worked, the
-  act-gate script, the light-band notice, the unattended stop rule, and unanswered confirmations.
-- [A worked resolution](references/worked-resolution.md): one report from intake to close — a
-  partly-reproduced claim, a refuted premise, four candidates including the precedent, the
-  contract, the landing, and the disagreement filed as its own report.
-- [The run-record convention](references/documenting-the-run.md): when a record is written,
-  where it goes, its five headings, the prohibitions, and a worked record.
+Each file carries the detail its section summarises: the gates and their artifacts in
+[gate contracts](references/gate-contracts.md); classes, the reproduction table and false premises
+in [reproducing the claim](references/reproducing-the-claim.md); the falsification test, its three
+measured cases and its weight at G2 in [falsifying the diagnosis](references/separate-diagnosis.md);
+the five fields, mandatory classes and precedent search in
+[candidate offers](references/candidate-offers.md); the template, disjoint file sets and mutation
+forms in [the build contract](references/build-contract.md); the two-column rule, act-gate script
+and unattended stop in [the confirmation policy](references/confirmation-policy.md); the five
+headings and prohibitions in [the run-record convention](references/documenting-the-run.md); and
+one report end to end — partly reproduced, premise refuted, disagreement filed as its own report —
+in [a worked resolution](references/worked-resolution.md).
