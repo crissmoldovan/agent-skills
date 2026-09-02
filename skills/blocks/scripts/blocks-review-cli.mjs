@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { collectBlocksStatus, reviewedSha, verdictAcceptance, waitForBlocksReview } from './blocks-review.mjs';
+import { chooseVerdictAt, collectBlocksStatus, reviewedSha, verdictAcceptance, waitForBlocksReview } from './blocks-review.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -18,21 +18,30 @@ async function headAndCi(repo, pr) {
   try {
     const { stdout } = await execFileAsync('gh', ['pr', 'view', String(pr), '--repo', repo, '--json', 'headRefOid']);
     const headSha = JSON.parse(stdout).headRefOid ?? null;
-    if (!headSha) return { headSha: null, ciConclusion: null, headCommittedAt: null };
+    if (!headSha) return { headSha: null, ciConclusion: null, headCommittedAt: null, blocksCheckCompletedAt: null };
     let headCommittedAt = null;
     try {
       const { stdout: commit } = await execFileAsync('gh', ['api', `repos/${repo}/commits/${headSha}`, '--jq', '.commit.committer.date']);
       headCommittedAt = commit.trim() || null;
     } catch { headCommittedAt = null; }
     const { stdout: runs } = await execFileAsync('gh', ['api', `repos/${repo}/commits/${headSha}/check-runs`]);
-    const checks = (JSON.parse(runs).check_runs ?? []).filter((run) => run.status === 'completed');
-    if (!checks.length) return { headSha, ciConclusion: null, headCommittedAt };
+    const all = (JSON.parse(runs).check_runs ?? []).filter((run) => run.status === 'completed');
+    // When the review is delivered as a check rather than a comment, this is the only
+    // timestamp that dates the verdict — see how `verdictAt` is chosen below.
+    const blocksCheck = all.find((run) => /blocks/i.test(run.name ?? ''));
+    // CI means the repository's OWN checks. The Blocks review check is excluded
+    // because the review verdict is already carried by `state`, and counting it twice
+    // made the tool report "CI concluded failure" while `verify` had passed — a
+    // reason that named the wrong thing and would send someone to the wrong logs.
+    const checks = all.filter((run) => !/blocks/i.test(run.name ?? ''));
+    const dates = { headCommittedAt, blocksCheckCompletedAt: blocksCheck?.completed_at ?? null };
+    if (!checks.length) return { headSha, ciConclusion: null, ...dates };
     // Any completed check that did not succeed decides it; `neutral` and `skipped`
     // are not failures, and a required check that has not finished is not a pass.
     const bad = checks.find((run) => !['success', 'neutral', 'skipped'].includes(run.conclusion));
-    return { headSha, ciConclusion: bad ? bad.conclusion : 'success', headCommittedAt };
+    return { headSha, ciConclusion: bad ? bad.conclusion : 'success', ...dates };
   } catch {
-    return { headSha: null, ciConclusion: null, headCommittedAt: null };
+    return { headSha: null, ciConclusion: null, headCommittedAt: null, blocksCheckCompletedAt: null };
   }
 }
 
@@ -67,15 +76,24 @@ if (!['status', 'wait'].includes(command) || !repo || !Number.isInteger(pr) || !
     : await getStatus();
   // A clean verdict is not acceptance. It has to name the head under consideration,
   // and CI has to have passed on that same commit — see `verdictAcceptance`.
-  const { headSha, ciConclusion, headCommittedAt } = await headAndCi(repo, pr);
+  const { headSha, ciConclusion, headCommittedAt, blocksCheckCompletedAt } = await headAndCi(repo, pr);
   const named = (result.comments ?? []).find((item) => reviewedSha(item.body));
   const latest = (result.comments ?? [])[(result.comments ?? []).length - 1];
+  // Where the verdict's timestamp comes from, in order of how much it is worth.
+  //
+  // A comment naming the head is best. The Blocks CHECK's completion is next, and it
+  // is not optional: when the review arrives only as a check there is no comment to
+  // date, and without this the check-run path could never be accepted — one of the
+  // two delivery modes, permanently refused. Falling straight through to `latest`
+  // was worse than refusing, because `latest` can be the integration's help text,
+  // and dating a verdict by an unrelated courtesy comment is an accident that looks
+  // like a decision.
   const acceptance = verdictAcceptance({
     state: result.state,
     verdictSha: named ? reviewedSha(named.body) : null,
     headSha,
     ciConclusion,
-    verdictAt: (named ?? latest)?.createdAt ?? null,
+    verdictAt: chooseVerdictAt({ namedAt: named?.createdAt, blocksCheckCompletedAt, latestAt: latest?.createdAt }),
     headCommittedAt,
   });
   const enriched = { ...result, headSha, ciConclusion, acceptance };

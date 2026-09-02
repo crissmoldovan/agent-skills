@@ -341,6 +341,23 @@ export function reviewedSha(body = '') {
  * @param verdictAt When the verdict was posted. Used only when it names no commit.
  * @param headCommittedAt When the head commit was authored. Same.
  */
+/**
+ * When a verdict was delivered, in order of how much each source is worth.
+ *
+ * A comment naming the head is best. The Blocks CHECK's completion is next, and it
+ * is not optional: when a review arrives only as a check there is no comment to
+ * date, so without it the check-run path could never be accepted — one of the two
+ * delivery modes, refused forever.
+ *
+ * `latest` is last and nearly a trap. It can be the integration's help text, posted
+ * when the pull request opened, and dating a verdict by an unrelated courtesy
+ * comment is an accident that reads exactly like a decision. It stays only because a
+ * comment from the reviewer is still better evidence than nothing at all.
+ */
+export function chooseVerdictAt({ namedAt = null, blocksCheckCompletedAt = null, latestAt = null } = {}) {
+  return namedAt ?? blocksCheckCompletedAt ?? latestAt ?? null;
+}
+
 export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, verdictAt, headCommittedAt }) {
   const reasons = [];
   if (state !== 'clean') reasons.push(`review state is \`${state}\`, not clean`);

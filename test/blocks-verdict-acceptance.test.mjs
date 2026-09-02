@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { reviewedSha, verdictAcceptance } from '../skills/blocks/scripts/blocks-review.mjs';
+import { chooseVerdictAt, reviewedSha, verdictAcceptance } from '../skills/blocks/scripts/blocks-review.mjs';
 
 // A clean verdict is not acceptance, and both halves of that were learned the hard
 // way on a real pull request rather than imagined here.
@@ -70,4 +70,32 @@ test('refuses when it can neither name nor date the verdict', () => {
   const blind = verdictAcceptance({ state: 'clean', verdictSha: null, headSha: 'abc1234', ciConclusion: 'success' });
   assert.equal(blind.acceptable, false);
   assert.match(blind.reasons.join(' '), /names no commit and cannot be dated/);
+});
+
+test('dates a check-run verdict by the check, never by unrelated help text', () => {
+  // The check-run delivery path has no comment to date, so before the check's own
+  // completion was used it fell through to the newest comment — which is the
+  // integration's help text, posted when the PR opened. That accepted on the
+  // timestamp of something that was not a verdict at all.
+  const helpTextAt = '2026-09-02T06:13:33Z';
+  const checkAt = '2026-09-02T07:20:00Z';
+
+  assert.equal(chooseVerdictAt({ blocksCheckCompletedAt: checkAt, latestAt: helpTextAt }), checkAt);
+  assert.equal(chooseVerdictAt({ namedAt: '2026-09-02T07:30:00Z', blocksCheckCompletedAt: checkAt }), '2026-09-02T07:30:00Z');
+  assert.equal(chooseVerdictAt({ latestAt: helpTextAt }), helpTextAt);
+  assert.equal(chooseVerdictAt({}), null);
+});
+
+test('a check-run verdict is acceptable when the check finished after this head', () => {
+  const accepted = verdictAcceptance({
+    state: 'clean', verdictSha: null, headSha: '221728c', ciConclusion: 'success',
+    verdictAt: '2026-09-02T07:20:00Z', headCommittedAt: '2026-09-02T07:05:00Z',
+  });
+  assert.equal(accepted.acceptable, true, accepted.reasons.join('; '));
+
+  const stale = verdictAcceptance({
+    state: 'clean', verdictSha: null, headSha: '221728c', ciConclusion: 'success',
+    verdictAt: '2026-09-02T07:00:00Z', headCommittedAt: '2026-09-02T07:05:00Z',
+  });
+  assert.equal(stale.acceptable, false);
 });
