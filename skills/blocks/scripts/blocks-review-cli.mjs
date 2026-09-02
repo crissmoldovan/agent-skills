@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { chooseVerdictAt, collectBlocksStatus, reviewedSha, verdictAcceptance, waitForBlocksReview } from './blocks-review.mjs';
+import { chooseVerdictAt, collectBlocksStatus, reviewedSha, subThresholdCount, verdictAcceptance, waitForBlocksReview } from './blocks-review.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +105,11 @@ if (!['status', 'wait'].includes(command) || !repo || !Number.isInteger(pr) || !
     for (const finding of result.findings ?? []) {
       console.log(`- severity ${finding.severity} ${finding.path ?? ''}${finding.line ? `:${finding.line}` : ''} ${finding.body}`);
     }
+    // Excluded from the findings decision, so said out loud here instead: a review
+    // that disclosed observations below the bar should not look identical to one
+    // that had none.
+    const disclosed = (result.comments ?? []).reduce((n, item) => n + subThresholdCount(item.body), 0);
+    if (disclosed) console.log(`Sub-threshold: ${disclosed} observation(s) disclosed, below the reporting bar — read the summary.`);
     console.log(acceptance.acceptable
       ? `Acceptable: clean verdict for ${String(headSha).slice(0, 7)}, CI ${ciConclusion}.`
       : `NOT acceptable yet — ${acceptance.reasons.join('; ')}.`);

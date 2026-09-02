@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { chooseVerdictAt, reviewedSha, verdictAcceptance } from '../skills/blocks/scripts/blocks-review.mjs';
+import { chooseVerdictAt, classifyBlocksEvidence, reviewedSha, subThresholdCount, verdictAcceptance } from '../skills/blocks/scripts/blocks-review.mjs';
 
 // A clean verdict is not acceptance, and both halves of that were learned the hard
 // way on a real pull request rather than imagined here.
@@ -98,4 +98,51 @@ test('a check-run verdict is acceptable when the check finished after this head'
     verdictAt: '2026-09-02T07:00:00Z', headCommittedAt: '2026-09-02T07:05:00Z',
   });
   assert.equal(stale.acceptable, false);
+});
+
+// `.blocks/review.md` asks the reviewer to list what the platform dropped below
+// severity 7. Those summaries carry "Severity 5 — ..." lines, and reading them as
+// outstanding work made every honest review permanently `findings` and therefore
+// never mergeable — which punishes the disclosure and teaches everyone to stop.
+const DISCLOSING_VERDICT = `Reviewed PR #14 at \`f38ec17\`.
+
+The two commits since the last reviewed state address the severity-4 finding from the prior round.
+
+### No findings at or above severity 7
+
+No inline comments posted.
+
+### Sub-threshold observations
+
+**Severity 5 — usage examples trimmed**
+The G2 example carried a guard the others do not.
+
+**Severity 2 — description counts stale**
+The body says one file; the diff is two.`;
+
+const classify = (body) => classifyBlocksEvidence(
+  { comments: [{ id: 1, author: 'blocksorg', createdAt: '2026-01-01T00:00:10Z', body }], reviews: [], inline: [], checks: [], prState: 'OPEN' },
+  { requestedAt: '2026-01-01T00:00:00Z', baselineIds: {} },
+).state;
+
+test('a disclosed sub-threshold section does not make a clean review findings', () => {
+  assert.equal(classify(DISCLOSING_VERDICT), 'clean');
+});
+
+test('the disclosed observations are counted rather than lost', () => {
+  assert.equal(subThresholdCount(DISCLOSING_VERDICT), 2);
+  assert.equal(subThresholdCount('Reviewed PR #14.\n\n### Sub-threshold observations\n\nNo sub-threshold observations.'), 0);
+  assert.equal(subThresholdCount('Reviewed PR #14. No findings.'), 0);
+});
+
+test('findings at or above the bar still count, even beside a disclosed section', () => {
+  // The section is excluded, not the whole verdict. Real findings above it stand.
+  const withReal = DISCLOSING_VERDICT.replace('No inline comments posted.', 'Two findings remain open in the retry path.');
+  assert.equal(classify(withReal), 'findings');
+});
+
+test('a resolution in the active voice is not a report of outstanding work', () => {
+  // "the two commits address the severity-4 finding from the prior round" describes
+  // what was fixed; the passive pattern alone read it as what is broken.
+  assert.equal(classify('Reviewed PR #14 at `f38ec17`. The commits address the severity-4 finding from the prior round. No findings at or above severity 7.'), 'clean');
 });

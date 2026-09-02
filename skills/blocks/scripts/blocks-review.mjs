@@ -243,7 +243,17 @@ function statesEmptiness(text) {
 function reportsFindings(body = '') {
   // Quoted lines recount an earlier round. They are set aside, because a verdict
   // that quotes three old findings to say none of them survive is a clean one.
-  const own = String(body).split(/\n/).filter((line) => !/^\s*>/.test(line)).join('\n');
+  let own = String(body).split(/\n/).filter((line) => !/^\s*>/.test(line)).join('\n');
+
+  // A disclosed sub-threshold section is not outstanding work, and reading it as
+  // such would punish the disclosure. `.blocks/review.md` asks the reviewer to list
+  // what the platform dropped below severity 7 — so those summaries now carry
+  // "Severity 5 — ..." lines under a heading that says exactly what they are. Left
+  // in, every honest review became permanently `findings` and therefore never
+  // mergeable, which teaches a reviewer to stop volunteering them and an operator to
+  // stop asking. They are disclosure, deliberately below the actionable bar; the
+  // caller still sees them in the body, and `subThresholdCount` counts them.
+  own = withoutSubThreshold(own);
 
   // A NEGATED RESOLUTION means the work stands, so it is checked before the strips
   // below can eat it: "Zero of these findings have been addressed" is the strongest
@@ -273,6 +283,11 @@ function reportsFindings(body = '') {
   // so it cannot bridge "two findings remain open, and the other one is resolved".
   text = text.replace(re(String.raw`${NOUN}(?:(?!\b(?:but|however|though)\b)[^.!?;\n]){0,140}?\b(?:is|are|was|were|has been|have been|had been)\s+(?:now\s+)?(?:all\s+)?(?:fixed|resolved|addressed|cleared|gone)\b`, 'gi'), ' ');
   text = text.replace(/\b(?:neither|none of them|all (?:three|two|four|of them))\s+(?:survives?|remain|stand|persist)/gi, ' ');
+  // The same resolution in the active voice — "the two commits address the severity-4
+  // finding from the prior round". The passive pattern above only catches "the
+  // finding is addressed", and a verdict describing what it fixed reads as a verdict
+  // reporting what is broken.
+  text = text.replace(re(String.raw`\b(?:address(?:es|ed)?|fix(?:es|ed)?|resolv(?:es|ed)?|clear(?:s|ed)?)\s+(?:the\s+)?[^.!?;\n]{0,40}?${NOUN}`, 'gi'), ' ');
   text = text.replace(re(String.raw`\ball\s+(?:\w+\s+)?${NOUN}[^.!?;\n]{0,80}?\b(?:addressed|fixed|resolved|cleared)\b`, 'gi'), ' ');
 
   // Negated mentions, in every shape this bot writes them.
@@ -412,6 +427,54 @@ function blocksCheckCompleted(checks = []) {
   return checks.some((check) => /blocks/i.test(check.name ?? '')
     && (check.status ?? '') === 'completed'
     && ['success', 'neutral', 'skipped'].includes(check.conclusion ?? ''));
+}
+
+const SUB_THRESHOLD_HEADING = /^#{1,6}[ \t]*sub-?threshold\b/i;
+const ANY_HEADING = /^#{1,6}[ \t]/;
+
+/**
+ * The lines under a "sub-threshold observations" heading, up to the next heading.
+ *
+ * Line-based on purpose. The first attempt at this was one regex ending in `\\Z`,
+ * which JavaScript does not have — it matched a literal "Z", so the section was
+ * never found and the count was silently zero. Walking the lines is longer and says
+ * what it does.
+ */
+function subThresholdLines(body = '') {
+  const out = [];
+  let inside = false;
+  for (const line of String(body).split(/\n/)) {
+    if (SUB_THRESHOLD_HEADING.test(line)) { inside = true; continue; }
+    if (inside && ANY_HEADING.test(line)) break;
+    if (inside) out.push(line);
+  }
+  return out;
+}
+
+/** The same section removed, for the findings decision. */
+function withoutSubThreshold(body = '') {
+  const lines = String(body).split(/\n/);
+  const kept = [];
+  let inside = false;
+  for (const line of lines) {
+    if (SUB_THRESHOLD_HEADING.test(line)) { inside = true; continue; }
+    if (inside && ANY_HEADING.test(line)) inside = false;
+    if (!inside) kept.push(line);
+  }
+  return kept.join('\n');
+}
+
+/**
+ * How many sub-threshold observations a verdict disclosed.
+ *
+ * They are excluded from the findings decision — see {@link reportsFindings} — so
+ * this is what keeps them from vanishing along with it. A count is enough: the text
+ * is in the comment, and the point is that a reader knows to go and look.
+ */
+export function subThresholdCount(body = '') {
+  const lines = subThresholdLines(body);
+  if (!lines.length) return 0;
+  return (lines.join('\n').match(/severity\s*\d/gi) ?? []).length;
 }
 
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
