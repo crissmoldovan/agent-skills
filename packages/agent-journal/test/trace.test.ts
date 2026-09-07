@@ -57,6 +57,15 @@ test('a match reports which source produced it', () => {
   ]);
 });
 
+// The discriminating fixture: one field CONTAINS the key while a different
+// field of the SAME entry EQUALS it. Only `matchSource`'s own exactness
+// distinguishes the two — the index's Map lookup being exact only guarantees
+// the entry is a candidate, not which field earned it that.
+test('an entry whose id merely contains the key is not reported via id when its subject IS the key', () => {
+  const events = [ev('dx1', { question: 'q', chosen: 'c' }, 'x')];
+  assert.deepEqual(traceFrom(events, 'x').matched, [{ id: 'dx1', via: 'subject' }]);
+});
+
 test('lookup is exact and case-insensitive, never a substring match', () => {
   const events = [ev('d1', { question: 'q', chosen: 'c' }, 'src/queue.ts')];
   assert.deepEqual(traceFrom(events, 'SRC/QUEUE.TS').matched, [{ id: 'd1', via: 'subject' }]);
