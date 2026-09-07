@@ -87,7 +87,15 @@ export function mergeEvents(batches: readonly (readonly JournalEvent[])[]): Jour
       const aUnsequenced = a.sequence === undefined ? 1 : 0;
       const bUnsequenced = b.sequence === undefined ? 1 : 0;
       if (aUnsequenced !== bUnsequenced) return aUnsequenced - bUnsequenced;
-      if (aUnsequenced === 0) return a.sequence! - b.sequence!;
+      if (aUnsequenced === 0) {
+        // The id tiebreak is load-bearing, not decoration. Nothing enforces
+        // sequence uniqueness within a source, and returning 0 for a duplicate
+        // lets a stable sort preserve INPUT order — so the same events in a
+        // different batch order come out differently. Found by fuzzing the
+        // permutation property, after fixing the intransitivity above.
+        const bySequence = a.sequence! - b.sequence!;
+        return bySequence !== 0 ? bySequence : a.id.localeCompare(b.id);
+      }
       const byTime = Date.parse(a.time) - Date.parse(b.time);
       return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
     });

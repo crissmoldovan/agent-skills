@@ -64,6 +64,12 @@ test('a space in source or epoch cannot merge two distinct sequence spaces', () 
   assert.deepEqual(mergeEvents([[two, one]]).map((e) => e.id), merged.map((e) => e.id));
 });
 
+test('duplicate sequence numbers in one source still order deterministically', () => {
+  const a = ev('aa', { sequence: 1 });
+  const b = ev('bb', { sequence: 1 });
+  assert.deepEqual(mergeEvents([[a, b]]).map((e) => e.id), mergeEvents([[b, a]]).map((e) => e.id));
+});
+
 test('parse diagnostics are bounded', () => {
   const { bad } = parseSegment(Array.from({ length: 200 }, () => '{broken').join('\n'));
   assert.equal(bad.length, 32);
