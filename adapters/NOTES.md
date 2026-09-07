@@ -143,7 +143,22 @@ requested via `--permission-mode manual` on one run but the payload still read
 `"default"`; inconclusive, see "Not observed" below), and `prompt` (the raw
 user text).
 
-### PreToolUse — OBSERVED, for tool_name `Bash`, `Read`, `Agent`
+**Mapping note:** `UserPromptSubmit` is OBSERVED and real, but it maps to
+**none of the fourteen `OBSERVATION_KINDS`** (`session_start`, `session_end`,
+`turn_end`, `tool_call`, `tool_result`, `tool_failure`, `permission`,
+`subagent_start`, `subagent_stop`, `compact`, `heartbeat`, `environment`,
+`path_claim`, `void`). It fires at the *start* of a turn, before the model has
+done anything — `turn_end` is the nearest kind by name but is defined as the
+end of a turn, not its start, so this is not a fuzzy-match case. This is an
+event available on the wire and deliberately left unwired, not one that was
+missed: Task 5/6 should not invent a kind for it, and a future reader should
+not assume its absence from the adapter means it wasn't seen.
+
+### PreToolUse / PostToolUse — OBSERVED, all three pasted (fix round 1: `Read`
+and `Agent` were previously asserted in prose only — re-ran the probe and
+captured all three verbatim, per the review finding)
+
+**`Bash`:**
 
 ```json
 {"session_id":"...","...":"...","prompt_id":"...","permission_mode":"default",
@@ -153,23 +168,6 @@ user text).
  "tool_use_id":"toolu_01Dz6TmJrR6pixJyKLFYaGw2"}
 ```
 
-- `tool_name` and `tool_input` are present and shaped exactly like the tool's
-  own arguments (e.g. Read's `tool_input` is `{"file_path": "..."}`).
-- `tool_use_id` is present and is the same id that later shows up on the
-  matching `PostToolUse`.
-- `effort` is present (an object, `{"level": "xhigh"}` here) on tool-context
-  hooks; **absent** on session-lifecycle events like `SessionStart`/`SessionEnd`
-  — matches an in-binary doc string found separately (see Documented section).
-- **Important negative case, itself an observation:** when a tool call is
-  denied at the permission layer before it runs (e.g. `Read` on a path outside
-  the project directory, or `Bash "exit 7"` under default permissions), the
-  `PreToolUse` event still fires with the same shape, but **no matching
-  `PostToolUse` follows** — the harness fires PreToolUse before the permission
-  check resolves, not after. Task 5 must not assume every `PreToolUse`
-  `tool_use_id` gets a paired `PostToolUse`.
-
-### PostToolUse — OBSERVED, for tool_name `Bash`, `Read`, `Agent`
-
 ```json
 {"...":"...","hook_event_name":"PostToolUse","tool_name":"Bash",
  "tool_input":{"command":"ls -la \"...\"","description":"..."},
@@ -177,14 +175,74 @@ user text).
  "tool_use_id":"toolu_01Dz6TmJrR6pixJyKLFYaGw2","duration_ms":617}
 ```
 
-- Carries everything `PreToolUse` did, plus `tool_response` (tool-specific
-  shape — Bash: `{stdout,stderr,interrupted,isImage,noOutputExpected}`; Read:
-  `{type,file:{filePath,content,numLines,startLine,totalLines}}`) and
-  `duration_ms`.
-- For the `Agent` tool (a subagent dispatch — see below), `tool_response`
-  included `status`, `agentId`, `agentType`, `content` (an array of
-  `{type:"text",text:"..."}` blocks), `resolvedModel`, `totalDurationMs`,
-  `totalTokens`, and a full `usage` object (input/output/cache token counts).
+**`Read`:**
+
+```json
+{"session_id":"...","transcript_path":"~/.claude/projects/.../....jsonl",
+ "cwd":"/private/var/.../probe","scratchpad_dir":"...","prompt_id":"...",
+ "permission_mode":"default","effort":{"level":"xhigh"},
+ "hook_event_name":"PreToolUse","tool_name":"Read",
+ "tool_input":{"file_path":"/private/var/.../probe/sample2.txt"},
+ "tool_use_id":"toolu_0177u7zmDjqyasqxn7wKKa53"}
+```
+
+```json
+{"...":"...","hook_event_name":"PostToolUse","tool_name":"Read",
+ "tool_input":{"file_path":"/private/var/.../probe/sample2.txt"},
+ "tool_response":{"type":"text","file":{
+   "filePath":"/private/var/.../probe/sample2.txt",
+   "content":"hello from probe two\n","numLines":2,"startLine":1,"totalLines":2}},
+ "tool_use_id":"toolu_0177u7zmDjqyasqxn7wKKa53","duration_ms":2}
+```
+
+**`Agent`** (a subagent dispatch):
+
+```json
+{"...":"...","hook_event_name":"PreToolUse","tool_name":"Agent",
+ "tool_input":{"description":"Reply with done","prompt":"reply with the word done",
+   "subagent_type":"general-purpose","run_in_background":false},
+ "tool_use_id":"toolu_01DMBHktLa6zCZCvVtXivE98"}
+```
+
+```json
+{"...":"...","hook_event_name":"PostToolUse","tool_name":"Agent",
+ "tool_input":{"description":"Reply with done","prompt":"reply with the word done",
+   "subagent_type":"general-purpose","run_in_background":false},
+ "tool_response":{"status":"completed","prompt":"reply with the word done",
+   "agentId":"aca300ad1ae87e8bc","agentType":"general-purpose",
+   "harnessNoteCount":0,"harnessTailCount":0,"harnessSectionHash":"ef3f4d58fd63c712",
+   "content":[{"type":"text","text":"done"}],
+   "resolvedModel":"claude-opus-5[1m]","totalDurationMs":1536,"totalTokens":40912,
+   "totalToolUseCount":0,"usage":{"input_tokens":2,"cache_creation_input_tokens":40907,
+   "cache_read_input_tokens":0,"output_tokens":3,"output_tokens_details":{"thinking_tokens":0},
+   "server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard",
+   "cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":40907},
+   "inference_geo":"not_available","iterations":[{"input_tokens":2,"output_tokens":3,
+   "cache_read_input_tokens":0,"cache_creation_input_tokens":40907,
+   "cache_creation":{"ephemeral_5m_input_tokens":40907,"ephemeral_1h_input_tokens":0},
+   "type":"message"}],"speed":"standard"}},
+ "tool_use_id":"toolu_01DMBHktLa6zCZCvVtXivE98","duration_ms":1537}
+```
+
+- `tool_name` and `tool_input` are present and shaped exactly like the tool's
+  own arguments.
+- `tool_use_id` is present on both `PreToolUse` and the matching `PostToolUse`
+  for the same call — confirmed identical across all three tool types above.
+- `effort` is present (an object, `{"level": "xhigh"}` here) on tool-context
+  hooks; **absent** on session-lifecycle events like `SessionStart`/`SessionEnd`
+  — matches an in-binary doc string found separately (see Documented section).
+- `tool_response` is tool-specific: Bash gets
+  `{stdout,stderr,interrupted,isImage,noOutputExpected}`; Read gets
+  `{type,file:{filePath,content,numLines,startLine,totalLines}}`; Agent gets
+  `{status,prompt,agentId,agentType,content,resolvedModel,totalDurationMs,
+  totalTokens,totalToolUseCount,usage:{...}}` — all pasted above, not inferred.
+- **Important negative case, itself an observation:** when a tool call is
+  denied at the permission layer before it runs (e.g. `Read` on a path outside
+  the project directory, or `Bash "exit 7"` under default permissions), the
+  `PreToolUse` event still fires with the same shape, but **no matching
+  `PostToolUse` follows** — the harness fires PreToolUse before the permission
+  check resolves, not after. Task 5 must not assume every `PreToolUse`
+  `tool_use_id` gets a paired `PostToolUse`.
 
 ### SubagentStart / SubagentStop — OBSERVED
 
@@ -314,6 +372,54 @@ not tested here.
   enough (or found the right `--autocompact` flag combination) to observe an
   automatic one. Documented as a valid `trigger` value; not personally
   observed.
+
+## `heartbeat` — not a gap, structurally unavailable from a hook surface
+
+This is stronger than "not observed" and belongs in its own section so a
+future reader doesn't go looking for a `heartbeat` hook that could plausibly
+exist and simply wasn't tried yet. It cannot.
+
+Spec §7.3 makes `heartbeat` load-bearing: session liveness is classified
+active/stale/ended from "recent appends *and* fresh heartbeat" — i.e. it needs
+a signal that keeps arriving even when the agent is doing nothing, to tell a
+genuinely-idle-but-still-attached session apart from one that's gone.
+
+No harness event surveyed here (OBSERVED or DOCUMENTED) fires on a timer or on
+idle. Every event this file records — `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`/`PostToolUse`, `SubagentStart`/`SubagentStop`,
+`PreCompact`/`PostCompact`, `Stop`, `SessionEnd` — fires **only when the agent
+takes an action or the session changes phase.** A hook fires only when the
+agent acts. There is no hook that fires *because time passed and nothing
+happened*, because a hook is, by construction, a reaction to something the
+harness just did — it has no independent clock and no notion of "still here,
+just thinking."
+
+Concretely: the closest thing to a periodic signal in everything captured here
+is `Stop` (fires once per turn, when the agent stops responding) — but a
+`heartbeat` synthesised from `Stop` would be indistinguishable from
+`turn_end`, and would go silent for exactly the case §7.3 cares about: a
+session that is open and attached but between turns, or waiting on something
+that isn't a tool call. A hook-derived "heartbeat" proves the agent *acted
+recently*, which is already `turn_end`'s job — it proves nothing about whether
+the session is still alive *right now*, which is the only thing `heartbeat`
+was for.
+
+This is why §7.3 already carries a stale-before-lost rule, and why §7.6 gives
+path claims a TTL "rather than relying on liveness alone" — both provisions
+read as the spec already having conceded this limitation without naming its
+mechanical cause. The cause, confirmed here: **no hook-based harness can emit
+a true heartbeat, because a hook only exists to answer "the agent just did
+something," never "the agent is still there and hasn't done anything."**
+
+**Consequence for Tasks 5/6: do not wire `heartbeat`.** It is not deferred to
+a later plan, not a TODO, not something a smarter adapter could add later from
+the same hook surface. A real fix would need a harness capability that isn't a
+hook at all (e.g. a supervising process polling the session, or the harness
+itself emitting an idle-timer event neither Claude Code nor Codex is
+documented or observed to have) — out of scope for an hooks-only adapter by
+construction, not by oversight. Say this plainly in the adapter READMEs
+(`adapters/*/README.md`) and in `references/adapters.md` (Task 6) so nobody
+re-derives this from scratch later.
 
 ## DOCUMENTED (in-binary strings, not triggered) — Claude Code
 
