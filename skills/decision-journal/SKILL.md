@@ -195,6 +195,23 @@ Two different things can happen to a decision, and conflating them loses informa
 - **Invalidated** — the premise was false. It was never sound, and **everything resting
   on it is suppressed too**, transitively.
 
+`invalidate` covers the second case. The first has no separate command — pass
+`--supersedes <id>` on the record that replaces it:
+
+```bash
+agent-journal record --workspace api --kind decision --id d-old \
+  --question "how do we bound the retry queue?" --chosen "fixed 256-entry buffer"
+agent-journal record --workspace api --kind decision --id d-new \
+  --question "how do we bound the retry queue?" \
+  --chosen "backpressure signal, no fixed bound" --supersedes d-old
+agent-journal show --workspace api --id d-old
+```
+
+`d-old` now reads `outcome: reverted, live: false` in that output; `d-new` is
+unaffected — unlike invalidation, supersession never propagates to what was built on
+the entry it replaces. `--id` on `show` narrows to one entry instead of the whole
+workspace, which is the faster check once you know which id you are asking about.
+
 ```bash
 agent-journal invalidate <id> --workspace <ws> --reason "<what was actually true>"
 ```
@@ -208,15 +225,19 @@ So invalidating an entry suppresses everything that cited it, and everything tha
 *those*:
 
 ```bash
+agent-journal record --workspace api --kind decision --id d-bound \
+  --question "how do we bound the retry queue?" \
+  --chosen "in-process ring buffer, 256 entries"
 agent-journal record --workspace api --kind finding --id f1 \
-  --claim "the 256 bound is never reached" --influence journal:decisive:d1
-agent-journal invalidate d1 --workspace api --reason "the bound was measured, not assumed"
+  --claim "the 256 bound is never reached" --influence journal:decisive:d-bound
+agent-journal invalidate d-bound --workspace api --reason "the bound was measured, not assumed"
 agent-journal show --workspace api
 ```
 
-`f1` now reads `outcome: invalidated, live: false` alongside `d1`, without being named in
-the retraction. An entry that rested on nothing you recorded is not reached — the graph
-only knows the edges you gave it, which is the reason step 4 is worth the keystrokes.
+`f1` now reads `outcome: invalidated, live: false` alongside `d-bound`, without being
+named in the retraction. An entry that rested on nothing you recorded is not reached —
+the graph only knows the edges you gave it, which is the reason step 4 is worth the
+keystrokes.
 
 **Complete when:** the wrong entry is marked wrong, and anything that declared a
 dependence on it went with it.
@@ -242,7 +263,8 @@ agent-journal record --workspace api --kind decision \
   --question "how do we bound the retry queue?" \
   --chosen "in-process ring buffer, 256 entries" \
   --rationale "backpressure is observable and the failure mode is dropping oldest, which we can measure" \
-  --rejected "redis list — needs a broker we do not run in this environment; kafka — three days of setup for one queue"
+  --rejected "redis list — needs a broker we do not run in this environment" \
+  --rejected "kafka — three days of setup for one queue"
 ```
 
 **Recording an assumption you did not verify:**

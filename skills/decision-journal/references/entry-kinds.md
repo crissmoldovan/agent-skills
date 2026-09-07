@@ -4,7 +4,9 @@ Six kinds. Choosing the wrong one is not fatal, but each carries different field
 read differently, so the choice affects what a later reader can ask.
 
 All six share the same envelope, the same anchors and influences, the same retraction
-edges, and the same disclosure control.
+edges, and the same disclosure control. Disclosure (redaction) runs automatically on
+every write, for every kind — there is no `--disclosure` flag, because it is a control
+the schema applies, not a value any kind exposes for `record` to set.
 
 Every kind takes its own fields through `record`, and only its own — passing a field
 that belongs to another kind is refused with a message naming what this kind does take,
@@ -132,7 +134,10 @@ relevant, not that a machine adjudicates it.
 
 ## Outcome and retraction
 
-Every kind carries an outcome: `unknown`, `held`, `reverted`, `invalidated`.
+Every kind carries an outcome: `unknown`, `held`, `reverted`, `invalidated`. This is a
+schema field the CLI does not yet write directly — no kind takes an `--outcome` flag, so
+`reverted` and `invalidated` are reached only through `--supersedes`/`--invalidates`, and
+`held` is not reachable through `record` at all.
 
 **`unknown` is displayed, never hidden.** An entry nobody revisited stays `unknown`, and
 that is itself the signal — "nobody checked whether this held" is information a reader

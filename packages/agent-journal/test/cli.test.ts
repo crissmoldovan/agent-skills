@@ -885,5 +885,211 @@ test('show marks a retraction record with retracts, distinct from an ordinary de
 
   const retraction = out.entries.find((e: any) => e.id !== 'd1' && e.id !== 'a1');
   assert.ok(retraction, 'the retraction record itself must be present, not hidden');
-  assert.deepEqual(retraction.retracts, { type: 'invalidates', target: 'd1' });
+  assert.deepEqual(retraction.retracts, [{ type: 'invalidates', target: 'd1' }]);
+});
+
+// Final review, finding 1 (HIGH): a bare unrecognised kind is genuine forward
+// compatibility and must still write at exit 0 (covered above by "an
+// unrecognised kind still writes, warning instead of refusing"). But content
+// flags are a different story — fieldsFor() of an unknown kind is empty, so
+// every one of them was silently thrown away while the CLI still reported
+// success. `--kind decisio` (a typo of `decision`) with `--question`,
+// `--chosen`, `--rejected` and `--rationale` used to write `{"kind":"decisio",
+// "data":{}}` at exit 0, destroying all four with no flag named anywhere the
+// caller could see without `2>&1`.
+test('record refuses an unrecognised kind that carries content flags, naming them', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'decisio', '--id', 't1',
+      '--question', 'q', '--chosen', 'c', '--rejected', 'r', '--rationale', 'because'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2, `an unrecognised kind with content flags was not refused: ${r.stderr}`);
+  assert.match(r.stderr, /--question/, 'the refusal must name the destroyed flag');
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'nothing should have been written');
+});
+
+// Final review, finding 2 (HIGH): a constraint that states no obligation
+// cannot be one. Before this, `--kind constraint` with no `--statement` (or a
+// blank one) wrote and reported success, `show` rendered it `live: true`, and
+// `liveConstraints` — the thing it is actually supposed to constrain — stayed
+// empty with nothing explaining why.
+test('record --kind constraint requires --statement, whether absent or blank', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const missing = await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  assert.equal(missing.code, 2, `a constraint with no --statement was accepted: ${missing.stderr}`);
+  assert.match(missing.stderr, /--statement/);
+
+  const blank = await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c2',
+    '--statement', '', '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  assert.equal(blank.code, 2, `a constraint with a blank --statement was accepted: ${blank.stderr}`);
+  assert.match(blank.stderr, /--statement/);
+
+  const ok = await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c3',
+    '--statement', 'never a third-party sink', '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  assert.equal(ok.code, 0, `a constraint with a real statement was refused: ${ok.stderr}`);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.deepEqual(events.map((e) => e.id), ['c3'], 'only the valid constraint should have reached disk');
+});
+
+// Final review, finding 3 (MEDIUM-HIGH): an entry can carry both retraction
+// edges, naming two DIFFERENT entries — this is not retract.ts's "one target,
+// which outcome wins" question, so a single-winner `retracts` hid one of two
+// real edges. `retracts` is now an array; invalidates still orders before
+// supersedes when both are present, matching retract.ts's own precedence.
+test('show renders both retraction edges when an entry carries supersedes and invalidates', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const id of ['old', 'wrong']) {
+    await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', id,
+      '--question', 'q', '--chosen', 'c'], env);
+  }
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'both',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'old', '--invalidates', 'wrong'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  const both = out.entries.find((e: any) => e.id === 'both');
+  assert.deepEqual(both.retracts, [
+    { type: 'invalidates', target: 'wrong' },
+    { type: 'supersedes', target: 'old' },
+  ], 'both edges must appear, invalidates ordered before supersedes');
+
+  const old = out.entries.find((e: any) => e.id === 'old');
+  assert.deepEqual(old.retracts, null, 'an entry retracting nothing must read null, never []');
+});
+
+// Final review, finding 4 (MEDIUM): show's own retraction predicate must match
+// retract.ts's non-blank-after-trim rule (`stringField`), not a weaker
+// `typeof === 'string'` check. Fix 5 (below) means the CLI itself can no
+// longer produce a stored blank supersedes/invalidates — so this writes the
+// raw event directly, the way a hook adapter or another non-CLI producer
+// might, to prove `show` denies the retraction on its own rather than relying
+// on the CLI to have filtered it upstream.
+test('show does not assert a retraction from a blank supersedes written outside the CLI', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  const raw = {
+    schemaVersion: 1, id: 'blank-sup', source: 'hook/host/s1/primary', sourceEpoch: 'e1',
+    time: new Date().toISOString(), workspace: 'ws', session: 's1', agent: 'primary',
+    author: 'agent', provenance: 'hook', harness: 'other', context: 'coding',
+    capabilities: {}, kind: 'decision', data: { question: 'q', chosen: 'c', supersedes: '   ' },
+  };
+  await writeFile(join(segDir, seg), `${JSON.stringify(raw)}\n`, { flag: 'a' });
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  const entry = out.entries.find((e: any) => e.id === 'blank-sup');
+  assert.ok(entry, 'the raw event must still be read back');
+  assert.deepEqual(entry.retracts, null, 'a blank supersedes must not assert a retraction');
+});
+
+// Final review, finding 5 (MEDIUM): a field whose value is empty or
+// whitespace-only is "not supplied" — skipped, not stored as "". Asserted
+// with `!(field in data)`, never `assert.ok(!data.field)`, which passes for
+// '' too and would not have caught the bug.
+test('a blank scalar field is not stored — absent, never ""', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--rationale', ''], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd2',
+    '--question', 'q', '--chosen', 'c', '--rationale', '   '], env);
+
+  const byId = new Map((await readAllEvents(dir, 'ws')).map((e) => [e.id, e]));
+  assert.ok(!('rationale' in byId.get('d1')!.data), 'a blank rationale must be absent, not stored as ""');
+  assert.ok(!('rationale' in byId.get('d2')!.data), 'a whitespace-only rationale must be absent too');
+});
+
+test('a blank --supersedes or --invalidates is not stored — absent, never ""', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--supersedes', '', '--invalidates', '   '], env);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.ok(!('supersedes' in entry!.data), '--supersedes "" must be absent, not stored');
+  assert.ok(!('invalidates' in entry!.data), '--invalidates "   " must be absent, not stored');
+});
+
+// Final review, finding 6 (MEDIUM): `invalidate` already warns a human when
+// its target does not match; `record --supersedes`/`--invalidates`/
+// `--influence journal:...` silently accepted the same mistake. Not refused —
+// an edge may legitimately precede its target across replicas — but no
+// longer silent either.
+test('record warns when --supersedes, --invalidates or a journal influence names a nonexistent id', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const sup = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 's1e',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'ghost1'], env);
+  assert.equal(sup.code, 0, sup.stderr);
+  assert.match(sup.stderr, /WARNING: no entry with id ghost1 is present in this workspace/);
+
+  const inv = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'i1e',
+    '--question', 'q', '--chosen', 'c', '--invalidates', 'ghost2'], env);
+  assert.equal(inv.code, 0, inv.stderr);
+  assert.match(inv.stderr, /WARNING: no entry with id ghost2 is present in this workspace/);
+
+  const infl = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1e',
+    '--question', 'q', '--chosen', 'c', '--influence', 'journal:decisive:ghost3'], env);
+  assert.equal(infl.code, 0, infl.stderr);
+  assert.match(infl.stderr, /WARNING: no entry with id ghost3 is present in this workspace/);
+});
+
+test('record does not warn when the referenced id actually exists', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'real1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'real2',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'real1',
+    '--influence', 'journal:decisive:real1'], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /WARNING: no entry with id/);
+});
+
+// Final review, finding 7 (MEDIUM): an entry that names its own id in
+// --supersedes/--invalidates would be written, acknowledged (exit 0) and
+// project `live: false` on arrival — dead on arrival, with nothing pointing
+// at the mistake. Refused outright instead.
+test('an entry cannot supersede or invalidate its own id', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const selfSup = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'self1',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'self1'], env);
+  assert.equal(selfSup.code, 2, `self-supersede was accepted: ${selfSup.stderr}`);
+  assert.match(selfSup.stderr, /--supersedes/);
+
+  const selfInv = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'self2',
+    '--question', 'q', '--chosen', 'c', '--invalidates', 'self2'], env);
+  assert.equal(selfInv.code, 2, `self-invalidate was accepted: ${selfInv.stderr}`);
+  assert.match(selfInv.stderr, /--invalidates/);
+
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'neither self-retracting entry should have been written');
+});
+
+// Final review, finding 8 (MEDIUM): a constraint's `live` in `show`'s
+// `entries` must agree with its absence from `liveConstraints` — an expired
+// constraint used to render `live: true` in one and be missing from the
+// other, two meanings of "live" in one payload.
+test('show reports an expired constraint as live: false, matching its absence from liveConstraints', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--statement', 'never a third-party sink', '--scope', 'telemetry',
+    '--enforcement', 'blocking', '--expiry', '2020-01-01'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  const c1 = out.entries.find((e: any) => e.id === 'c1');
+  assert.equal(c1.live, false, 'an expired constraint must not render as live');
+  assert.deepEqual(out.liveConstraints, [], 'the expired constraint must be absent from liveConstraints');
 });

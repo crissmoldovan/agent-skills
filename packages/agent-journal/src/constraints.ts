@@ -61,6 +61,12 @@ export function liveConstraints(events: readonly JournalEvent[], now: string): C
   for (const e of events) {
     if (e.kind !== 'constraint') continue;
     if (superseded.has(e.id) || invalidated.has(e.id)) continue;
+    // The CLI's `record --kind constraint` now refuses to write a constraint
+    // with no (or blank) `--statement`, so this skip can no longer be reached
+    // through that path. It stays for a foreign record — one written by a
+    // hook adapter or another producer that bypassed the CLI's own check —
+    // where a constraint with no stated obligation must not silently render
+    // as a live one.
     const statement = text(e, 'statement');
     if (!statement) continue;
 

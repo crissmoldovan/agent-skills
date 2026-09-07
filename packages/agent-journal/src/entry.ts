@@ -119,8 +119,14 @@ export function normalizeEntryData(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const field of fieldsFor(kind)) {
-    const values = given.get(field);
-    if (!values || values.length === 0) continue;
+    const raw = given.get(field);
+    if (!raw || raw.length === 0) continue;
+    // Empty or whitespace-only is "not supplied", not a value: `--rationale ""`
+    // must not write `"rationale":""`, the assessed-and-empty claim this design
+    // forbids. Filtered before the enum check too, so `--checked ""` reads as
+    // absent rather than a bogus enum-membership failure.
+    const values = raw.filter((v) => v.trim() !== '');
+    if (values.length === 0) continue;
     const allowed = ENUM_FIELDS[kind]?.[field];
     if (allowed) {
       for (const v of values) {

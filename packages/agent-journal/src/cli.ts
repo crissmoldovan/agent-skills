@@ -89,6 +89,7 @@ function flags(argv: readonly string[]): ParsedFlags {
  */
 const RECORD_GLOBAL = ['workspace', 'kind', 'id', 'author', 'context',
   'supersedes', 'invalidates', 'anchor', 'influence'] as const;
+const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
 
 /**
  * What each subcommand accepts. One shared list was wrong in both directions:
@@ -275,6 +276,26 @@ async function dispatch(
         };
       }
     } else {
+      // The bare-unknown-kind case above is genuine forward compatibility: the
+      // kind itself may be legitimate, just not known to this version yet, and
+      // retention.ts already keeps it unclassified rather than destroying it.
+      // But that grace covers the KIND, not the DATA. fieldsFor() of an
+      // unknown kind is empty, so any content flag here — anything that is not
+      // one of the always-allowed globals — would be silently thrown away
+      // while the CLI still reported success at exit 0. Destroying what the
+      // caller typed is not what "forward compatible" was ever meant to cover,
+      // so an unknown kind arriving WITH content flags is refused outright,
+      // naming exactly what it would have destroyed.
+      const contentFlags = [...opts.keys()].filter((k) => !RECORD_GLOBAL_SET.has(k)).sort();
+      if (contentFlags.length > 0) {
+        return {
+          code: 2,
+          stdout: '',
+          stderr: `kind ${JSON.stringify(kind)} is not one of the known kinds `
+            + `(${Object.keys(KIND_FIELDS).join(', ')}); refusing to write and silently discard `
+            + `${contentFlags.map((f) => `--${f}`).join(', ')}\n`,
+        };
+      }
       kindWarning = `WARNING: kind ${JSON.stringify(kind)} is not one of the known kinds `
         + `(${Object.keys(KIND_FIELDS).join(', ')}); no kind-specific fields will be stored\n`;
     }
@@ -334,18 +355,72 @@ async function dispatch(
       return { code: 2, stdout: '', stderr: `${(error as Error).message}\n` };
     }
 
+    // A constraint that states no obligation cannot be one — the same class of
+    // requirement `--kind` itself is for `record`. normalizeEntryData already
+    // treats a blank `--statement` as not supplied (never stores `''`), so this
+    // one check catches both "never passed" and "passed empty".
+    if (kind === 'constraint' && !('statement' in data)) {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `--statement is required for --kind constraint; `
+          + `a constraint that states no obligation cannot be one\n`,
+      };
+    }
+
     // Retraction edges, not kind fields — set after normalizeEntryData so a
     // `--supersedes`/`--invalidates` id is never mistaken for one of the kind's
-    // own fields (or rejected by a kind that has neither).
-    for (const edge of ['supersedes', 'invalidates'] as const) {
-      const v = opts.get(edge);
-      if (v !== undefined) data[edge] = v;
+    // own fields (or rejected by a kind that has neither). Blank is "not
+    // supplied" here too, the same rule normalizeEntryData applies to every
+    // kind field: a `--supersedes ""` must not assert a retraction that
+    // `project()` — which requires non-blank after trim — would then deny.
+    const edges: { field: 'supersedes' | 'invalidates'; value: string }[] = [];
+    for (const field of ['supersedes', 'invalidates'] as const) {
+      const raw = opts.get(field);
+      const value = raw?.trim();
+      if (value) {
+        edges.push({ field, value });
+        data[field] = value;
+      }
+    }
+
+    // An entry cannot retract itself: written, acknowledged, and dead on
+    // arrival — it would project `live: false` immediately, with nothing
+    // pointing at the mistake.
+    const selfEdge = edges.find((e) => e.value === id);
+    if (selfEdge) {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `--${selfEdge.field} names this entry's own id (${JSON.stringify(id)}); `
+          + `an entry cannot retract itself\n`,
+      };
     }
 
     // Absent stays absent. Writing [] would claim "assessed, none found", which
     // is the exact conflation `coverage` reports null to avoid.
     if (anchors.length > 0) data.anchors = anchors;
     if (influences.length > 0) data.influences = influences;
+
+    // A retraction edge, or a `journal` influence, may legitimately precede the
+    // entry it names — across replicas the target can arrive later, so this is
+    // never refused. But `invalidate` already warns a human when its target
+    // does not match, and silently accepting the same typo here was the one
+    // place this idiom broke.
+    const journalRefs = influences
+      .filter((inf): inf is Influence & { ref: string } => inf.type === 'journal' && !!inf.ref)
+      .map((inf) => inf.ref);
+    const referencedIds = [...new Set([...edges.map((e) => e.value), ...journalRefs])];
+    let targetWarning = '';
+    if (referencedIds.length > 0) {
+      const { events: knownEvents } = await readAll(root, workspace);
+      const knownIds = new Set(knownEvents.map((e) => e.id));
+      targetWarning = referencedIds
+        .filter((refId) => !knownIds.has(refId))
+        .sort()
+        .map((refId) => `WARNING: no entry with id ${refId} is present in this workspace\n`)
+        .join('');
+    }
 
     const event = normalizeEvent({
       schemaVersion: 1, id, source: `cli/${hostname()}/${session}/${agent}`, sourceEpoch: 'e1',
@@ -375,7 +450,7 @@ async function dispatch(
           + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
       };
     }
-    return { code: 0, stdout: `recorded ${id}\n`, stderr: kindWarning };
+    return { code: 0, stdout: `recorded ${id}\n`, stderr: kindWarning + targetWarning };
   }
 
   if (command === 'invalidate') {
@@ -455,7 +530,21 @@ async function dispatch(
     const proj = project(events);
     const live = liveConstraints(events, nowStamp());
     const liveIds = new Set(proj.live.map((e) => e.id));
+    // A constraint's own liveness needs more than "not superseded, not
+    // invalidated" — it also needs a real statement and to not have expired.
+    // liveConstraints() already applies all three; without this a constraint
+    // whose --expiry has passed rendered `live: true` here while being absent
+    // from `liveConstraints` below, two different meanings of "live" in one
+    // payload.
+    const liveConstraintIds = new Set(live.map((c) => c.id));
     const wanted = opts.get('id');
+
+    // Same non-blank-after-trim predicate retract.ts's own `stringField` uses
+    // to decide what counts as a retraction edge. `typeof === 'string'` alone
+    // let `--supersedes ""` make `show` assert a retraction that `project()`
+    // denies for being blank.
+    const retractionTarget = (raw: unknown): string | undefined =>
+      typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
 
     const entries = events
       .filter((e) => e.kind !== 'void' && (wanted === undefined || e.id === wanted))
@@ -470,20 +559,26 @@ async function dispatch(
         // no anchors, counted toward "what is live" forever. `retracts` names
         // what it retracts so a reader (or the NEXT task's brief) can tell the
         // two apart. null, never [] or {}: the same rule as anchors/influences.
-        // Invalidation outranks supersession here too, matching retract.ts's
-        // own precedence, for the rare entry that somehow carries both edges.
-        const invalidatesTarget = typeof e.data.invalidates === 'string' ? e.data.invalidates : undefined;
-        const supersedesTarget = typeof e.data.supersedes === 'string' ? e.data.supersedes : undefined;
-        const retracts = invalidatesTarget !== undefined
-          ? { type: 'invalidates' as const, target: invalidatesTarget }
-          : supersedesTarget !== undefined
-            ? { type: 'supersedes' as const, target: supersedesTarget }
-            : null;
+        //
+        // An entry that carries BOTH edges names two different targets — this
+        // is not retract.ts's "one target, which outcome wins" question, so a
+        // single winner would hide one of two real edges. `retracts` is an
+        // array for that reason, ordered invalidates-then-supersedes to match
+        // retract.ts's own precedence, and is `null` — never `[]` — only when
+        // the entry retracts nothing at all.
+        const invalidatesTarget = retractionTarget(e.data.invalidates);
+        const supersedesTarget = retractionTarget(e.data.supersedes);
+        const retracts = invalidatesTarget === undefined && supersedesTarget === undefined
+          ? null
+          : [
+              ...(invalidatesTarget === undefined ? [] : [{ type: 'invalidates' as const, target: invalidatesTarget }]),
+              ...(supersedesTarget === undefined ? [] : [{ type: 'supersedes' as const, target: supersedesTarget }]),
+            ];
 
         return {
           id: e.id, kind: e.kind, time: e.time, author: e.author,
           outcome: proj.outcomes.get(e.id) ?? 'unknown',
-          live: liveIds.has(e.id),
+          live: e.kind === 'constraint' ? liveConstraintIds.has(e.id) : liveIds.has(e.id),
           // null, never []: an entry with no anchors has none recorded, which is
           // not the same claim as "assessed and found none".
           anchors, influences, retracts,
