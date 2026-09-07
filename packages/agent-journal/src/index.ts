@@ -1,4 +1,5 @@
 export * from './envelope.ts';
+export * from './disclosure.ts';
 export * from './entry.ts';
 export * from './redact.ts';
 export * from './identity.ts';

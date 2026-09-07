@@ -1,3 +1,5 @@
+import { normalizeDisclosure, type Disclosure } from './disclosure.ts';
+
 export type Author = 'agent' | 'human';
 export type Provenance = 'hook' | 'cli' | 'http' | 'mcp' | 'transcript';
 export type Capability = 'known' | 'unknown';
@@ -26,6 +28,7 @@ export interface JournalEvent {
   readonly kind: string;
   readonly subject?: string;
   readonly data: Readonly<Record<string, unknown>>;
+  readonly disclosure: Disclosure;
 }
 
 const AUTHORS = new Set<string>(['agent', 'human']);
@@ -95,6 +98,7 @@ export function normalizeEvent(value: unknown): JournalEvent {
     kind: text(value.kind, 'kind'),
     ...(value.subject === undefined ? {} : { subject: text(value.subject, 'subject') }),
     data: isRecord(value.data) ? value.data : {},
+    disclosure: normalizeDisclosure(value.disclosure),
   };
 }
 
