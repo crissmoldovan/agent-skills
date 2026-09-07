@@ -485,7 +485,7 @@ git commit -m "feat(agent-journal): record anchors and influences"
 - Produces:
   - `KIND_FIELDS: Readonly<Record<string, readonly string[]>>` keyed by the six kinds
   - `LIST_FIELDS: ReadonlySet<string>` — fields stored as arrays: `rejected`, `evidence`, `premise`
-  - `ENUM_FIELDS: Readonly<Record<string, readonly string[]>>` — `reversibility`, `checked`, `enforcement`, `scope`
+  - `ENUM_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>` — keyed by **kind**, then field
   - `fieldsFor(kind: string): readonly string[]`
 
 **Field schemas, verbatim from spec §5.6 and §5.7:**
@@ -499,7 +499,9 @@ git commit -m "feat(agent-journal): record anchors and influences"
 | `progress` | `did`, `next`, `externalRef` |
 | `constraint` | `statement`, `origin`, `scope`, `expiry`, `enforcement` |
 
-Enumerations: `reversibility` ∈ `trivial|moderate|hard|one-way`; `checked` ∈ `yes|no`; `enforcement` ∈ `advisory|blocking`; `scope` ∈ `machine|workspace|general`.
+Enumerations, **keyed per kind rather than per field name**: `decision.reversibility` ∈ `trivial|moderate|hard|one-way`; `assumption.checked` ∈ `yes|no`; `constraint.enforcement` ∈ `advisory|blocking`; `finding.scope` ∈ `machine|workspace|general`.
+
+**`scope` is two different fields sharing a name, and a global table cannot hold both.** §5.6 gives `finding.scope` three values — this machine, this workspace, general — because a machine-local fact must not propagate as a universal one. §5.7 gives `constraint.scope` a different job: where the obligation applies, which is a subject (*telemetry*, *that checkout*) and not one of three words. Enumerating both under one key would reject every real constraint.
 
 **`rejected` becomes a list.** The spec writes it `rejected[]` and Task 1's grammar already makes repeated flags natural. It is currently stored as one flat string, so a second `--rejected` silently discarded the first. `evidence` and `premise` follow the same rule.
 
@@ -532,6 +534,16 @@ test('an out-of-range enumeration is refused', () => {
   assert.throws(() => normalizeEntryData('finding', new Map([['scope', ['everywhere']]])), TypeError);
   // and the valid ones are accepted
   assert.equal(normalizeEntryData('assumption', new Map([['checked', ['no']]])).checked, 'no');
+});
+
+// `scope` is enumerated on `finding` and free text on `constraint`. A table
+// keyed by field name alone would reject every constraint anyone would write.
+test('constraint scope is free text; finding scope is not', () => {
+  assert.equal(
+    normalizeEntryData('constraint', new Map([['scope', ['telemetry']]])).scope,
+    'telemetry',
+  );
+  assert.throws(() => normalizeEntryData('finding', new Map([['scope', ['telemetry']]])), TypeError);
 });
 
 test('an unknown kind carries no fields rather than guessing', () => {
@@ -597,11 +609,18 @@ export const KIND_FIELDS: Readonly<Record<string, readonly string[]>> = {
 /** Stored as arrays. A second `--rejected` used to discard the first. */
 export const LIST_FIELDS: ReadonlySet<string> = new Set(['rejected', 'evidence', 'premise']);
 
-export const ENUM_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  reversibility: ['trivial', 'moderate', 'hard', 'one-way'],
-  checked: ['yes', 'no'],
-  enforcement: ['advisory', 'blocking'],
-  scope: ['machine', 'workspace', 'general'],
+/**
+ * Keyed by kind, then field. `scope` exists on both `finding` and `constraint`
+ * and means different things: 5.6 constrains a finding's reach to three values
+ * so a machine-local fact cannot propagate as a universal one, while 5.7's
+ * constraint scope is the subject an obligation covers and is free text. One
+ * table keyed by field name alone would reject every real constraint.
+ */
+export const ENUM_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  decision: { reversibility: ['trivial', 'moderate', 'hard', 'one-way'] },
+  assumption: { checked: ['yes', 'no'] },
+  constraint: { enforcement: ['advisory', 'blocking'] },
+  finding: { scope: ['machine', 'workspace', 'general'] },
 };
 
 /** An unrecognised kind gets no fields rather than a guess. */
@@ -622,7 +641,7 @@ export function normalizeEntryData(
   for (const field of fieldsFor(kind)) {
     const values = given.get(field);
     if (!values || values.length === 0) continue;
-    const allowed = ENUM_FIELDS[field];
+    const allowed = ENUM_FIELDS[kind]?.[field];
     if (allowed) {
       for (const v of values) {
         if (!allowed.includes(v)) {
@@ -691,6 +710,7 @@ Expected: PASS. Existing decision tests still pass because `decision`'s field li
 | `KIND_FIELDS[kind] ?? []` → `?? KIND_FIELDS.decision` | unknown kind carries no fields |
 | delete the `allowed.includes(v)` throw | out-of-range enumeration is refused |
 | `LIST_FIELDS.has(field) ? [...values] : ...` → always last value | repeated `--rejected` keeps every alternative |
+| `ENUM_FIELDS[kind]?.[field]` → `ENUM_FIELDS.finding?.[field]` | constraint scope is free text |
 | `allowedForKind` → `new Set(Object.values(KIND_FIELDS).flat())` | each kind refuses another kind's fields |
 
 - [ ] **Step 6: Commit**
