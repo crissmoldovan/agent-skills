@@ -8,6 +8,8 @@ export interface Constraint {
   readonly scope?: string;
   readonly expiry?: string;
   readonly enforcement: 'advisory' | 'blocking';
+  /** Set only when `expiry` was present but unparseable. Never `false`. */
+  readonly malformedExpiry?: true;
 }
 
 function text(event: JournalEvent, field: string): string | undefined {
@@ -15,14 +17,29 @@ function text(event: JournalEvent, field: string): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Constraints live at projection, never at write time (spec 5.7) — the same
  * precedent as 7.5's contradictions. A constraint stops constraining when it
  * expires, when a later constraint supersedes it, or when it is invalidated.
  *
- * `expiry` is a date, so it is inclusive of its own day: "expires 2026-09-30"
- * is how people write an obligation, and treating it as midnight would retire
- * the constraint a day early.
+ * `expiry` accepts two forms. A bare `YYYY-MM-DD` is inclusive of its own
+ * day: "expires 2026-09-30" is how people write an obligation, and treating
+ * it as midnight would retire the constraint a day early, so a bare date is
+ * read as ending at `T23:59:59.999Z`. Anything else that `Date.parse` accepts
+ * on its own — a full RFC3339/ISO timestamp, say — is used exactly as given;
+ * it is never concatenated onto, because concatenating a suffix onto a string
+ * that already carries its own time component produces a string nothing can
+ * parse and silently drops a still-live obligation, which is the direction
+ * this function must never fail in.
+ *
+ * When `expiry` is present but parses under neither form, the constraint
+ * stays LIVE and is marked `malformedExpiry: true` instead of being dropped.
+ * A standing obligation whose expiry cannot be read might still apply, and
+ * this design's ethos is that silence must be legible: an obligation that
+ * genuinely lapsed keeps appearing until its expiry is fixed — noisy, but
+ * recoverable, which silently dropping a live one is not.
  */
 export function liveConstraints(events: readonly JournalEvent[], now: string): Constraint[] {
   const nowMs = Date.parse(now);
@@ -39,17 +56,24 @@ export function liveConstraints(events: readonly JournalEvent[], now: string): C
     if (!statement) continue;
 
     const expiry = text(e, 'expiry');
+    let malformedExpiry = false;
     if (expiry) {
-      const end = Date.parse(`${expiry}T23:59:59.999Z`);
-      if (Number.isNaN(end)) continue;
-      if (nowMs > end) continue;
+      const end = BARE_DATE.test(expiry) ? Date.parse(`${expiry}T23:59:59.999Z`) : Date.parse(expiry);
+      if (Number.isNaN(end)) {
+        malformedExpiry = true;
+      } else if (nowMs > end) {
+        continue;
+      }
     }
+    const origin = text(e, 'origin');
+    const scope = text(e, 'scope');
     const enforcement = e.data.enforcement === 'blocking' ? 'blocking' : 'advisory';
     out.push({
       id: e.id, statement, enforcement,
-      ...(text(e, 'origin') === undefined ? {} : { origin: text(e, 'origin')! }),
-      ...(text(e, 'scope') === undefined ? {} : { scope: text(e, 'scope')! }),
+      ...(origin === undefined ? {} : { origin }),
+      ...(scope === undefined ? {} : { scope }),
       ...(expiry === undefined ? {} : { expiry }),
+      ...(malformedExpiry ? { malformedExpiry: true as const } : {}),
     });
   }
   return out;

@@ -55,10 +55,16 @@ test('matching is by keyword on scope, and says nothing about meaning', () => {
   const miss = ev('d2', 'decision', { question: 'what colour is the button?', chosen: 'blue' });
   // Whole-word, case-insensitive: `telemetrics` is a different word.
   const near = ev('d3', 'decision', { question: 'telemetrics dashboard', chosen: 'x' });
+  // `telemetry` IS a literal substring of `nontelemetry` — this is the fixture
+  // that actually distinguishes whole-word matching from plain substring search;
+  // `telemetrics` does not (it derives from `telemetric` + `s`, not `telemetry`
+  // + a suffix, so the two never share a 9-character-or-longer common prefix).
+  const embedded = ev('d4', 'decision', { question: 'nontelemetry subsystem', chosen: 'x' });
 
   assert.deepEqual(constraintsBearingOn(hit, live).map((c) => c.id), ['c1']);
   assert.deepEqual(constraintsBearingOn(miss, live), []);
   assert.deepEqual(constraintsBearingOn(near, live), []);
+  assert.deepEqual(constraintsBearingOn(embedded, live), []);
 });
 
 test('a constraint never matches itself or another constraint', () => {
@@ -70,4 +76,49 @@ test('a constraint never matches itself or another constraint', () => {
     scope: 'telemetry', enforcement: 'advisory' });
   assert.deepEqual(constraintsBearingOn(other, live), [],
     'constraints surface against decisions, not against each other');
+});
+
+test('a bare YYYY-MM-DD expiry stays inclusive of its own day', () => {
+  const c = ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory',
+    expiry: '2026-12-31' });
+  const live = liveConstraints([c], '2026-09-08T00:00:00.000Z');
+  assert.equal(live.length, 1, 'live well before the bare-date expiry');
+  assert.equal(live[0]!.malformedExpiry, undefined, 'a parseable expiry is never marked malformed');
+});
+
+test('a full ISO-8601 timestamp expiry is used as-is, never dropped for being non-bare', () => {
+  const c = ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory',
+    expiry: '2026-12-31T00:00:00.000Z' });
+  const live = liveConstraints([c], '2026-09-08T00:00:00.000Z');
+  assert.equal(live.length, 1,
+    'a full timestamp expiry four months out must not vanish as if it had already lapsed');
+  assert.equal(live[0]!.malformedExpiry, undefined);
+});
+
+test('an unparseable expiry stays live and is marked malformedExpiry, never dropped', () => {
+  const c = ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory',
+    expiry: 'not-a-date' });
+  const live = liveConstraints([c], '2026-09-08T00:00:00.000Z');
+  assert.equal(live.length, 1, 'dropping is the unsafe direction; an unreadable expiry stays live');
+  assert.equal(live[0]!.malformedExpiry, true);
+});
+
+test('absent, empty, whitespace-only, and a Date-parseable partial expiry all stay live', () => {
+  const now = '2026-09-08T00:00:00.000Z';
+  const noExpiry = ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory' });
+  const empty = ev('c2', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory', expiry: '' });
+  const blank = ev('c3', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory', expiry: '   ' });
+  const partial = ev('c4', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory', expiry: '2026-12' });
+
+  assert.equal(liveConstraints([noExpiry], now).length, 1, 'no expiry at all');
+  assert.equal(liveConstraints([empty], now).length, 1, 'empty string expiry');
+  assert.equal(liveConstraints([blank], now).length, 1, 'whitespace-only expiry');
+  assert.equal(liveConstraints([partial], now).length, 1, 'a Date-parseable partial date, well before it');
+});
+
+test('a well-formed expiry is never marked malformedExpiry: false — the key is simply absent', () => {
+  const c = ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory',
+    expiry: '2026-12-31' });
+  const live = liveConstraints([c], '2026-09-08T00:00:00.000Z');
+  assert.ok(!('malformedExpiry' in live[0]!), 'malformedExpiry must be omitted, not false, when expiry is fine');
 });
