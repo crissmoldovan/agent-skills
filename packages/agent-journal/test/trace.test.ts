@@ -36,13 +36,30 @@ test('a ticket and a deployed flag are first-class starting points, not just a p
     ev('byFlag', { question: 'q', chosen: 'c',
       anchors: [{ type: 'runtime', ref: 'enforce_grants' }] }),
   ];
-  assert.deepEqual(traceFrom(events, 'PROJ-9').matched, ['byTicket']);
-  assert.deepEqual(traceFrom(events, 'enforce_grants').matched, ['byFlag']);
+  assert.deepEqual(traceFrom(events, 'PROJ-9').matched, [{ id: 'byTicket', via: 'influence' }]);
+  assert.deepEqual(traceFrom(events, 'enforce_grants').matched, [{ id: 'byFlag', via: 'anchor' }]);
+});
+
+// Four sources share one key space, so a reader must be able to tell an entry
+// that IS about something from one that merely cites it.
+test('a match reports which source produced it', () => {
+  const events = [
+    ev('about', { question: 'q', chosen: 'c' }, 'src/queue.ts'),
+    ev('cites', { question: 'q', chosen: 'c', anchors: [{ type: 'file', ref: 'src/queue.ts' }] }),
+    ev('names', { question: 'q', chosen: 'c' }, 'about'),
+  ];
+  assert.deepEqual(traceFrom(events, 'src/queue.ts').matched, [
+    { id: 'about', via: 'subject' }, { id: 'cites', via: 'anchor' },
+  ]);
+  // The sharpest case: a subject equal to another entry's id.
+  assert.deepEqual(traceFrom(events, 'about').matched, [
+    { id: 'about', via: 'id' }, { id: 'names', via: 'subject' },
+  ]);
 });
 
 test('lookup is exact and case-insensitive, never a substring match', () => {
   const events = [ev('d1', { question: 'q', chosen: 'c' }, 'src/queue.ts')];
-  assert.deepEqual(traceFrom(events, 'SRC/QUEUE.TS').matched, ['d1']);
+  assert.deepEqual(traceFrom(events, 'SRC/QUEUE.TS').matched, [{ id: 'd1', via: 'subject' }]);
   assert.deepEqual(traceFrom(events, 'queue').matched, [],
     'a substring matched — this is a lookup, not a search');
   assert.deepEqual(traceFrom(events, 'src/queue.ts.bak').matched, []);

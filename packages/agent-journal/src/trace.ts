@@ -8,8 +8,23 @@ export interface TraceStep {
   readonly via: 'influences' | 'supersedes' | 'invalidates' | null;
 }
 
+/**
+ * Which of the four key sources produced this match. Distinct from
+ * `TraceStep.via` — that names a traversal *edge*; this names a lookup
+ * *source*. Four sources share one flat key space, so a key can match for
+ * reasons a reader would weigh differently: an entry whose `subject` IS
+ * `src/queue.ts` is about that file, while one that merely cites it in an
+ * anchor is evidence involving it. Returning bare ids would make those
+ * indistinguishable, and the whole value of this lookup is that its answer
+ * needs no adjudication.
+ */
+export interface TraceMatch {
+  readonly id: string;
+  readonly via: 'subject' | 'anchor' | 'influence' | 'id';
+}
+
 export interface TraceResult {
-  readonly matched: string[];
+  readonly matched: TraceMatch[];
   readonly chain: TraceStep[];
 }
 
@@ -74,16 +89,41 @@ export function indexEntries(events: readonly JournalEvent[]): TraceIndex {
   return ix;
 }
 
+/**
+ * Which source, for THIS entry, produced a match against the already
+ * lower-cased `key`. Order of the checks IS the precedence: an entry whose id
+ * IS the key is the entry a reader asked for; that it also happens to cite the
+ * key elsewhere is secondary. `id` beats `subject` beats `anchor` beats
+ * `influence`.
+ */
+function matchSource(e: JournalEvent, key: string): TraceMatch['via'] | null {
+  if (e.id.trim().toLowerCase() === key) return 'id';
+  if (e.subject && e.subject.trim().toLowerCase() === key) return 'subject';
+  if (refs(e, 'anchors').some((r) => r.toLowerCase() === key)) return 'anchor';
+  if (refs(e, 'influences').some((r) => r.toLowerCase() === key)) return 'influence';
+  return null;
+}
+
 export function traceFrom(events: readonly JournalEvent[], key: string): TraceResult {
   const ix = indexEntries(events);
   const byId = new Map(events.map((e) => [e.id, e]));
-  const matched = [...(ix.get(key.trim().toLowerCase()) ?? [])];
+  const k = key.trim().toLowerCase();
+
+  const matched: TraceMatch[] = [];
+  for (const id of ix.get(k) ?? []) {
+    const e = byId.get(id);
+    if (!e) continue;
+    const via = matchSource(e, k);
+    if (via) matched.push({ id, via });
+  }
 
   const chain: TraceStep[] = [];
   const seen = new Set<string>();
   // Breadth-first from every match, recording the edge that led to each step.
   // Ids are caller-supplied, so a cycle is reachable in an append-only log.
-  const queue: TraceStep[] = matched.map((id) => ({ id, via: null }));
+  // Traversal starts from every matched id regardless of `via` — which source
+  // matched changes nothing about what gets walked.
+  const queue: TraceStep[] = matched.map((m) => ({ id: m.id, via: null }));
   while (queue.length > 0) {
     const step = queue.shift()!;
     if (seen.has(step.id)) continue;
