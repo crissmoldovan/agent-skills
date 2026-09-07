@@ -2069,6 +2069,25 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
 
+**Test-rigor gaps on the fail-closed guarantee, for the final review's fix wave.**
+Task 4's re-review named three regressions the committed tests would still miss. The
+implementation is correct; these are coverage gaps on the one guarantee that must not silently
+regress, and the first two are one-line additions:
+
+1. **A stray write under a different filename.** Both tests inspect only `result.path` and the
+   current `segmentPath()`. A secret written elsewhere in the `segments/` tree — an off-by-one
+   index, a wrong epoch used for the write but not the returned path — goes undetected. Fix: walk
+   the whole segments directory and assert the refused payload appears nowhere in it.
+2. **`mkdir` before the verdict check.** This creates the directory tree, leaking the
+   workspace/session/agent shape onto disk, then returns before `appendFile`. `existsSync` on the
+   file passes. The controller initially dismissed this break as invalid; the re-reviewer was
+   right that it is real. Fix: assert the segment *directory* does not exist after a refusal.
+3. **Multi-writer path attribution across a rotation boundary.** The "concurrency" test has only
+   one real writer: `redact()` is synchronous and the failed branch returns before touching the
+   queue, so the refusal completes before the good append is even called. `good.path ===
+   segmentPath()` is a tautology there. Two concurrent *successful* appends straddling a rotation
+   are untested. Harder to make deterministic — scope it deliberately or state it as accepted.
+
 **Documented asymmetry — `readExplicitId` rethrows, `canonical()` swallows.**
 These sit in one module with opposite error philosophies, and Task 3's re-review reasonably read
 that as an inconsistency. It is deliberate. `readExplicitId` rethrows because ignoring an id the
