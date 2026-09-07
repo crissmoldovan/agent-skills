@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { readdir, readFile, mkdir, writeFile, realpath } from 'node:fs/promises';
+import { join, dirname, resolve, basename, sep } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
@@ -136,6 +136,34 @@ function nowStamp(): string {
 
 function journalFor(root: string, workspace: string, session: string, agent: string): SegmentJournal {
   return new SegmentJournal({ root, workspace, machine: hostname(), session, agent, epoch: 'e1' });
+}
+
+/**
+ * Resolve `p` as canonically as the filesystem allows, so a comparison against
+ * it cannot be defeated by a relative path, a `..` traversal, or a symlink
+ * anywhere in the chain — including a symlinked AGENT_JOURNAL_ROOT itself.
+ * `path.resolve()` alone handles the first two but never follows symlinks;
+ * `fs.realpath()` alone throws on a path that does not fully exist yet, which
+ * `--out` to a fresh nested path always is. This walks up to the longest
+ * existing ancestor, realpath()s that, and lexically rejoins whatever does
+ * not exist yet — so the two sides of a "is this path inside that tree?"
+ * check are always compared in the same coordinate system.
+ */
+async function canonicalize(p: string): Promise<string> {
+  let current = resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = await realpath(current);
+      return tail.length === 0 ? real : join(real, ...tail);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = dirname(current);
+      if (parent === current) return join(current, ...tail); // reached the fs root; nothing more to resolve
+      tail.unshift(basename(current));
+      current = parent;
+    }
+  }
 }
 
 interface ReadResult {
@@ -662,6 +690,28 @@ async function dispatch(
         stderr: `--level must be one of ${DISCLOSURE_CLASSES.join(', ')}, got ${JSON.stringify(level)}\n`,
       };
     }
+    const out = opts.get('out');
+    if (out) {
+      // A digest written under the workspace's own segment tree becomes
+      // journal INPUT the next time this workspace is read: readAll() walks
+      // every `*.jsonl` under segments/, coverage/show/trace would treat this
+      // command's own artifact as journal data, and a name that happens to
+      // land on a `.jsonl` extension gets parsed as one — most likely wedging
+      // this workspace's damaged-journal refusal permanently, since the very
+      // next digest attempt reads its own prior output as corruption. Both
+      // sides are resolved through the filesystem, not compared as strings —
+      // a relative path, a `..` traversal, or a symlinked root must not slip
+      // past what would otherwise be a naive prefix check.
+      const segmentsDir = await canonicalize(join(root, 'workspaces', workspace, 'segments'));
+      const resolvedOut = await canonicalize(out);
+      if (resolvedOut === segmentsDir || resolvedOut.startsWith(segmentsDir + sep)) {
+        return {
+          code: 2, stdout: '',
+          stderr: `--out must not write inside this workspace's own segment tree `
+            + `(${segmentsDir}); a digest written there becomes journal input on the next read\n`,
+        };
+      }
+    }
     const { events, unreadable, malformed } = await readAll(root, workspace);
     const damaged = unreadable.length > 0 || malformed.length > 0;
     if (damaged) {
@@ -679,7 +729,6 @@ async function dispatch(
       coverage: coverage(events), now: nowStamp(),
       ...(level === undefined ? {} : { level: level as Disclosure }),
     });
-    const out = opts.get('out');
     if (out) {
       await mkdir(dirname(out), { recursive: true });
       await writeFile(out, rendered, 'utf8');

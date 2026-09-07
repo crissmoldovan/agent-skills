@@ -1344,3 +1344,86 @@ test('digest --out at an unwritable existing file reports EACCES exactly once, n
     await chmod(outFile, 0o600);
   }
 });
+
+// readAll() walks every `*.jsonl` under a workspace's segments/ tree, so a
+// digest written there becomes journal input on the very next read of this
+// workspace — coverage/show/trace would parse this command's own artifact as
+// journal data, and a name ending in `.jsonl` gets treated as a segment,
+// wedging the damaged-journal refusal against a corruption this command
+// inflicted on itself. A non-`.jsonl` name in the same directory is harmless,
+// which is what makes this a plausible typo rather than an obviously silly
+// path.
+test("digest --out inside the workspace's own segment tree is refused, not written", async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const insideOut = join(segDir, 'oops.jsonl');
+
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', insideOut], env);
+  assert.equal(r.code, 2, `a digest into the segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(() => readFile(insideOut, 'utf8'),
+    "a digest was written inside the workspace's own segment tree");
+
+  // The workspace must still read cleanly afterward — nothing this command
+  // did should have become input to the next read. `coverage`'s JSON always
+  // carries a `malformed` key (empty when clean), so assert on the parsed
+  // array being empty rather than the substring's mere presence.
+  const after = await runCli(['coverage', '--workspace', 'ws'], env);
+  assert.equal(after.code, 0, after.stderr);
+  assert.deepEqual(JSON.parse(after.stdout).malformed, []);
+  assert.deepEqual(JSON.parse(after.stdout).unreadable, []);
+});
+
+// The same containment check must not be defeated by a `..` segment that a
+// naive string-prefix comparison (`resolvedOut.startsWith(segmentsDir)`)
+// would miss unless both sides are actually resolved. Built as a raw string,
+// not via path.join/resolve in the test itself, so the traversal reaches the
+// CLI's own resolution unnormalized — the same way a shell argument would.
+test('digest --out defeats containment via a `..` traversal is still refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const traversalOut = `${dir}/workspaces/ws/not-a-real-dir/../segments/oops.jsonl`;
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', traversalOut], env);
+  assert.equal(r.code, 2, `a traversal into the segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(
+    () => readFile(join(dir, 'workspaces', 'ws', 'segments', 'oops.jsonl'), 'utf8'),
+    'a `..` traversal reached inside the segment tree despite the guard',
+  );
+});
+
+// `digest --out` to a path OUTSIDE the segment tree must still work — the
+// guard above is scoped to the segment tree specifically, not the whole
+// journal root, since a digest at `<root>/digest.md` is odd but harmless and
+// refusing every path under the root would block a legitimate layout choice
+// for no safety gain.
+test('digest --out to a legitimate path outside the segment tree still works', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const out = join(dir, 'docs', 'decisions', 'digest.md');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(await readFile(out, 'utf8'), /Decision digest/);
+});
+
+// `rest[0]` for `trace --workspace ws` (no positional at all) is the literal
+// string `'--workspace'` — always truthy, so only the `key.startsWith('--')`
+// half of the guard is ever exercised by that test. An explicitly empty key
+// (`trace '' --workspace ws`) is the only input that exercises the `!key`
+// half on its own; nothing previously did.
+test('trace with an explicitly empty key is refused, not treated as no key at all', async () => {
+  const dir = await root();
+  const r = await runCli(['trace', '', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2, r.stdout);
+  assert.match(r.stderr, /key/i);
+});
