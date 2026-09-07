@@ -1,6 +1,7 @@
 export * from './envelope.ts';
 export * from './disclosure.ts';
 export * from './entry.ts';
+export * from './observe.ts';
 export * from './redact.ts';
 export * from './identity.ts';
 export * from './journal.ts';

@@ -1,16 +1,15 @@
 import type { JournalEvent } from './envelope.ts';
 import { project } from './retract.ts';
+import { OBSERVATION_KINDS } from './observe.ts';
 
 const ENTRY_KINDS = new Set(['decision', 'finding', 'assumption', 'blocker', 'progress', 'constraint']);
 
-/** Spec 4.4's observation kinds. Anything in NEITHER set is unclassified: it is
- *  kept and reported rather than silently aged out, because a typo'd or
- *  future entry kind must not be destroyed by a binary classifier guessing. */
-const OBSERVATION_KINDS = new Set([
-  'session_start', 'session_end', 'turn_end', 'tool_call', 'tool_result', 'tool_failure',
-  'permission', 'subagent_start', 'subagent_stop', 'compact', 'heartbeat', 'environment',
-  'path_claim', 'void',
-]);
+/** Spec 4.4's observation kinds, from observe.ts — the single source of truth
+ *  for the fourteen names, since `observe` is the command that writes them.
+ *  Anything in NEITHER set is unclassified: it is kept and reported rather
+ *  than silently aged out, because a typo'd or future entry kind must not be
+ *  destroyed by a binary classifier guessing. */
+const OBSERVATION_KIND_SET = new Set<string>(OBSERVATION_KINDS);
 
 export interface RetentionOptions {
   readonly now: string;
@@ -93,7 +92,7 @@ export function applyRetention(
   for (const e of events) {
     if (tombstoned.has(e.id)) continue;
     if (isEntry(e)) { keep.push(e); continue; }
-    if (!OBSERVATION_KINDS.has(e.kind)) {
+    if (!OBSERVATION_KIND_SET.has(e.kind)) {
       // Neither an entry nor a known observation. Keep it and say so.
       unclassified.push(e.id);
       keep.push(e);

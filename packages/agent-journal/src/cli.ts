@@ -7,6 +7,9 @@ import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
   type Anchor, type Influence,
 } from './entry.ts';
+import {
+  OBSERVATION_KINDS, OBSERVATION_FIELDS, fieldsForObservation, normalizeObservationData,
+} from './observe.ts';
 import { DISCLOSURE_CLASSES, type Disclosure } from './disclosure.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
@@ -47,6 +50,8 @@ const USAGE = [
   '                       [--disclosure private|team|published] [--subject s]',
   '                       ...plus the fields for <kind>:',
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
+  '  agent-journal observe --kind <kind> --workspace <id> [--id id] [--context c] [--seq n]',
+  '                        ...plus the fields for <kind>: ' + Object.keys(OBSERVATION_FIELDS).join(', '),
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
@@ -98,6 +103,18 @@ const RECORD_GLOBAL = ['workspace', 'kind', 'id', 'author', 'context',
 const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
 
 /**
+ * Fields every observation shares, regardless of `--kind`. Deliberately
+ * missing `--author` — an observation is never authored by a human, which is
+ * what makes it Plane A — and `--disclosure` — observations are machinery,
+ * not candour, so they take the envelope default rather than a caller's
+ * stated intent.
+ */
+const OBSERVATION_GLOBAL = ['workspace', 'kind', 'id', 'context', 'seq'] as const;
+
+/** Kinds `record` writes. `observe` refuses any of these — that is `record`'s job. */
+const ENTRY_KINDS_SET = new Set<string>(Object.keys(KIND_FIELDS));
+
+/**
  * What each subcommand accepts. One shared list was wrong in both directions:
  * `reason` belongs to `invalidate`, but listing it globally let `record` take it
  * and throw it away at exit 0 — and `--reason` is the likeliest mistyping of
@@ -112,6 +129,7 @@ const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
  */
 const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   record: [...RECORD_GLOBAL, ...Object.values(KIND_FIELDS).flat()],
+  observe: [...OBSERVATION_GLOBAL, ...Object.values(OBSERVATION_FIELDS).flat()],
   invalidate: ['workspace', 'reason', 'disclosure'],
   coverage: ['workspace'],
   show: ['workspace', 'id'],
@@ -571,6 +589,108 @@ async function dispatch(
       };
     }
     return { code: 0, stdout: `recorded ${id}\n`, stderr: kindWarning + targetWarning };
+  }
+
+  if (command === 'observe') {
+    const kind = opts.get('kind');
+    if (!kind) return { code: 2, stdout: '', stderr: `--kind is required\n${USAGE}` };
+
+    // A void records a refused write and is produced by the failure path
+    // itself. Letting a caller fabricate one would let a hook manufacture
+    // evidence of its own silence, which is precisely backwards.
+    if (kind === 'void') {
+      return {
+        code: 2, stdout: '',
+        stderr: 'void observations are written by the refusal path itself, never by a caller\n',
+      };
+    }
+
+    // An entry kind belongs to `record`, not here — routing it there rather
+    // than writing it as a garbage observation.
+    if (ENTRY_KINDS_SET.has(kind)) {
+      return {
+        code: 2, stdout: '',
+        stderr: `${kind} is an entry kind — use \`agent-journal record\`\n`,
+      };
+    }
+
+    // normalizeEvent does NOT validate `kind` — it is a free string all the
+    // way to disk. Without this membership check, `observe --kind
+    // constructor` (or any other unrecognised kind) writes a garbage event
+    // and exits 0, and retention.ts then files it as `unclassified` forever.
+    if (!(OBSERVATION_KINDS as readonly string[]).includes(kind)) {
+      return {
+        code: 2, stdout: '',
+        stderr: `${JSON.stringify(kind)} is not an observation kind; one of `
+          + `${OBSERVATION_KINDS.join(', ')}\n`,
+      };
+    }
+
+    // The generic gate above only catches typos across every kind's fields.
+    // This is the precise check: a field genuinely allowed on some OTHER
+    // observation kind must still be refused here.
+    const allowedForKind = new Set<string>([...OBSERVATION_GLOBAL, ...fieldsForObservation(kind)]);
+    const wrong = [...opts.keys()].filter((k) => !allowedForKind.has(k)).sort();
+    if (wrong.length > 0) {
+      return {
+        code: 2, stdout: '',
+        stderr: `${wrong.map((f) => `--${f}`).join(', ')} `
+          + `${wrong.length > 1 ? 'are' : 'is'} not a field of observation '${kind}'\n`,
+      };
+    }
+
+    // `--seq` is optional: absent means the source declares no sequence,
+    // which `mergeEvents` already handles. Observations are the only
+    // high-volume writer here, and a gap in the sequence is how a dropped
+    // hook becomes visible in `coverage`.
+    let sequence: number | undefined;
+    const rawSeq = opts.get('seq');
+    if (rawSeq !== undefined) {
+      if (!/^\d+$/.test(rawSeq)) {
+        return {
+          code: 2, stdout: '',
+          stderr: `--seq must be a non-negative whole number, got ${JSON.stringify(rawSeq)}\n`,
+        };
+      }
+      sequence = Number(rawSeq);
+    }
+
+    const session = env.AGENT_JOURNAL_SESSION ?? 'unknown';
+    const agent = env.AGENT_JOURNAL_AGENT ?? 'primary';
+    const event = normalizeEvent({
+      schemaVersion: 1, id: opts.get('id') ?? randomUUID(),
+      source: `hook/${hostname()}/${session}/${agent}`, sourceEpoch: 'e1',
+      ...(sequence === undefined ? {} : { sequence }),
+      time: nowStamp(), workspace, session, agent,
+      // An observation is never authored by a human — that is what makes it
+      // Plane A — and it takes the envelope's disclosure default rather than
+      // a caller's stated intent: observations are machinery, not candour.
+      author: 'agent', provenance: 'hook',
+      harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
+      context: opts.get('context') ?? 'coding',
+      kind, data: normalizeObservationData(kind, all),
+    });
+
+    const journal = journalFor(root, workspace, session, agent);
+    const result = await journal.append(event);
+    if (!result.written) {
+      // Persist the refusal, the same guarantee `record` makes — otherwise
+      // this refusal never reaches coverage()'s `voids` count and the
+      // silence it creates stays invisible.
+      const trace = await journal.append(voidEvent({
+        id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
+        time: nowStamp(), workspace, session, agent,
+        harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
+        reason: `redaction ${result.verdict}`, provenance: 'hook', author: 'agent',
+        ...(result.reason === undefined ? {} : { detail: result.reason }),
+      }));
+      return {
+        code: 1, stdout: '',
+        stderr: `refused: redaction ${result.verdict} — ${result.reason ?? 'no detail'}\n`
+          + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
+      };
+    }
+    return { code: 0, stdout: `observed ${event.id}\n`, stderr: '' };
   }
 
   if (command === 'invalidate') {

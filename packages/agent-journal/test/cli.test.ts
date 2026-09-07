@@ -1566,3 +1566,112 @@ test('trace with an explicitly empty key is refused, not treated as no key at al
   assert.equal(r.code, 2, r.stdout);
   assert.match(r.stderr, /key/i);
 });
+
+test('observe writes an observation through the same validated path entries use', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'tool_call',
+    '--tool', 'Bash', '--input', 'git status', '--callId', 'c1'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.kind, 'tool_call');
+  assert.equal(e!.data.tool, 'Bash');
+  assert.equal(e!.provenance, 'hook',
+    'an observation records that a hook produced it, not the CLI');
+});
+
+// A hook firing forty times a turn is the only writer that needs this, and a gap
+// in the sequence is how a dropped hook becomes visible in `coverage`.
+test('observe accepts a sequence, and omits it when not given', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'heartbeat', '--id', 'h1',
+    '--seq', '7'], env);
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'heartbeat', '--id', 'h2'], env);
+  const byId = Object.fromEntries((await readAllEvents(dir, 'ws')).map((e) => [e.id, e]));
+  assert.equal(byId.h1!.sequence, 7);
+  assert.ok(!('sequence' in byId.h2!), 'an absent sequence must not become 0');
+});
+
+test('observe refuses a non-numeric or negative sequence', async () => {
+  const dir = await root();
+  for (const bad of ['x', '-1', '1.5', '']) {
+    const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'heartbeat',
+      '--seq', bad], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `--seq ${JSON.stringify(bad)} was accepted`);
+  }
+});
+
+// A void records a refused write and is produced by the failure path itself.
+// Letting a caller fabricate one lets a hook manufacture evidence of its own
+// silence, which is exactly backwards.
+test('observe refuses to write a void', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'void'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /void/i);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+// envelope.ts does not validate `kind`, so without this an `observe --kind
+// constructor` writes a garbage event and exits 0 — the exact shape of the
+// word-splitting incident this project already paid for.
+test('observe refuses a kind that is not an observation kind', async () => {
+  const dir = await root();
+  for (const bad of ['constructor', '__proto__', 'not_a_kind', '']) {
+    const r = await runCli(['observe', '--workspace', 'ws', '--kind', bad],
+      { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `--kind ${JSON.stringify(bad)} was accepted`);
+  }
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'a garbage kind reached disk');
+});
+
+test('observe refuses an entry kind — record writes those', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'decision'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /record/i);
+});
+
+test('retention still classifies observations after the list moves to observe.ts', async () => {
+  const { applyRetention } = await import('../src/retention.ts');
+  const { OBSERVATION_KINDS } = await import('../src/observe.ts');
+  const { normalizeEvent } = await import('../src/envelope.ts');
+  assert.ok(OBSERVATION_KINDS.includes('heartbeat'));
+
+  // A known observation is subject to retention; an unknown kind is kept and named.
+  // Assert on applyRetention's own report, not on the list it now imports —
+  // comparing the list to itself proves agreement, not correctness.
+  const OLD = '2026-01-01T00:00:00.000Z';
+  const NOW = '2026-09-07T00:00:00.000Z';
+  const make = (id: string, kind: string) => normalizeEvent({
+    schemaVersion: 1, id, source: 'h/m/s/a', sourceEpoch: 'e1', time: OLD,
+    workspace: 'ws', session: 's', agent: 'a', author: 'agent', provenance: 'hook',
+    harness: 'claude-code', context: 'coding', kind, data: {},
+  });
+
+  const report = applyRetention(
+    [make('o1', 'heartbeat'), make('u1', 'some_future_kind_nobody_wrote_yet')],
+    { now: NOW, observationTtlMs: 30 * 86400000 },
+  );
+  // heartbeat is a known observation with nothing citing it: it ages out.
+  assert.deepEqual(report.expired, ['o1']);
+  // An unknown kind is neither entry nor observation: kept and named, never
+  // silently aged, and NOT reported as expired.
+  assert.deepEqual(report.unclassified, ['u1']);
+  assert.equal(report.keep.length, 1);
+  assert.equal(report.keep[0]!.id, 'u1');
+});
+
+// Observations carry tool inputs — the highest-volume source of secrets here.
+test('an observation goes through the redactor like any other write', async () => {
+  const dir = await root();
+  const token = 'ghp' + '_' + 'a1b2c3d4e5'.repeat(3);
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'tool_call', '--tool', 'Bash',
+    '--input', `git push https://${token}@example.com/r.git`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!JSON.stringify(e!.data).includes(token), 'a token reached disk from an observation');
+});
