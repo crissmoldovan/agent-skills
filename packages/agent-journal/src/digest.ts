@@ -21,7 +21,21 @@ function str(e: JournalEvent, field: string): string | undefined {
 
 function list(e: JournalEvent, field: string): string[] {
   const v = e.data[field];
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  return Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+    : [];
+}
+
+/**
+ * The title becomes a markdown heading line (`## ${title}`). Collapse any
+ * embedded whitespace — including a newline — to a single space and strip a
+ * leading run of `#` so a title typed carelessly, or adversarially, cannot
+ * inject its own heading or escape into the document as a raw line. Scoped to
+ * the title only: body fields are deliberately left unescaped, a broader
+ * question this fix round does not settle (see digest.test.ts).
+ */
+function sanitizeTitle(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim().replace(/^#+\s*/, '');
 }
 
 /** True only when EVERY influence is model_knowledge — 5.4's signal, not a mere mention. */
@@ -75,7 +89,7 @@ export function renderDigest(
   }
 
   for (const { e, outcome } of entries) {
-    const title = str(e, 'question') ?? str(e, 'statement') ?? str(e, 'claim') ?? e.id;
+    const title = sanitizeTitle(str(e, 'question') ?? str(e, 'statement') ?? str(e, 'claim') ?? e.id);
     out.push(`## ${title}`, '');
     out.push(`- **id** \`${e.id}\` · **kind** ${e.kind} · **outcome** ${outcome}`);
     const chosen = str(e, 'chosen');

@@ -12,6 +12,17 @@ function ev(id: string, data: Record<string, unknown>, disclosure = 'published')
     kind: 'decision', disclosure, data,
   });
 }
+
+/** Like `ev`, but for kinds other than `decision` — constraints and findings
+ *  title from `statement`/`claim` rather than `question`. */
+function evKind(id: string, kind: string, data: Record<string, unknown>, disclosure = 'published') {
+  return normalizeEvent({
+    schemaVersion: 1, id, source: 'cli/h/s/a', sourceEpoch: 'e1',
+    time: '2026-09-07T10:00:00.000Z', workspace: 'ws', session: 's', agent: 'a',
+    author: 'agent', provenance: 'cli', harness: 'test', context: 'coding',
+    kind, disclosure, data,
+  });
+}
 const NOW = '2026-09-08T00:00:00.000Z';
 const render = (events: any[], level?: any) =>
   renderDigest(events, { coverage: coverage(events), now: NOW, ...(level ? { level } : {}) });
@@ -45,6 +56,54 @@ test('ordering is by consequence, not by time', () => {
     'one-way must sort above trivial');
 });
 
+// The shuffle-ordering test at the bottom of this file only proves
+// self-consistency: several renders of one input agreeing with EACH OTHER
+// says nothing about whether the comparator matches the spec's stated tier
+// order — a comparator that is semantically wrong but internally consistent
+// (e.g. hard and moderate swapped) passes that test every time. These three
+// tests assert against the spec's order directly, each holding every rank
+// component but the one under test constant across its entries.
+test('reversibility tiers sort one-way, then hard, then moderate, then trivial', () => {
+  const out = render([
+    ev('t-trivial', { question: 'trivial tier', chosen: 'x', reversibility: 'trivial' }),
+    ev('t-moderate', { question: 'moderate tier', chosen: 'x', reversibility: 'moderate' }),
+    ev('t-hard', { question: 'hard tier', chosen: 'x', reversibility: 'hard' }),
+    ev('t-oneway', { question: 'one-way tier', chosen: 'x', reversibility: 'one-way' }),
+  ]);
+  const at = (s: string) => out.indexOf(s);
+  assert.ok(at('one-way tier') < at('hard tier'), 'one-way must sort before hard');
+  assert.ok(at('hard tier') < at('moderate tier'), 'hard must sort before moderate');
+  assert.ok(at('moderate tier') < at('trivial tier'), 'moderate must sort before trivial');
+});
+
+test('an absent reversibility sorts after all four named tiers', () => {
+  const out = render([
+    ev('a-none', { question: 'no reversibility', chosen: 'x' }),
+    ev('a-trivial', { question: 'trivial tier two', chosen: 'x', reversibility: 'trivial' }),
+    ev('a-moderate', { question: 'moderate tier two', chosen: 'x', reversibility: 'moderate' }),
+    ev('a-hard', { question: 'hard tier two', chosen: 'x', reversibility: 'hard' }),
+    ev('a-oneway', { question: 'one-way tier two', chosen: 'x', reversibility: 'one-way' }),
+  ]);
+  const at = (s: string) => out.indexOf(s);
+  for (const tier of ['one-way tier two', 'hard tier two', 'moderate tier two', 'trivial tier two']) {
+    assert.ok(at(tier) < at('no reversibility'), `${tier} must sort before an absent reversibility`);
+  }
+});
+
+test('with reversibility equal, a blastRadius present sorts before one absent', () => {
+  // Ids are deliberately anti-alphabetical to the expected order: if the
+  // blastRadius tier were neutralised, the id tiebreak alone would place
+  // 'a-without' first, so a pass here can only come from the blastRadius
+  // comparison actually running.
+  const out = render([
+    ev('a-without', { question: 'no blast radius', chosen: 'x', reversibility: 'hard' }),
+    ev('z-with', { question: 'has blast radius', chosen: 'x', reversibility: 'hard', blastRadius: 'wide' }),
+  ]);
+  const at = (s: string) => out.indexOf(s);
+  assert.ok(at('has blast radius') < at('no blast radius'),
+    'an entry with blastRadius must sort before one without, at equal reversibility');
+});
+
 test('two renders of the same journal are byte-identical', () => {
   const events = [
     ev('b', { question: 'second', chosen: 'x', reversibility: 'hard' }),
@@ -59,6 +118,63 @@ test('rejected alternatives are shown in full, never summarised away', () => {
     rejected: ['redis — needs a broker we do not run', 'kafka — three days of setup'] })]);
   assert.ok(out.includes('redis — needs a broker we do not run'));
   assert.ok(out.includes('kafka — three days of setup'));
+});
+
+test('a blank rejected entry is dropped, not rendered as an empty bullet', () => {
+  const out = render([ev('d2', { question: 'q2', chosen: 'x', rejected: ['', 'real one', '   '] })]);
+  const lines = out.split('\n');
+  assert.ok(lines.includes('- real one'), 'the non-blank rejected entry must still render');
+  assert.ok(!lines.some((l) => /^-\s*$/.test(l)),
+    'a blank rejected entry rendered as a bare bullet');
+});
+
+// Disclosure alone must not be relied on to keep voids out: this event is
+// explicitly `published` (readable at every level), so only the `e.kind !==
+// 'void'` filter stands between it and the digest. (The `voidEvent()` helper
+// in coverage.ts always normalizes to `private` disclosure since it exposes
+// no disclosure input — using it here would let readableAt mask a dropped
+// kind filter instead of the kind filter itself being exercised.)
+test('a void event never reaches the digest, even when otherwise readable', () => {
+  const events = [
+    ev('shown', { question: 'a real decision', chosen: 'x' }),
+    evKind('v1', 'void', { reason: 'a refused write' }),
+  ];
+  const out = render(events);
+  assert.ok(out.includes('a real decision'));
+  // A void event's `reason` is not a field renderDigest ever displays (that
+  // is the actual VoidInput shape — see coverage.ts), so asserting against
+  // it would pass whether or not the entry leaked through. A void event also
+  // has no question/statement/claim, so a leaked one titles from its id.
+  assert.ok(!out.includes('## v1'), 'a void event reached the digest body');
+});
+
+test('a title falls back through statement (constraint) and claim (finding) when there is no question', () => {
+  const out = render([
+    evKind('con1', 'constraint', { statement: 'no admin api tokens in logs' }),
+    evKind('find1', 'finding', { claim: 'the cache was never invalidated on write' }),
+  ]);
+  assert.ok(out.includes('## no admin api tokens in logs'), 'a constraint should title from statement');
+  assert.ok(out.includes('## the cache was never invalidated on write'), 'a finding should title from claim');
+});
+
+test('a rationale renders as the why line when the entry is readable', () => {
+  const out = render([ev('r2', { question: 'why did we do this', chosen: 'x',
+    rationale: 'the vendor deprecated the old api' })]);
+  assert.ok(out.includes('- **why** the vendor deprecated the old api'),
+    'a readable rationale must render its why line');
+});
+
+// A careless — or hostile — title should not be able to corrupt the digest's
+// heading structure. Scoped to the title only; body fields are deliberately
+// left unescaped (a broader design question this fix round does not settle):
+// e.g. `chosen`, `rationale` and `rejected[]` can still contain raw markdown
+// or newlines that are not stripped here.
+test('a markdown-heading-shaped title cannot inject a heading or leak a raw line', () => {
+  const out = render([ev('inj', { question: '## nested\nsecond line', chosen: 'x' })]);
+  assert.ok(out.includes('## nested second line'), 'the sanitized title must still render, on one line');
+  assert.ok(!out.includes('## ## nested'), 'a leading # in the title was not stripped');
+  assert.ok(!out.split('\n').includes('second line'),
+    'a newline inside the title escaped into the document as a raw line');
 });
 
 test('an entry resting only on model_knowledge is flagged', () => {
