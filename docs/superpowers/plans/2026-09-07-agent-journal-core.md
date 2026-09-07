@@ -2398,6 +2398,41 @@ test('a retraction takes effect regardless of merge order', async () => {
   assert.ok(project(events).invalidated.has('f1'), 'the retraction must apply either way');
 });
 
+test('record stores rejected — the field the design exists for', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--id', 'e1',
+    '--question', 'how do we bound the queue?', '--chosen', 'ring buffer',
+    '--rejected', 'redis — needs a broker we do not run'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  // This was silently dropped for as long as the field list omitted it: exit 0,
+  // entry written, the alternatives gone. Nothing else in the system records them.
+  assert.equal(entry!.data.rejected, 'redis — needs a broker we do not run');
+});
+
+test('record stores the other decision fields it advertises', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c',
+    '--reversibility', 'one-way', '--blastRadius', 'every signed-in user',
+    '--confidence', 'low'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.data.reversibility, 'one-way');
+  assert.equal(entry!.data.blastRadius, 'every signed-in user');
+  assert.equal(entry!.data.confidence, 'low');
+});
+
+test('an unknown flag is refused, not silently dropped', async () => {
+  const dir = await root();
+  // A typo must stop rather than lose the value with an exit code saying it worked.
+  const r = await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--rejcted', 'oops'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown flag: --rejcted/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'nothing should be written');
+});
+
 test('an unknown subcommand exits non-zero with usage', async () => {
   const r = await runCli(['frobnicate', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: await root() });
   assert.notEqual(r.code, 0);
@@ -2432,7 +2467,9 @@ export interface CliResult {
 
 const USAGE = [
   'usage:',
-  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r] [--id id] [--author human]',
+  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r]
+                 [--rejected r] [--reversibility trivial|moderate|hard|one-way] [--blastRadius b]
+                 [--confidence c] [--id id] [--author human] [--context c]',
   '  journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  journal coverage --workspace <id>',
   '',
@@ -2452,6 +2489,27 @@ function flags(argv: readonly string[]): Map<string, string> {
     }
   }
   return out;
+}
+
+/**
+ * Fields `record` stores. `rejected` is here because it is the point of the
+ * whole design — the alternatives you considered and discarded are what nothing
+ * else captures — and it was silently dropped for as long as this list omitted
+ * it: the CLI exited 0, wrote the entry, and discarded the field.
+ */
+const RECORD_FIELDS = [
+  'question', 'chosen', 'rationale', 'rejected',
+  'reversibility', 'blastRadius', 'confidence',
+  'supersedes', 'invalidates',
+] as const;
+
+/** Flags every subcommand understands. Anything else is a typo, and a typo that
+ *  silently drops data is worse than one that stops. */
+const GLOBAL_FLAGS = ['workspace', 'kind', 'id', 'author', 'context', 'reason'] as const;
+
+function unknownFlags(opts: Map<string, string>): string[] {
+  const known = new Set<string>([...RECORD_FIELDS, ...GLOBAL_FLAGS]);
+  return [...opts.keys()].filter((k) => !known.has(k)).sort();
 }
 
 function nowStamp(): string {
@@ -2497,6 +2555,18 @@ export async function runCli(
 
   const opts = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');
+
+  // Refuse unknown flags. Silently ignoring one loses whatever the caller meant
+  // to record, with an exit code of 0 saying it worked.
+  const unknown = unknownFlags(opts);
+  if (unknown.length > 0) {
+    return {
+      code: 2,
+      stdout: '',
+      stderr: `unknown flag${unknown.length > 1 ? 's' : ''}: ${unknown.map((f) => `--${f}`).join(', ')}\n${USAGE}`,
+    };
+  }
+
   const workspace = opts.get('workspace');
   if (!workspace) return { code: 2, stdout: '', stderr: `--workspace is required\n${USAGE}` };
 
@@ -2514,7 +2584,7 @@ export async function runCli(
     const author = opts.get('author') === 'human' ? 'human' : 'agent';
 
     const data: Record<string, unknown> = {};
-    for (const field of ['question', 'chosen', 'rationale', 'supersedes', 'invalidates']) {
+    for (const field of RECORD_FIELDS) {
       const v = opts.get(field);
       if (v !== undefined) data[field] = v;
     }
