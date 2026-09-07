@@ -244,7 +244,7 @@ export * from './entry.ts';
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd packages/agent-journal && pnpm test`
-Expected: PASS, and the total rises by 7.
+Expected: PASS, and the total rises by 8.
 
 - [ ] **Step 5: Mutation-check every new assertion**
 
