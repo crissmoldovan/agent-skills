@@ -130,6 +130,10 @@ Rule: preserve `unknown` rather than inferring optimistic defaults.
 **Entries** — agent-written, sparse, expensive:
 `decision`, `finding`, `assumption`, `blocker`, `progress`.
 
+`anchors[]` and `influences[]` (§5.1, §5.2) are available on **every** entry kind,
+not only `decision`. What contributed to a `finding` or a `progress` note is as worth
+recording as what contributed to a choice.
+
 ## 5. The decision entry
 
 The one schema worth arguing about.
@@ -139,8 +143,8 @@ question        what was being decided
 chosen          what was picked
 rejected[]      alternatives considered, each with why-not
 rationale       why
-anchors[]       typed evidence: {type, ref}
-                type ∈ commit | file | tool_use | message | url | external
+anchors[]       VERIFIABLE evidence that this decision happened - see 5.1
+influences[]    ASSERTED provenance: what shaped it - see 5.2
 reversibility   trivial | moderate | hard | one-way
 supersedes?     id of an earlier decision this replaces
 confidence?     stated, not inferred
@@ -149,6 +153,84 @@ confidence?     stated, not inferred
 `rejected[]` justifies the project. Every existing tool records what happened; none
 records what was considered and discarded. That is the field people actually want
 later, and it is the first thing destroyed by compaction.
+
+### 5.1 Anchors prove; influences explain
+
+These are two different axes and **must not be merged into one field.**
+
+| | `anchors[]` | `influences[]` |
+| --- | --- | --- |
+| Answers | did this happen? | how was it reached? |
+| Produced by | the system | the agent, asserting |
+| Verifiable | yes, by construction | sometimes, sometimes never |
+| Rots | no - commits and tool ids are immutable | yes - URLs die, docs move |
+| Points at | the record of the decision | the inputs to it |
+
+Collapsing them would let an entry claim anchored status while resting only on a
+half-remembered URL. That silently destroys the property the entire design exists to
+provide. Renderers must display them distinctly for the same reason.
+
+An entry may have influences and no anchors (a decision made in a bare conversation),
+or anchors and no influences (see 5.4). Neither is an error.
+
+### 5.2 Influence taxonomy
+
+`{type, ref, role, excerpt?, retrieved_at?, integrity?}`
+
+| type | example | verifiable |
+| --- | --- | --- |
+| `url` | article, docs page, benchmark | reachability + content hash if fetched |
+| `document` | PDF, Google Doc, file outside this repo | sometimes |
+| `journal` | another entry in this journal - **internal cross-reference** | fully |
+| `ticket` | Linear issue, GitHub issue or PR | via API |
+| `conversation` | something the user said, this session or another | by message id |
+| `tool_result` | output of a search, fetch or query in-session | by `tool_use_id` |
+| `codebase` | file or symbol in another repository | partially |
+| `person` | a human said so | no - assertion only |
+| `model_knowledge` | the model's own priors, no source consulted | **no, by definition** |
+
+`role` records how the influence acted, which matters as much as its identity:
+
+`decisive` | `supporting` | `considered` | **`contradicted`**
+
+`contradicted` - "I read this and chose against it" - pairs directly with
+`rejected[]` and is otherwise unrecoverable.
+
+`excerpt` is optional, bounded and redacted: it preserves the reasoning even after
+the source dies. `person` references are PII and governed by the redaction policy in
+12; prefer a role or handle over a name.
+
+### 5.3 Influences are selected, not recalled
+
+This is what makes the field cheap and reliable rather than a memory exercise.
+
+Plane A already captures every `WebFetch`, `WebSearch`, `Read` and MCP call. So the
+**candidate set** of influences for a decision is derivable - it is the observations
+between the previous entry and this one. The agent's job is to select and rank from
+that window, not to retype URLs from memory.
+
+Consequence for the CLI: recording an entry offers the window and takes a selection.
+An influence chosen this way carries a `tool_use` anchor for free, which is how an
+asserted influence can become a verifiable one.
+
+### 5.4 `model_knowledge` is the important one
+
+An entry whose only influence is `model_knowledge` is declaring that the decision
+rested on the model's priors and **no source was consulted**.
+
+That is the single most valuable audit signal in the schema. "This architectural
+choice was made on training data alone" is precisely what a reviewer wants to find,
+and no existing tool can surface it. It must be an explicit, first-class value rather
+than the absence of a field, so that "consulted nothing" is distinguishable from
+"forgot to record influences".
+
+### 5.5 The journal becomes a graph
+
+`type: journal` influences reference other entries by id. With `supersedes`, the
+journal stops being a list and becomes a decision graph: this rested on that, which
+replaced an earlier one, which was contradicted by a source since retracted.
+
+This costs one string per edge and is the substrate for 10.1.
 
 ## 6. Storage
 
@@ -348,6 +430,32 @@ file was rewritten or whose commit was reverted. *"These 4 decisions rest on cod
 that no longer exists"* is a genuinely useful audit signal, and it is possible only
 because of the anchoring discipline.
 
+**Influence rot is the stronger version of the same check**, because influences are
+the things that actually decay. A re-check pass can establish, per influence:
+
+| type | rot check |
+| --- | --- |
+| `url` | unreachable, or content hash differs from `retrieved_at` |
+| `ticket` | closed, rejected, or reopened since |
+| `journal` | the referenced entry has been superseded |
+| `codebase` | the referenced file or symbol no longer exists |
+| `document` | moved or unresolvable |
+| `person`, `model_knowledge` | not checkable — reported as such, never as passing |
+
+*"This decision rested on three sources; one is gone and one has changed since it was
+read"* is the review prompt that justifies storing provenance at all. The bounded
+`excerpt` (§5.2) is what lets a reader judge the change rather than merely be told of it.
+
+Rot is reported, never auto-resolved. A decision does not become wrong because a
+source moved.
+
+### 10.2 Answering "why is it like this"
+
+The graph in §5.5 makes the genuinely hard query tractable: given a file, find the
+decisions anchored to it, then walk `influences` and `supersedes` backwards to the
+reasoning and sources behind them. That traversal is the reason the journal is
+structured rather than prose.
+
 ## 11. Authoring model
 
 **Self-triggered, with a `PreCompact` floor.**
@@ -431,3 +539,5 @@ The envelope is designed so every deferred item is additive.
 2. **Retention window** for observations. Needs a number.
 3. **Well-known `context` registry** — initial value set, and the process for adding one.
 4. **Digest cadence** — per PR, per session, or on demand.
+5. **Excerpt bound** for influences (§5.2) — a byte cap, and whether excerpts are
+   stored by default or only on request. Trades journal size against surviving link rot.
