@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
 import type { JournalEvent } from '../src/envelope.ts';
+import { project } from '../src/retract.ts';
 
 async function root(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'journal-cli-'));
@@ -12,23 +13,29 @@ async function root(): Promise<string> {
 
 // Reads every event back off disk, so tests assert what landed rather than what
 // was printed. Without this the CLI tests only prove exit codes.
+//
+// It MUST mirror `readAll` in src/cli.ts, including the mergeEvents call. An
+// earlier version collected raw parsed events and skipped the merge, so every
+// assertion in this file read `readdir` order rather than the order a consumer
+// sees — which made the retraction-ordering test unsatisfiable while the code
+// under test was correct.
 async function readAllEvents(root: string, workspace: string) {
   const { readdir, readFile } = await import('node:fs/promises');
-  const { parseSegment } = await import('../src/read.ts');
+  const { parseSegment, mergeEvents } = await import('../src/read.ts');
   // Typed: an untyped [] here is TS7034/TS7005 across the closure.
   const base = join(root, 'workspaces', workspace, 'segments');
-  const out: JournalEvent[] = [];
+  const batches: JournalEvent[][] = [];
   async function walk(dir: string): Promise<void> {
     let entries;
     try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       const full = join(dir, e.name);
       if (e.isDirectory()) await walk(full);
-      else if (e.name.endsWith('.jsonl')) out.push(...parseSegment(await readFile(full, 'utf8')).events);
+      else if (e.name.endsWith('.jsonl')) batches.push(parseSegment(await readFile(full, 'utf8')).events);
     }
   }
   await walk(base);
-  return out;
+  return mergeEvents(batches);
 }
 
 test('record writes one entry and reports its id', async () => {
@@ -145,6 +152,85 @@ test('a flag with no value does not swallow the next flag', async () => {
     { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
   const [entry] = await readAllEvents(dir, 'ws');
   assert.notEqual(entry!.id, '--author');
+});
+
+test('a refused INVALIDATE leaves a void too, not just record', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['invalidate', 'f1', '--reason', 'z'.repeat(300000), '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.notEqual(r.code, 0);
+  // The guarantee is not scoped to one subcommand. This is the human-retraction
+  // path the command exists for, and its refusal was previously invisible.
+  const voided = (await readAllEvents(dir, 'ws')).filter((e) => e.kind === 'void');
+  assert.equal(voided.length, 1);
+  assert.equal(voided[0]!.author, 'human');
+  assert.equal(voided[0]!.session, '-');
+});
+
+test('invalidate warns when the target id is not present', async () => {
+  const dir = await root();
+  const r = await runCli(['invalidate', 'nope', '--reason', 'typo', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0);
+  assert.match(r.stderr, /no entry with id nope/);
+});
+
+test('record defaults author to agent when --author is absent', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'decision', '--question', 'q', '--chosen', 'x', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  // Flipping the default would pass every other test in this file.
+  assert.equal((await readAllEvents(dir, 'ws'))[0]!.author, 'agent');
+});
+
+test('the refusal void carries the author it was told, not a hardcoded one', async () => {
+  const dir = await root();
+  await runCli(
+    ['record', '--kind', 'decision', '--question', 'q', '--chosen', 'x', '--workspace', 'ws',
+      '--author', 'human', '--rationale', 'y'.repeat(300000)],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  const voided = (await readAllEvents(dir, 'ws')).filter((e) => e.kind === 'void');
+  assert.equal(voided[0]!.author, 'human');
+});
+
+test('--workspace is actually parsed, not assumed', async () => {
+  const dir = await root();
+  // Every other test uses the literal "ws". A build hardcoding it would pass
+  // them all, and fail here.
+  await runCli(['record', '--kind', 'decision', '--question', 'q', '--chosen', 'x',
+    '--workspace', 'other-space'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal((await readAllEvents(dir, 'other-space')).length, 1);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+test('record requires --kind', async () => {
+  const r = await runCli(['record', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: await root() });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--kind is required/);
+});
+
+test('a retraction takes effect regardless of merge order', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--question', 'why', '--chosen', 'wrong',
+    '--workspace', 'ws', '--id', 'f1'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  await runCli(['invalidate', 'f1', '--reason', 'bad premise', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  // NOT an ordering assertion. An earlier version of this test asserted the
+  // finding sorts before its retraction, which the spec explicitly disclaims:
+  // wall clock is "display only across sources" and "causality is never
+  // inferred from timestamps". record and invalidate ARE different sources —
+  // `cli/host/s1/primary` and `cli/host/-/-` — so their relative order is
+  // arbitrary by design, and measured at 9 of 20 runs either way.
+  //
+  // What must hold is that the EDGE carries the meaning. project() is
+  // order-independent, so the retraction lands whichever way the merge fell.
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 2);
+  assert.ok(project(events).invalidated.has('f1'), 'the retraction must apply either way');
 });
 
 test('an unknown subcommand exits non-zero with usage', async () => {

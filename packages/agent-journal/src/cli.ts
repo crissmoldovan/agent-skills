@@ -38,7 +38,11 @@ function flags(argv: readonly string[]): Map<string, string> {
 }
 
 function nowStamp(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, '.000Z');
+  // Real milliseconds, not truncated. Truncating made every event in a given
+  // second tie, and ties fall back to a lexical source comparison — under which
+  // `cli/host/-/-` (invalidate) sorts BEFORE `cli/host/s1/primary` (record), so
+  // a retraction could be ordered ahead of the finding it retracts.
+  return new Date().toISOString();
 }
 
 function journalFor(root: string, workspace: string, session: string, agent: string): SegmentJournal {
@@ -111,7 +115,7 @@ export async function runCli(
       // Persist the refusal. Returning an error code alone means a refused write
       // never reaches `coverage()`'s `voids` count, so the silence this refusal
       // creates stays invisible — which is what voidEvent exists to prevent.
-      await journal.append(voidEvent({
+      const trace = await journal.append(voidEvent({
         id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
         time: nowStamp(), workspace, session, agent,
         harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
@@ -121,7 +125,8 @@ export async function runCli(
       return {
         code: 1,
         stdout: '',
-        stderr: `refused: redaction ${result.verdict} — ${result.reason ?? 'no detail'}\n`,
+        stderr: `refused: redaction ${result.verdict} — ${result.reason ?? 'no detail'}\n`
+          + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
       };
     }
     return { code: 0, stdout: `recorded ${id}\n`, stderr: '' };
@@ -143,11 +148,33 @@ export async function runCli(
       data: { invalidates: target, rationale: reason },
     });
 
-    const result = await journalFor(root, workspace, '-', '-').append(event);
+    const journal = journalFor(root, workspace, '-', '-');
+    const result = await journal.append(event);
     if (!result.written) {
-      return { code: 1, stdout: '', stderr: `refused: redaction ${result.verdict}\n` };
+      // The SAME guarantee record makes. Returning only an error code here left
+      // the refusal invisible — no disk record, and coverage()'s voids never saw
+      // it — in the human-retraction path this command exists for.
+      const trace = await journal.append(voidEvent({
+        id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
+        time: nowStamp(), workspace, session: '-', agent: '-', harness: 'other',
+        reason: `redaction ${result.verdict}`, provenance: 'cli', author: 'human',
+        ...(result.reason === undefined ? {} : { detail: result.reason }),
+      }));
+      return {
+        code: 1,
+        stdout: '',
+        stderr: `refused: redaction ${result.verdict}\n`
+          + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
+      };
     }
-    return { code: 0, stdout: `invalidated ${target}\n`, stderr: '' };
+    // Append-only by design, so an unknown target is not an error — but a human
+    // correcting a typo deserves to hear that nothing matched.
+    const known = (await readAll(root, workspace)).some((e) => e.id === target);
+    return {
+      code: 0,
+      stdout: `invalidated ${target}\n`,
+      stderr: known ? '' : `WARNING: no entry with id ${target} is present in this workspace\n`,
+    };
   }
 
   if (command === 'coverage') {
