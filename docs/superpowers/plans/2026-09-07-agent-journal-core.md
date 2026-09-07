@@ -1589,6 +1589,55 @@ test('an observation cited only by an INVALIDATED entry loses its pin', () => {
   assert.deepEqual(r.expired, ['o1']);
 });
 
+test('an unparseable now throws instead of expiring everything', () => {
+  const fresh = [make('o1', 'tool_call', NOW)];
+  assert.throws(() => applyRetention(fresh, { now: 'not-a-date', observationTtlMs: THIRTY_DAYS }),
+    /parseable timestamp/);
+});
+
+test('a TOMBSTONED entry does not pin the observation it cited', () => {
+  const r = applyRetention([
+    make('o1', 'tool_call', OLD),
+    make('d1', 'decision', OLD, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
+  ], { now: NOW, observationTtlMs: THIRTY_DAYS, tombstoned: ['d1'] });
+  assert.deepEqual(r.pinned, [], 'a citer that was deleted must not protect anything');
+  assert.deepEqual(r.expired, ['o1']);
+});
+
+test('a SUPERSEDED but not invalidated entry still pins', () => {
+  // Supersession says something newer replaced this, not that it was wrong, so
+  // its evidence is still worth keeping. Computing pinning from project().live
+  // instead of the invalidated set would break this and pass every other test.
+  const r = applyRetention([
+    make('o1', 'tool_call', OLD),
+    make('d1', 'decision', OLD, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
+    make('d2', 'decision', NOW, { supersedes: 'd1' }),
+  ], { now: NOW, observationTtlMs: THIRTY_DAYS });
+  assert.deepEqual(r.pinned, ['o1']);
+  assert.deepEqual(r.expired, []);
+});
+
+test('downgraded reflects a naturally EXPIRED referent, not only a tombstoned one', () => {
+  // d1 is invalidated, so it stops pinning o1 and o1 ages out. d2 still cites
+  // o1 and must be told its anchor is gone. Building `gone` from tombstoned ids
+  // alone would miss this and pass every other test in this file.
+  const r = applyRetention([
+    make('o1', 'tool_call', OLD),
+    make('d1', 'decision', OLD, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
+    make('inv', 'decision', NOW, { invalidates: 'd1' }),
+    make('d2', 'decision', NOW, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
+  ], { now: NOW, observationTtlMs: THIRTY_DAYS });
+  assert.deepEqual(r.expired, ['o1']);
+  assert.ok(r.downgraded.includes('d2'), 'an entry citing an expired observation must be downgraded');
+});
+
+test('an unrecognised kind is kept and reported, never silently aged out', () => {
+  const r = applyRetention([make('x1', 'decisoin', OLD)], { now: NOW, observationTtlMs: THIRTY_DAYS });
+  assert.deepEqual(r.expired, []);
+  assert.deepEqual(r.unclassified, ['x1']);
+  assert.equal(r.keep.length, 1);
+});
+
 test('a tombstoned target is removed and its citing anchors are downgraded', () => {
   const r = applyRetention([
     make('o1', 'tool_call', NOW),
@@ -1614,6 +1663,15 @@ import { project } from './retract.ts';
 
 const ENTRY_KINDS = new Set(['decision', 'finding', 'assumption', 'blocker', 'progress', 'constraint']);
 
+/** Spec 4.4's observation kinds. Anything in NEITHER set is unclassified: it is
+ *  kept and reported rather than silently aged out, because a typo'd or
+ *  future entry kind must not be destroyed by a binary classifier guessing. */
+const OBSERVATION_KINDS = new Set([
+  'session_start', 'session_end', 'turn_end', 'tool_call', 'tool_result', 'tool_failure',
+  'permission', 'subagent_start', 'subagent_stop', 'compact', 'heartbeat', 'environment',
+  'path_claim', 'void',
+]);
+
 export interface RetentionOptions {
   readonly now: string;
   /** No default. Spec open question 2 leaves the window undecided; the caller supplies it. */
@@ -1626,8 +1684,16 @@ export interface RetentionResult {
   readonly keep: JournalEvent[];
   readonly expired: string[];
   readonly pinned: string[];
-  /** Entries whose anchors now point at purged content and must render as `unknown`. */
+  /**
+   * Entries whose anchors point at content THIS CALL removed, and which must
+   * render as `unknown`. Scope is deliberate and limited: an anchor referencing
+   * an id absent from `events` is indistinguishable here from one in a segment
+   * that simply was not loaded, so it is NOT reported. Whole-journal anchor
+   * validation is the rot check's job, not retention's.
+   */
   readonly downgraded: string[];
+  /** Kinds in neither the entry nor observation set. Kept, never aged, surfaced. */
+  readonly unclassified: string[];
 }
 
 function anchorRefs(event: JournalEvent): string[] {
@@ -1652,23 +1718,47 @@ export function applyRetention(
   options: RetentionOptions,
 ): RetentionResult {
   const tombstoned = new Set(options.tombstoned ?? []);
-  const cutoff = Date.parse(options.now) - options.observationTtlMs;
+
+  // Validate `now` before it can delete anything. Unlike `e.time`, which
+  // normalizeEvent guarantees is parseable, `now` is caller-supplied and
+  // unchecked. An unparseable value yields NaN, every `>= cutoff` comparison is
+  // then false, and EVERY unpinned observation expires — mass silent data loss
+  // from one bad string. Retention deletes; it fails loudly or not at all.
+  const nowMs = Date.parse(options.now);
+  if (Number.isNaN(nowMs)) {
+    throw new TypeError(`options.now must be a parseable timestamp, got ${JSON.stringify(options.now)}`);
+  }
+  if (!Number.isFinite(options.observationTtlMs) || options.observationTtlMs < 0) {
+    throw new TypeError('options.observationTtlMs must be a non-negative finite number');
+  }
+  const cutoff = nowMs - options.observationTtlMs;
+
   const { invalidated } = project(events);
 
-  // Only LIVE entries pin their anchors; an invalidated entry stops protecting them.
+  // Only a live, non-tombstoned entry pins. An invalidated entry's citations
+  // stop protecting anything, and a tombstoned one is not in the projection at
+  // all — leaving it able to pin would protect an observation with nothing alive
+  // left to justify it.
   const pinnedIds = new Set<string>();
   for (const e of events) {
-    if (!isEntry(e) || invalidated.has(e.id)) continue;
+    if (!isEntry(e) || invalidated.has(e.id) || tombstoned.has(e.id)) continue;
     for (const ref of anchorRefs(e)) pinnedIds.add(ref);
   }
 
   const expired: string[] = [];
   const pinned: string[] = [];
+  const unclassified: string[] = [];
   const keep: JournalEvent[] = [];
 
   for (const e of events) {
     if (tombstoned.has(e.id)) continue;
     if (isEntry(e)) { keep.push(e); continue; }
+    if (!OBSERVATION_KINDS.has(e.kind)) {
+      // Neither an entry nor a known observation. Keep it and say so.
+      unclassified.push(e.id);
+      keep.push(e);
+      continue;
+    }
     if (Date.parse(e.time) >= cutoff) { keep.push(e); continue; }
     if (pinnedIds.has(e.id)) { pinned.push(e.id); keep.push(e); continue; }
     expired.push(e.id);
@@ -1679,7 +1769,7 @@ export function applyRetention(
     .filter((e) => isEntry(e) && anchorRefs(e).some((ref) => gone.has(ref)))
     .map((e) => e.id);
 
-  return { keep, expired, pinned, downgraded };
+  return { keep, expired, pinned, downgraded, unclassified };
 }
 ```
 
