@@ -15,30 +15,43 @@ export interface CliResult {
 
 const USAGE = [
   'usage:',
-  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r]',
-  '                 [--rejected r] [--reversibility trivial|moderate|hard|one-way] [--blastRadius b]',
-  '                 [--confidence c] [--supersedes id] [--invalidates id]',
-  '                 [--id id] [--author human] [--context c]',
-  '  journal invalidate <entry-id> --reason <why> --workspace <id>',
-  '  journal coverage --workspace <id>',
-  '  journal help',
+  '  agent-journal record --kind <kind> --workspace <id> [--question q] [--chosen c]',
+  '                       [--rationale r] [--rejected r] [--blastRadius b] [--confidence c]',
+  '                       [--reversibility trivial|moderate|hard|one-way]',
+  '                       [--supersedes id] [--invalidates id]',
+  '                       [--id id] [--author agent|human] [--context c]',
+  '  agent-journal invalidate <entry-id> --reason <why> --workspace <id>',
+  '  agent-journal coverage --workspace <id>',
+  '  agent-journal help',
   '',
 ].join('\n');
 
-function flags(argv: readonly string[]): Map<string, string> {
-  const out = new Map<string, string>();
+interface ParsedFlags {
+  readonly opts: Map<string, string>;
+  /** Flags given no value. Every flag this CLI accepts takes one. */
+  readonly valueless: readonly string[];
+}
+
+function flags(argv: readonly string[]): ParsedFlags {
+  const opts = new Map<string, string>();
+  const valueless: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]!;
     if (!token.startsWith('--')) continue;
+    const name = token.slice(2);
     const next = argv[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
-      out.set(token.slice(2), next);
+      opts.set(name, next);
       i += 1;
     } else {
-      out.set(token.slice(2), 'true');
+      // Storing 'true' here was silent data invention. `--workspace $WS` with an
+      // unset variable expands to a bare flag, and the entry was written to a
+      // workspace literally named `true` with exit 0 — the failure looked exactly
+      // like success. No flag here is a boolean, so a missing value is an error.
+      valueless.push(name);
     }
   }
-  return out;
+  return { opts, valueless };
 }
 
 /**
@@ -53,12 +66,23 @@ const RECORD_FIELDS = [
   'supersedes', 'invalidates',
 ] as const;
 
-/** Flags every subcommand understands. Anything else is a typo, and a typo that
- *  silently drops data is worse than one that stops. */
-const GLOBAL_FLAGS = ['workspace', 'kind', 'id', 'author', 'context', 'reason'] as const;
+/**
+ * What each subcommand accepts. One shared list was wrong in both directions:
+ * `reason` belongs to `invalidate`, but listing it globally let `record` take it
+ * and throw it away at exit 0 — and `--reason` is the likeliest mistyping of
+ * `--rationale`. The reverse held too: `invalidate` accepted `--kind`,
+ * `--question`, `--id` and `--context` and silently ignored all four.
+ */
+const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  record: [...RECORD_FIELDS, 'workspace', 'kind', 'id', 'author', 'context'],
+  invalidate: ['workspace', 'reason'],
+  coverage: ['workspace'],
+};
 
-function unknownFlags(opts: Map<string, string>): string[] {
-  const known = new Set<string>([...RECORD_FIELDS, ...GLOBAL_FLAGS]);
+function unknownFlags(command: string, opts: Map<string, string>): string[] {
+  const allowed = ALLOWED_FLAGS[command];
+  if (!allowed) return [];
+  const known = new Set<string>(allowed);
   return [...opts.keys()].filter((k) => !known.has(k)).sort();
 }
 
@@ -111,12 +135,21 @@ export async function runCli(
     return { code: 0, stdout: USAGE, stderr: '' };
   }
 
-  const opts = flags(rest);
+  const { opts, valueless } = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');
 
-  // Refuse unknown flags. Silently ignoring one loses whatever the caller meant
-  // to record, with an exit code of 0 saying it worked.
-  const unknown = unknownFlags(opts);
+  if (valueless.length > 0) {
+    const which = valueless.map((f) => `--${f}`).join(', ');
+    return {
+      code: 2,
+      stdout: '',
+      stderr: `flag${valueless.length > 1 ? 's' : ''} given no value: ${which}\n${USAGE}`,
+    };
+  }
+
+  // Refuse flags this subcommand does not take. Silently ignoring one loses
+  // whatever the caller meant to record, with an exit code of 0 saying it worked.
+  const unknown = unknownFlags(command, opts);
   if (unknown.length > 0) {
     return {
       code: 2,

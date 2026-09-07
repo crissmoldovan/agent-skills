@@ -64,17 +64,21 @@ export function resolveWorkspace(cwd: string, options: ResolveOptions = {}): Wor
     return { id: `git-${hash(normalized)}`, method: 'git', detail: normalized };
   }
 
+  // Spec 6.1 rung 3. This sat BELOW host and declared, which meant two checkouts
+  // open in one Claude Project resolved to a single `host-` id and shared one
+  // journal — the collapse this rung exists to prevent. A host container is one
+  // workspace only when there is no directory to tell its projects apart.
+  if (cwd) {
+    const normalized = canonical(cwd);
+    return { id: `cwd-${hash(normalized)}`, method: 'cwd', detail: normalized };
+  }
+
   if (options.hostContainer) {
     return { id: `host-${hash(options.hostContainer)}`, method: 'host', detail: options.hostContainer };
   }
 
   if (options.declared) {
     return { id: options.declared, method: 'declared', detail: 'declared by agent' };
-  }
-
-  if (cwd) {
-    const normalized = canonical(cwd);
-    return { id: `cwd-${hash(normalized)}`, method: 'cwd', detail: normalized };
   }
 
   // Random, not time-seeded: two sessions starting in the same millisecond are

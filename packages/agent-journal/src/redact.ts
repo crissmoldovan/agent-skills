@@ -14,15 +14,27 @@ export interface RedactOptions {
   readonly maxDepth?: number;
 }
 
-/** Patterns applied to string CONTENT rather than to key names. */
+/**
+ * Patterns applied to string CONTENT rather than to key names.
+ *
+ * NO `\b` ANCHORS. `_` is a word character, so no boundary exists between an
+ * alphanumeric and an underscore — and `_` is precisely what sits either side of
+ * a credential in the two places credentials appear in prose: an environment
+ * assignment (`GITHUB_TOKEN=ghp_...`) and an annotated note (`ghp_..._rotated`).
+ * With `\b` on both ends every one of these patterns silently failed to fire
+ * there, the verdict came back `clean`, and the secret was written byte-for-byte.
+ * Each prefix is distinctive enough to stand alone, and the runs are greedy, so
+ * dropping the anchors costs nothing but over-redaction — which is the direction
+ * a fail-closed rule is supposed to err in.
+ */
 const PATTERNS: readonly { name: string; re: RegExp }[] = [
-  { name: 'github-token', re: /\bgh[pousr]_[A-Za-z0-9]{16,}\b/g },
-  { name: 'openai-key', re: /\bsk-[A-Za-z0-9_-]{16,}\b/g },
-  { name: 'aws-access-key', re: /\bAKIA[0-9A-Z]{16}\b/g },
-  { name: 'jwt', re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g },
+  { name: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{16,}/g },
+  { name: 'openai-key', re: /sk-[A-Za-z0-9_-]{16,}/g },
+  { name: 'aws-access-key', re: /AKIA[0-9A-Z]{16}/g },
+  { name: 'jwt', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   { name: 'private-key-block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
-  { name: 'bearer', re: /\bBearer\s+[A-Za-z0-9._-]{16,}\b/gi },
-  { name: 'email', re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
+  { name: 'bearer', re: /Bearer\s+[A-Za-z0-9._-]{16,}/gi },
+  { name: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
   { name: 'home-path', re: /\/(?:Users|home)\/[^/\s"']+/g },
   { name: 'home-path-win', re: /[A-Za-z]:\\Users\\[^\\\s"']+/g },
 ];

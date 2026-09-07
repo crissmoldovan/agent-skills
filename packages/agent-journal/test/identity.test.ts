@@ -58,9 +58,12 @@ test('an explicit id file BEATS git — the rungs must actually compete', async 
   assert.equal(id.id, 'declared-wins');
 });
 
-test('a host container id is used when there is no git and no explicit file', async () => {
-  const dir = await tmp();
-  const id = resolveWorkspace(dir, { gitCommonDir: null, hostContainer: 'cowork-space-7' });
+test('a host container id is used when there is no git, no file, and no cwd', () => {
+  // This passed a real directory as `cwd` and asserted `host` won anyway, which
+  // locked in a cascade that contradicted spec 6.1 and collapsed every project
+  // in a container onto one journal. Host is rung 4: it applies where there is
+  // no directory to distinguish projects by — Cowork, a hosted chat surface.
+  const id = resolveWorkspace('', { gitCommonDir: null, hostContainer: 'cowork-space-7' });
   assert.equal(id.method, 'host');
   assert.equal(id.detail, 'cowork-space-7');
 });
@@ -88,4 +91,45 @@ test('two symlinked spellings of one directory share a workspace id', async () =
     resolveWorkspace(link, { gitCommonDir: null }).id,
     resolveWorkspace(real, { gitCommonDir: null }).id,
   );
+});
+
+// Every assertion in this file checked `method` and `detail`, or checked that two
+// spellings of ONE workspace agree. Nothing asserted that two DIFFERENT
+// workspaces disagree — so the suite stayed green with resolveWorkspace hashing
+// a constant, collapsing every project on the machine onto one journal. That is
+// the function's entire purpose.
+test('different workspaces get different ids, at every rung', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'journal-distinct-'));
+  const ids = new Map<string, string>();
+  const seen = (label: string, id: string) => {
+    for (const [other, prev] of ids) {
+      assert.notEqual(id, prev, `${label} and ${other} collapsed onto one id (${id})`);
+    }
+    ids.set(label, id);
+  };
+
+  seen('git-a', resolveWorkspace(dir, { gitCommonDir: join(dir, 'a/.git') }).id);
+  seen('git-b', resolveWorkspace(dir, { gitCommonDir: join(dir, 'b/.git') }).id);
+  seen('cwd-a', resolveWorkspace(join(dir, 'project-a')).id);
+  seen('cwd-b', resolveWorkspace(join(dir, 'project-b')).id);
+  seen('host-a', resolveWorkspace('', { hostContainer: 'container-a' }).id);
+  seen('host-b', resolveWorkspace('', { hostContainer: 'container-b' }).id);
+});
+
+// Spec §6.1 orders the cascade explicit → git → cwd → host → declared. The
+// implementation ran host and declared BEFORE cwd, so two checkouts open in one
+// Claude Project shared a single journal — the exact collapse rung 3 exists to
+// prevent. The ResolutionMethod type already listed the spec order.
+test('cwd outranks host and declared, per spec 6.1', () => {
+  const a = resolveWorkspace('/work/project-a', { hostContainer: 'claude-project-7' });
+  const b = resolveWorkspace('/work/project-b', { hostContainer: 'claude-project-7' });
+  assert.equal(a.method, 'cwd', `expected cwd to win over host, got ${a.method}`);
+  assert.notEqual(a.id, b.id, 'two projects in one container collapsed onto one journal');
+
+  const d = resolveWorkspace('/work/project-c', { declared: 'declared-id' });
+  assert.equal(d.method, 'cwd', `expected cwd to win over declared, got ${d.method}`);
+
+  // With no cwd, the lower rungs still apply in spec order.
+  assert.equal(resolveWorkspace('', { hostContainer: 'c1' }).method, 'host');
+  assert.equal(resolveWorkspace('', { declared: 'x' }).method, 'declared');
 });

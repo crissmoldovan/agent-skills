@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
@@ -147,11 +147,17 @@ test('coverage reports unassessed fields as null, and counts voids', async () =>
 test('a flag with no value does not swallow the next flag', async () => {
   const dir = await root();
   // `--id` immediately followed by `--author`: treating the next token as a
-  // value would consume the flag and produce an id of "--author".
-  await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--id', '--author', 'human'],
-    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
-  const [entry] = await readAllEvents(dir, 'ws');
-  assert.notEqual(entry!.id, '--author');
+  // value would consume the flag and produce an id of "--author". This test
+  // used to assert only that, and passed while the id was silently the string
+  // "true" and the entry was written anyway. Refusing is the real contract:
+  // nothing is written, and the caller is told which flag was bare.
+  const r = await runCli(
+    ['record', '--kind', 'decision', '--workspace', 'ws', '--id', '--author', 'human'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--id/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
 });
 
 test('a refused INVALIDATE leaves a void too, not just record', async () => {
@@ -286,4 +292,56 @@ test('help exits 0 on stdout, so it is usable as an install check', async () => 
 test('help does not hit the --workspace guard', async () => {
   const r = await runCli(['help'], { AGENT_JOURNAL_ROOT: '/nonexistent' });
   assert.doesNotMatch(r.stdout + r.stderr, /--workspace is required/);
+});
+
+// `reason` belongs to `invalidate`. Listing it as a GLOBAL flag let it pass the
+// unknown-flag guard on `record`, where nothing stores it — so the single most
+// likely mistyping of `--rationale` was the one flag name that exited 0 and
+// threw the text away. Every other kind's field is correctly refused.
+test('record refuses --reason instead of swallowing it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'journal-scope-'));
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'r1',
+     '--question', 'q', '--chosen', 'c', '--reason', 'THE WHOLE POINT'],
+    { AGENT_JOURNAL_ROOT: root },
+  );
+  assert.equal(r.code, 2, `expected refusal, got ${r.code}: ${r.stdout}${r.stderr}`);
+  assert.match(r.stderr, /--reason/);
+});
+
+test('invalidate refuses record-only flags instead of dropping them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'journal-scope-'));
+  const r = await runCli(
+    ['invalidate', 'x1', '--workspace', 'ws', '--reason', 'wrong',
+     '--kind', 'finding', '--question', 'ignored'],
+    { AGENT_JOURNAL_ROOT: root },
+  );
+  assert.equal(r.code, 2, `expected refusal, got ${r.code}: ${r.stdout}${r.stderr}`);
+  assert.match(r.stderr, /--kind|--question/);
+});
+
+// `--workspace` with an unset shell variable expands to nothing, so the parser
+// saw a flag with no value and stored the string "true". The entry was written
+// to a workspace literally named `true` and the command reported success.
+test('a flag given no value is an error, never the string "true"', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'journal-noval-'));
+  const cases: readonly string[][] = [
+    ['record', '--kind', 'decision', '--id', 'a1', '--question', 'q', '--workspace'],
+    ['record', '--workspace', 'ws', '--id', 'a2', '--kind'],
+    ['record', '--workspace', 'ws', '--kind', 'decision', '--id', '--author', 'human'],
+  ];
+  for (const argv of cases) {
+    const r = await runCli(argv, { AGENT_JOURNAL_ROOT: root });
+    assert.equal(r.code, 2, `${argv.join(' ')} → exit ${r.code}: ${r.stdout}${r.stderr}`);
+    assert.doesNotMatch(r.stdout, /recorded/, `${argv.join(' ')} wrote an entry`);
+  }
+  const found = await readdir(join(root, 'workspaces')).catch(() => [] as string[]);
+  assert.ok(!found.includes('true'), `a workspace named "true" was created: ${found.join(',')}`);
+});
+
+// Prerequisite 1 of the skill tells the reader to run this and copy from it.
+test('help names the installed binary, not an internal module name', async () => {
+  const r = await runCli(['help'], { AGENT_JOURNAL_ROOT: '/nonexistent' });
+  assert.match(r.stdout, /agent-journal record/);
+  assert.doesNotMatch(r.stdout, /^\s+journal /m);
 });

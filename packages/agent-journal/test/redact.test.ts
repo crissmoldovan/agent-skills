@@ -71,3 +71,43 @@ test('the depth guard fails closed and reports no partial hits', () => {
   assert.equal(r.value, undefined);
   assert.deepEqual([...r.hits], []);
 });
+
+// Every pattern below was anchored with \b on both ends. A word boundary cannot
+// exist between an alphanumeric and `_`, and `_` is exactly what surrounds a
+// secret in the two places secrets actually appear in prose: an env var
+// assignment (GITHUB_TOKEN=ghp_...) and a suffixed note (..._rotated). The
+// pattern therefore could not fire, the verdict was `clean`, and the credential
+// reached disk byte-for-byte. Every existing fixture delimited its token with a
+// space, so nothing could catch it.
+test('a secret still redacts when a word character abuts it', () => {
+  // Composed from parts on purpose: a literal token here would match the
+  // repository's own secret scanner (scripts/verify-skills.mjs), which is doing
+  // exactly its job. The runtime values are the shapes the patterns must catch.
+  const run = 'a1b2c3d4e5';
+  const cases: readonly [string, string][] = [
+    ['github-token', 'ghp' + '_' + run.repeat(3)],
+    ['openai-key', 'sk' + '-' + run.repeat(3)],
+    ['aws-access-key', 'AKIA' + 'IOSFODNN7EXAMPLE'],
+    ['jwt', 'eyJ' + 'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU'],
+    ['bearer', 'Bearer ' + run.repeat(2)],
+    ['email', 'someone@example.com'],
+  ];
+  // The four adjacencies that occur in real prose around a credential.
+  const frames: readonly ((s: string) => string)[] = [
+    (s) => `X_${s}`,
+    (s) => `${s}_rotated`,
+    (s) => `KEY=${s}_old`,
+    (s) => `9${s}`,
+  ];
+  for (const [name, secret] of cases) {
+    for (const frame of frames) {
+      const subject = frame(secret);
+      const r = redact({ note: `we used ${subject} yesterday` });
+      const written = JSON.stringify(r.value);
+      assert.ok(
+        !written.includes(secret),
+        `${name} leaked through ${JSON.stringify(subject)}: verdict ${r.verdict}, wrote ${written}`,
+      );
+    }
+  }
+});

@@ -108,3 +108,43 @@ test('a tombstoned target is removed and its citing anchors are downgraded', () 
   assert.equal(r.keep.some((e) => e.id === 'o1'), false);
   assert.deepEqual(r.downgraded, ['d1']);
 });
+
+// Every fixture in this file used an observation old enough to expire, so the
+// "recent observation survives" branch was never taken and the suite stayed
+// green under a cutoff of POSITIVE_INFINITY — i.e. a pass that deletes the whole
+// journal regardless of age. Retention deletes; the test that says what it must
+// NOT delete is the one that matters.
+test('an observation younger than the TTL survives, whatever else is expiring', () => {
+  const now = '2026-09-07T12:00:00.000Z';
+  const events = [
+    make('fresh', 'tool_call', '2026-09-07T11:59:00.000Z'),   // one minute old
+    make('stale', 'tool_call', '2026-09-01T00:00:00.000Z'),   // six days old
+  ];
+  const r = applyRetention(events, { now, observationTtlMs: 24 * 60 * 60 * 1000 });
+  const kept = r.keep.map((e) => e.id);
+  assert.ok(kept.includes('fresh'), `a one-minute-old observation was deleted: kept ${kept.join(',')}`);
+  assert.deepEqual(r.expired, ['stale']);
+});
+
+test('the TTL is actually applied, not ignored', () => {
+  const now = '2026-09-07T12:00:00.000Z';
+  const events = [make('o1', 'tool_call', '2026-09-07T06:00:00.000Z')]; // six hours old
+  // Under a one-hour TTL it goes; under a one-day TTL it stays. A cutoff that
+  // ignores observationTtlMs cannot produce both answers.
+  const shortTtl = applyRetention(events, { now, observationTtlMs: 60 * 60 * 1000 });
+  const longTtl = applyRetention(events, { now, observationTtlMs: 24 * 60 * 60 * 1000 });
+  assert.deepEqual(shortTtl.expired, ['o1'], 'a 1h TTL should expire a 6h-old observation');
+  assert.deepEqual(longTtl.expired, [], 'a 24h TTL should keep a 6h-old observation');
+});
+
+test('a non-finite or negative observationTtlMs is refused, not applied', () => {
+  const now = '2026-09-07T12:00:00.000Z';
+  const events = [make('o1', 'tool_call', '2026-09-07T11:59:00.000Z')];
+  for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+    assert.throws(
+      () => applyRetention(events, { now, observationTtlMs: bad }),
+      TypeError,
+      `observationTtlMs ${bad} was accepted`,
+    );
+  }
+});
