@@ -445,3 +445,29 @@ test('coverage reports an unreadable segments DIRECTORY, not an empty journal', 
     await chmod(segDir, 0o700);
   }
 });
+
+// `--author robot` was silently coerced to `agent` at exit 0, while
+// normalizeEvent rejects an unknown author outright. Attribution is the one
+// field a retraction's credibility rests on, so guessing at it is worse than
+// refusing — and the CLI was the only layer that guessed.
+test('an unrecognised --author is refused, not coerced', async () => {
+  const dir = await root();
+  const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c', '--author', 'robot'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2, `--author robot was accepted: ${r.stdout}${r.stderr}`);
+  assert.match(r.stderr, /author/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+test('both recognised authors still work', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const [id, author] of [['h1', 'human'], ['a1', 'agent']] as const) {
+    const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', id,
+      '--question', 'q', '--chosen', 'c', '--author', author], env);
+    assert.equal(r.code, 0, `--author ${author} rejected: ${r.stderr}`);
+  }
+  const events = await readAllEvents(dir, 'ws');
+  assert.deepEqual(events.map((e) => e.author).sort(), ['agent', 'human']);
+});

@@ -223,7 +223,18 @@ export async function runCli(
     // A human running this by hand is not an agent. Defaults to agent because
     // hooks are the common caller, but a refusal recorded against the wrong
     // author is the same misattribution voidEvent's `author` field exists to fix.
-    const author = opts.get('author') === 'human' ? 'human' : 'agent';
+    // An unrecognised value was silently coerced to `agent` at exit 0 while
+    // normalizeEvent rejects one outright — the CLI was the only layer guessing
+    // at the field a retraction's credibility rests on.
+    const declaredAuthor = opts.get('author');
+    if (declaredAuthor !== undefined && declaredAuthor !== 'human' && declaredAuthor !== 'agent') {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `--author must be 'agent' or 'human', got ${JSON.stringify(declaredAuthor)}\n${USAGE}`,
+      };
+    }
+    const author = declaredAuthor === 'human' ? 'human' : 'agent';
 
     const data: Record<string, unknown> = {};
     for (const field of RECORD_FIELDS) {
