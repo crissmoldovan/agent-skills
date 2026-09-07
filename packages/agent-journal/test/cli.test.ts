@@ -772,3 +772,63 @@ test('an unrecognised kind that collides with a prototype key takes the same pat
   assert.equal(entry!.kind, 'constructor');
   assert.deepEqual(entry!.data, {}, 'no kind-specific fields should have been stored');
 });
+
+test('show reports outcomes, liveness and evidence per entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'base',
+    '--question', 'q', '--chosen', 'c', '--anchor', 'commit:9f2c1ab'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'rests',
+    '--question', 'q', '--chosen', 'c', '--influence', 'journal:decisive:base'], env);
+  await runCli(['invalidate', 'base', '--workspace', 'ws', '--reason', 'premise false'], env);
+
+  const r = await runCli(['show', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+
+  const byId = Object.fromEntries(out.entries.map((e: any) => [e.id, e]));
+  assert.equal(byId.base.outcome, 'invalidated');
+  assert.equal(byId.base.live, false);
+  assert.equal(byId.rests.outcome, 'invalidated', 'propagation is not visible through show');
+  assert.deepEqual(byId.base.anchors, [{ type: 'commit', ref: '9f2c1ab' }]);
+  assert.equal(byId.rests.anchors, null, 'no anchors must read as null, never []');
+});
+
+test('show surfaces live constraints and which entries they bear on', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--statement', 'never a third-party sink for this telemetry',
+    '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'where does telemetry go?', '--chosen', 'a vendor'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  assert.deepEqual(out.liveConstraints.map((c: any) => c.id), ['c1']);
+  const d1 = out.entries.find((e: any) => e.id === 'd1');
+  assert.deepEqual(d1.constraintsBearingOn, ['c1']);
+});
+
+test('show --id narrows to one entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const id of ['a1', 'b1']) {
+    await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', id,
+      '--question', 'q', '--chosen', 'c'], env);
+  }
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws', '--id', 'a1'], env)).stdout);
+  assert.deepEqual(out.entries.map((e: any) => e.id), ['a1']);
+});
+
+test('show inherits coverage\'s honesty about a damaged journal', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'not json\n');
+
+  const r = await runCli(['show', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.notEqual(r.code, 0, 'a corrupt journal reported success');
+  assert.match(r.stdout + r.stderr, /malformed/i);
+});

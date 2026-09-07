@@ -10,6 +10,8 @@ import {
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
+import { project } from './retract.ts';
+import { liveConstraints, constraintsBearingOn } from './constraints.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -43,6 +45,7 @@ const USAGE = [
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  agent-journal coverage --workspace <id>',
+  '  agent-journal show --workspace <id> [--id <entry-id>]',
   '  agent-journal help',
   '',
 ].join('\n');
@@ -104,6 +107,7 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   record: [...RECORD_GLOBAL, ...Object.values(KIND_FIELDS).flat()],
   invalidate: ['workspace', 'reason'],
   coverage: ['workspace'],
+  show: ['workspace', 'id'],
 };
 
 function unknownFlags(command: string, opts: Map<string, string>): string[] {
@@ -442,6 +446,42 @@ async function dispatch(
       stderr: damaged
         ? `WARNING: this journal could not be fully read — ${unreadable.length} unreadable path(s), `
           + `${malformed.length} malformed line(s). The counts above are a floor, not a total.\n`
+        : '',
+    };
+  }
+
+  if (command === 'show') {
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const proj = project(events);
+    const live = liveConstraints(events, nowStamp());
+    const liveIds = new Set(proj.live.map((e) => e.id));
+    const wanted = opts.get('id');
+
+    const entries = events
+      .filter((e) => e.kind !== 'void' && (wanted === undefined || e.id === wanted))
+      .map((e) => {
+        const anchors = Array.isArray(e.data.anchors) ? e.data.anchors : null;
+        const influences = Array.isArray(e.data.influences) ? e.data.influences : null;
+        return {
+          id: e.id, kind: e.kind, time: e.time, author: e.author,
+          outcome: proj.outcomes.get(e.id) ?? 'unknown',
+          live: liveIds.has(e.id),
+          // null, never []: an entry with no anchors has none recorded, which is
+          // not the same claim as "assessed and found none".
+          anchors, influences,
+          constraintsBearingOn: constraintsBearingOn(e, live).map((c) => c.id),
+        };
+      });
+
+    // Same guarantee as `coverage`: a journal that could not be fully read has
+    // not earned exit 0. An all-clear built on a floor, not a total, is the
+    // exact failure this command's honesty rule exists to prevent.
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify({ entries, liveConstraints: live, unreadable, malformed }, null, 2)}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read — the entries above are a floor, not a total.\n'
         : '',
     };
   }
