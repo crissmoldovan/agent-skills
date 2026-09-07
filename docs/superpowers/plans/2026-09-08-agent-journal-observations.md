@@ -482,7 +482,7 @@ git commit -m "feat(agent-journal): observe — the plane the agent does not aut
 
 So the capture must record the **resolved** interpreter — `process.execPath`, not `"node"` — because the entire value is distinguishing the binary that ran from the name that was typed.
 
-§4.3 also warns these values are machine-identifying: paths contain usernames, hostnames leak. They go through the redactor like everything else, and the `home-path` pattern already masks `/Users/<name>`.
+§4.3 also warns these values are machine-identifying: paths contain usernames, hostnames leak. They go through the redactor like everything else, and the `home-path` pattern already masks the home-directory prefix.
 
 - [ ] **Step 1: Write the failing test**
 

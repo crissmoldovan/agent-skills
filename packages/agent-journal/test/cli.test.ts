@@ -1663,6 +1663,18 @@ test('retention still classifies observations after the list moves to observe.ts
   assert.deepEqual(report.unclassified, ['u1']);
   assert.equal(report.keep.length, 1);
   assert.equal(report.keep[0]!.id, 'u1');
+
+  // Drift guard. A byte-identical private copy in retention.ts is behaviourally
+  // indistinguishable from the import, so no test can catch the copy itself —
+  // what a test CAN catch is the copy going stale. Every kind observe.ts declares
+  // must classify here; a retention-side list missing one files it as
+  // unclassified and this fails.
+  const all = applyRetention(
+    OBSERVATION_KINDS.map((k, i) => make(`k${i}`, k)),
+    { now: NOW, observationTtlMs: 30 * 86400000 },
+  );
+  assert.deepEqual(all.unclassified, [],
+    `retention does not recognise every kind observe.ts declares: ${all.unclassified}`);
 });
 
 // Observations carry tool inputs — the highest-volume source of secrets here.

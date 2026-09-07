@@ -18,8 +18,13 @@ test('each kind carries its own fields and no other kind\'s', () => {
     'tool_result must not accept tool_call\'s input');
 });
 
+// `fieldsForObservation` is exported, so a caller can reach it without the CLI's
+// membership check standing in front. A plain `OBSERVATION_FIELDS[kind] ?? []`
+// returns Object.prototype's own members here — `constructor` yields a function.
 test('an unrecognised kind carries no fields rather than guessing', () => {
-  assert.deepEqual([...fieldsForObservation('not_a_kind')], []);
+  for (const kind of ['not_a_kind', 'constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    assert.deepEqual([...fieldsForObservation(kind)], [], `${kind} resolved to something`);
+  }
 });
 
 // Same rule as entries: a field nobody set must not appear as '' — that claims

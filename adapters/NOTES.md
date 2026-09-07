@@ -23,7 +23,8 @@ events as unverified in your README/reference, per the brief. Do not treat a
 NOT-OBSERVED event as nonexistent — say so, the way this file does.
 
 **Masking.** Several captured payloads carry `transcript_path` under
-`/Users/<user>/.claude/projects/...`. I have replaced that prefix with `~` below
+the user's home directory (`.../.claude/projects/...`). I have replaced the
+home prefix with `~` below
 and note it here rather than reproduce a real home path. One captured
 `compact_summary` also echoed the user's own email address from ambient system
 context; I have not reproduced that field's full text for this reason (its
