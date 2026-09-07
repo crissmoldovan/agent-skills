@@ -24,6 +24,7 @@ const PATTERNS: readonly { name: string; re: RegExp }[] = [
   { name: 'bearer', re: /\bBearer\s+[A-Za-z0-9._-]{16,}\b/gi },
   { name: 'email', re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
   { name: 'home-path', re: /\/(?:Users|home)\/[^/\s"']+/g },
+  { name: 'home-path-win', re: /[A-Za-z]:\\Users\\[^\\\s"']+/g },
 ];
 
 const DEFAULT_MAX_BYTES = 262144;
@@ -68,22 +69,51 @@ export function redact(value: unknown, options: RedactOptions = {}): RedactionRe
 
   function walk(node: unknown, depth: number, path: string): unknown {
     if (depth > maxDepth) throw new RangeError(`depth exceeds ${maxDepth} at ${path}`);
-    if (typeof node === 'string') return scrub(node, hits, path || '$');
-    if (Array.isArray(node)) return node.map((item, i) => walk(item, depth + 1, `${path}[${i}]`));
-    if (node !== null && typeof node === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-        out[k] = walk(v, depth + 1, path ? `${path}.${k}` : k);
-      }
-      return out;
+    const here = path || '$';
+    if (typeof node === 'string') return scrub(node, hits, here);
+    if (node === null || typeof node !== 'object') return node;
+
+    // Boxed primitives. Without this, Object.entries decomposes a boxed String
+    // into one entry PER CHARACTER, every pattern needs contiguous characters,
+    // nothing matches, and a secret returns verdict 'clean' fully intact.
+    if (node instanceof String) return scrub(node.valueOf(), hits, here);
+    if (node instanceof Number || node instanceof Boolean) return node.valueOf();
+
+    // Binary. Buffer is what execSync returns by default, so raw captured
+    // command output reaches here routinely. Decode and scan it as text.
+    if (node instanceof ArrayBuffer || ArrayBuffer.isView(node)) {
+      const view = node instanceof ArrayBuffer
+        ? new Uint8Array(node)
+        : new Uint8Array((node as ArrayBufferView).buffer,
+                         (node as ArrayBufferView).byteOffset,
+                         (node as ArrayBufferView).byteLength);
+      return scrub(new TextDecoder().decode(view), hits, here);
     }
-    return node;
+
+    // Align the scan with the byte-budget pre-check, which uses JSON.stringify
+    // semantics. Without this a Date scans as {} — no own enumerable keys — and
+    // reports 'clean' for content that was never examined.
+    const toJson = (node as { toJSON?: unknown }).toJSON;
+    if (typeof toJson === 'function') {
+      return walk((toJson as () => unknown).call(node), depth + 1, path);
+    }
+
+    if (Array.isArray(node)) return node.map((item, i) => walk(item, depth + 1, `${path}[${i}]`));
+
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      out[k] = walk(v, depth + 1, path ? `${path}.${k}` : k);
+    }
+    return out;
   }
 
   try {
     const scrubbed = walk(value, 0, '');
     return { value: scrubbed, verdict: hits.length > 0 ? 'redacted' : 'clean', hits };
   } catch (error) {
+    // hits is reset: a failed verdict yields no usable value, so reporting
+    // partial hits would mislead any caller that branches on hits.length.
+    hits.length = 0;
     return { value: undefined, verdict: 'failed', hits, reason: (error as Error).message };
   }
 }

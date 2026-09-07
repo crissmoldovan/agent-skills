@@ -44,3 +44,30 @@ test('reports a failure verdict on a value it cannot serialize', () => {
   const r = redact(cyclic);
   assert.equal(r.verdict, 'failed');
 });
+
+test('a secret inside a boxed String is redacted, not decomposed', () => {
+  const r = redact({ rationale: new String(`used ${GH_TOKEN}`) });
+  assert.equal(r.verdict, 'redacted');
+  assert.doesNotMatch(JSON.stringify(r.value), /a1b2c3d4e5/);
+});
+
+test('a secret inside a Buffer is redacted — execSync returns Buffers by default', () => {
+  const r = redact({ environment: { raw: Buffer.from(GH_TOKEN) } });
+  assert.equal(r.verdict, 'redacted');
+  assert.doesNotMatch(JSON.stringify(r.value), /a1b2c3d4e5/);
+});
+
+test('a Date is scanned via toJSON rather than silently becoming {}', () => {
+  const r = redact({ environment: { at: new Date('2026-09-07T10:00:00.000Z') } });
+  assert.equal(r.verdict, 'clean');
+  assert.match(JSON.stringify(r.value), /2026-09-07T10:00:00/);
+});
+
+test('the depth guard fails closed and reports no partial hits', () => {
+  let deep: Record<string, unknown> = { leaf: GH_TOKEN };
+  for (let i = 0; i < 40; i += 1) deep = { nest: deep };
+  const r = redact(deep, { maxDepth: 8 });
+  assert.equal(r.verdict, 'failed');
+  assert.equal(r.value, undefined);
+  assert.deepEqual([...r.hits], []);
+});
