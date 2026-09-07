@@ -1110,6 +1110,12 @@ test('a space in source or epoch cannot merge two distinct sequence spaces', () 
   assert.deepEqual(mergeEvents([[two, one]]).map((e) => e.id), merged.map((e) => e.id));
 });
 
+test('duplicate sequence numbers in one source still order deterministically', () => {
+  const a = ev('aa', { sequence: 1 });
+  const b = ev('bb', { sequence: 1 });
+  assert.deepEqual(mergeEvents([[a, b]]).map((e) => e.id), mergeEvents([[b, a]]).map((e) => e.id));
+});
+
 test('parse diagnostics are bounded', () => {
   const { bad } = parseSegment(Array.from({ length: 200 }, () => '{broken').join('\n'));
   assert.equal(bad.length, 32);
@@ -1215,7 +1221,15 @@ export function mergeEvents(batches: readonly (readonly JournalEvent[])[]): Jour
       const aUnsequenced = a.sequence === undefined ? 1 : 0;
       const bUnsequenced = b.sequence === undefined ? 1 : 0;
       if (aUnsequenced !== bUnsequenced) return aUnsequenced - bUnsequenced;
-      if (aUnsequenced === 0) return a.sequence! - b.sequence!;
+      if (aUnsequenced === 0) {
+        // The id tiebreak is load-bearing, not decoration. Nothing enforces
+        // sequence uniqueness within a source, and returning 0 for a duplicate
+        // lets a stable sort preserve INPUT order — so the same events in a
+        // different batch order come out differently. Found by fuzzing the
+        // permutation property, after fixing the intransitivity above.
+        const bySequence = a.sequence! - b.sequence!;
+        return bySequence !== 0 ? bySequence : a.id.localeCompare(b.id);
+      }
       const byTime = Date.parse(a.time) - Date.parse(b.time);
       return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
     });
