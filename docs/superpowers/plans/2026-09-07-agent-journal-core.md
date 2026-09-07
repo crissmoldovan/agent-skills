@@ -598,7 +598,7 @@ Spec 6.1. The winning method must be recorded, and a worktree must resolve to th
 ```ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveWorkspace } from '../src/identity.ts';
@@ -641,6 +641,48 @@ test('a declared id is used when no filesystem rung applies', () => {
   assert.equal(id.method, 'declared');
   assert.equal(id.id, 'cowork-space-7');
 });
+
+test('an explicit id file BEATS git — the rungs must actually compete', async () => {
+  const dir = await tmp();
+  await mkdir(join(dir, '.agent-journal'), { recursive: true });
+  await writeFile(join(dir, '.agent-journal', 'id'), 'declared-wins\n', 'utf8');
+  // Both rungs are satisfiable here. Reorder the cascade and this test fails.
+  const id = resolveWorkspace(dir, { gitCommonDir: '/repo/.git' });
+  assert.equal(id.method, 'explicit');
+  assert.equal(id.id, 'declared-wins');
+});
+
+test('a host container id is used when there is no git and no explicit file', async () => {
+  const dir = await tmp();
+  const id = resolveWorkspace(dir, { gitCommonDir: null, hostContainer: 'cowork-space-7' });
+  assert.equal(id.method, 'host');
+  assert.equal(id.detail, 'cowork-space-7');
+});
+
+test('the ephemeral rung yields a distinct id per call', () => {
+  const a = resolveWorkspace('', {});
+  const b = resolveWorkspace('', {});
+  assert.equal(a.method, 'ephemeral');
+  assert.notEqual(a.id, b.id);
+});
+
+test('an unreadable id file throws rather than becoming a different workspace', async () => {
+  const dir = await tmp();
+  // A directory where the id file belongs: readFileSync raises EISDIR, which is
+  // neither ENOENT nor ENOTDIR, so it must propagate.
+  await mkdir(join(dir, '.agent-journal', 'id'), { recursive: true });
+  assert.throws(() => resolveWorkspace(dir, { gitCommonDir: '/repo/.git' }));
+});
+
+test('two symlinked spellings of one directory share a workspace id', async () => {
+  const real = await tmp();
+  const link = join(await tmp(), 'link');
+  await symlink(real, link, 'dir');
+  assert.equal(
+    resolveWorkspace(link, { gitCommonDir: null }).id,
+    resolveWorkspace(real, { gitCommonDir: null }).id,
+  );
+});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -653,8 +695,8 @@ Expected: FAIL — cannot find module `../src/identity.ts`.
 `packages/agent-journal/src/identity.ts`:
 
 ```ts
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 export type ResolutionMethod = 'explicit' | 'git' | 'cwd' | 'host' | 'declared' | 'ephemeral';
@@ -683,12 +725,29 @@ function hash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
+/** Canonicalises through symlinks where the path exists, so two spellings of one
+ *  directory never open two journals. macOS `/tmp` vs `/private/tmp` is the common case. */
+function canonical(path: string): string {
+  const absolute = resolve(path);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
 function readExplicitId(cwd: string): string | null {
   try {
     const raw = readFileSync(join(cwd, '.agent-journal', 'id'), 'utf8').trim();
     return raw.length > 0 ? raw : null;
-  } catch {
-    return null;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // Absent is a normal answer. Anything else — a permissions failure, a
+    // directory where a file belongs — must NOT become a silently different
+    // workspace. The spec requires identity be declared and recorded; falling
+    // through would record `method: 'git'` for an id nobody declared.
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    throw error;
   }
 }
 
@@ -698,7 +757,7 @@ export function resolveWorkspace(cwd: string, options: ResolveOptions = {}): Wor
 
   const common = options.gitCommonDir;
   if (common) {
-    const normalized = resolve(common);
+    const normalized = canonical(common);
     return { id: `git-${hash(normalized)}`, method: 'git', detail: normalized };
   }
 
@@ -711,12 +770,14 @@ export function resolveWorkspace(cwd: string, options: ResolveOptions = {}): Wor
   }
 
   if (cwd) {
-    const normalized = resolve(cwd);
+    const normalized = canonical(cwd);
     return { id: `cwd-${hash(normalized)}`, method: 'cwd', detail: normalized };
   }
 
+  // Random, not time-seeded: two sessions starting in the same millisecond are
+  // unrelated and must not collide onto one journal.
   return {
-    id: `ephemeral-${hash(String(Date.now()))}`,
+    id: `ephemeral-${randomUUID()}`,
     method: 'ephemeral',
     detail: 'no durable identity available',
   };
