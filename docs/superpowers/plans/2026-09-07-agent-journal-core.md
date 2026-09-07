@@ -1935,6 +1935,49 @@ test('a void records which transport went silent', () => {
   assert.equal(d.provenance, 'hook');
 });
 
+test('source participates in the key, not just sourceEpoch', () => {
+  // The MIRROR of the test above. That one varies epoch with a shared source;
+  // this varies source with a shared epoch. Without both, an implementation
+  // keying on either field alone passes the whole file — which is exactly what
+  // happened after the first fix.
+  const report = coverage([
+    make('a', 'tool_call', 's1', { source: 'S1', sourceEpoch: 'E', sequence: 1 }),
+    make('b', 'tool_call', 's1', { source: 'S2', sourceEpoch: 'E', sequence: 9 }),
+  ]);
+  assert.deepEqual(report.sequenceGaps, []);
+});
+
+test('sessionsWithNoEvents is null when never assessed, and sorted when it is', () => {
+  const one = make('o1', 'tool_call', 's1');
+  // Omitted knownSessions must NOT read as "none missing".
+  assert.equal(coverage([one]).sessionsWithNoEvents, null);
+  // Supplied, out of alphabetical order, so the sort is load-bearing.
+  assert.deepEqual(
+    coverage([one], { knownSessions: ['zz', 's1', 'aa', 'mm'] }).sessionsWithNoEvents,
+    ['aa', 'mm', 'zz'],
+  );
+});
+
+test('downgradedAnchors passes its contents through, not just its emptiness', () => {
+  // An implementation returning [] whenever the option is present would swallow
+  // real downgrade data and still satisfy a null-vs-empty test.
+  const report = coverage([make('o1', 'tool_call', 's1')], { downgradedAnchors: ['d1', 'd2'] });
+  assert.deepEqual(report.downgradedAnchors, ['d1', 'd2']);
+});
+
+test('a void defaults context as well as provenance, and can name a human', () => {
+  const base = {
+    source: 'h/m/s1/a', sourceEpoch: 'e1', time: '2026-09-07T10:00:00.000Z',
+    workspace: 'ws', session: 's1', agent: 'a', harness: 'claude-code', reason: 'refused',
+  };
+  const d = voidEvent({ ...base, id: 'v1' });
+  assert.equal(d.context, 'coding');
+  assert.equal(d.author, 'agent');
+  // A human running the CLI and hitting a refusal is not an agent failure.
+  const h = voidEvent({ ...base, id: 'v2', author: 'human', provenance: 'cli' });
+  assert.equal(h.author, 'human');
+});
+
 test('a space in source or epoch cannot fake a sequence gap', () => {
   // Under a bare-space join these two collide on the key "foo bar baz", their
   // sequences merge to [1, 5], and a phantom gap is reported across two
@@ -1957,7 +2000,7 @@ Expected: FAIL — cannot find module `../src/coverage.ts`.
 `packages/agent-journal/src/coverage.ts`:
 
 ```ts
-import { normalizeEvent, type JournalEvent, type Provenance } from './envelope.ts';
+import { normalizeEvent, type Author, type JournalEvent, type Provenance } from './envelope.ts';
 import { isEntry } from './retention.ts';
 
 export interface VoidInput {
@@ -1974,6 +2017,9 @@ export interface VoidInput {
   /** Which transport went silent. A refused CLI write is not a hook failure. */
   readonly provenance?: Provenance;
   readonly context?: string;
+  /** Who was acting. A human running the CLI and hitting a refusal is not an
+   *  agent failure — the same misattribution as provenance, one field over. */
+  readonly author?: Author;
 }
 
 /** A refused write, dropped sink or hook failure, recorded so silence is auditable. */
@@ -1987,7 +2033,7 @@ export function voidEvent(input: VoidInput): JournalEvent {
     workspace: input.workspace,
     session: input.session,
     agent: input.agent,
-    author: 'agent',
+    author: input.author ?? 'agent',
     provenance: input.provenance ?? 'hook',
     harness: input.harness,
     context: input.context ?? 'coding',
@@ -2002,8 +2048,13 @@ export interface CoverageReport {
   /** Sessions the caller knows started but which emitted NOTHING — not even a
    *  void. Derivable only from outside, since a session with no events leaves
    *  no trace in `events`. This is the worst silence the report exists to make
-   *  legible, and the one case it cannot find on its own. */
-  readonly sessionsWithNoEvents: string[];
+   *  legible, and the one case it cannot find on its own.
+   *
+   *  `null` means NOT ASSESSED — no `knownSessions` was supplied — for the same
+   *  reason `downgradedAnchors` is nullable. An empty array from a caller that
+   *  never told us which sessions exist reads as "none missing", which is the
+   *  precise dishonesty this field was added to remove. */
+  readonly sessionsWithNoEvents: string[] | null;
   readonly voids: number;
   readonly sequenceGaps: string[];
   /** `null` means NOT ASSESSED, not "none found". Retention computes downgrades;
@@ -2054,7 +2105,9 @@ export function coverage(
   return {
     sessions: sessions.size,
     sessionsWithNoEntries: [...sessions].filter((s) => !withEntries.has(s)).sort(),
-    sessionsWithNoEvents: [...(options.knownSessions ?? [])].filter((s) => !sessions.has(s)).sort(),
+    sessionsWithNoEvents: options.knownSessions === undefined
+      ? null
+      : [...options.knownSessions].filter((s) => !sessions.has(s)).sort(),
     voids,
     sequenceGaps,
     downgradedAnchors: options.downgradedAnchors === undefined
@@ -2211,7 +2264,7 @@ import { join } from 'node:path';
 import { normalizeEvent, type JournalEvent } from './envelope.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
-import { coverage } from './coverage.ts';
+import { coverage, voidEvent } from './coverage.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -2306,8 +2359,19 @@ export async function runCli(
       kind, data,
     });
 
-    const result = await journalFor(root, workspace, session, agent).append(event);
+    const journal = journalFor(root, workspace, session, agent);
+    const result = await journal.append(event);
     if (!result.written) {
+      // Persist the refusal. Returning an error code alone means a refused write
+      // never reaches `coverage()`'s `voids` count, so the silence this refusal
+      // creates stays invisible — which is what voidEvent exists to prevent.
+      await journal.append(voidEvent({
+        id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
+        time: nowStamp(), workspace, session, agent,
+        harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
+        reason: `redaction ${result.verdict}`, provenance: 'cli',
+        ...(result.reason === undefined ? {} : { detail: result.reason }),
+      }));
       return {
         code: 1,
         stdout: '',
