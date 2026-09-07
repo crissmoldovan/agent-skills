@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SegmentJournal } from '../src/journal.ts';
@@ -31,11 +32,33 @@ test('appends one JSON object per line', async () => {
   assert.equal(JSON.parse(lines[1]!).id, 'e2');
 });
 
-test('refuses to write when redaction fails, and says so', async () => {
+test('refuses to write when redaction fails — and NOTHING reaches disk', async () => {
   const { j } = await journal();
-  const result = await j.append(event('e3', { blob: 'x'.repeat(300000) }));
+  const result = await j.append(event('REFUSED', { blob: 'x'.repeat(300000) }));
   assert.equal(result.written, false);
   assert.equal(result.verdict, 'failed');
+  // The guarantee is about the filesystem, not the return value. Asserting only
+  // `written: false` would still pass if the early return moved after mkdir.
+  assert.equal(existsSync(result.path), false, 'a refused append must create no file');
+  // And the refused payload must not appear once a later append creates the file.
+  await j.append(event('KEPT'));
+  const disk = await readFile(j.segmentPath(), 'utf8');
+  assert.doesNotMatch(disk, /REFUSED/);
+  assert.match(disk, /KEPT/);
+});
+
+test('a refusal does not poison the queue for later appends', async () => {
+  const { j } = await journal();
+  const [bad, good] = await Promise.all([
+    j.append(event('DROP', { blob: 'x'.repeat(300000) })),
+    j.append(event('SURVIVES')),
+  ]);
+  assert.equal(bad.written, false);
+  assert.equal(good.written, true);
+  // Each call must report the file IT wrote, not another caller's.
+  assert.equal(good.path, j.segmentPath());
+  const disk = await readFile(j.segmentPath(), 'utf8');
+  assert.equal(disk.trim().split('\n').length, 1);
 });
 
 test('redacts a secret before it reaches disk', async () => {
