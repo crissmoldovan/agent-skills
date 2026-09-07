@@ -4,9 +4,19 @@ Six kinds. Choosing the wrong one is not fatal, but each carries different field
 read differently, so the choice affects what a later reader can ask.
 
 All six share the same envelope, the same anchors and influences, the same retraction
-edges, and the same disclosure control. Disclosure (redaction) runs automatically on
-every write, for every kind — there is no `--disclosure` flag, because it is a control
-the schema applies, not a value any kind exposes for `record` to set.
+edges, and the same disclosure class. Every kind takes
+`--disclosure private|team|published` on `record` (and `invalidate` takes it too) — the
+write default is `team`, and an unrecognised value is refused rather than silently
+contained. See [references/digest-and-disclosure.md](digest-and-disclosure.md) for what
+the class controls, and the asymmetry between what a write defaults to and what a parse
+defaults to.
+
+Separate from disclosure, and with no flag of its own because no kind opts out of it:
+every write also passes through automatic secret redaction. A recognised credential
+appearing in free text is masked in place before the entry is stored; a payload the
+redactor cannot scan at all — oversized, or too deeply nested — is refused outright.
+That runs identically whichever disclosure class the entry is headed for; a `private`
+entry gets no less scrutiny than a `published` one.
 
 Every kind takes its own fields through `record`, and only its own — passing a field
 that belongs to another kind is refused with a message naming what this kind does take,

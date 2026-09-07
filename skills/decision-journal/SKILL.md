@@ -254,6 +254,34 @@ writes, gaps in a source's sequence, and an explicit `null` for anything never a
 
 **Complete when:** you can state what the journal does not cover, not just what it does.
 
+### 7. Render a digest, and trace from a symptom
+
+```bash
+agent-journal digest --workspace api --level team
+```
+
+A digest renders the journal as one markdown document, ordered by consequence rather
+than time — invalidated first — with the coverage report folded onto the end. It
+defaults to `--level published`, the version meant to leave the room, and it is a
+snapshot stamped with the moment it was rendered, never the source of truth. See
+[references/digest-and-disclosure.md](references/digest-and-disclosure.md) for what
+disclosure does and does not gate: a private entry never appears in a digest, but its
+invalidation of something else always does.
+
+```bash
+agent-journal trace f1 --workspace api
+```
+
+`trace` starts from whatever a support question actually hands you — a file, a ticket,
+a runtime flag, or an entry id, indexed equally — and walks backwards through what an
+entry rests on. Lookup is exact, never a substring. The walk does not stop at an
+invalidated entry: `f1` rests on `d-bound`, invalidated two steps back, and the walk
+reaches it anyway, because that is frequently where "why is this like this" ends.
+
+**Complete when:** you know what a reader at a given disclosure level will and will not
+see, and a symptom traces back to the decision it actually depends on, not just the
+entry that happens to mention it.
+
 ## Usage Examples
 
 **Recording a rejection, which is the entry nothing else captures:**
@@ -342,5 +370,8 @@ Before treating a journal as a record you can rely on:
   anchor class actually proves, and why anchoring is one-directional.
 - [references/entry-kinds.md](references/entry-kinds.md) — decision, finding,
   assumption, blocker, progress, constraint: which to use and how they differ.
+- [references/digest-and-disclosure.md](references/digest-and-disclosure.md) — the
+  three disclosure classes, why the write default and the parse default differ, how a
+  digest orders and gates entries, and what `trace` can and cannot find.
 - [references/degraded-modes.md](references/degraded-modes.md) — running without the
   CLI, without a filesystem, or without hooks, and how to say so honestly.
