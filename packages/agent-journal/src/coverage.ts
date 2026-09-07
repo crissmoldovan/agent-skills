@@ -1,4 +1,4 @@
-import { normalizeEvent, type JournalEvent } from './envelope.ts';
+import { normalizeEvent, type JournalEvent, type Provenance } from './envelope.ts';
 import { isEntry } from './retention.ts';
 
 export interface VoidInput {
@@ -12,6 +12,9 @@ export interface VoidInput {
   readonly harness: string;
   readonly reason: string;
   readonly detail?: string;
+  /** Which transport went silent. A refused CLI write is not a hook failure. */
+  readonly provenance?: Provenance;
+  readonly context?: string;
 }
 
 /** A refused write, dropped sink or hook failure, recorded so silence is auditable. */
@@ -26,9 +29,9 @@ export function voidEvent(input: VoidInput): JournalEvent {
     session: input.session,
     agent: input.agent,
     author: 'agent',
-    provenance: 'hook',
+    provenance: input.provenance ?? 'hook',
     harness: input.harness,
-    context: 'coding',
+    context: input.context ?? 'coding',
     kind: 'void',
     data: { reason: input.reason, ...(input.detail === undefined ? {} : { detail: input.detail }) },
   });
@@ -37,14 +40,26 @@ export function voidEvent(input: VoidInput): JournalEvent {
 export interface CoverageReport {
   readonly sessions: number;
   readonly sessionsWithNoEntries: string[];
+  /** Sessions the caller knows started but which emitted NOTHING — not even a
+   *  void. Derivable only from outside, since a session with no events leaves
+   *  no trace in `events`. This is the worst silence the report exists to make
+   *  legible, and the one case it cannot find on its own. */
+  readonly sessionsWithNoEvents: string[];
   readonly voids: number;
   readonly sequenceGaps: string[];
-  readonly downgradedAnchors: string[];
+  /** `null` means NOT ASSESSED, not "none found". Retention computes downgrades;
+   *  a caller that never ran it must not be able to render an empty array and
+   *  imply a clean bill of health. */
+  readonly downgradedAnchors: string[] | null;
 }
 
 export function coverage(
   events: readonly JournalEvent[],
-  options: { readonly downgradedAnchors?: readonly string[] } = {},
+  options: {
+    readonly downgradedAnchors?: readonly string[];
+    /** Sessions the caller knows exist, so silence from one can be named. */
+    readonly knownSessions?: readonly string[];
+  } = {},
 ): CoverageReport {
   const sessions = new Set<string>();
   const withEntries = new Set<string>();
@@ -80,8 +95,11 @@ export function coverage(
   return {
     sessions: sessions.size,
     sessionsWithNoEntries: [...sessions].filter((s) => !withEntries.has(s)).sort(),
+    sessionsWithNoEvents: [...(options.knownSessions ?? [])].filter((s) => !sessions.has(s)).sort(),
     voids,
     sequenceGaps,
-    downgradedAnchors: [...(options.downgradedAnchors ?? [])],
+    downgradedAnchors: options.downgradedAnchors === undefined
+      ? null
+      : [...options.downgradedAnchors],
   };
 }

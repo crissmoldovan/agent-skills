@@ -63,6 +63,56 @@ test('a sequence gap is detected, and adjacent sequences are not a gap', () => {
   assert.match(report.sequenceGaps[0]!, /2 to 7/);
 });
 
+test('sourceEpoch participates in the key, not just source', () => {
+  // Same source, DIFFERENT epochs — a writer restart resets its sequence
+  // counter. Dropping sourceEpoch from the key merges them into [1, 9] and
+  // reports a phantom gap. The collision test below varies `source` too, so it
+  // cannot catch this on its own.
+  const report = coverage([
+    make('a', 'tool_call', 's1', { source: 'S', sourceEpoch: 'E1', sequence: 1 }),
+    make('b', 'tool_call', 's1', { source: 'S', sourceEpoch: 'E2', sequence: 9 }),
+  ]);
+  assert.deepEqual(report.sequenceGaps, []);
+});
+
+test('sessionsWithNoEntries is sorted, not insertion-ordered', () => {
+  // Three entry-less sessions supplied out of alphabetical order. A fixture
+  // yielding one element cannot see a missing sort.
+  const report = coverage([
+    make('o1', 'tool_call', 'z1'),
+    make('o2', 'tool_call', 'a1'),
+    make('o3', 'tool_call', 'm1'),
+    make('d1', 'decision', 'b1'),
+  ]);
+  assert.deepEqual(report.sessionsWithNoEntries, ['a1', 'm1', 'z1']);
+});
+
+test('a session that emitted nothing at all can be named', () => {
+  const report = coverage([make('o1', 'tool_call', 's1')], { knownSessions: ['s1', 'ghost'] });
+  assert.deepEqual(report.sessionsWithNoEvents, ['ghost']);
+});
+
+test('downgradedAnchors is null when never assessed, not an empty array', () => {
+  assert.equal(coverage([make('o1', 'tool_call', 's1')]).downgradedAnchors, null);
+  assert.deepEqual(coverage([make('o1', 'tool_call', 's1')], { downgradedAnchors: [] }).downgradedAnchors, []);
+});
+
+test('a void records which transport went silent', () => {
+  const v = voidEvent({
+    id: 'v1', source: 'h/m/s1/a', sourceEpoch: 'e1', time: '2026-09-07T10:00:00.000Z',
+    workspace: 'ws', session: 's1', agent: 'a', harness: 'other',
+    reason: 'sink unreachable', provenance: 'cli', context: 'ops',
+  });
+  assert.equal(v.provenance, 'cli');
+  assert.equal(v.context, 'ops');
+  // Default stays 'hook'/'coding' when the caller says nothing.
+  const d = voidEvent({
+    id: 'v2', source: 'h/m/s1/a', sourceEpoch: 'e1', time: '2026-09-07T10:00:00.000Z',
+    workspace: 'ws', session: 's1', agent: 'a', harness: 'claude-code', reason: 'hook failed',
+  });
+  assert.equal(d.provenance, 'hook');
+});
+
 test('a space in source or epoch cannot fake a sequence gap', () => {
   // Under a bare-space join these two collide on the key "foo bar baz", their
   // sequences merge to [1, 5], and a phantom gap is reported across two
