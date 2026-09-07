@@ -233,6 +233,41 @@ test('a retraction takes effect regardless of merge order', async () => {
   assert.ok(project(events).invalidated.has('f1'), 'the retraction must apply either way');
 });
 
+test('record stores rejected — the field the design exists for', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--id', 'e1',
+    '--question', 'how do we bound the queue?', '--chosen', 'ring buffer',
+    '--rejected', 'redis — needs a broker we do not run'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  // This was silently dropped for as long as the field list omitted it: exit 0,
+  // entry written, the alternatives gone. Nothing else in the system records them.
+  assert.equal(entry!.data.rejected, 'redis — needs a broker we do not run');
+});
+
+test('record stores the other decision fields it advertises', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c',
+    '--reversibility', 'one-way', '--blastRadius', 'every signed-in user',
+    '--confidence', 'low'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.data.reversibility, 'one-way');
+  assert.equal(entry!.data.blastRadius, 'every signed-in user');
+  assert.equal(entry!.data.confidence, 'low');
+});
+
+test('an unknown flag is refused, not silently dropped', async () => {
+  const dir = await root();
+  // A typo must stop rather than lose the value with an exit code saying it worked.
+  const r = await runCli(['record', '--kind', 'decision', '--workspace', 'ws', '--rejcted', 'oops'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown flag: --rejcted/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'nothing should be written');
+});
+
 test('an unknown subcommand exits non-zero with usage', async () => {
   const r = await runCli(['frobnicate', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: await root() });
   assert.notEqual(r.code, 0);

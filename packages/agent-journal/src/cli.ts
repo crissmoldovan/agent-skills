@@ -15,7 +15,9 @@ export interface CliResult {
 
 const USAGE = [
   'usage:',
-  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r] [--id id] [--author human]',
+  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r]',
+  '                 [--rejected r] [--reversibility trivial|moderate|hard|one-way] [--blastRadius b]',
+  '                 [--confidence c] [--id id] [--author human] [--context c]',
   '  journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  journal coverage --workspace <id>',
   '',
@@ -35,6 +37,27 @@ function flags(argv: readonly string[]): Map<string, string> {
     }
   }
   return out;
+}
+
+/**
+ * Fields `record` stores. `rejected` is here because it is the point of the
+ * whole design — the alternatives you considered and discarded are what nothing
+ * else captures — and it was silently dropped for as long as this list omitted
+ * it: the CLI exited 0, wrote the entry, and discarded the field.
+ */
+const RECORD_FIELDS = [
+  'question', 'chosen', 'rationale', 'rejected',
+  'reversibility', 'blastRadius', 'confidence',
+  'supersedes', 'invalidates',
+] as const;
+
+/** Flags every subcommand understands. Anything else is a typo, and a typo that
+ *  silently drops data is worse than one that stops. */
+const GLOBAL_FLAGS = ['workspace', 'kind', 'id', 'author', 'context', 'reason'] as const;
+
+function unknownFlags(opts: Map<string, string>): string[] {
+  const known = new Set<string>([...RECORD_FIELDS, ...GLOBAL_FLAGS]);
+  return [...opts.keys()].filter((k) => !known.has(k)).sort();
 }
 
 function nowStamp(): string {
@@ -80,6 +103,18 @@ export async function runCli(
 
   const opts = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');
+
+  // Refuse unknown flags. Silently ignoring one loses whatever the caller meant
+  // to record, with an exit code of 0 saying it worked.
+  const unknown = unknownFlags(opts);
+  if (unknown.length > 0) {
+    return {
+      code: 2,
+      stdout: '',
+      stderr: `unknown flag${unknown.length > 1 ? 's' : ''}: ${unknown.map((f) => `--${f}`).join(', ')}\n${USAGE}`,
+    };
+  }
+
   const workspace = opts.get('workspace');
   if (!workspace) return { code: 2, stdout: '', stderr: `--workspace is required\n${USAGE}` };
 
@@ -97,7 +132,7 @@ export async function runCli(
     const author = opts.get('author') === 'human' ? 'human' : 'agent';
 
     const data: Record<string, unknown> = {};
-    for (const field of ['question', 'chosen', 'rationale', 'supersedes', 'invalidates']) {
+    for (const field of RECORD_FIELDS) {
       const v = opts.get(field);
       if (v !== undefined) data[field] = v;
     }
