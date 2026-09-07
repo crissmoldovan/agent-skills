@@ -452,7 +452,7 @@ Expected: PASS.
 | --- | --- |
 | `all.get('anchor')` → `[opts.get('anchor') ?? '']` filtered non-empty | record writes repeated anchors |
 | delete the `try`/`catch`, call the parsers unguarded | malformed anchor refused before anything is written |
-| `if (anchors.length > 0)` → `data.anchors = anchors` unconditionally | entry with no influences records absence |
+| `if (anchors.length > 0)` → `data.anchors = anchors` unconditionally | entry with no influences records absence — **the test must assert `data.anchors === undefined` as well as `data.influences`, or this row is green against a guard it never touches** |
 | `capabilitiesWithAnchors(...)` → `normalizeCapabilities({})` | an anchor makes its capability known |
 
 - [ ] **Step 6: Verify through the built binary, not the source tree**
