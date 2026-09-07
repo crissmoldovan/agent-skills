@@ -95,9 +95,17 @@ export const ENUM_FIELDS: Readonly<Record<string, Readonly<Record<string, readon
   finding: { scope: ['machine', 'workspace', 'general'] },
 };
 
-/** An unrecognised kind gets no fields rather than a guess. */
+/**
+ * An unrecognised kind gets no fields rather than a guess. `?? []` alone is
+ * not enough: `KIND_FIELDS[kind]` reaches the prototype chain for keys like
+ * 'constructor', 'toString' or '__proto__', returning a function or
+ * Object.prototype itself rather than undefined — a value `??` never catches
+ * and that breaks the `readonly string[]` this function promises to return.
+ * Same ownership check as the CLI's own known/unknown gate, so the two agree
+ * on which kinds are "known".
+ */
 export function fieldsFor(kind: string): readonly string[] {
-  return KIND_FIELDS[kind] ?? [];
+  return Object.prototype.hasOwnProperty.call(KIND_FIELDS, kind) ? KIND_FIELDS[kind]! : [];
 }
 
 /**

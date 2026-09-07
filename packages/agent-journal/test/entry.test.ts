@@ -131,3 +131,15 @@ test('evidence and premise are list fields too, not just rejected', () => {
   assert.deepEqual(data.premise, ['the docs were last updated two years ago']);
 });
 
+// IMPORTANT (fix round 2): `KIND_FIELDS[kind] ?? []` reaches the prototype
+// chain for keys like 'constructor', 'toString' or '__proto__` — `??` never
+// fires because a Function or Object.prototype is never null/undefined. That
+// breaks the `readonly string[]` this function's signature promises. Assert
+// on the actual value, not truthiness: `.length === 0` would throw (not
+// fail) for a non-array return, hiding exactly the bug this guards against.
+test('fieldsFor does not reach the prototype chain for an unowned key', () => {
+  assert.deepEqual(fieldsFor('constructor'), []);
+  assert.deepEqual(fieldsFor('toString'), []);
+  assert.deepEqual(fieldsFor('__proto__'), []);
+});
+

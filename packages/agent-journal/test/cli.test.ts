@@ -751,3 +751,24 @@ test('an unrecognised kind still writes, warning instead of refusing', async () 
   assert.equal(entry!.kind, 'not_a_real_kind');
   assert.deepEqual(entry!.data, {}, 'no kind-specific fields should have been stored');
 });
+
+// IMPORTANT (fix round 2): 'constructor' is a prototype-chain key, not just
+// an arbitrary unrecognised string. Before this round it took a different,
+// broken path — the CLI's own iteration over fieldsFor('constructor') threw,
+// since KIND_FIELDS['constructor'] resolves to Object's constructor function
+// rather than undefined. It must land on the exact same unrecognised-kind
+// path as 'not_a_real_kind': exit 0, entry written, warning on stderr.
+test('an unrecognised kind that collides with a prototype key takes the same path as any other', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'constructor', '--id', 'x2'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, `--kind constructor was refused instead of taking the unrecognised-kind path: ${r.stderr}`);
+  assert.match(r.stderr, /WARNING/);
+  assert.match(r.stderr, /constructor/);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.kind, 'constructor');
+  assert.deepEqual(entry!.data, {}, 'no kind-specific fields should have been stored');
+});
