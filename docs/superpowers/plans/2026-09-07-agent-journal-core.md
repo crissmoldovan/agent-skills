@@ -19,6 +19,11 @@
 - **Zero runtime dependencies.** `@types/node` and `typescript` are devDependencies only, matching `packages/agent-lifecycle`.
 - **Do not modify `packages/agent-lifecycle`.** Its redactor is explicitly not reusable (spec 12.1, 14); this package writes its own.
 - Every Markdown file must be non-empty and end with a newline — the repo's `check:markdown` enforces this.
+- **Every relative import in `src/` and `test/` uses a `.ts` extension, never `.js`.** Node's
+  `--experimental-strip-types` resolves the real file, so a `.js` specifier fails at runtime with
+  `ERR_MODULE_NOT_FOUND`. `rewriteRelativeImportExtensions` (TypeScript 5.7+) rewrites them to
+  `.js` on emit, so `dist/` is correct ESM. Verified: typecheck clean, build emits `./envelope.js`,
+  and `import('./src/index.ts')` loads. Do not "fix" a `.ts` specifier to `.js`.
 - RFC3339 UTC timestamps only: `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/`.
 - Wall-clock time is display-only across sources. Ordering within a source uses `sequence` (spec 8.4). Never infer causality from timestamps.
 - Bare `node` may resolve to a v26 install ahead of nvm on PATH. That satisfies the `>=24` floor so it is fine — but run `node -v` before diagnosing any test failure as real.
@@ -111,6 +116,7 @@ Tests mirror `src/` one-to-one under `test/*.test.ts`.
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"]
@@ -126,7 +132,6 @@ Tests mirror `src/` one-to-one under `test/*.test.ts`.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
-    "allowImportingTsExtensions": false,
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src"
