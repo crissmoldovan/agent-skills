@@ -792,6 +792,13 @@ test('show reports outcomes, liveness and evidence per entry', async () => {
   assert.equal(byId.rests.outcome, 'invalidated', 'propagation is not visible through show');
   assert.deepEqual(byId.base.anchors, [{ type: 'commit', ref: '9f2c1ab' }]);
   assert.equal(byId.rests.anchors, null, 'no anchors must read as null, never []');
+
+  // The influences twin of the anchors assertion above. anchors was protected;
+  // influences was not — mutating its `: null` fallback to `: []` left the
+  // whole suite green until this was added. Asserting the actual value, not
+  // `assert.ok(!x)`, which passes for null, [] and undefined alike.
+  assert.deepEqual(byId.rests.influences, [{ type: 'journal', role: 'decisive', ref: 'base' }]);
+  assert.equal(byId.base.influences, null, 'no influences must read as null, never []');
 });
 
 test('show surfaces live constraints and which entries they bear on', async () => {
@@ -831,4 +838,52 @@ test('show inherits coverage\'s honesty about a damaged journal', async () => {
   const r = await runCli(['show', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
   assert.notEqual(r.code, 0, 'a corrupt journal reported success');
   assert.match(r.stdout + r.stderr, /malformed/i);
+});
+
+// Fix round 1 (Task 5 review): the void-event filter (`e.kind !== 'void'` in
+// cli.ts's `show`) had no test — dropping it left the whole suite green,
+// because no other `show` fixture produces a void event. A refusal must
+// actually refuse for this fixture to mean anything, so that is asserted too.
+test('show excludes void events — a refusal must never render as a live entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'good',
+    '--question', 'q', '--chosen', 'c'], env);
+  const refused = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'decision', '--question', 'q', '--chosen', 'x',
+      '--rationale', 'y'.repeat(300000)],
+    env,
+  );
+  assert.notEqual(refused.code, 0, 'the fixture must actually trigger a redaction refusal');
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  assert.deepEqual(out.entries.map((e: any) => e.id), ['good'], 'a void event leaked into show\'s entries');
+});
+
+// Fix round 1 (Task 5 review, RULING): `invalidate` writes its retraction as
+// an ordinary `kind: 'decision'` event carrying `data.invalidates`. Without a
+// marker it renders indistinguishable from a real live decision — outcome
+// unknown, no anchors — inflating "what is live" by one per retraction. This
+// already fooled a later task's brief, which expected two entries where three
+// actually render; `retracts` is the fix, not hiding the record or changing
+// its stored kind.
+test('show marks a retraction record with retracts, distinct from an ordinary decision', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['invalidate', 'd1', '--workspace', 'ws', '--reason', 'premise false'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  assert.equal(out.entries.length, 3, 'record, record, invalidate renders as three entries on disk');
+
+  const byId = Object.fromEntries(out.entries.map((e: any) => [e.id, e]));
+  assert.deepEqual(byId.d1.retracts, null);
+  assert.deepEqual(byId.a1.retracts, null);
+
+  const retraction = out.entries.find((e: any) => e.id !== 'd1' && e.id !== 'a1');
+  assert.ok(retraction, 'the retraction record itself must be present, not hidden');
+  assert.deepEqual(retraction.retracts, { type: 'invalidates', target: 'd1' });
 });

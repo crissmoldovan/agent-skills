@@ -462,13 +462,31 @@ async function dispatch(
       .map((e) => {
         const anchors = Array.isArray(e.data.anchors) ? e.data.anchors : null;
         const influences = Array.isArray(e.data.influences) ? e.data.influences : null;
+
+        // A retraction event (from `invalidate`, or `record --supersedes`) is a
+        // real `decision`-kind entry on disk — hiding it would break the
+        // append-only ethos. But surfacing it with no marker made it
+        // indistinguishable from an ordinary live decision: `outcome: unknown`,
+        // no anchors, counted toward "what is live" forever. `retracts` names
+        // what it retracts so a reader (or the NEXT task's brief) can tell the
+        // two apart. null, never [] or {}: the same rule as anchors/influences.
+        // Invalidation outranks supersession here too, matching retract.ts's
+        // own precedence, for the rare entry that somehow carries both edges.
+        const invalidatesTarget = typeof e.data.invalidates === 'string' ? e.data.invalidates : undefined;
+        const supersedesTarget = typeof e.data.supersedes === 'string' ? e.data.supersedes : undefined;
+        const retracts = invalidatesTarget !== undefined
+          ? { type: 'invalidates' as const, target: invalidatesTarget }
+          : supersedesTarget !== undefined
+            ? { type: 'supersedes' as const, target: supersedesTarget }
+            : null;
+
         return {
           id: e.id, kind: e.kind, time: e.time, author: e.author,
           outcome: proj.outcomes.get(e.id) ?? 'unknown',
           live: liveIds.has(e.id),
           // null, never []: an entry with no anchors has none recorded, which is
           // not the same claim as "assessed and found none".
-          anchors, influences,
+          anchors, influences, retracts,
           constraintsBearingOn: constraintsBearingOn(e, live).map((c) => c.id),
         };
       });
