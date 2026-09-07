@@ -1956,6 +1956,11 @@ test('sessionsWithNoEvents is null when never assessed, and sorted when it is', 
     coverage([one], { knownSessions: ['zz', 's1', 'aa', 'mm'] }).sessionsWithNoEvents,
     ['aa', 'mm', 'zz'],
   );
+  // Explicitly EMPTY is not the same as omitted: "I know of no sessions, and
+  // none are missing" must read as [] and not collapse into null. Its sibling
+  // downgradedAnchors has this case; without it here, an implementation folding
+  // empty into the undefined branch passes the whole file.
+  assert.deepEqual(coverage([one], { knownSessions: [] }).sessionsWithNoEvents, []);
 });
 
 test('downgradedAnchors passes its contents through, not just its emptiness', () => {
@@ -2274,7 +2279,7 @@ export interface CliResult {
 
 const USAGE = [
   'usage:',
-  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r] [--id id]',
+  '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r] [--id id] [--author human]',
   '  journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  journal coverage --workspace <id>',
   '',
@@ -2346,6 +2351,11 @@ export async function runCli(
     const agent = env.AGENT_JOURNAL_AGENT ?? 'primary';
     const id = opts.get('id') ?? randomUUID();
 
+    // A human running this by hand is not an agent. Defaults to agent because
+    // hooks are the common caller, but a refusal recorded against the wrong
+    // author is the same misattribution voidEvent's `author` field exists to fix.
+    const author = opts.get('author') === 'human' ? 'human' : 'agent';
+
     const data: Record<string, unknown> = {};
     for (const field of ['question', 'chosen', 'rationale', 'supersedes', 'invalidates']) {
       const v = opts.get(field);
@@ -2369,7 +2379,7 @@ export async function runCli(
         id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
         time: nowStamp(), workspace, session, agent,
         harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
-        reason: `redaction ${result.verdict}`, provenance: 'cli',
+        reason: `redaction ${result.verdict}`, provenance: 'cli', author,
         ...(result.reason === undefined ? {} : { detail: result.reason }),
       }));
       return {
