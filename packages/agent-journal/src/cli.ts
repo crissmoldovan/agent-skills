@@ -17,6 +17,7 @@ import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
 import { project } from './retract.ts';
 import { liveConstraints, constraintsBearingOn } from './constraints.ts';
+import { liveClaims } from './claims.ts';
 import { renderDigest } from './digest.ts';
 import { traceFrom } from './trace.ts';
 
@@ -56,6 +57,7 @@ const USAGE = [
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
+  '  agent-journal claims --workspace <id>  (advisory only — reports, never blocks)',
   '  agent-journal digest --workspace <id> [--level private|team|published] [--out <path>]',
   '  agent-journal trace <key> --workspace <id>',
   '  agent-journal help',
@@ -134,6 +136,7 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   invalidate: ['workspace', 'reason', 'disclosure'],
   coverage: ['workspace'],
   show: ['workspace', 'id'],
+  claims: ['workspace'],
   digest: ['workspace', 'level', 'out'],
   trace: ['workspace'],
 };
@@ -862,6 +865,23 @@ async function dispatch(
       stdout: `${JSON.stringify({ entries, liveConstraints: live, unreadable, malformed }, null, 2)}\n`,
       stderr: damaged
         ? 'WARNING: this journal could not be fully read — the entries above are a floor, not a total.\n'
+        : '',
+    };
+  }
+
+  if (command === 'claims') {
+    // Advisory only (spec 7.6): this reports what it can read and nothing
+    // here blocks, waits, locks, or refuses on the result. `advisory: true`
+    // is in the payload deliberately, so a consumer cannot mistake this for
+    // a lock without having read the docs.
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const claims = liveClaims(events, nowStamp());
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify({ claims, advisory: true, unreadable, malformed }, null, 2)}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read — the claims above are a floor.\n'
         : '',
     };
   }

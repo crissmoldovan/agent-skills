@@ -1726,3 +1726,15 @@ test('an explicit flag on observe --kind environment overrides the capture', asy
   // The rest of the capture still populates — only the named field was overridden.
   assert.equal(e!.data.version, process.version);
 });
+
+test('claims lists live claims and says plainly that nothing is enforced', async () => {
+  const dir = await root();
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'path_claim',
+    '--checkout', '/work/repo', '--branch', 'main', '--ttlSeconds', '3600'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const r = await runCli(['claims', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, 'claims must never fail on a healthy journal — it is advisory');
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.claims.length, 1);
+  assert.equal(out.claims[0].branch, 'main');
+});
