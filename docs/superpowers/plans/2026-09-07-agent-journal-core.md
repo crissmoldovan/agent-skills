@@ -1327,6 +1327,22 @@ test('invalidation suppresses entries that rest on the invalidated one', () => {
   assert.equal(p.live.some((e) => e.id === 'child'), false);
 });
 
+test('invalidation propagates through a CHAIN, not just one level', () => {
+  // A <- B <- C, with C placed BEFORE B in the array. A single pass visits C
+  // while B is not yet marked, so it misses C entirely and stops one level
+  // short. Only a fixed-point loop catches it. The single-level test above
+  // passes against a single-pass implementation, so this one is the real guard.
+  const p = project([
+    entry('A'),
+    entry('C', { influences: [{ type: 'journal', ref: 'B' }] }),
+    entry('B', { influences: [{ type: 'journal', ref: 'A' }] }),
+    entry('R', { invalidates: 'A' }),
+  ]);
+  assert.ok(p.invalidated.has('B'), 'direct descendant suppressed');
+  assert.ok(p.invalidated.has('C'), 'transitive descendant suppressed');
+  assert.equal(p.live.some((e) => e.id === 'C'), false);
+});
+
 test('an entry nobody revisited reports outcome unknown, not held', () => {
   assert.equal(project([entry('lonely')]).outcomes.get('lonely'), 'unknown');
 });
