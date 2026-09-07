@@ -148,3 +148,27 @@ test('a non-finite or negative observationTtlMs is refused, not applied', () => 
     );
   }
 });
+
+// Removing the isEntry fast path made every decision and finding fall through to
+// the observation branch and be reported `unclassified`, with all ten tests
+// still green — nothing asserted what the three buckets must contain.
+test('entries, known observations and unknown kinds land in the right buckets', () => {
+  const now = '2026-09-07T12:00:00.000Z';
+  const old = '2026-09-01T00:00:00.000Z';
+  const events = [
+    make('d1', 'decision', old),
+    make('f1', 'finding', old),
+    make('o1', 'tool_call', old),
+    make('v1', 'void', old),
+    make('u1', 'not_a_real_kind', old),
+  ];
+  const r = applyRetention(events, { now, observationTtlMs: 60 * 60 * 1000 });
+  const kept = r.keep.map((e) => e.id).sort();
+
+  assert.deepEqual(r.unclassified, ['u1'],
+    `only an unknown kind is unclassified, got ${JSON.stringify(r.unclassified)}`);
+  assert.deepEqual(r.expired.sort(), ['o1', 'v1'],
+    'both known observation kinds should expire, and only those');
+  assert.deepEqual(kept, ['d1', 'f1', 'u1'],
+    'entries and unknown kinds are kept; aged observations are not');
+});

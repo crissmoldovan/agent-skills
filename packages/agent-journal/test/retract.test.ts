@@ -103,3 +103,20 @@ test('a human retraction from outside a session is honoured', () => {
   });
   assert.ok(project([entry('bad'), human]).invalidated.has('bad'));
 });
+
+// `journalInfluences` filters on type === 'journal'. Dropping that check let any
+// influence whose ref happened to equal an entry id propagate invalidation — a
+// cited FILE named like an entry would silently suppress live work.
+test('only journal influences propagate invalidation, not file or url ones', () => {
+  const events = [
+    entry('a1'),
+    entry('b1', { influences: [{ type: 'file', ref: 'a1' }] }),
+    entry('c1', { influences: [{ type: 'url', ref: 'a1' }] }),
+    entry('d1', { influences: [{ type: 'journal', ref: 'a1' }] }),
+    entry('r1', { invalidates: 'a1' }),
+  ];
+  const proj = project(events);
+  assert.equal(proj.outcomes.get('d1'), 'invalidated', 'a journal influence must propagate');
+  assert.equal(proj.outcomes.get('b1'), 'unknown', 'a FILE influence propagated invalidation');
+  assert.equal(proj.outcomes.get('c1'), 'unknown', 'a URL influence propagated invalidation');
+});

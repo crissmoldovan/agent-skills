@@ -471,3 +471,24 @@ test('both recognised authors still work', async () => {
   const events = await readAllEvents(dir, 'ws');
   assert.deepEqual(events.map((e) => e.author).sort(), ['agent', 'human']);
 });
+
+// `--supersedes` and `--invalidates` are accepted by record and reach the
+// projection, but had no test while their four siblings each got one.
+test('record --supersedes and --invalidates reach the projection', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  const mk = (id: string, extra: string[]) => runCli(
+    ['record', '--workspace', 'ws', '--kind', 'decision', '--id', id,
+     '--question', id, '--chosen', 'c', ...extra], env);
+
+  assert.equal((await mk('old', [])).code, 0);
+  assert.equal((await mk('wrong', [])).code, 0);
+  assert.equal((await mk('newer', ['--supersedes', 'old'])).code, 0);
+  assert.equal((await mk('fix', ['--invalidates', 'wrong'])).code, 0);
+
+  const proj = project(await readAllEvents(dir, 'ws'));
+  assert.equal(proj.outcomes.get('old'), 'reverted', 'supersedes did not reach the projection');
+  assert.equal(proj.outcomes.get('wrong'), 'invalidated', 'invalidates did not reach the projection');
+  const live = proj.live.map((e) => e.id).sort();
+  assert.deepEqual(live, ['fix', 'newer'], `live set wrong: ${live.join(',')}`);
+});

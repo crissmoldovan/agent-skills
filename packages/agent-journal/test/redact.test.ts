@@ -111,3 +111,19 @@ test('a secret still redacts when a word character abuts it', () => {
     }
   }
 });
+
+// The existing depth-guard fixture put its only secret BELOW the depth limit, so
+// the throw happened before any hit was recorded and `hits.length = 0` could be
+// deleted with nothing failing. This fixture records a hit at a shallow depth
+// and only then exceeds the limit, which is the state the reset exists for.
+test('a failed verdict reports no partial hits, even when one was already found', () => {
+  const secret = 'ghp' + '_' + 'a1b2c3d4e5'.repeat(3);
+  let deep: Record<string, unknown> = { bottom: true };
+  for (let i = 0; i < 40; i += 1) deep = { next: deep };
+  const r = redact({ shallow: `token ${secret}`, deep });
+
+  assert.equal(r.verdict, 'failed', 'the depth guard did not fire');
+  assert.deepEqual([...r.hits], [],
+    `a failed verdict leaked partial hits: ${JSON.stringify(r.hits)}`);
+  assert.equal(r.value, undefined);
+});
