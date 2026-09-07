@@ -37,3 +37,34 @@ test('merge is order-independent', () => {
   const two = mergeEvents([[ev('e3')], [ev('e2'), ev('e1')]]);
   assert.deepEqual(one.map((e) => e.id), two.map((e) => e.id));
 });
+
+test('a source with MIXED sequence presence still sorts identically every way', () => {
+  // The intransitive case: sequence says A<B, wall clock says B<C<A.
+  const a = ev('A', { sequence: 1, time: '2026-09-07T03:00:00.000Z' });
+  const b = ev('B', { sequence: 2, time: '2026-09-07T01:00:00.000Z' });
+  const c = ev('C', { time: '2026-09-07T02:00:00.000Z' });
+  const permutations = [[a, b, c], [b, c, a], [c, a, b], [a, c, b], [b, a, c], [c, b, a]];
+  const results = new Set(permutations.map((p) => mergeEvents([p]).map((e) => e.id).join('')));
+  assert.equal(results.size, 1, `order-dependent: got ${[...results].join(' | ')}`);
+});
+
+test('a source keeps its own sequence order regardless of clock skew', () => {
+  const a = ev('A', { sequence: 1, time: '2026-09-07T03:00:00.000Z' });
+  const b = ev('B', { sequence: 2, time: '2026-09-07T01:00:00.000Z' });
+  assert.deepEqual(mergeEvents([[b, a]]).map((e) => e.id), ['A', 'B']);
+});
+
+test('a space in source or epoch cannot merge two distinct sequence spaces', () => {
+  const one = ev('one', { source: 'foo', sourceEpoch: 'bar baz', sequence: 2 });
+  const two = ev('two', { source: 'foo bar', sourceEpoch: 'baz', sequence: 1 });
+  // Distinct sources: their sequence numbers are not comparable, so they must
+  // land in separate groups rather than being reordered against each other.
+  const merged = mergeEvents([[one, two]]);
+  assert.equal(merged.length, 2);
+  assert.deepEqual(mergeEvents([[two, one]]).map((e) => e.id), merged.map((e) => e.id));
+});
+
+test('parse diagnostics are bounded', () => {
+  const { bad } = parseSegment(Array.from({ length: 200 }, () => '{broken').join('\n'));
+  assert.equal(bad.length, 32);
+});
