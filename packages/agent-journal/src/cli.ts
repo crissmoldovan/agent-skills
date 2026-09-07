@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
-  parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS,
+  parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
   type Anchor, type Influence,
 } from './entry.ts';
 import { SegmentJournal } from './journal.ts';
@@ -17,14 +17,30 @@ export interface CliResult {
   readonly stderr: string;
 }
 
+/**
+ * One line per kind naming its own fields, generated from KIND_FIELDS /
+ * ENUM_FIELDS / LIST_FIELDS so this cannot drift the way the old fixed,
+ * decision-shaped USAGE block did — `agent-journal help` gave a user no way
+ * to discover --claim, --assumed, --blocked, --did or --statement even after
+ * those fields existed. A line per kind stays readable; one flattened block
+ * of all thirty-odd flags would not.
+ */
+function kindUsageLine(kind: string): string {
+  const flags = fieldsFor(kind).map((field) => {
+    const allowed = ENUM_FIELDS[kind]?.[field];
+    const flag = LIST_FIELDS.has(field) ? `[--${field}]…` : `--${field}`;
+    return allowed ? `${flag} ${allowed.join('|')}` : flag;
+  });
+  return `    ${kind}: ${flags.join(' ')}`;
+}
+
 const USAGE = [
   'usage:',
-  '  agent-journal record --kind <kind> --workspace <id> [--question q] [--chosen c]',
-  '                       [--rationale r] [--rejected r] [--blastRadius b] [--confidence c]',
-  '                       [--reversibility trivial|moderate|hard|one-way]',
-  '                       [--supersedes id] [--invalidates id]',
+  '  agent-journal record --kind <kind> --workspace <id> [--id id] [--author agent|human]',
+  '                       [--context c] [--supersedes id] [--invalidates id]',
   '                       [--anchor <class>:<ref>]… [--influence <type>:<role>[:<ref>]]…',
-  '                       [--id id] [--author agent|human] [--context c]',
+  '                       ...plus the fields for <kind>:',
+  ...Object.keys(KIND_FIELDS).map(kindUsageLine),
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal help',
@@ -226,20 +242,37 @@ async function dispatch(
     const kind = opts.get('kind');
     if (!kind) return { code: 2, stdout: '', stderr: `--kind is required\n${USAGE}` };
 
-    // The generic gate above only catches typos: it allows every kind's fields
-    // through regardless of which kind was actually given. This is the precise
-    // check — a field genuinely allowed on some OTHER kind must still be
-    // refused here, or a `--question` on an `assumption` would silently pass.
-    const allowedForKind = new Set<string>([...RECORD_GLOBAL, ...fieldsFor(kind)]);
-    const wrongKind = [...opts.keys()].filter((k) => !allowedForKind.has(k)).sort();
-    if (wrongKind.length > 0) {
-      return {
-        code: 2,
-        stdout: '',
-        stderr: `${wrongKind.map((f) => `--${f}`).join(', ')} `
-          + `${wrongKind.length > 1 ? 'are' : 'is'} not a field of kind '${kind}'; `
-          + `it takes ${fieldsFor(kind).map((f) => `--${f}`).join(', ') || 'no fields'}\n`,
-      };
+    // Spec 5.6/5.7 name six kinds, but retention.ts (spec 4.4) deliberately
+    // keeps an entry whose kind is in NEITHER of its sets unclassified rather
+    // than destroying what may be a legitimate future kind. Refusing an
+    // unrecognised `--kind` outright here would contradict that — it would
+    // destroy the very entry retention.ts exists to keep. So an unrecognised
+    // kind is written anyway, with no kind-specific fields (fieldsFor(kind)
+    // is empty for it, so normalizeEntryData stores none), and warned about —
+    // the same idiom `invalidate` already uses for a target with no match:
+    // exit 0, the entry lands, and a WARNING says what happened.
+    const kindKnown = Object.prototype.hasOwnProperty.call(KIND_FIELDS, kind);
+    let kindWarning = '';
+    if (kindKnown) {
+      // The generic gate above only catches typos: it allows every kind's
+      // fields through regardless of which kind was actually given. This is
+      // the precise check — a field genuinely allowed on some OTHER kind must
+      // still be refused here, or a `--question` on an `assumption` would
+      // silently pass.
+      const allowedForKind = new Set<string>([...RECORD_GLOBAL, ...fieldsFor(kind)]);
+      const wrongKind = [...opts.keys()].filter((k) => !allowedForKind.has(k)).sort();
+      if (wrongKind.length > 0) {
+        return {
+          code: 2,
+          stdout: '',
+          stderr: `${wrongKind.map((f) => `--${f}`).join(', ')} `
+            + `${wrongKind.length > 1 ? 'are' : 'is'} not a field of kind '${kind}'; `
+            + `it takes ${fieldsFor(kind).map((f) => `--${f}`).join(', ') || 'no fields'}\n`,
+        };
+      }
+    } else {
+      kindWarning = `WARNING: kind ${JSON.stringify(kind)} is not one of the known kinds `
+        + `(${Object.keys(KIND_FIELDS).join(', ')}); no kind-specific fields will be stored\n`;
     }
 
     const session = env.AGENT_JOURNAL_SESSION ?? 'unknown';
@@ -338,7 +371,7 @@ async function dispatch(
           + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
       };
     }
-    return { code: 0, stdout: `recorded ${id}\n`, stderr: '' };
+    return { code: 0, stdout: `recorded ${id}\n`, stderr: kindWarning };
   }
 
   if (command === 'invalidate') {

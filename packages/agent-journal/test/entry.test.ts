@@ -97,3 +97,37 @@ test('constraint scope is free text; finding scope is not', () => {
 test('an unknown kind carries no fields rather than guessing', () => {
   assert.deepEqual([...fieldsFor('not_a_kind')], []);
 });
+
+// CRITICAL (fix round 1): this had zero coverage. Mutating the skip in
+// normalizeEntryData to write '' / [] for an unsupplied field left all 141
+// tests green, and the built binary then wrote `"rejected":[],"rationale":""`
+// for a plain two-flag decision — a claim ("assessed, none found" /
+// "assessed, empty") where nothing was assessed. Assert on absence itself,
+// never on falsiness: `!data.rationale` passes for '' too and would not have
+// caught this.
+test('a field nobody supplied is absent from data, not written as empty', () => {
+  const data = normalizeEntryData('decision', new Map([
+    ['question', ['q']],
+    ['chosen', ['c']],
+  ]));
+  // scalar field: must be genuinely absent, not ''
+  assert.equal(data.rationale, undefined);
+  assert.ok(!('rationale' in data), 'rationale must not be a key in data at all');
+  // list field: must be genuinely absent, not []
+  assert.equal(data.rejected, undefined);
+  assert.ok(!('rejected' in data), 'rejected must not be a key in data at all');
+});
+
+// IMPORTANT 1 (fix round 1): narrowing LIST_FIELDS to just `rejected` left
+// 141/141 green — evidence and premise had no coverage of their own, only
+// rejected's. Both must independently prove they collect every value.
+test('evidence and premise are list fields too, not just rejected', () => {
+  const data = normalizeEntryData('finding', new Map([
+    ['claim', ['the timeout is 30s, not 10s as documented']],
+    ['evidence', ['observed 28.7s in prod logs', 'ticket #4821 confirms 30s']],
+    ['premise', ['the docs were last updated two years ago']],
+  ]));
+  assert.deepEqual(data.evidence, ['observed 28.7s in prod logs', 'ticket #4821 confirms 30s']);
+  assert.deepEqual(data.premise, ['the docs were last updated two years ago']);
+});
+

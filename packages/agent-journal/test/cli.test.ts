@@ -665,3 +665,89 @@ test('a repeated --rejected keeps every alternative, not just the last', async (
     'kafka — three days of setup for one queue',
   ]);
 });
+
+// IMPORTANT 2 (fix round 1): finding, blocker, progress and constraint had no
+// end-to-end proof of life — only fieldsFor() name checks. blocker and
+// progress in particular never reached normalizeEntryData with real values
+// through the CLI at all. Round-trip all four through runCli and read back
+// exactly what landed in `data`.
+test('finding, blocker, progress and constraint each round-trip through the CLI with their own fields', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'finding', '--id', 'f1',
+    '--claim', 'the upstream API times out after 30s, not 10s as documented',
+    '--evidence', 'observed 28.7s round trip in prod logs',
+    '--evidence', 'support ticket #4821 confirms 30s server-side timeout',
+    '--premise', 'the docs were last updated two years ago',
+    '--scope', 'workspace'], env);
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'blocker', '--id', 'b1',
+    '--blocked', 'cannot deploy to staging',
+    '--on', 'staging cluster credentials rotation',
+    '--owner', 'platform-team',
+    '--clearedBy', 'new creds land in vault'], env);
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'progress', '--id', 'p1',
+    '--did', 'migrated the queue consumer to the ring buffer',
+    '--next', 'add backpressure metrics',
+    '--externalRef', 'JIRA-4821'], env);
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--statement', 'telemetry must not leave the EU region',
+    '--origin', 'GDPR data residency policy',
+    '--scope', 'telemetry',
+    '--expiry', 'none',
+    '--enforcement', 'blocking'], env);
+
+  const events = await readAllEvents(dir, 'ws');
+  const byId = new Map(events.map((e) => [e.id, e]));
+
+  const finding = byId.get('f1')!;
+  assert.equal(finding.data.claim, 'the upstream API times out after 30s, not 10s as documented');
+  assert.deepEqual(finding.data.evidence, [
+    'observed 28.7s round trip in prod logs',
+    'support ticket #4821 confirms 30s server-side timeout',
+  ]);
+  assert.deepEqual(finding.data.premise, ['the docs were last updated two years ago']);
+  assert.equal(finding.data.scope, 'workspace');
+
+  const blocker = byId.get('b1')!;
+  assert.equal(blocker.data.blocked, 'cannot deploy to staging');
+  assert.equal(blocker.data.on, 'staging cluster credentials rotation');
+  assert.equal(blocker.data.owner, 'platform-team');
+  assert.equal(blocker.data.clearedBy, 'new creds land in vault');
+
+  const progress = byId.get('p1')!;
+  assert.equal(progress.data.did, 'migrated the queue consumer to the ring buffer');
+  assert.equal(progress.data.next, 'add backpressure metrics');
+  assert.equal(progress.data.externalRef, 'JIRA-4821');
+
+  const constraint = byId.get('c1')!;
+  assert.equal(constraint.data.statement, 'telemetry must not leave the EU region');
+  assert.equal(constraint.data.origin, 'GDPR data residency policy');
+  assert.equal(constraint.data.scope, 'telemetry');
+  assert.equal(constraint.data.expiry, 'none');
+  assert.equal(constraint.data.enforcement, 'blocking');
+});
+
+// RULING (fix round 1): an unrecognised kind must not be refused outright —
+// retention.ts (spec 4.4) deliberately keeps a kind in neither of its sets
+// unclassified rather than destroying what may be a legitimate future kind.
+// record keeps exit 0 and still writes the entry, but now warns on stderr —
+// the same idiom invalidate already uses for a target with no match — and
+// stores no kind-specific fields, since fieldsFor() of an unknown kind is empty.
+test('an unrecognised kind still writes, warning instead of refusing', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'not_a_real_kind', '--id', 'x1'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, `an unrecognised kind was refused: ${r.stderr}`);
+  assert.match(r.stderr, /WARNING/);
+  assert.match(r.stderr, /not_a_real_kind/);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.kind, 'not_a_real_kind');
+  assert.deepEqual(entry!.data, {}, 'no kind-specific fields should have been stored');
+});
