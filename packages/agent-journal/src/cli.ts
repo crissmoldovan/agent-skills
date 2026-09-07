@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { normalizeEvent, type JournalEvent } from './envelope.ts';
+import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
+import { parseAnchor, parseInfluence, type Anchor, type Influence } from './entry.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
@@ -19,6 +20,7 @@ const USAGE = [
   '                       [--rationale r] [--rejected r] [--blastRadius b] [--confidence c]',
   '                       [--reversibility trivial|moderate|hard|one-way]',
   '                       [--supersedes id] [--invalidates id]',
+  '                       [--anchor <class>:<ref>]… [--influence <type>:<role>[:<ref>]]…',
   '                       [--id id] [--author agent|human] [--context c]',
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  agent-journal coverage --workspace <id>',
@@ -28,12 +30,15 @@ const USAGE = [
 
 interface ParsedFlags {
   readonly opts: Map<string, string>;
+  /** Every value seen for a flag, in order. Repeatable flags read this. */
+  readonly all: Map<string, string[]>;
   /** Flags given no value. Every flag this CLI accepts takes one. */
   readonly valueless: readonly string[];
 }
 
 function flags(argv: readonly string[]): ParsedFlags {
   const opts = new Map<string, string>();
+  const all = new Map<string, string[]>();
   const valueless: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]!;
@@ -42,6 +47,7 @@ function flags(argv: readonly string[]): ParsedFlags {
     const next = argv[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
       opts.set(name, next);
+      all.set(name, [...(all.get(name) ?? []), next]);
       i += 1;
     } else {
       // Storing 'true' here was silent data invention. `--workspace $WS` with an
@@ -51,7 +57,7 @@ function flags(argv: readonly string[]): ParsedFlags {
       valueless.push(name);
     }
   }
-  return { opts, valueless };
+  return { opts, all, valueless };
 }
 
 /**
@@ -74,7 +80,7 @@ const RECORD_FIELDS = [
  * `--question`, `--id` and `--context` and silently ignored all four.
  */
 const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
-  record: [...RECORD_FIELDS, 'workspace', 'kind', 'id', 'author', 'context'],
+  record: [...RECORD_FIELDS, 'workspace', 'kind', 'id', 'author', 'context', 'anchor', 'influence'],
   invalidate: ['workspace', 'reason'],
   coverage: ['workspace'],
 };
@@ -185,7 +191,7 @@ async function dispatch(
     return { code: 0, stdout: USAGE, stderr: '' };
   }
 
-  const { opts, valueless } = flags(rest);
+  const { opts, all, valueless } = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');
 
   if (valueless.length > 0) {
@@ -252,16 +258,32 @@ async function dispatch(
     }
     const author = declaredAuthor === 'human' ? 'human' : 'agent';
 
+    // Structured, repeatable, and parsed before anything is written: a malformed
+    // anchor must not produce a half-formed entry that exits 0.
+    let anchors: Anchor[];
+    let influences: Influence[];
+    try {
+      anchors = (all.get('anchor') ?? []).map(parseAnchor);
+      influences = (all.get('influence') ?? []).map(parseInfluence);
+    } catch (error) {
+      return { code: 2, stdout: '', stderr: `${(error as Error).message}\n${USAGE}` };
+    }
+
     const data: Record<string, unknown> = {};
     for (const field of RECORD_FIELDS) {
       const v = opts.get(field);
       if (v !== undefined) data[field] = v;
     }
+    // Absent stays absent. Writing [] would claim "assessed, none found", which
+    // is the exact conflation `coverage` reports null to avoid.
+    if (anchors.length > 0) data.anchors = anchors;
+    if (influences.length > 0) data.influences = influences;
 
     const event = normalizeEvent({
       schemaVersion: 1, id, source: `cli/${hostname()}/${session}/${agent}`, sourceEpoch: 'e1',
       time: nowStamp(), workspace, session, agent, author, provenance: 'cli',
       harness: env.AGENT_JOURNAL_HARNESS ?? 'other', context: opts.get('context') ?? 'coding',
+      capabilities: capabilitiesWithAnchors(normalizeCapabilities({}), anchors),
       kind, data,
     });
 

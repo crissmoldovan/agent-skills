@@ -535,3 +535,95 @@ test('invalidate does not claim success on stdout when nothing matched', async (
     `stdout claimed an unmatched id was invalidated: ${miss.stdout}`);
   assert.match(miss.stdout + miss.stderr, /no matching entry|not present/i);
 });
+
+test('record writes repeated anchors and influences as structured arrays', async () => {
+  const dir = await root();
+  const r = await runCli([
+    'record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'how do we bound the queue?', '--chosen', 'ring buffer',
+    '--anchor', 'commit:9f2c1ab',
+    '--anchor', 'file:src/queue.ts:41',
+    '--influence', 'url:decisive:https://example.com/bench?a=1:2',
+    '--influence', 'journal:contradicted:7f3a',
+  ], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 0, r.stderr);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.deepEqual(entry!.data.anchors, [
+    { type: 'commit', ref: '9f2c1ab' },
+    { type: 'file', ref: 'src/queue.ts:41' },
+  ]);
+  assert.deepEqual(entry!.data.influences, [
+    { type: 'url', role: 'decisive', ref: 'https://example.com/bench?a=1:2' },
+    { type: 'journal', role: 'contradicted', ref: '7f3a' },
+  ]);
+});
+
+test('an anchor makes its capability known on the written entry', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c', '--anchor', 'commit:9f2c1ab'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.capabilities.commit, 'known');
+  assert.equal(entry!.capabilities.visual, 'unknown', 'unrelated classes stay unknown');
+});
+
+test('a malformed anchor or influence is refused before anything is written', async () => {
+  const dir = await root();
+  for (const bad of [
+    ['--anchor', 'nonsense:x'],
+    ['--anchor', 'commit'],
+    ['--influence', 'url:decisive'],
+    ['--influence', 'rumour:decisive:x'],
+  ]) {
+    const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision',
+      '--question', 'q', '--chosen', 'c', ...bad],
+      { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `${bad.join(' ')} was accepted: ${r.stdout}${r.stderr}`);
+  }
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'a rejected entry was written anyway');
+});
+
+// The point of the whole design: "consulted nothing" must be distinguishable
+// from "recorded nothing", and it must be a value rather than an absence.
+test('model_knowledge records that no source was consulted', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c', '--influence', 'model_knowledge:decisive'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.deepEqual(entry!.data.influences, [{ type: 'model_knowledge', role: 'decisive' }]);
+});
+
+test('an entry with no influences records absence, not an empty claim', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.data.influences, undefined,
+    'an absent field must not become [], which would claim "assessed and none"');
+  // The same claim applies to anchors, and nothing else in this file pins it —
+  // added alongside the influences assertion so the `data.anchors` guard is
+  // mutation-covered too.
+  assert.equal(entry!.data.anchors, undefined,
+    'an absent field must not become [], which would claim "assessed and none"');
+});
+
+// Propagation walks data.influences of type journal. Before this task the CLI
+// could not emit one, so a CLI-issued invalidate suppressed only its target.
+test('a CLI-recorded journal influence makes invalidation propagate', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'base',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'rests',
+    '--question', 'q', '--chosen', 'c', '--influence', 'journal:decisive:base'], env);
+  await runCli(['invalidate', 'base', '--workspace', 'ws', '--reason', 'premise false'], env);
+
+  const proj = project(await readAllEvents(dir, 'ws'));
+  assert.equal(proj.outcomes.get('base'), 'invalidated');
+  assert.equal(proj.outcomes.get('rests'), 'invalidated',
+    'an entry resting on an invalidated one was not suppressed');
+});
