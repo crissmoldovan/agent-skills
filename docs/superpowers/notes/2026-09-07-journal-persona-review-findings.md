@@ -9,6 +9,19 @@
 Claims marked **verified** were checked against the spec text or the source by the
 orchestrator, not taken from an agent's report.
 
+> **[CORRECTION, same day]** A later review found the headline convergence below was
+> **seeded by the briefing, not discovered.** The spec these 24 agents reviewed contains
+> zero occurrences of `node`, `interpreter`, `toolchain` or `premise` (verified at
+> commit `bd20037`); the converged frame came from the briefing, which all 24 shared.
+> "12 of 24 independently produced the same anti-scenario" is therefore **not**
+> independent corroboration — it measures briefing salience.
+>
+> **The findings themselves are unaffected.** Every structural claim below was verified
+> directly against the spec text or source, not accepted on agreement. What is withdrawn
+> is the evidential weight placed on convergence, and the "agreement across opposed
+> interests" reading built on it. See
+> [the delphi note](2026-09-07-delphi-skill-family.md), Parts 5 and 9.
+
 ## The finding that dominates
 
 Twelve of twenty-four agents, independently and without knowledge of each other,
@@ -193,9 +206,11 @@ The control (persona 1, setting held constant, dials varied) produced:
   per-destination candour. The high-rigour agent named general classes. The
   charitable agent stayed conventional.
 
-**Preliminary conclusion: dials shift what gets proposed; persona and grounding
-determine what gets attacked.** Both axes earn their place, and they are not
-interchangeable.
+**[WITHDRAWN]** This originally read: *"dials shift what gets proposed; persona and
+grounding determine what gets attacked. Both axes earn their place."* The control held
+persona **constant** and varied four dials jointly at n=3 — it cannot credit persona
+with anything, and cannot attribute an effect to any single dial. The dials are
+unvalidated advisory vocabulary. See the delphi note, Part 3.
 
 The six anti-hallucination devices held. No agent produced a fictional company, no
 invented statistics appeared, grounding labels were used honestly — including
