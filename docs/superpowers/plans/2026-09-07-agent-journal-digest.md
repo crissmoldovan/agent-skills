@@ -378,6 +378,10 @@ git commit -m "feat(agent-journal): --disclosure and --subject on record"
 
 **Every digest carries the §10.3 coverage statement.** A digest without it is the failure §10.3 exists to prevent — a rendered artifact that looks complete and cannot say what it does not cover.
 
+**Outcome computation is disclosure-blind, and this is the subtlest requirement in the plan.** `project(events)` runs over **every** event, including ones the reader may not see; only the *display* list is filtered by `readableAt`. Get this backwards — filter first, then project — and a `private` retraction disappears for a `team` reader, taking with it the fact that anything was retracted at all. The reader then sees the original decision as **live**. That is worse than a retraction with a hidden reason: it is an entry that was invalidated and reads as current, which is the one outcome this whole design exists to prevent.
+
+So: the *fact* of invalidation is never gated; only the retraction record's own text is. A test pins it.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -464,6 +468,20 @@ test('an entry with a model_knowledge influence AND a source is not flagged', ()
   ] })]);
   assert.ok(!/no source consulted/i.test(out),
     'the flag means ONLY model_knowledge; a mixed entry consulted something');
+});
+
+// The fact of invalidation must survive a reader who cannot see the retraction.
+// Filtering before projecting would show this entry as live — an invalidated
+// decision reading as current, which is the failure the whole design targets.
+test('a private retraction still invalidates a published entry for a published reader', () => {
+  const out = render([
+    ev('d1', { question: 'the retracted one', chosen: 'x' }),
+    ev('r1', { invalidates: 'd1', rationale: 'names a person' }, 'private'),
+  ]);
+  assert.ok(out.includes('the retracted one'), 'the entry itself is published and must render');
+  assert.ok(!out.includes('names a person'), 'the private retraction text leaked');
+  assert.match(out, /invalidated/,
+    'the entry rendered without its invalidated outcome — projection was filtered by disclosure');
 });
 
 // 10.3: a rendered artifact that cannot say what it does not cover is the exact
@@ -626,6 +644,7 @@ Expected: PASS.
 | delete the `e.id` tiebreak from `rank` | two renders are byte-identical |
 | `raw.every(...)` → `raw.some(...)` | an entry with model_knowledge AND a source is not flagged |
 | `raw.length === 0` guard removed | an entry resting only on model_knowledge is flagged |
+| `project(events)` → `project(events.filter((e) => readableAt(e, level)))` | a private retraction still invalidates a published entry |
 | delete the whole Coverage block | every digest carries a coverage statement |
 | `not assessed` → `0` for a null field | every digest carries a coverage statement |
 
