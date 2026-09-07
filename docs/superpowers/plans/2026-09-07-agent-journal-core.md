@@ -2012,6 +2012,16 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
 
+**Documented asymmetry — `readExplicitId` rethrows, `canonical()` swallows.**
+These sit in one module with opposite error philosophies, and Task 3's re-review reasonably read
+that as an inconsistency. It is deliberate. `readExplicitId` rethrows because ignoring an id the
+user *declared* is a correctness violation — the session would silently write to a workspace
+nobody chose. `canonical()` falls back because it is a normalisation nicety: failing hard on an
+unreadable intermediate directory would block a session from starting at all, and the fallback
+never lands below the pre-canonicalisation behaviour. The residual cost is real but bounded — the
+same directory reachable under different ambient permissions in two environments could still get
+two ids. Accepted.
+
 **Known gap carried to the final review — `Map`, `Set` and `Error` are never scanned.**
 They hold their data in internal slots or non-enumerable properties, so `Object.entries` returns
 `[]`, they collapse to `{}`, and `redact()` reports `clean` for content nothing examined. This is
