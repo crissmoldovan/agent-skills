@@ -7,3 +7,4 @@ export * from './read.ts';
 export * from './retract.ts';
 export * from './retention.ts';
 export * from './coverage.ts';
+export * from './constraints.ts';
