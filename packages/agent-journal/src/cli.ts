@@ -7,6 +7,7 @@ import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
   type Anchor, type Influence,
 } from './entry.ts';
+import { DISCLOSURE_CLASSES } from './disclosure.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
@@ -41,6 +42,7 @@ const USAGE = [
   '  agent-journal record --kind <kind> --workspace <id> [--id id] [--author agent|human]',
   '                       [--context c] [--supersedes id] [--invalidates id]',
   '                       [--anchor <class>:<ref>]… [--influence <type>:<role>[:<ref>]]…',
+  '                       [--disclosure private|team|published] [--subject s]',
   '                       ...plus the fields for <kind>:',
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id>',
@@ -88,7 +90,7 @@ function flags(argv: readonly string[]): ParsedFlags {
  * set on `data` after `normalizeEntryData` runs, not through it.
  */
 const RECORD_GLOBAL = ['workspace', 'kind', 'id', 'author', 'context',
-  'supersedes', 'invalidates', 'anchor', 'influence'] as const;
+  'supersedes', 'invalidates', 'anchor', 'influence', 'disclosure', 'subject'] as const;
 const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
 
 /**
@@ -337,6 +339,26 @@ async function dispatch(
     }
     const author = declaredAuthor === 'human' ? 'human' : 'agent';
 
+    // Refuse rather than contain. normalizeDisclosure maps an unrecognised value
+    // to `private` because a FOREIGN record's intent is unknowable — but here the
+    // caller is present, and silently downgrading their stated intent is the
+    // `--author robot` coercion this CLI already removed once.
+    const declaredDisclosure = opts.get('disclosure');
+    if (declaredDisclosure !== undefined
+        && !(DISCLOSURE_CLASSES as readonly string[]).includes(declaredDisclosure)) {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `--disclosure must be one of ${DISCLOSURE_CLASSES.join(', ')}, `
+          + `got ${JSON.stringify(declaredDisclosure)}\n`,
+      };
+    }
+
+    // Blank is "not supplied", the same rule every other scalar in this
+    // command follows.
+    const rawSubject = opts.get('subject');
+    const subject = rawSubject !== undefined && rawSubject.trim() ? rawSubject.trim() : undefined;
+
     // Structured, repeatable, and parsed before anything is written: a malformed
     // anchor must not produce a half-formed entry that exits 0.
     let anchors: Anchor[];
@@ -428,6 +450,8 @@ async function dispatch(
       harness: env.AGENT_JOURNAL_HARNESS ?? 'other', context: opts.get('context') ?? 'coding',
       capabilities: capabilitiesWithAnchors(normalizeCapabilities({}), anchors),
       kind, data,
+      disclosure: declaredDisclosure ?? 'team',
+      ...(subject === undefined ? {} : { subject }),
     });
 
     const journal = journalFor(root, workspace, session, agent);

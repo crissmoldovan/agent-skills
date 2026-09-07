@@ -1093,3 +1093,54 @@ test('show reports an expired constraint as live: false, matching its absence fr
   assert.equal(c1.live, false, 'an expired constraint must not render as live');
   assert.deepEqual(out.liveConstraints, [], 'the expired constraint must be absent from liveConstraints');
 });
+
+test('record defaults to team, per spec 13.3', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.disclosure, 'team',
+    'a written entry defaults to team; only an unreadable foreign one contains');
+});
+
+test('record honours each disclosure class', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const c of ['private', 'team', 'published'] as const) {
+    const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', c,
+      '--question', 'q', '--chosen', 'c', '--disclosure', c], env);
+    assert.equal(r.code, 0, r.stderr);
+  }
+  const byId = Object.fromEntries((await readAllEvents(dir, 'ws')).map((e) => [e.id, e.disclosure]));
+  assert.deepEqual(byId, { private: 'private', team: 'team', published: 'published' });
+});
+
+// Silently containing would repeat the `--author robot` mistake: the caller is
+// present and can be told, so tell them.
+test('an unrecognised --disclosure is refused, not silently contained', async () => {
+  const dir = await root();
+  const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'public'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2, `--disclosure public was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /private, team, published/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+test('record stores --subject, which the envelope has always had and nothing could write', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', 'src/queue.ts'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.subject, 'src/queue.ts');
+});
+
+test('a blank --subject leaves the key absent, like every other blank scalar', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', '   '],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.ok(!('subject' in entry!), `subject was stored as blank: ${JSON.stringify(entry!.subject)}`);
+});
