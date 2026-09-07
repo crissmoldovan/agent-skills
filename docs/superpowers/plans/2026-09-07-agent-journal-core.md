@@ -21,7 +21,11 @@
 - Every Markdown file must be non-empty and end with a newline — the repo's `check:markdown` enforces this.
 - RFC3339 UTC timestamps only: `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/`.
 - Wall-clock time is display-only across sources. Ordering within a source uses `sequence` (spec 8.4). Never infer causality from timestamps.
-- Bare `node` on this machine resolves to v26 at `/Users/criss/.local/bin/node`. That satisfies the `>=24` floor so it is fine here — but run `node -v` before diagnosing any test failure as real.
+- Bare `node` may resolve to a v26 install ahead of nvm on PATH. That satisfies the `>=24` floor so it is fine — but run `node -v` before diagnosing any test failure as real.
+- **`scripts/verify-skills.mjs` scans every `.ts`/`.md`/`.json` file in the repo except `packages/agent-lifecycle`, and fails on two patterns.** This package is NOT exempt, so no file you write may contain either:
+  - a literal secret shape — `gh[pousr]_` followed by 20+ word characters, or `sk-` followed by 20+ alphanumerics;
+  - a literal absolute home path — a leading slash followed by `Users` or `home` and a username, or the Windows `C:` equivalent, where that path is preceded by start-of-line, whitespace, a quote, a backtick or a paren.
+  Test fixtures that need those shapes **must build them at runtime** by concatenation or `join`, never as literals. Task 10's `npm run verify` fails otherwise.
 
 ## File Structure
 
@@ -345,11 +349,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { redact } from '../src/redact.ts';
 
+// Fixtures are BUILT, never written as literals: scripts/verify-skills.mjs
+// scans this file and fails on literal secret shapes and home paths.
+const GH_TOKEN = `gh${'p'}_${'a1b2c3d4e5'.repeat(3)}`;
+const HOME_NODE = ['', 'Users', 'alice', '.local', 'bin', 'node'].join('/');
+
 test('redacts a secret in free text, not just under a suspicious key', () => {
-  const r = redact({ rationale: 'used ghp_abcdefghijklmnopqrstuvwxyz0123456789 to fetch it' });
+  const r = redact({ rationale: `used ${GH_TOKEN} to fetch it` });
   assert.equal(r.verdict, 'redacted');
   assert.match(JSON.stringify(r.value), /\[REDACTED]/);
-  assert.doesNotMatch(JSON.stringify(r.value), /ghp_abcdef/);
+  assert.doesNotMatch(JSON.stringify(r.value), /a1b2c3d4e5/);
 });
 
 test('redacts an email address appearing in an excerpt', () => {
@@ -359,7 +368,7 @@ test('redacts an email address appearing in an excerpt', () => {
 });
 
 test('redacts a home directory path that leaks a username', () => {
-  const r = redact({ environment: { node: '/Users/alice/.local/bin/node' } });
+  const r = redact({ environment: { node: HOME_NODE } });
   assert.equal(r.verdict, 'redacted');
   assert.doesNotMatch(JSON.stringify(r.value), /alice/);
 });
@@ -734,9 +743,11 @@ test('refuses to write when redaction fails, and says so', async () => {
 
 test('redacts a secret before it reaches disk', async () => {
   const { j } = await journal();
-  await j.append(event('e4', { rationale: 'token ghp_abcdefghijklmnopqrstuvwxyz012345' }));
+  // Built, not literal — see the verify-gate constraint in the plan header.
+  const token = `gh${'p'}_${'a1b2c3d4e5'.repeat(3)}`;
+  await j.append(event('e4', { rationale: `token ${token}` }));
   const written = await readFile(j.segmentPath(), 'utf8');
-  assert.doesNotMatch(written, /ghp_abcdef/);
+  assert.doesNotMatch(written, /a1b2c3d4e5/);
   assert.match(written, /\[REDACTED]/);
 });
 
