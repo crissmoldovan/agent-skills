@@ -666,11 +666,14 @@ git commit -m "feat(agent-journal): the committed digest, gated by disclosure"
 - Test: `packages/agent-journal/test/trace.test.ts`
 
 **Interfaces:**
-- Consumes: `JournalEvent`, `project` from `./retract.ts`.
+- Consumes: `JournalEvent` only. **Not** `project` — traversal deliberately reaches invalidated and superseded entries, because "why is it like this" frequently ends at a decision that turned out to be wrong, and filtering those out would hide the answer.
 - Produces:
   - `indexEntries(events): TraceIndex` where `TraceIndex = ReadonlyMap<string, readonly string[]>` — key to entry ids
   - `traceFrom(events, key): TraceResult` where
-    `TraceResult = { readonly matched: string[]; readonly chain: { id, via }[] }`
+    `TraceResult = { readonly matched: TraceMatch[]; readonly chain: TraceStep[] }`
+  - `TraceMatch = { readonly id: string; readonly via: 'subject' | 'anchor' | 'influence' | 'id' }`
+
+**Why `matched` carries its source.** Four sources share one flat key space, so a key can match for reasons a reader would weigh differently: an entry whose `subject` *is* `src/queue.ts` is about that file, while an entry that merely *cites* it in an anchor is evidence involving it. Returning bare ids makes those indistinguishable, and the whole value of this lookup is that its answer needs no adjudication. The sharpest case: an entry whose `subject` equals another entry's id — `traceFrom(events, 'd1')` returns both, and without the source a reader cannot tell which one they asked for.
 
 **§10.2's requirement, and the reason it is not just "find by path".** Support and operations questions start at a symptom, a customer-visible string, a ticket or a deployed flag — not a file path. So the index is built from four sources, and all four are equal citizens:
 
@@ -725,13 +728,30 @@ test('a ticket and a deployed flag are first-class starting points, not just a p
     ev('byFlag', { question: 'q', chosen: 'c',
       anchors: [{ type: 'runtime', ref: 'enforce_grants' }] }),
   ];
-  assert.deepEqual(traceFrom(events, 'PROJ-9').matched, ['byTicket']);
-  assert.deepEqual(traceFrom(events, 'enforce_grants').matched, ['byFlag']);
+  assert.deepEqual(traceFrom(events, 'PROJ-9').matched, [{ id: 'byTicket', via: 'influence' }]);
+  assert.deepEqual(traceFrom(events, 'enforce_grants').matched, [{ id: 'byFlag', via: 'anchor' }]);
+});
+
+// Four sources share one key space, so a reader must be able to tell an entry
+// that IS about something from one that merely cites it.
+test('a match reports which source produced it', () => {
+  const events = [
+    ev('about', { question: 'q', chosen: 'c' }, 'src/queue.ts'),
+    ev('cites', { question: 'q', chosen: 'c', anchors: [{ type: 'file', ref: 'src/queue.ts' }] }),
+    ev('names', { question: 'q', chosen: 'c' }, 'about'),
+  ];
+  assert.deepEqual(traceFrom(events, 'src/queue.ts').matched, [
+    { id: 'about', via: 'subject' }, { id: 'cites', via: 'anchor' },
+  ]);
+  // The sharpest case: a subject equal to another entry's id.
+  assert.deepEqual(traceFrom(events, 'about').matched, [
+    { id: 'about', via: 'id' }, { id: 'names', via: 'subject' },
+  ]);
 });
 
 test('lookup is exact and case-insensitive, never a substring match', () => {
   const events = [ev('d1', { question: 'q', chosen: 'c' }, 'src/queue.ts')];
-  assert.deepEqual(traceFrom(events, 'SRC/QUEUE.TS').matched, ['d1']);
+  assert.deepEqual(traceFrom(events, 'SRC/QUEUE.TS').matched, [{ id: 'd1', via: 'subject' }]);
   assert.deepEqual(traceFrom(events, 'queue').matched, [],
     'a substring matched — this is a lookup, not a search');
   assert.deepEqual(traceFrom(events, 'src/queue.ts.bak').matched, []);
@@ -905,6 +925,7 @@ Expected: PASS.
 | delete the `seen` guard | a cycle terminates instead of looping (expect a hang — treat a timeout as RED and say so) |
 | `if (!e) continue` → `chain.push(step)` regardless | a dangling edge is skipped, not fatal |
 | `via: 'supersedes'` → `via: 'influences'` | traversal names the edge it followed |
+| every match reports `via: 'id'` regardless of source | a match reports which source produced it |
 
 - [ ] **Step 6: Commit**
 
@@ -1003,7 +1024,7 @@ test('trace finds an entry by ticket and walks backwards', async () => {
   const r = await runCli(['trace', 'PROJ-412', '--workspace', 'ws'], env);
   assert.equal(r.code, 0, r.stderr);
   const out = JSON.parse(r.stdout);
-  assert.deepEqual(out.matched, ['later']);
+  assert.deepEqual(out.matched, [{ id: 'later', via: 'influence' }]);
   assert.deepEqual(out.chain.map((c: any) => c.id), ['later', 'root']);
   assert.deepEqual(out.chain.map((c: any) => c.via), [null, 'influences']);
 });
