@@ -454,7 +454,7 @@ test('an entry resting only on model_knowledge is flagged', () => {
   ]);
   const flagged = out.split('\n').filter((l) => /model_knowledge|no source consulted/i.test(l));
   assert.equal(flagged.length, 1, `expected exactly one flag, got:\n${flagged.join('\n')}`);
-  assert.ok(out.indexOf('from priors') < out.indexOf('from a source') || true);
+  assert.match(flagged[0]!, /no source consulted/i);
 });
 
 test('an entry with a model_knowledge influence AND a source is not flagged', () => {
