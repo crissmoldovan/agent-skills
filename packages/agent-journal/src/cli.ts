@@ -205,7 +205,13 @@ export async function runCli(
     return await dispatch(argv, env);
   } catch (error) {
     const e = error as NodeJS.ErrnoException;
-    const detail = e.code ? `${e.code}: ${e.message}` : String(e.message ?? error);
+    // Node's fs errors already begin their `message` with the code
+    // (`EISDIR: illegal operation on a directory, open '...'`), so
+    // unconditionally prepending it here doubled it — `--out` is what made
+    // this reachable by a user doing something ordinary: pointing at a
+    // directory, or at a file they cannot write.
+    const message = String(e.message ?? error);
+    const detail = e.code && !message.startsWith(`${e.code}:`) ? `${e.code}: ${message}` : message;
     return { code: 1, stdout: '', stderr: `could not complete: ${detail}\n` };
   }
 }

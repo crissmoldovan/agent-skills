@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
@@ -1311,4 +1311,36 @@ test('trace on an unmatched key exits 0 with an empty result, and says so', asyn
   assert.equal(r.code, 0);
   assert.deepEqual(JSON.parse(r.stdout).matched, []);
   assert.match(r.stderr, /no entry/i, 'an empty result was silent');
+});
+
+// runCli's generic catch stringifies I/O failures as `${e.code}: ${e.message}`,
+// but Node's fs errors already begin their `message` with the code
+// (`EISDIR: illegal operation on a directory, open '...'`), so the naive
+// concatenation doubled it: `could not complete: EISDIR: EISDIR: ...`. `--out`
+// is what made this reachable by a user doing something ordinary — pointing at
+// a directory that already exists where the digest should go. `includes` would
+// pass with the bug present; only a count nails it down.
+test('digest --out at an existing directory reports EISDIR exactly once, not doubled', async () => {
+  const dir = await root();
+  const outDir = join(dir, 'digest.md');
+  await mkdir(outDir);
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', outDir], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 1, r.stdout);
+  const count = r.stderr.split('EISDIR').length - 1;
+  assert.equal(count, 1, `expected EISDIR exactly once, got ${count} in: ${r.stderr}`);
+});
+
+test('digest --out at an unwritable existing file reports EACCES exactly once, not doubled', async () => {
+  const dir = await root();
+  const outFile = join(dir, 'digest.md');
+  await writeFile(outFile, 'pre-existing\n', 'utf8');
+  await chmod(outFile, 0o400);
+  try {
+    const r = await runCli(['digest', '--workspace', 'ws', '--out', outFile], { AGENT_JOURNAL_ROOT: dir });
+    assert.equal(r.code, 1, r.stdout);
+    const count = r.stderr.split('EACCES').length - 1;
+    assert.equal(count, 1, `expected EACCES exactly once, got ${count} in: ${r.stderr}`);
+  } finally {
+    await chmod(outFile, 0o600);
+  }
 });
