@@ -1145,6 +1145,20 @@ test('a blank --subject leaves the key absent, like every other blank scalar', a
   assert.ok(!('subject' in entry!), `subject was stored as blank: ${JSON.stringify(entry!.subject)}`);
 });
 
+// Fix round 2 for Task 2: pins the OBSERVABLE contract — padding does not
+// survive to disk — rather than which layer trims it. cli.ts's own
+// `rawSubject.trim()` is redundant with envelope.ts's `text()`, which also
+// trims; this must pass whichever one is doing the work, so it stays true
+// even if the redundant call in cli.ts is later removed.
+test('a padded --subject is stored trimmed', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', '  src/queue.ts  '],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.subject, 'src/queue.ts');
+});
+
 // Fix round 1 for Task 2: invalidate was left on the wrong side of the same
 // distinction record now draws. A retraction is an entry this CLI just wrote
 // and knows the intent of — it should default to `team` (spec 13.3), not
