@@ -1148,7 +1148,7 @@ node dist/bin.js record --workspace api --kind assumption --id a1 \
 node dist/bin.js invalidate d1 --workspace api --reason 'the bound was measured, not assumed'
 node dist/bin.js show --workspace api
 ```
-Every command must exit 0 (the `invalidate` too) and `show` must render both entries. If any output differs from what you are about to document, the documentation follows the binary, not the other way round.
+Every command must exit 0 (the `invalidate` too). `show` renders **three** entries, not two: the two you recorded plus the retraction record `invalidate` appends, which carries `retracts: {type, target}` so it is distinguishable. Document what the binary prints. If any output differs from what you are about to document, the documentation follows the binary, not the other way round.
 
 - [ ] **Step 2: Rewrite the four SKILL.md passages**
 
