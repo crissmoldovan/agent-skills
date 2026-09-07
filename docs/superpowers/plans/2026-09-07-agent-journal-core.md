@@ -2170,6 +2170,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
 import type { JournalEvent } from '../src/envelope.ts';
+import { project } from '../src/retract.ts';
 
 async function root(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'journal-cli-'));
@@ -2376,19 +2377,25 @@ test('record requires --kind', async () => {
   assert.match(r.stderr, /--kind is required/);
 });
 
-test('a retraction never sorts before the finding it retracts', async () => {
+test('a retraction takes effect regardless of merge order', async () => {
   const dir = await root();
   await runCli(['record', '--kind', 'finding', '--question', 'why', '--chosen', 'wrong',
     '--workspace', 'ws', '--id', 'f1'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
   await runCli(['invalidate', 'f1', '--reason', 'bad premise', '--workspace', 'ws'],
     { AGENT_JOURNAL_ROOT: dir });
-  const ids = (await readAllEvents(dir, 'ws')).map((e) => e.id);
-  // Truncating timestamps to whole seconds made these tie, and the tiebreak is
-  // lexical on source — under which invalidate's `cli/host/-/-` leads. This
-  // asserts on merged order, which is what a consumer sees; reading raw
-  // filesystem order would measure readdir instead.
-  assert.equal(ids[0], 'f1', `retraction led: ${ids.join()}`);
-  assert.equal(ids.length, 2);
+
+  // NOT an ordering assertion. An earlier version of this test asserted the
+  // finding sorts before its retraction, which the spec explicitly disclaims:
+  // wall clock is "display only across sources" and "causality is never
+  // inferred from timestamps". record and invalidate ARE different sources —
+  // `cli/host/s1/primary` and `cli/host/-/-` — so their relative order is
+  // arbitrary by design, and measured at 9 of 20 runs either way.
+  //
+  // What must hold is that the EDGE carries the meaning. project() is
+  // order-independent, so the retraction lands whichever way the merge fell.
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 2);
+  assert.ok(project(events).invalidated.has('f1'), 'the retraction must apply either way');
 });
 
 test('an unknown subcommand exits non-zero with usage', async () => {
