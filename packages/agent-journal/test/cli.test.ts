@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
@@ -69,7 +69,9 @@ test('record refuses and exits non-zero when redaction fails', async () => {
 test('invalidate works with no session and is attributed to a human', async () => {
   const dir = await root();
   await runCli(
-    ['record', '--kind', 'finding', '--question', 'why', '--chosen', 'wrong',
+    // `question`/`chosen` are decision fields (task 3 scopes fields per kind);
+    // this test is about invalidate/retraction, not which kind was recorded.
+    ['record', '--kind', 'decision', '--question', 'why', '--chosen', 'wrong',
       '--workspace', 'ws', '--id', 'f1'],
     { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
   );
@@ -220,7 +222,9 @@ test('record requires --kind', async () => {
 
 test('a retraction takes effect regardless of merge order', async () => {
   const dir = await root();
-  await runCli(['record', '--kind', 'finding', '--question', 'why', '--chosen', 'wrong',
+  // `question`/`chosen` are decision fields (task 3 scopes fields per kind);
+  // this test is about retraction ordering, not which kind was recorded.
+  await runCli(['record', '--kind', 'decision', '--question', 'why', '--chosen', 'wrong',
     '--workspace', 'ws', '--id', 'f1'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
   await runCli(['invalidate', 'f1', '--reason', 'bad premise', '--workspace', 'ws'],
     { AGENT_JOURNAL_ROOT: dir });
@@ -248,7 +252,9 @@ test('record stores rejected — the field the design exists for', async () => {
   const [entry] = await readAllEvents(dir, 'ws');
   // This was silently dropped for as long as the field list omitted it: exit 0,
   // entry written, the alternatives gone. Nothing else in the system records them.
-  assert.equal(entry!.data.rejected, 'redis — needs a broker we do not run');
+  // `rejected` is a list field (task 3): one --rejected still lands as a
+  // one-element array, not a bare string.
+  assert.deepEqual(entry!.data.rejected, ['redis — needs a broker we do not run']);
 });
 
 test('record stores the other decision fields it advertises', async () => {
@@ -534,4 +540,1029 @@ test('invalidate does not claim success on stdout when nothing matched', async (
   assert.doesNotMatch(miss.stdout, /^invalidated ghost/,
     `stdout claimed an unmatched id was invalidated: ${miss.stdout}`);
   assert.match(miss.stdout + miss.stderr, /no matching entry|not present/i);
+});
+
+test('record writes repeated anchors and influences as structured arrays', async () => {
+  const dir = await root();
+  const r = await runCli([
+    'record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'how do we bound the queue?', '--chosen', 'ring buffer',
+    '--anchor', 'commit:9f2c1ab',
+    '--anchor', 'file:src/queue.ts:41',
+    '--influence', 'url:decisive:https://example.com/bench?a=1:2',
+    '--influence', 'journal:contradicted:7f3a',
+  ], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 0, r.stderr);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.deepEqual(entry!.data.anchors, [
+    { type: 'commit', ref: '9f2c1ab' },
+    { type: 'file', ref: 'src/queue.ts:41' },
+  ]);
+  assert.deepEqual(entry!.data.influences, [
+    { type: 'url', role: 'decisive', ref: 'https://example.com/bench?a=1:2' },
+    { type: 'journal', role: 'contradicted', ref: '7f3a' },
+  ]);
+});
+
+test('an anchor makes its capability known on the written entry', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c', '--anchor', 'commit:9f2c1ab'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.capabilities.commit, 'known');
+  assert.equal(entry!.capabilities.visual, 'unknown', 'unrelated classes stay unknown');
+});
+
+test('a malformed anchor or influence is refused before anything is written', async () => {
+  const dir = await root();
+  for (const bad of [
+    ['--anchor', 'nonsense:x'],
+    ['--anchor', 'commit'],
+    ['--influence', 'url:decisive'],
+    ['--influence', 'rumour:decisive:x'],
+  ]) {
+    const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision',
+      '--question', 'q', '--chosen', 'c', ...bad],
+      { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `${bad.join(' ')} was accepted: ${r.stdout}${r.stderr}`);
+  }
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'a rejected entry was written anyway');
+});
+
+// The point of the whole design: "consulted nothing" must be distinguishable
+// from "recorded nothing", and it must be a value rather than an absence.
+test('model_knowledge records that no source was consulted', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c', '--influence', 'model_knowledge:decisive'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.deepEqual(entry!.data.influences, [{ type: 'model_knowledge', role: 'decisive' }]);
+});
+
+test('an entry with no influences records absence, not an empty claim', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'e1',
+    '--question', 'q', '--chosen', 'c'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.data.influences, undefined,
+    'an absent field must not become [], which would claim "assessed and none"');
+  // The same claim applies to anchors, and nothing else in this file pins it —
+  // added alongside the influences assertion so the `data.anchors` guard is
+  // mutation-covered too.
+  assert.equal(entry!.data.anchors, undefined,
+    'an absent field must not become [], which would claim "assessed and none"');
+});
+
+// Propagation walks data.influences of type journal. Before this task the CLI
+// could not emit one, so a CLI-issued invalidate suppressed only its target.
+test('a CLI-recorded journal influence makes invalidation propagate', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'base',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'rests',
+    '--question', 'q', '--chosen', 'c', '--influence', 'journal:decisive:base'], env);
+  await runCli(['invalidate', 'base', '--workspace', 'ws', '--reason', 'premise false'], env);
+
+  const proj = project(await readAllEvents(dir, 'ws'));
+  assert.equal(proj.outcomes.get('base'), 'invalidated');
+  assert.equal(proj.outcomes.get('rests'), 'invalidated',
+    'an entry resting on an invalidated one was not suppressed');
+});
+
+test('each kind accepts its own fields and refuses another kind\'s', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const ok = await runCli(['record', '--workspace', 'ws', '--kind', 'assumption', '--id', 'a1',
+    '--assumed', 'the upstream call is idempotent', '--ifWrong', 'retries double-charge',
+    '--checked', 'no'], env);
+  assert.equal(ok.code, 0, ok.stderr);
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.data.assumed, 'the upstream call is idempotent');
+  assert.equal(entry!.data.checked, 'no');
+
+  const crossed = await runCli(['record', '--workspace', 'ws', '--kind', 'assumption', '--id', 'a2',
+    '--assumed', 'x', '--question', 'belongs to decision'], env);
+  assert.equal(crossed.code, 2, `a decision field was accepted on an assumption: ${crossed.stdout}`);
+  assert.match(crossed.stderr, /--question/);
+});
+
+test('a repeated --rejected keeps every alternative, not just the last', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c',
+    '--rejected', 'redis — needs a broker we do not run',
+    '--rejected', 'kafka — three days of setup for one queue'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.deepEqual(entry!.data.rejected, [
+    'redis — needs a broker we do not run',
+    'kafka — three days of setup for one queue',
+  ]);
+});
+
+// IMPORTANT 2 (fix round 1): finding, blocker, progress and constraint had no
+// end-to-end proof of life — only fieldsFor() name checks. blocker and
+// progress in particular never reached normalizeEntryData with real values
+// through the CLI at all. Round-trip all four through runCli and read back
+// exactly what landed in `data`.
+test('finding, blocker, progress and constraint each round-trip through the CLI with their own fields', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'finding', '--id', 'f1',
+    '--claim', 'the upstream API times out after 30s, not 10s as documented',
+    '--evidence', 'observed 28.7s round trip in prod logs',
+    '--evidence', 'support ticket #4821 confirms 30s server-side timeout',
+    '--premise', 'the docs were last updated two years ago',
+    '--scope', 'workspace'], env);
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'blocker', '--id', 'b1',
+    '--blocked', 'cannot deploy to staging',
+    '--on', 'staging cluster credentials rotation',
+    '--owner', 'platform-team',
+    '--clearedBy', 'new creds land in vault'], env);
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'progress', '--id', 'p1',
+    '--did', 'migrated the queue consumer to the ring buffer',
+    '--next', 'add backpressure metrics',
+    '--externalRef', 'JIRA-4821'], env);
+
+  await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--statement', 'telemetry must not leave the EU region',
+    '--origin', 'GDPR data residency policy',
+    '--scope', 'telemetry',
+    '--expiry', 'none',
+    '--enforcement', 'blocking'], env);
+
+  const events = await readAllEvents(dir, 'ws');
+  const byId = new Map(events.map((e) => [e.id, e]));
+
+  const finding = byId.get('f1')!;
+  assert.equal(finding.data.claim, 'the upstream API times out after 30s, not 10s as documented');
+  assert.deepEqual(finding.data.evidence, [
+    'observed 28.7s round trip in prod logs',
+    'support ticket #4821 confirms 30s server-side timeout',
+  ]);
+  assert.deepEqual(finding.data.premise, ['the docs were last updated two years ago']);
+  assert.equal(finding.data.scope, 'workspace');
+
+  const blocker = byId.get('b1')!;
+  assert.equal(blocker.data.blocked, 'cannot deploy to staging');
+  assert.equal(blocker.data.on, 'staging cluster credentials rotation');
+  assert.equal(blocker.data.owner, 'platform-team');
+  assert.equal(blocker.data.clearedBy, 'new creds land in vault');
+
+  const progress = byId.get('p1')!;
+  assert.equal(progress.data.did, 'migrated the queue consumer to the ring buffer');
+  assert.equal(progress.data.next, 'add backpressure metrics');
+  assert.equal(progress.data.externalRef, 'JIRA-4821');
+
+  const constraint = byId.get('c1')!;
+  assert.equal(constraint.data.statement, 'telemetry must not leave the EU region');
+  assert.equal(constraint.data.origin, 'GDPR data residency policy');
+  assert.equal(constraint.data.scope, 'telemetry');
+  assert.equal(constraint.data.expiry, 'none');
+  assert.equal(constraint.data.enforcement, 'blocking');
+});
+
+// RULING (fix round 1): an unrecognised kind must not be refused outright —
+// retention.ts (spec 4.4) deliberately keeps a kind in neither of its sets
+// unclassified rather than destroying what may be a legitimate future kind.
+// record keeps exit 0 and still writes the entry, but now warns on stderr —
+// the same idiom invalidate already uses for a target with no match — and
+// stores no kind-specific fields, since fieldsFor() of an unknown kind is empty.
+test('an unrecognised kind still writes, warning instead of refusing', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'not_a_real_kind', '--id', 'x1'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, `an unrecognised kind was refused: ${r.stderr}`);
+  assert.match(r.stderr, /WARNING/);
+  assert.match(r.stderr, /not_a_real_kind/);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.kind, 'not_a_real_kind');
+  assert.deepEqual(entry!.data, {}, 'no kind-specific fields should have been stored');
+});
+
+// IMPORTANT (fix round 2): 'constructor' is a prototype-chain key, not just
+// an arbitrary unrecognised string. Before this round it took a different,
+// broken path — the CLI's own iteration over fieldsFor('constructor') threw,
+// since KIND_FIELDS['constructor'] resolves to Object's constructor function
+// rather than undefined. It must land on the exact same unrecognised-kind
+// path as 'not_a_real_kind': exit 0, entry written, warning on stderr.
+test('an unrecognised kind that collides with a prototype key takes the same path as any other', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'constructor', '--id', 'x2'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, `--kind constructor was refused instead of taking the unrecognised-kind path: ${r.stderr}`);
+  assert.match(r.stderr, /WARNING/);
+  assert.match(r.stderr, /constructor/);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.kind, 'constructor');
+  assert.deepEqual(entry!.data, {}, 'no kind-specific fields should have been stored');
+});
+
+test('show reports outcomes, liveness and evidence per entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'base',
+    '--question', 'q', '--chosen', 'c', '--anchor', 'commit:9f2c1ab'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'rests',
+    '--question', 'q', '--chosen', 'c', '--influence', 'journal:decisive:base'], env);
+  await runCli(['invalidate', 'base', '--workspace', 'ws', '--reason', 'premise false'], env);
+
+  const r = await runCli(['show', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+
+  const byId = Object.fromEntries(out.entries.map((e: any) => [e.id, e]));
+  assert.equal(byId.base.outcome, 'invalidated');
+  assert.equal(byId.base.live, false);
+  assert.equal(byId.rests.outcome, 'invalidated', 'propagation is not visible through show');
+  assert.deepEqual(byId.base.anchors, [{ type: 'commit', ref: '9f2c1ab' }]);
+  assert.equal(byId.rests.anchors, null, 'no anchors must read as null, never []');
+
+  // The influences twin of the anchors assertion above. anchors was protected;
+  // influences was not — mutating its `: null` fallback to `: []` left the
+  // whole suite green until this was added. Asserting the actual value, not
+  // `assert.ok(!x)`, which passes for null, [] and undefined alike.
+  assert.deepEqual(byId.rests.influences, [{ type: 'journal', role: 'decisive', ref: 'base' }]);
+  assert.equal(byId.base.influences, null, 'no influences must read as null, never []');
+});
+
+test('show surfaces live constraints and which entries they bear on', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--statement', 'never a third-party sink for this telemetry',
+    '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'where does telemetry go?', '--chosen', 'a vendor'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  assert.deepEqual(out.liveConstraints.map((c: any) => c.id), ['c1']);
+  const d1 = out.entries.find((e: any) => e.id === 'd1');
+  assert.deepEqual(d1.constraintsBearingOn, ['c1']);
+});
+
+test('show --id narrows to one entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const id of ['a1', 'b1']) {
+    await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', id,
+      '--question', 'q', '--chosen', 'c'], env);
+  }
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws', '--id', 'a1'], env)).stdout);
+  assert.deepEqual(out.entries.map((e: any) => e.id), ['a1']);
+});
+
+test('show inherits coverage\'s honesty about a damaged journal', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'not json\n');
+
+  const r = await runCli(['show', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.notEqual(r.code, 0, 'a corrupt journal reported success');
+  assert.match(r.stdout + r.stderr, /malformed/i);
+});
+
+// Fix round 1 (Task 5 review): the void-event filter (`e.kind !== 'void'` in
+// cli.ts's `show`) had no test — dropping it left the whole suite green,
+// because no other `show` fixture produces a void event. A refusal must
+// actually refuse for this fixture to mean anything, so that is asserted too.
+test('show excludes void events — a refusal must never render as a live entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'good',
+    '--question', 'q', '--chosen', 'c'], env);
+  const refused = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'decision', '--question', 'q', '--chosen', 'x',
+      '--rationale', 'y'.repeat(300000)],
+    env,
+  );
+  assert.notEqual(refused.code, 0, 'the fixture must actually trigger a redaction refusal');
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  assert.deepEqual(out.entries.map((e: any) => e.id), ['good'], 'a void event leaked into show\'s entries');
+});
+
+// Fix round 1 (Task 5 review, RULING): `invalidate` writes its retraction as
+// an ordinary `kind: 'decision'` event carrying `data.invalidates`. Without a
+// marker it renders indistinguishable from a real live decision — outcome
+// unknown, no anchors — inflating "what is live" by one per retraction. This
+// already fooled a later task's brief, which expected two entries where three
+// actually render; `retracts` is the fix, not hiding the record or changing
+// its stored kind.
+test('show marks a retraction record with retracts, distinct from an ordinary decision', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['invalidate', 'd1', '--workspace', 'ws', '--reason', 'premise false'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  assert.equal(out.entries.length, 3, 'record, record, invalidate renders as three entries on disk');
+
+  const byId = Object.fromEntries(out.entries.map((e: any) => [e.id, e]));
+  assert.deepEqual(byId.d1.retracts, null);
+  assert.deepEqual(byId.a1.retracts, null);
+
+  const retraction = out.entries.find((e: any) => e.id !== 'd1' && e.id !== 'a1');
+  assert.ok(retraction, 'the retraction record itself must be present, not hidden');
+  assert.deepEqual(retraction.retracts, [{ type: 'invalidates', target: 'd1' }]);
+});
+
+// Final review, finding 1 (HIGH): a bare unrecognised kind is genuine forward
+// compatibility and must still write at exit 0 (covered above by "an
+// unrecognised kind still writes, warning instead of refusing"). But content
+// flags are a different story — fieldsFor() of an unknown kind is empty, so
+// every one of them was silently thrown away while the CLI still reported
+// success. `--kind decisio` (a typo of `decision`) with `--question`,
+// `--chosen`, `--rejected` and `--rationale` used to write `{"kind":"decisio",
+// "data":{}}` at exit 0, destroying all four with no flag named anywhere the
+// caller could see without `2>&1`.
+test('record refuses an unrecognised kind that carries content flags, naming them', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['record', '--workspace', 'ws', '--kind', 'decisio', '--id', 't1',
+      '--question', 'q', '--chosen', 'c', '--rejected', 'r', '--rationale', 'because'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2, `an unrecognised kind with content flags was not refused: ${r.stderr}`);
+  assert.match(r.stderr, /--question/, 'the refusal must name the destroyed flag');
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'nothing should have been written');
+});
+
+// Final review, finding 2 (HIGH): a constraint that states no obligation
+// cannot be one. Before this, `--kind constraint` with no `--statement` (or a
+// blank one) wrote and reported success, `show` rendered it `live: true`, and
+// `liveConstraints` — the thing it is actually supposed to constrain — stayed
+// empty with nothing explaining why.
+test('record --kind constraint requires --statement, whether absent or blank', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const missing = await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  assert.equal(missing.code, 2, `a constraint with no --statement was accepted: ${missing.stderr}`);
+  assert.match(missing.stderr, /--statement/);
+
+  const blank = await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c2',
+    '--statement', '', '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  assert.equal(blank.code, 2, `a constraint with a blank --statement was accepted: ${blank.stderr}`);
+  assert.match(blank.stderr, /--statement/);
+
+  const ok = await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c3',
+    '--statement', 'never a third-party sink', '--scope', 'telemetry', '--enforcement', 'blocking'], env);
+  assert.equal(ok.code, 0, `a constraint with a real statement was refused: ${ok.stderr}`);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.deepEqual(events.map((e) => e.id), ['c3'], 'only the valid constraint should have reached disk');
+});
+
+// Final review, finding 3 (MEDIUM-HIGH): an entry can carry both retraction
+// edges, naming two DIFFERENT entries — this is not retract.ts's "one target,
+// which outcome wins" question, so a single-winner `retracts` hid one of two
+// real edges. `retracts` is now an array; invalidates still orders before
+// supersedes when both are present, matching retract.ts's own precedence.
+test('show renders both retraction edges when an entry carries supersedes and invalidates', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const id of ['old', 'wrong']) {
+    await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', id,
+      '--question', 'q', '--chosen', 'c'], env);
+  }
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'both',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'old', '--invalidates', 'wrong'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  const both = out.entries.find((e: any) => e.id === 'both');
+  assert.deepEqual(both.retracts, [
+    { type: 'invalidates', target: 'wrong' },
+    { type: 'supersedes', target: 'old' },
+  ], 'both edges must appear, invalidates ordered before supersedes');
+
+  const old = out.entries.find((e: any) => e.id === 'old');
+  assert.deepEqual(old.retracts, null, 'an entry retracting nothing must read null, never []');
+});
+
+// Final review, finding 4 (MEDIUM): show's own retraction predicate must match
+// retract.ts's non-blank-after-trim rule (`stringField`), not a weaker
+// `typeof === 'string'` check. Fix 5 (below) means the CLI itself can no
+// longer produce a stored blank supersedes/invalidates — so this writes the
+// raw event directly, the way a hook adapter or another non-CLI producer
+// might, to prove `show` denies the retraction on its own rather than relying
+// on the CLI to have filtered it upstream.
+test('show does not assert a retraction from a blank supersedes written outside the CLI', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  const raw = {
+    schemaVersion: 1, id: 'blank-sup', source: 'hook/host/s1/primary', sourceEpoch: 'e1',
+    time: new Date().toISOString(), workspace: 'ws', session: 's1', agent: 'primary',
+    author: 'agent', provenance: 'hook', harness: 'other', context: 'coding',
+    capabilities: {}, kind: 'decision', data: { question: 'q', chosen: 'c', supersedes: '   ' },
+  };
+  await writeFile(join(segDir, seg), `${JSON.stringify(raw)}\n`, { flag: 'a' });
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  const entry = out.entries.find((e: any) => e.id === 'blank-sup');
+  assert.ok(entry, 'the raw event must still be read back');
+  assert.deepEqual(entry.retracts, null, 'a blank supersedes must not assert a retraction');
+});
+
+// Final review, finding 5 (MEDIUM): a field whose value is empty or
+// whitespace-only is "not supplied" — skipped, not stored as "". Asserted
+// with `!(field in data)`, never `assert.ok(!data.field)`, which passes for
+// '' too and would not have caught the bug.
+test('a blank scalar field is not stored — absent, never ""', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--rationale', ''], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd2',
+    '--question', 'q', '--chosen', 'c', '--rationale', '   '], env);
+
+  const byId = new Map((await readAllEvents(dir, 'ws')).map((e) => [e.id, e]));
+  assert.ok(!('rationale' in byId.get('d1')!.data), 'a blank rationale must be absent, not stored as ""');
+  assert.ok(!('rationale' in byId.get('d2')!.data), 'a whitespace-only rationale must be absent too');
+});
+
+test('a blank --supersedes or --invalidates is not stored — absent, never ""', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--supersedes', '', '--invalidates', '   '], env);
+
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.ok(!('supersedes' in entry!.data), '--supersedes "" must be absent, not stored');
+  assert.ok(!('invalidates' in entry!.data), '--invalidates "   " must be absent, not stored');
+});
+
+// Final review, finding 6 (MEDIUM): `invalidate` already warns a human when
+// its target does not match; `record --supersedes`/`--invalidates`/
+// `--influence journal:...` silently accepted the same mistake. Not refused —
+// an edge may legitimately precede its target across replicas — but no
+// longer silent either.
+test('record warns when --supersedes, --invalidates or a journal influence names a nonexistent id', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const sup = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 's1e',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'ghost1'], env);
+  assert.equal(sup.code, 0, sup.stderr);
+  assert.match(sup.stderr, /WARNING: no entry with id ghost1 is present in this workspace/);
+
+  const inv = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'i1e',
+    '--question', 'q', '--chosen', 'c', '--invalidates', 'ghost2'], env);
+  assert.equal(inv.code, 0, inv.stderr);
+  assert.match(inv.stderr, /WARNING: no entry with id ghost2 is present in this workspace/);
+
+  const infl = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1e',
+    '--question', 'q', '--chosen', 'c', '--influence', 'journal:decisive:ghost3'], env);
+  assert.equal(infl.code, 0, infl.stderr);
+  assert.match(infl.stderr, /WARNING: no entry with id ghost3 is present in this workspace/);
+});
+
+test('record does not warn when the referenced id actually exists', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'real1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'real2',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'real1',
+    '--influence', 'journal:decisive:real1'], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /WARNING: no entry with id/);
+});
+
+// Final review, finding 7 (MEDIUM): an entry that names its own id in
+// --supersedes/--invalidates would be written, acknowledged (exit 0) and
+// project `live: false` on arrival — dead on arrival, with nothing pointing
+// at the mistake. Refused outright instead.
+test('an entry cannot supersede or invalidate its own id', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const selfSup = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'self1',
+    '--question', 'q', '--chosen', 'c', '--supersedes', 'self1'], env);
+  assert.equal(selfSup.code, 2, `self-supersede was accepted: ${selfSup.stderr}`);
+  assert.match(selfSup.stderr, /--supersedes/);
+
+  const selfInv = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'self2',
+    '--question', 'q', '--chosen', 'c', '--invalidates', 'self2'], env);
+  assert.equal(selfInv.code, 2, `self-invalidate was accepted: ${selfInv.stderr}`);
+  assert.match(selfInv.stderr, /--invalidates/);
+
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'neither self-retracting entry should have been written');
+});
+
+// Final review, finding 8 (MEDIUM): a constraint's `live` in `show`'s
+// `entries` must agree with its absence from `liveConstraints` — an expired
+// constraint used to render `live: true` in one and be missing from the
+// other, two meanings of "live" in one payload.
+test('show reports an expired constraint as live: false, matching its absence from liveConstraints', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'constraint', '--id', 'c1',
+    '--statement', 'never a third-party sink', '--scope', 'telemetry',
+    '--enforcement', 'blocking', '--expiry', '2020-01-01'], env);
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], env)).stdout);
+  const c1 = out.entries.find((e: any) => e.id === 'c1');
+  assert.equal(c1.live, false, 'an expired constraint must not render as live');
+  assert.deepEqual(out.liveConstraints, [], 'the expired constraint must be absent from liveConstraints');
+});
+
+test('record defaults to team, per spec 13.3', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.disclosure, 'team',
+    'a written entry defaults to team; only an unreadable foreign one contains');
+});
+
+test('record honours each disclosure class', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (const c of ['private', 'team', 'published'] as const) {
+    const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', c,
+      '--question', 'q', '--chosen', 'c', '--disclosure', c], env);
+    assert.equal(r.code, 0, r.stderr);
+  }
+  const byId = Object.fromEntries((await readAllEvents(dir, 'ws')).map((e) => [e.id, e.disclosure]));
+  assert.deepEqual(byId, { private: 'private', team: 'team', published: 'published' });
+});
+
+// Silently containing would repeat the `--author robot` mistake: the caller is
+// present and can be told, so tell them.
+test('an unrecognised --disclosure is refused, not silently contained', async () => {
+  const dir = await root();
+  const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'public'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2, `--disclosure public was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /private, team, published/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+test('record stores --subject, which the envelope has always had and nothing could write', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', 'src/queue.ts'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.subject, 'src/queue.ts');
+});
+
+test('a blank --subject leaves the key absent, like every other blank scalar', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', '   '],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.ok(!('subject' in entry!), `subject was stored as blank: ${JSON.stringify(entry!.subject)}`);
+});
+
+// Fix round 2 for Task 2: pins the OBSERVABLE contract — padding does not
+// survive to disk — rather than which layer trims it. cli.ts's own
+// `rawSubject.trim()` is redundant with envelope.ts's `text()`, which also
+// trims; this must pass whichever one is doing the work, so it stays true
+// even if the redundant call in cli.ts is later removed.
+test('a padded --subject is stored trimmed', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', '  src/queue.ts  '],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.subject, 'src/queue.ts');
+});
+
+// Fix round 1 for Task 2: invalidate was left on the wrong side of the same
+// distinction record now draws. A retraction is an entry this CLI just wrote
+// and knows the intent of — it should default to `team` (spec 13.3), not
+// `private`, which is only right for a foreign record whose intent is
+// unknowable.
+test('invalidate defaults to team, not private, per spec 13.3', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['invalidate', 'f1', '--reason', 'wrong interpreter on PATH', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  const events = await readAllEvents(dir, 'ws');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  assert.equal(retraction!.disclosure, 'team',
+    'a retraction this CLI wrote defaults to team; only an unreadable foreign one contains');
+});
+
+test('invalidate --disclosure private writes private', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(
+    ['invalidate', 'f1', '--reason', 'names a person', '--workspace', 'ws', '--disclosure', 'private'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const events = await readAllEvents(dir, 'ws');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  assert.equal(retraction!.disclosure, 'private');
+});
+
+test('invalidate --disclosure public is refused, not silently contained', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(
+    ['invalidate', 'f1', '--reason', 'why', '--workspace', 'ws', '--disclosure', 'public'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 2, `--disclosure public was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /private, team, published/);
+  const events = await readAllEvents(dir, 'ws');
+  assert.ok(!events.some((e) => e.data.invalidates === 'f1'), 'no retraction should have been written');
+});
+
+test('a retraction and the entry it retracts both land at team level by default', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['invalidate', 'f1', '--reason', 'wrong interpreter on PATH', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  const events = await readAllEvents(dir, 'ws');
+  const entry = events.find((e) => e.id === 'f1');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  // Asserting on the written disclosure values themselves, not on digest
+  // output — a team-level digest does not exist yet.
+  assert.equal(entry!.disclosure, 'team');
+  assert.equal(retraction!.disclosure, 'team');
+});
+
+test('digest defaults to published and renders the coverage statement', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'pub',
+    '--question', 'the public one', '--chosen', 'x', '--disclosure', 'published'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'priv',
+    '--question', 'the candid one', '--chosen', 'y', '--disclosure', 'private'], env);
+
+  const r = await runCli(['digest', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.stdout.includes('the public one'));
+  assert.ok(!r.stdout.includes('the candid one'), 'a private entry reached the digest');
+  assert.match(r.stdout, /Coverage/i);
+});
+
+test('digest --level team includes team entries', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 't1',
+    '--question', 'team only', '--chosen', 'x'], env);   // default team
+  assert.ok(!(await runCli(['digest', '--workspace', 'ws'], env)).stdout.includes('team only'));
+  assert.ok((await runCli(['digest', '--workspace', 'ws', '--level', 'team'], env))
+    .stdout.includes('team only'));
+});
+
+test('digest --out writes the file, and refuses when the journal is damaged', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const out = join(dir, 'digest.md');
+  const ok = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.match(await readFile(out, 'utf8'), /Decision digest/);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'not json\n');
+  const damaged = await runCli(['digest', '--workspace', 'ws', '--out', join(dir, 'bad.md')], env);
+  assert.notEqual(damaged.code, 0, 'a damaged journal produced a digest at exit 0');
+  assert.match(damaged.stderr, /malformed|unreadable/i);
+  await assert.rejects(() => readFile(join(dir, 'bad.md'), 'utf8'),
+    'a partial digest was written from a journal that could not be read');
+});
+
+test('an unrecognised --level is refused', async () => {
+  const dir = await root();
+  const r = await runCli(['digest', '--workspace', 'ws', '--level', 'public'],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /private, team, published/);
+});
+
+test('trace finds an entry by ticket and walks backwards', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'root',
+    '--question', 'the original', '--chosen', 'x'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'later',
+    '--question', 'the newer one', '--chosen', 'y',
+    '--influence', 'ticket:decisive:PROJ-412',
+    '--influence', 'journal:decisive:root'], env);
+
+  const r = await runCli(['trace', 'PROJ-412', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual(out.matched, [{ id: 'later', via: 'influence' }]);
+  assert.deepEqual(out.chain.map((c: any) => c.id), ['later', 'root']);
+  assert.deepEqual(out.chain.map((c: any) => c.via), [null, 'influences']);
+});
+
+test('trace with no key is refused rather than tracing everything', async () => {
+  const dir = await root();
+  const r = await runCli(['trace', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /key/i);
+});
+
+test('trace on an unmatched key exits 0 with an empty result, and says so', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(['trace', 'nothing-matches-this', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0);
+  assert.deepEqual(JSON.parse(r.stdout).matched, []);
+  assert.match(r.stderr, /no entry/i, 'an empty result was silent');
+});
+
+// runCli's generic catch stringifies I/O failures as `${e.code}: ${e.message}`,
+// but Node's fs errors already begin their `message` with the code
+// (`EISDIR: illegal operation on a directory, open '...'`), so the naive
+// concatenation doubled it: `could not complete: EISDIR: EISDIR: ...`. `--out`
+// is what made this reachable by a user doing something ordinary — pointing at
+// a directory that already exists where the digest should go. `includes` would
+// pass with the bug present; only a count nails it down.
+test('digest --out at an existing directory reports EISDIR exactly once, not doubled', async () => {
+  const dir = await root();
+  const outDir = join(dir, 'digest.md');
+  await mkdir(outDir);
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', outDir], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 1, r.stdout);
+  const count = r.stderr.split('EISDIR').length - 1;
+  assert.equal(count, 1, `expected EISDIR exactly once, got ${count} in: ${r.stderr}`);
+});
+
+test('digest --out at an unwritable existing file reports EACCES exactly once, not doubled', async () => {
+  const dir = await root();
+  const outFile = join(dir, 'digest.md');
+  await writeFile(outFile, 'pre-existing\n', 'utf8');
+  await chmod(outFile, 0o400);
+  try {
+    const r = await runCli(['digest', '--workspace', 'ws', '--out', outFile], { AGENT_JOURNAL_ROOT: dir });
+    assert.equal(r.code, 1, r.stdout);
+    const count = r.stderr.split('EACCES').length - 1;
+    assert.equal(count, 1, `expected EACCES exactly once, got ${count} in: ${r.stderr}`);
+  } finally {
+    await chmod(outFile, 0o600);
+  }
+});
+
+// readAll() walks every `*.jsonl` under a workspace's segments/ tree, so a
+// digest written there becomes journal input on the very next read of this
+// workspace — coverage/show/trace would parse this command's own artifact as
+// journal data, and a name ending in `.jsonl` gets treated as a segment,
+// wedging the damaged-journal refusal against a corruption this command
+// inflicted on itself. A non-`.jsonl` name in the same directory is harmless,
+// which is what makes this a plausible typo rather than an obviously silly
+// path.
+test("digest --out inside the workspace's own segment tree is refused, not written", async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const insideOut = join(segDir, 'oops.jsonl');
+
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', insideOut], env);
+  assert.equal(r.code, 2, `a digest into the segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(() => readFile(insideOut, 'utf8'),
+    "a digest was written inside the workspace's own segment tree");
+
+  // The workspace must still read cleanly afterward — nothing this command
+  // did should have become input to the next read. `coverage`'s JSON always
+  // carries a `malformed` key (empty when clean), so assert on the parsed
+  // array being empty rather than the substring's mere presence.
+  const after = await runCli(['coverage', '--workspace', 'ws'], env);
+  assert.equal(after.code, 0, after.stderr);
+  assert.deepEqual(JSON.parse(after.stdout).malformed, []);
+  assert.deepEqual(JSON.parse(after.stdout).unreadable, []);
+});
+
+// The same containment check must not be defeated by a `..` segment that a
+// naive string-prefix comparison (`resolvedOut.startsWith(segmentsDir)`)
+// would miss unless both sides are actually resolved. Built as a raw string,
+// not via path.join/resolve in the test itself, so the traversal reaches the
+// CLI's own resolution unnormalized — the same way a shell argument would.
+test('digest --out defeats containment via a `..` traversal is still refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const traversalOut = `${dir}/workspaces/ws/not-a-real-dir/../segments/oops.jsonl`;
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', traversalOut], env);
+  assert.equal(r.code, 2, `a traversal into the segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(
+    () => readFile(join(dir, 'workspaces', 'ws', 'segments', 'oops.jsonl'), 'utf8'),
+    'a `..` traversal reached inside the segment tree despite the guard',
+  );
+});
+
+// `digest --out` to a path OUTSIDE the segment tree must still work — the
+// guard above is scoped to the segment tree specifically, not the whole
+// journal root, since a digest at `<root>/digest.md` is odd but harmless and
+// refusing every path under the root would block a legitimate layout choice
+// for no safety gain.
+test('digest --out to a legitimate path outside the segment tree still works', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const out = join(dir, 'docs', 'decisions', 'digest.md');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(await readFile(out, 'utf8'), /Decision digest/);
+});
+
+// I1 — `realpath()` throws ENOENT for a DANGLING symlink's target exactly the
+// same way it throws for a path that simply does not exist yet. The old
+// `canonicalize` treated both cases identically — walk up, lexically rejoin
+// the basename — which for a dangling final-component symlink reconstructs
+// the LINK'S OWN location, never where it points. `writeFile` then follows
+// the link anyway: `--out` at a symlink whose (nonexistent) target lives
+// inside the segment tree slipped past the guard, exited 0, and the write
+// landed inside the tree — reproduced here exactly as in the review finding.
+test('digest --out through a dangling symlink into the segment tree is refused, not written through', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const poisonTarget = join(segDir, 'poison.jsonl'); // does not exist — the dangling half
+  const linkPath = join(dir, 'out-link.md'); // outside the segment tree entirely
+  await symlink(poisonTarget, linkPath);
+
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', linkPath], env);
+  assert.equal(r.code, 2, `a dangling symlink into the segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(() => readFile(poisonTarget, 'utf8'),
+    'a dangling symlink let the digest write through into the segment tree');
+
+  // The workspace must still read cleanly afterward.
+  const after = await runCli(['coverage', '--workspace', 'ws'], env);
+  assert.equal(after.code, 0, after.stderr);
+  assert.deepEqual(JSON.parse(after.stdout).malformed, []);
+  assert.deepEqual(JSON.parse(after.stdout).unreadable, []);
+});
+
+// I2 — the segment-tree guard was scoped to only the RENDERED workspace's own
+// tree. `--out` naming a DIFFERENT workspace's segment tree — one that may
+// never have been written to before — slipped past entirely and wedged that
+// sibling's damaged-journal refusal permanently, while this command exited 0
+// for the workspace it was actually asked about.
+test("digest --out into a DIFFERENT workspace's segment tree is refused, even one that never existed", async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  // `other` has never been recorded to — its segments/ directory does not
+  // exist on disk yet.
+  const poison = join(dir, 'workspaces', 'other', 'segments', 'p.jsonl');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', poison], env);
+  assert.equal(r.code, 2, `a sibling workspace's segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(() => readFile(poison, 'utf8'),
+    "a digest was written inside a different workspace's segment tree");
+
+  // `other` must still read as a genuinely empty, undamaged workspace.
+  const otherCoverage = await runCli(['coverage', '--workspace', 'other'], env);
+  assert.equal(otherCoverage.code, 0, otherCoverage.stderr);
+  assert.deepEqual(JSON.parse(otherCoverage.stdout).malformed, []);
+  assert.deepEqual(JSON.parse(otherCoverage.stdout).unreadable, []);
+});
+
+// I8, half A — `resolvedOut === segmentsDir` (no filename at all, `--out`
+// pointed directly AT the tree) is a separate condition from "strictly
+// inside", and nothing previously exercised it on its own: every existing
+// test used a path WITH a filename under the tree.
+test('digest --out pointed AT a segments directory itself (no filename) is refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', segDir], env);
+  assert.equal(r.code, 2, `--out at the segments dir itself was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+});
+
+// I8, half B — a sibling directory that merely shares the `segments` PREFIX,
+// e.g. `segments-backup`, must not be caught by a `startsWith(segmentsDir)`
+// missing the trailing separator. Nothing previously exercised this: no
+// existing test wrote to a sibling of the segment tree with a matching
+// prefix.
+test('digest --out to a sibling directory that only shares the "segments" prefix is not refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const out = join(dir, 'workspaces', 'ws', 'segments-backup', 'd.md');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+  assert.equal(r.code, 0, `a legitimate sibling of the segment tree was refused: ${r.stderr}`);
+  assert.match(await readFile(out, 'utf8'), /Decision digest/);
+});
+
+// I5 — §13.3, verbatim: "private never leaves the local journal — not to
+// sync, not to a hosted sink, not to a digest." Writing a file is leaving;
+// stdout is local inspection and stays available.
+test('digest --level private --out is refused; stdout remains available', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'the candid one', '--chosen', 'c', '--disclosure', 'private'], env);
+
+  const out = join(dir, 'priv-digest.md');
+  const r = await runCli(['digest', '--workspace', 'ws', '--level', 'private', '--out', out], env);
+  assert.equal(r.code, 2, `--level private --out was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /private/i);
+  assert.match(r.stderr, /stdout/i);
+  await assert.rejects(() => readFile(out, 'utf8'), 'a private digest was written to a file');
+
+  const stdoutR = await runCli(['digest', '--workspace', 'ws', '--level', 'private'], env);
+  assert.equal(stdoutR.code, 0, stdoutR.stderr);
+  assert.ok(stdoutR.stdout.includes('the candid one'),
+    'stdout must remain available for local inspection at --level private');
+});
+
+// I7 — `digest`'s damage check is `unreadable.length > 0 || malformed.length
+// > 0`. Every existing damaged-digest test corrupted a segment's CONTENT
+// (malformed), never made one unreadable (chmod 000) — so the `unreadable`
+// disjunct on its own had no test defending it.
+test('digest refuses when a segment is unreadable, not just when one is malformed', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await chmod(join(segDir, seg), 0o000);
+  try {
+    const out = join(dir, 'digest.md');
+    const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+    assert.notEqual(r.code, 0, 'an unreadable segment produced a digest at exit 0');
+    assert.match(r.stderr, /unreadable/i);
+    await assert.rejects(() => readFile(out, 'utf8'),
+      'a digest was written from a journal with an unreadable segment');
+  } finally {
+    await chmod(join(segDir, seg), 0o600);
+  }
+});
+
+// `rest[0]` for `trace --workspace ws` (no positional at all) is the literal
+// string `'--workspace'` — always truthy, so only the `key.startsWith('--')`
+// half of the guard is ever exercised by that test. An explicitly empty key
+// (`trace '' --workspace ws`) is the only input that exercises the `!key`
+// half on its own; nothing previously did.
+test('trace with an explicitly empty key is refused, not treated as no key at all', async () => {
+  const dir = await root();
+  const r = await runCli(['trace', '', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2, r.stdout);
+  assert.match(r.stderr, /key/i);
 });

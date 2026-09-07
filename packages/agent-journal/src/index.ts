@@ -1,4 +1,6 @@
 export * from './envelope.ts';
+export * from './disclosure.ts';
+export * from './entry.ts';
 export * from './redact.ts';
 export * from './identity.ts';
 export * from './journal.ts';
@@ -6,3 +8,6 @@ export * from './read.ts';
 export * from './retract.ts';
 export * from './retention.ts';
 export * from './coverage.ts';
+export * from './constraints.ts';
+export * from './digest.ts';
+export * from './trace.ts';
