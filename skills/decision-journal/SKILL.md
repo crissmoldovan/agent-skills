@@ -72,8 +72,8 @@ help you make them.
 
 ## Prerequisites
 
-1. **The CLI is installed and on PATH.** `agent-journal --help` should print usage.
-   **Complete when:** the command runs. Without it, fall back to the transcript form in
+1. **The CLI is installed and on PATH.** `agent-journal help` prints usage and exits 0.
+   **Complete when:** it does. Without it, fall back to the transcript form in
    [references/degraded-modes.md](references/degraded-modes.md) and say you did.
 2. **A workspace id.** Everything is scoped to one. Pass `--workspace` explicitly; the
    library can derive one from the git common directory, but the CLI does not guess.
@@ -134,6 +134,13 @@ That distinction is the single most important thing in this skill, and it is cov
 [references/anchors.md](references/anchors.md). A perfectly anchored entry resting on a
 false premise is worse than no entry, because it is citable.
 
+**What this looks like through the CLI.** There is no `--anchor` flag: an entry recorded
+by hand cites its evidence inside `--rationale`, and every anchor class on it reads
+`unknown` — which is the honest default, not a gap to paper over. Structured anchors are
+written by hook adapters, which see the tool calls as they happen. Read
+[references/anchors.md](references/anchors.md) for what each class would prove; treat the
+structure as where this is going, and informal citation as what you have now.
+
 **Complete when:** every factual claim in the entry points at something checkable, or is
 explicitly marked as resting on nothing.
 
@@ -165,7 +172,16 @@ agent-journal invalidate <id> --workspace <ws> --reason "<what was actually true
 This works with no session, deliberately. The canonical case is a root cause found in a
 shell hours after the agent that wrote the entry has gone.
 
-**Complete when:** a wrong entry is marked wrong, and anything that rested on it is too.
+**What propagation needs, and what the CLI can do today.** Suppression follows
+`influences` links of type `journal` — an entry saying, in its own record, that it rests
+on another. The projection layer walks those to a fixed point. **The CLI cannot create
+them:** flags carry flat strings, and an influence is a typed object. So a CLI-issued
+`invalidate` suppresses the entry you name and nothing downstream of it. Hook adapters
+write the envelope directly and are not limited this way.
+
+**Complete when:** the wrong entry is marked wrong. If other entries rested on it, name
+them in the reason until influence links can be recorded — the suppression will not find
+them for you.
 
 ### 6. Read the coverage before you trust the record
 
@@ -178,21 +194,6 @@ report is what makes the difference legible: sessions that produced no entries, 
 writes, gaps in a source's sequence, and an explicit `null` for anything never assessed.
 
 **Complete when:** you can state what the journal does not cover, not just what it does.
-
-## Verification
-
-Before treating a journal as a record you can rely on:
-
-- **Every entry cites something, or admits it does not.** `agent-journal coverage`
-  reports entries whose anchors have gone; an entry that never had any is a story.
-- **The coverage report distinguishes `null` from `[]`.** If a field reads as an empty
-  array when nothing assessed it, the report is claiming a clean bill of health it never
-  earned. That is a bug, not a clean journal.
-- **A refused write left a trace.** Redaction refuses rather than risk writing a secret,
-  and the refusal is recorded as a void. If refusals vanish silently, the gap they leave
-  is invisible and the coverage report is lying by omission.
-- **Retractions took effect.** An invalidated entry and everything resting on it are
-  suppressed from what a later session reads.
 
 ## Usage Examples
 
@@ -244,6 +245,22 @@ agent-journal invalidate 7f3a --workspace api \
 - **Assuming order implies causality.** Entries from different sources are ordered for
   display, not for meaning. If one thing caused another, the edge between them says so —
   the sequence in a list does not.
+
+## Verification
+
+Before treating a journal as a record you can rely on:
+
+- **Every entry cites something, or admits it does not.** `agent-journal coverage`
+  reports entries whose anchors have gone; an entry that never had any is a story.
+- **The coverage report distinguishes `null` from `[]`.** If a field reads as an empty
+  array when nothing assessed it, the report is claiming a clean bill of health it never
+  earned. That is a bug, not a clean journal.
+- **A refused write left a trace.** A recognised secret is masked and the entry is
+  written; a payload the redactor cannot scan at all — oversized, or too deeply nested —
+  is refused outright, and that refusal is recorded as a void. If refusals vanish
+  silently, the gap they leave is invisible and the coverage report is lying by omission.
+- **Retractions took effect.** An invalidated entry and everything resting on it are
+  suppressed from what a later session reads.
 
 ## Deeper reading
 

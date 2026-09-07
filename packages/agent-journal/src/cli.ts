@@ -17,9 +17,11 @@ const USAGE = [
   'usage:',
   '  journal record --kind <kind> --workspace <id> [--question q] [--chosen c] [--rationale r]',
   '                 [--rejected r] [--reversibility trivial|moderate|hard|one-way] [--blastRadius b]',
-  '                 [--confidence c] [--id id] [--author human] [--context c]',
+  '                 [--confidence c] [--supersedes id] [--invalidates id]',
+  '                 [--id id] [--author human] [--context c]',
   '  journal invalidate <entry-id> --reason <why> --workspace <id>',
   '  journal coverage --workspace <id>',
+  '  journal help',
   '',
 ].join('\n');
 
@@ -100,6 +102,14 @@ export async function runCli(
 ): Promise<CliResult> {
   const [command, ...rest] = argv;
   if (!command) return { code: 2, stdout: '', stderr: USAGE };
+
+  // `help` is a request, not a usage error: stdout and exit 0, so
+  // `agent-journal help` works as the install check the docs tell people to run.
+  // Without this every probe fell through to the --workspace guard and exited 2,
+  // which reads as a broken install.
+  if (command === 'help' || command === '--help' || command === '-h') {
+    return { code: 0, stdout: USAGE, stderr: '' };
+  }
 
   const opts = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');

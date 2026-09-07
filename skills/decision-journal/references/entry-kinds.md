@@ -6,6 +6,18 @@ read differently, so the choice affects what a later reader can ask.
 All six share the same envelope, the same anchors and influences, the same retraction
 edges, and the same disclosure control.
 
+> **What the CLI exposes today.** The field tables below describe the **schema** — the
+> shape each kind takes in the journal. The `record` command currently accepts the
+> `decision` fields only: `--question`, `--chosen`, `--rationale`, `--rejected`,
+> `--reversibility`, `--blastRadius`, `--confidence`, plus `--supersedes` and
+> `--invalidates`. Passing a field from another kind is refused with `unknown flag`
+> rather than silently dropped.
+>
+> So record other kinds with `--kind finding` (or `assumption`, and so on) and put their
+> content in `--question` and `--rationale` until the remaining fields are wired. Hook
+> adapters, which write the envelope directly rather than through the CLI, are not
+> limited this way.
+
 ## `decision`
 
 A choice between options that a reasonable person could have made differently.

@@ -1,6 +1,9 @@
 # Why briefings fail
 
-Three failure modes, each with the evidence that motivated the rule.
+Three failure modes. **Only the first rests on evidence** — a measured run, described
+below. The second and third are arguments from how the contract behaves, and they are
+labelled as such: worth acting on because the countermeasures cost nothing, not because
+anyone has watched them happen.
 
 ## 1. A shared briefing manufactures the agreement you then cite
 
@@ -31,6 +34,9 @@ argument.
 
 ## 2. An empty briefing produces disciplined fiction
 
+*Reasoned, not observed.* No run has been conducted on an artefact with an insufficient
+briefing — the refusal rule exists precisely to prevent one.
+
 **The mechanism.** A review contract typically enforces *form*: cite sources, label
 grounding, name a specific failure, state a cost. On an artefact with nothing verifiable
 behind it — a greenfield proposal, a first-of-its-kind integration, a system with no
@@ -48,6 +54,9 @@ highest-value thing this skill produces and the easiest to skip, because refusin
 like failing to deliver.
 
 ## 3. A stale briefing produces confident anachronism
+
+*Reasoned, not observed.* No briefing here has yet been reused across a gap long enough
+to test this.
 
 **The mechanism.** Briefings are expensive to build and cheap to reuse. A reused briefing
 carries its facts forward without carrying forward whether they still hold.

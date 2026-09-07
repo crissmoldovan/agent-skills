@@ -149,18 +149,6 @@ invention does not.
 
 **Complete when:** the strength is stated, and if insufficient, nothing downstream runs.
 
-## Verification
-
-- **Every retained fact has a reference someone else could follow.** Spot-check three at
-  random; if one does not resolve, the briefing is not ready.
-- **The shareable half leaks no conclusions.** Read it as though you were the reviewer:
-  can you tell what the last round decided?
-- **The dropped facts are counted, not silently discarded.** A briefing that mentions no
-  gaps has either had an unusually good day or has not looked.
-- **The strength verdict matches the count.** Fourteen anchored facts is not "thin"; two
-  is not "adequate".
-- **It is dated.**
-
 ## Usage Examples
 
 **Before a multi-reviewer fan-out:**
@@ -201,6 +189,18 @@ that invents a company.
   attributed. Stated flatly it becomes a fact nobody checked.
 - **Rating strength by fact count alone.** Twenty facts about the build system do not
   ground a review of the retention policy. Strength is about what bears on the question.
+
+## Verification
+
+- **Every retained fact has a reference someone else could follow.** Spot-check three at
+  random; if one does not resolve, the briefing is not ready.
+- **The shareable half leaks no conclusions.** Read it as though you were the reviewer:
+  can you tell what the last round decided?
+- **The dropped facts are counted, not silently discarded.** A briefing that mentions no
+  gaps has either had an unusually good day or has not looked.
+- **The strength verdict matches the count.** Fourteen anchored facts is not "thin"; two
+  is not "adequate".
+- **It is dated.**
 
 ## Deeper reading
 

@@ -55,16 +55,20 @@ and it credits the perspective with nothing since the perspective never varied. 
 dials as advisory vocabulary for shaping a prompt, not as a mechanism with demonstrated
 effects.
 
-Two things are known:
+Two tensions follow from the contract rather than from measurement. Both are
+**predictions** — worth acting on because the countermeasures cost nothing, and worth
+labelling because neither has been tested:
 
-- **Divergence fights specificity.** The genuine edges of a search space are the cases
-  with no artefact to name — so a high-divergence reader is steered toward material it
-  must then label `constructed`, which gets discounted. The stable strategy becomes
-  mid-divergence content with divergent adjectives, which is the appearance of
-  exploration without the substance.
-- **Incoherent combinations produce noise.** An attester at maximum charity, or a
+- **Divergence should fight specificity.** The genuine edges of a search space are the
+  cases with no artefact to name — so a high-divergence reader is steered toward material
+  it must then label `constructed`, which gets discounted. The stable strategy becomes
+  mid-divergence content with divergent adjectives: the appearance of exploration without
+  the substance. This is an argument from the incentives the contract creates, not an
+  observed outcome.
+- **Incoherent combinations should produce noise.** An attester at maximum charity, or a
   marketer at minimum, is a reader who cannot hold their own position. Refuse the
-  combination rather than obeying it.
+  combination rather than obeying it — cheap insurance against an untested failure, not a
+  documented one.
 
 ## Fan-out discipline
 

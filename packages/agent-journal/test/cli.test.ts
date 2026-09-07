@@ -273,3 +273,17 @@ test('an unknown subcommand exits non-zero with usage', async () => {
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /usage/i);
 });
+
+test('help exits 0 on stdout, so it is usable as an install check', async () => {
+  for (const form of [['help'], ['--help'], ['-h']]) {
+    const r = await runCli(form, { AGENT_JOURNAL_ROOT: '/nonexistent' });
+    assert.equal(r.code, 0, `${form[0]} should exit 0`);
+    assert.match(r.stdout, /usage:/, `${form[0]} should print usage on stdout`);
+    assert.equal(r.stderr, '', `${form[0]} should write nothing to stderr`);
+  }
+});
+
+test('help does not hit the --workspace guard', async () => {
+  const r = await runCli(['help'], { AGENT_JOURNAL_ROOT: '/nonexistent' });
+  assert.doesNotMatch(r.stdout + r.stderr, /--workspace is required/);
+});

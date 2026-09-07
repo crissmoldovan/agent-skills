@@ -164,18 +164,6 @@ holds the voice in place.
 
 **Complete when:** the output would read as a colleague's memo, not a character study.
 
-## Verification
-
-- **Every moment carries a label, and the labels are honest.** Spot-check one `observed`
-  moment against the briefing. If it is not there, the labels are decoration.
-- **The anti-scenario is a case, not a caveat.** Ask: does it describe a situation where
-  this thing is the wrong choice? If it hedges, it is not one.
-- **Every gap traces to a moment and states a cost.** Untraced gaps are wishlist.
-- **No fabricated specifics.** No percentages, no company names, no invented incidents
-  presented as real.
-- **Where several perspectives ran, they are comparable.** Same sections, same labels.
-  If one reshaped the contract, its output cannot be collated with the rest.
-
 ## Usage Examples
 
 **A single grounded perspective:**
@@ -220,6 +208,18 @@ which are the reviewer's preferences.
 - **Discounting a finding because only one perspective raised it.** Singletons are often
   the sharpest findings — the one reader positioned to see it was the only one who could.
   Read them; do not weight by count.
+
+## Verification
+
+- **Every moment carries a label, and the labels are honest.** Spot-check one `observed`
+  moment against the briefing. If it is not there, the labels are decoration.
+- **The anti-scenario is a case, not a caveat.** Ask: does it describe a situation where
+  this thing is the wrong choice? If it hedges, it is not one.
+- **Every gap traces to a moment and states a cost.** Untraced gaps are wishlist.
+- **No fabricated specifics.** No percentages, no company names, no invented incidents
+  presented as real.
+- **Where several perspectives ran, they are comparable.** Same sections, same labels.
+  If one reshaped the contract, its output cannot be collated with the rest.
 
 ## Deeper reading
 
