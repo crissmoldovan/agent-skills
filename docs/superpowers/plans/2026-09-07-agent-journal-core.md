@@ -1373,6 +1373,14 @@ test('a self-declared outcome never overrides a retraction edge', () => {
   }
 });
 
+test('a self-declared outcome loses to supersession too, not just invalidation', () => {
+  // The three phases must stay ordered self-declared, then superseded, then
+  // invalidated. Moving the self-declared phase between the other two would
+  // yield 'held' here and no other test would notice.
+  const p = project([entry('Z', { outcome: 'held' }), entry('s', { supersedes: 'Z' })]);
+  assert.equal(p.outcomes.get('Z'), 'reverted');
+});
+
 test('supersedes does NOT cascade to descendants — only invalidates does', () => {
   // B rests on A. Superseding A means a newer decision replaced it, not that A
   // was wrong, so B stands. Widening the propagation test to match `superseded`
@@ -1411,6 +1419,14 @@ import type { JournalEvent } from './envelope.ts';
 
 export type Outcome = 'unknown' | 'held' | 'reverted' | 'invalidated';
 
+/**
+ * `outcomes` is the AUTHORITATIVE status of an entry. The two Sets can overlap —
+ * an id superseded by one agent and invalidated by another appears in both — so
+ * a consumer that tests `superseded.has(id)` before `invalidated.has(id)` to pick
+ * a label will report "replaced by something newer" for an entry whose premise
+ * was false. That is the conflation this module exists to prevent, reproduced one
+ * layer up. Read `outcomes`; treat the Sets as the inputs that produced it.
+ */
 export interface Projection {
   readonly live: JournalEvent[];
   readonly superseded: ReadonlySet<string>;
