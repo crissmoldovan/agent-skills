@@ -1,18 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
   type Anchor, type Influence,
 } from './entry.ts';
-import { DISCLOSURE_CLASSES } from './disclosure.ts';
+import { DISCLOSURE_CLASSES, type Disclosure } from './disclosure.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
 import { project } from './retract.ts';
 import { liveConstraints, constraintsBearingOn } from './constraints.ts';
+import { renderDigest } from './digest.ts';
+import { traceFrom } from './trace.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -48,6 +50,8 @@ const USAGE = [
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
+  '  agent-journal digest --workspace <id> [--level private|team|published] [--out <path>]',
+  '  agent-journal trace <key> --workspace <id>',
   '  agent-journal help',
   '',
 ].join('\n');
@@ -111,6 +115,8 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   invalidate: ['workspace', 'reason', 'disclosure'],
   coverage: ['workspace'],
   show: ['workspace', 'id'],
+  digest: ['workspace', 'level', 'out'],
+  trace: ['workspace'],
 };
 
 function unknownFlags(command: string, opts: Map<string, string>): string[] {
@@ -639,6 +645,59 @@ async function dispatch(
       stderr: damaged
         ? 'WARNING: this journal could not be fully read — the entries above are a floor, not a total.\n'
         : '',
+    };
+  }
+
+  if (command === 'digest') {
+    const level = opts.get('level');
+    if (level !== undefined && !(DISCLOSURE_CLASSES as readonly string[]).includes(level)) {
+      return {
+        code: 2, stdout: '',
+        stderr: `--level must be one of ${DISCLOSURE_CLASSES.join(', ')}, got ${JSON.stringify(level)}\n`,
+      };
+    }
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    if (damaged) {
+      // Refuse rather than write a partial artifact. A digest is a rendered
+      // document somebody commits and reviews; one written from a journal that
+      // could not be fully read, warning or not, is the most misleading thing
+      // this package can produce.
+      return {
+        code: 1, stdout: '',
+        stderr: `refusing to render: ${unreadable.length} unreadable path(s), `
+          + `${malformed.length} malformed line(s)\n`,
+      };
+    }
+    const rendered = renderDigest(events, {
+      coverage: coverage(events), now: nowStamp(),
+      ...(level === undefined ? {} : { level: level as Disclosure }),
+    });
+    const out = opts.get('out');
+    if (out) {
+      await mkdir(dirname(out), { recursive: true });
+      await writeFile(out, rendered, 'utf8');
+      return { code: 0, stdout: `wrote ${out}\n`, stderr: '' };
+    }
+    return { code: 0, stdout: rendered, stderr: '' };
+  }
+
+  if (command === 'trace') {
+    const key = rest[0];
+    if (!key || key.startsWith('--')) {
+      return { code: 2, stdout: '', stderr: `a key is required: trace <key> --workspace <id>\n` };
+    }
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const result = traceFrom(events, key);
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify({ ...result, unreadable, malformed }, null, 2)}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read — the result is a floor, not a total.\n'
+        : result.matched.length === 0
+          ? `no entry is indexed under ${JSON.stringify(key)} in this workspace\n`
+          : '',
     };
   }
 

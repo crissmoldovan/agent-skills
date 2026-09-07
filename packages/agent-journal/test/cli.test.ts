@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
@@ -1221,4 +1221,94 @@ test('a retraction and the entry it retracts both land at team level by default'
   // output — a team-level digest does not exist yet.
   assert.equal(entry!.disclosure, 'team');
   assert.equal(retraction!.disclosure, 'team');
+});
+
+test('digest defaults to published and renders the coverage statement', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'pub',
+    '--question', 'the public one', '--chosen', 'x', '--disclosure', 'published'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'priv',
+    '--question', 'the candid one', '--chosen', 'y', '--disclosure', 'private'], env);
+
+  const r = await runCli(['digest', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.stdout.includes('the public one'));
+  assert.ok(!r.stdout.includes('the candid one'), 'a private entry reached the digest');
+  assert.match(r.stdout, /Coverage/i);
+});
+
+test('digest --level team includes team entries', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 't1',
+    '--question', 'team only', '--chosen', 'x'], env);   // default team
+  assert.ok(!(await runCli(['digest', '--workspace', 'ws'], env)).stdout.includes('team only'));
+  assert.ok((await runCli(['digest', '--workspace', 'ws', '--level', 'team'], env))
+    .stdout.includes('team only'));
+});
+
+test('digest --out writes the file, and refuses when the journal is damaged', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const out = join(dir, 'digest.md');
+  const ok = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.match(await readFile(out, 'utf8'), /Decision digest/);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'not json\n');
+  const damaged = await runCli(['digest', '--workspace', 'ws', '--out', join(dir, 'bad.md')], env);
+  assert.notEqual(damaged.code, 0, 'a damaged journal produced a digest at exit 0');
+  assert.match(damaged.stderr, /malformed|unreadable/i);
+  await assert.rejects(() => readFile(join(dir, 'bad.md'), 'utf8'),
+    'a partial digest was written from a journal that could not be read');
+});
+
+test('an unrecognised --level is refused', async () => {
+  const dir = await root();
+  const r = await runCli(['digest', '--workspace', 'ws', '--level', 'public'],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /private, team, published/);
+});
+
+test('trace finds an entry by ticket and walks backwards', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'root',
+    '--question', 'the original', '--chosen', 'x'], env);
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'later',
+    '--question', 'the newer one', '--chosen', 'y',
+    '--influence', 'ticket:decisive:PROJ-412',
+    '--influence', 'journal:decisive:root'], env);
+
+  const r = await runCli(['trace', 'PROJ-412', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual(out.matched, [{ id: 'later', via: 'influence' }]);
+  assert.deepEqual(out.chain.map((c: any) => c.id), ['later', 'root']);
+  assert.deepEqual(out.chain.map((c: any) => c.via), [null, 'influences']);
+});
+
+test('trace with no key is refused rather than tracing everything', async () => {
+  const dir = await root();
+  const r = await runCli(['trace', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /key/i);
+});
+
+test('trace on an unmatched key exits 0 with an empty result, and says so', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(['trace', 'nothing-matches-this', '--workspace', 'ws'], env);
+  assert.equal(r.code, 0);
+  assert.deepEqual(JSON.parse(r.stdout).matched, []);
+  assert.match(r.stderr, /no entry/i, 'an empty result was silent');
 });
