@@ -2,8 +2,8 @@
 name: delphi-ground
 description: "Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention."
 license: MIT
-compatibility: "Any repository or environment the agent can read. Every fact needs a checkable reference — a path and line, a command and its output, a URL, a commit — so the briefing's strength tracks what the environment exposes: rich in an established codebase with history, thin on a greenfield proposal. Thin is a supported outcome and the skill says so rather than padding. No index, no daemon, no network beyond what a cited source needs. Output is a markdown briefing plus a coverage line; nothing is changed and nothing is committed."
-metadata: "group=workflow; lifecycle=review; version=1.0.0; author=crissmoldovan"
+compatibility: "Any repository or environment the agent can read. Every fact needs a checkable reference — a path and line, a command and its output, a URL, a commit — so the briefing's strength tracks what the environment exposes: rich in an established codebase with history, thin on a greenfield proposal. Thin is a supported outcome and the skill says so rather than padding. Output is a markdown briefing plus a coverage line; nothing is changed and nothing is committed."
+metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
 
@@ -20,6 +20,9 @@ reasoning has something to be wrong about.
 This skill produces that briefing. It also does the harder thing: **it refuses to certify
 one when too little can be verified**, because a disciplined-looking review built on an
 empty briefing is worse than no review — it wears the costume of evidence.
+
+Composition: **`delphi-imagine`** consumes the briefing this skill produces, and its
+*insufficient* verdict is what triggers that skill's refusal rule.
 
 ## Quickstart
 
@@ -78,7 +81,7 @@ telling you when the facts are not there.
    **Complete when:** you have it, or you have recorded which sources you cannot reach.
    Absent is a normal answer and changes the strength verdict, not the procedure.
 3. **A decision about who reads it.** A briefing shared with independent reviewers must
-   not contain prior findings. See step 4.
+   not contain prior findings. See step 3.
    **Complete when:** you know whether this briefing is going to one reader or several.
 
 ## Procedure

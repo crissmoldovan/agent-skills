@@ -124,8 +124,13 @@ Two retraction edges, and the difference carries real weight:
 | Effect on descendants | None | **Suppressed, transitively** |
 | In a digest | Shown as history | Shown as retracted |
 
-Invalidation propagates. If B rested on A and A is invalidated, B goes too — and
+Invalidation propagates through `influences` links of type `journal`, walked at the
+projection layer. If B records that it rests on A and A is invalidated, B goes too — and
 anything resting on B. That is the whole reason the two edges are separate: superseding
 a decision does not cast doubt on the work built atop it, and invalidating one does.
+
+**Through the CLI alone, propagation does not happen.** Flags carry flat strings and an
+influence is a typed object, so no CLI-recorded entry has the links the walk follows. A
+CLI-issued `invalidate` affects exactly the entry it names.
 
 Neither edge deletes. Both are appended events that change how the record projects.

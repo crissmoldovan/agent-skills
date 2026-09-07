@@ -2,8 +2,8 @@
 name: delphi-imagine
 description: "Review an artefact from a named perspective without inventing the world it lives in: grounded scenarios, a mandatory case where the thing is useless, and every request traced to a moment and costed. Use when you want a critique that can be checked rather than one that reads well."
 license: MIT
-compatibility: "Any artefact the agent can read, plus a verified-facts briefing from delphi-ground. Without a briefing the skill runs in constructed mode and labels every scenario as such, which is honest but much less useful — the grounding is where the value is. Fan-out across several perspectives needs a harness that dispatches subagents and withholds context from them; without one it runs as sequential passes and says so. Output is a fixed contract — moments, needs, an anti-scenario, costed gaps — so several runs collate without reshaping. Nothing is changed and nothing is committed."
-metadata: "group=workflow; lifecycle=review; version=1.0.0; author=crissmoldovan"
+compatibility: "Any artefact the agent can read, plus a verified-facts briefing from delphi-ground. Without one the skill runs in constructed mode and labels every scenario as such — honest, but much less useful. Fan-out across several perspectives needs a harness that dispatches subagents and withholds context; without one it runs as sequential passes and says so. Output is a fixed contract — moments, needs, an anti-scenario, costed gaps — so several runs collate without reshaping. Nothing is committed."
+metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
 
@@ -18,6 +18,9 @@ nothing costs it anything to be wrong.
 
 This skill supplies both constraints. A perspective is an instrument for noticing what a
 direct read misses — not a voice to perform.
+
+Composition: **`delphi-ground`** produces the verified-facts briefing this skill consumes,
+and its *insufficient* verdict is what triggers the refusal rule below.
 
 ## Quickstart
 

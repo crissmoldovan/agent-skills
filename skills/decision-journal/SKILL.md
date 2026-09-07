@@ -2,8 +2,8 @@
 name: decision-journal
 description: "Record why a decision was made, anchored to evidence a reader can check, so months later the question 'why is this like this, and what did we already rule out' has an answer. Use when work is worth being able to reconstruct."
 license: MIT
-compatibility: "Any harness that can run a shell command, plus the agent-journal CLI. Hooks capture actions automatically where the harness exposes them — Claude Code, Codex, Cursor and Gemini all do; Cowork and ChatGPT Work do not, and there the agent records entries itself and the journal says so. Without a filesystem the journal degrades to structured blocks in the transcript, harvested later. Git raises what a claim can point at but is not required: a journal in a design or ops context anchors to tool calls and messages instead, and renders those claims in a weaker voice rather than pretending they are commits."
-metadata: "group=workflow; lifecycle=delivery; version=1.0.0; author=crissmoldovan"
+compatibility: "Any harness that can run a shell command, plus the agent-journal CLI. Hooks capture actions automatically where the harness exposes them — Claude Code, Codex, Cursor and Gemini do; Cowork and ChatGPT Work do not, and there the agent records entries itself and the journal says so. Without a filesystem it degrades to structured blocks in the transcript. Git raises what a claim can point at but is not required: a design or ops journal anchors to tool calls, in a weaker voice."
+metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
 

@@ -16,7 +16,7 @@ Three things, in decreasing order of effect:
 3. **Time horizon.** Someone answering for this in three years asks different questions
    from someone shipping on Friday.
 
-Job title alone is the weakest of the four signals and the one people reach for first.
+Job title alone is the weakest of these signals and the one people reach for first.
 
 ## A set that disagrees
 
