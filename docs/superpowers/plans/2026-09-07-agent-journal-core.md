@@ -831,6 +831,7 @@ Spec 6.2 and 8.3. One segment per writer process; aggressive rotation so only on
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SegmentJournal } from '../src/journal.ts';
@@ -861,11 +862,33 @@ test('appends one JSON object per line', async () => {
   assert.equal(JSON.parse(lines[1]!).id, 'e2');
 });
 
-test('refuses to write when redaction fails, and says so', async () => {
+test('refuses to write when redaction fails — and NOTHING reaches disk', async () => {
   const { j } = await journal();
-  const result = await j.append(event('e3', { blob: 'x'.repeat(300000) }));
+  const result = await j.append(event('REFUSED', { blob: 'x'.repeat(300000) }));
   assert.equal(result.written, false);
   assert.equal(result.verdict, 'failed');
+  // The guarantee is about the filesystem, not the return value. Asserting only
+  // `written: false` would still pass if the early return moved after mkdir.
+  assert.equal(existsSync(result.path), false, 'a refused append must create no file');
+  // And the refused payload must not appear once a later append creates the file.
+  await j.append(event('KEPT'));
+  const disk = await readFile(j.segmentPath(), 'utf8');
+  assert.doesNotMatch(disk, /REFUSED/);
+  assert.match(disk, /KEPT/);
+});
+
+test('a refusal does not poison the queue for later appends', async () => {
+  const { j } = await journal();
+  const [bad, good] = await Promise.all([
+    j.append(event('DROP', { blob: 'x'.repeat(300000) })),
+    j.append(event('SURVIVES')),
+  ]);
+  assert.equal(bad.written, false);
+  assert.equal(good.written, true);
+  // Each call must report the file IT wrote, not another caller's.
+  assert.equal(good.path, j.segmentPath());
+  const disk = await readFile(j.segmentPath(), 'utf8');
+  assert.equal(disk.trim().split('\n').length, 1);
 });
 
 test('redacts a secret before it reaches disk', async () => {
@@ -1701,6 +1724,26 @@ async function root(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'journal-cli-'));
 }
 
+// Reads every event back off disk, so tests assert what landed rather than what
+// was printed. Without this the CLI tests only prove exit codes.
+async function readAllEvents(root: string, workspace: string) {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { parseSegment } = await import('../src/read.ts');
+  const base = join(root, 'workspaces', workspace, 'segments');
+  const out = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.name.endsWith('.jsonl')) out.push(...parseSegment(await readFile(full, 'utf8')).events);
+    }
+  }
+  await walk(base);
+  return out;
+}
+
 test('record writes one entry and reports its id', async () => {
   const dir = await root();
   const r = await runCli(
@@ -1709,6 +1752,13 @@ test('record writes one entry and reports its id', async () => {
   );
   assert.equal(r.code, 0);
   assert.match(r.stdout, /recorded /);
+
+  // Assert it reached disk with the right content, not just that it printed.
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 1);
+  assert.equal(events[0]!.kind, 'decision');
+  assert.equal(events[0]!.data.chosen, 'postgres');
+  assert.equal(events[0]!.provenance, 'cli');
 });
 
 test('record refuses and exits non-zero when redaction fails', async () => {
@@ -1734,8 +1784,15 @@ test('invalidate works with no session and is attributed to a human', async () =
     { AGENT_JOURNAL_ROOT: dir },
   );
   assert.equal(r.code, 0);
-  const report = await runCli(['coverage', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
-  assert.match(report.stdout, /sessions/);
+
+  // Assert the entry ACTUALLY LANDED with the right shape. An exit code alone
+  // would pass even if invalidate did nothing at all.
+  const events = await readAllEvents(dir, 'ws');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  assert.ok(retraction, 'a retraction event must be on disk');
+  assert.equal(retraction!.author, 'human');
+  assert.equal(retraction!.session, '-');
+  assert.equal(retraction!.data.rationale, 'wrong interpreter on PATH');
 });
 
 test('an unknown subcommand exits non-zero with usage', async () => {
