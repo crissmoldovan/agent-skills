@@ -1885,6 +1885,56 @@ test('a sequence gap is detected, and adjacent sequences are not a gap', () => {
   assert.match(report.sequenceGaps[0]!, /2 to 7/);
 });
 
+test('sourceEpoch participates in the key, not just source', () => {
+  // Same source, DIFFERENT epochs — a writer restart resets its sequence
+  // counter. Dropping sourceEpoch from the key merges them into [1, 9] and
+  // reports a phantom gap. The collision test below varies `source` too, so it
+  // cannot catch this on its own.
+  const report = coverage([
+    make('a', 'tool_call', 's1', { source: 'S', sourceEpoch: 'E1', sequence: 1 }),
+    make('b', 'tool_call', 's1', { source: 'S', sourceEpoch: 'E2', sequence: 9 }),
+  ]);
+  assert.deepEqual(report.sequenceGaps, []);
+});
+
+test('sessionsWithNoEntries is sorted, not insertion-ordered', () => {
+  // Three entry-less sessions supplied out of alphabetical order. A fixture
+  // yielding one element cannot see a missing sort.
+  const report = coverage([
+    make('o1', 'tool_call', 'z1'),
+    make('o2', 'tool_call', 'a1'),
+    make('o3', 'tool_call', 'm1'),
+    make('d1', 'decision', 'b1'),
+  ]);
+  assert.deepEqual(report.sessionsWithNoEntries, ['a1', 'm1', 'z1']);
+});
+
+test('a session that emitted nothing at all can be named', () => {
+  const report = coverage([make('o1', 'tool_call', 's1')], { knownSessions: ['s1', 'ghost'] });
+  assert.deepEqual(report.sessionsWithNoEvents, ['ghost']);
+});
+
+test('downgradedAnchors is null when never assessed, not an empty array', () => {
+  assert.equal(coverage([make('o1', 'tool_call', 's1')]).downgradedAnchors, null);
+  assert.deepEqual(coverage([make('o1', 'tool_call', 's1')], { downgradedAnchors: [] }).downgradedAnchors, []);
+});
+
+test('a void records which transport went silent', () => {
+  const v = voidEvent({
+    id: 'v1', source: 'h/m/s1/a', sourceEpoch: 'e1', time: '2026-09-07T10:00:00.000Z',
+    workspace: 'ws', session: 's1', agent: 'a', harness: 'other',
+    reason: 'sink unreachable', provenance: 'cli', context: 'ops',
+  });
+  assert.equal(v.provenance, 'cli');
+  assert.equal(v.context, 'ops');
+  // Default stays 'hook'/'coding' when the caller says nothing.
+  const d = voidEvent({
+    id: 'v2', source: 'h/m/s1/a', sourceEpoch: 'e1', time: '2026-09-07T10:00:00.000Z',
+    workspace: 'ws', session: 's1', agent: 'a', harness: 'claude-code', reason: 'hook failed',
+  });
+  assert.equal(d.provenance, 'hook');
+});
+
 test('a space in source or epoch cannot fake a sequence gap', () => {
   // Under a bare-space join these two collide on the key "foo bar baz", their
   // sequences merge to [1, 5], and a phantom gap is reported across two
@@ -1907,7 +1957,7 @@ Expected: FAIL — cannot find module `../src/coverage.ts`.
 `packages/agent-journal/src/coverage.ts`:
 
 ```ts
-import { normalizeEvent, type JournalEvent } from './envelope.ts';
+import { normalizeEvent, type JournalEvent, type Provenance } from './envelope.ts';
 import { isEntry } from './retention.ts';
 
 export interface VoidInput {
@@ -1921,6 +1971,9 @@ export interface VoidInput {
   readonly harness: string;
   readonly reason: string;
   readonly detail?: string;
+  /** Which transport went silent. A refused CLI write is not a hook failure. */
+  readonly provenance?: Provenance;
+  readonly context?: string;
 }
 
 /** A refused write, dropped sink or hook failure, recorded so silence is auditable. */
@@ -1935,9 +1988,9 @@ export function voidEvent(input: VoidInput): JournalEvent {
     session: input.session,
     agent: input.agent,
     author: 'agent',
-    provenance: 'hook',
+    provenance: input.provenance ?? 'hook',
     harness: input.harness,
-    context: 'coding',
+    context: input.context ?? 'coding',
     kind: 'void',
     data: { reason: input.reason, ...(input.detail === undefined ? {} : { detail: input.detail }) },
   });
@@ -1946,14 +1999,26 @@ export function voidEvent(input: VoidInput): JournalEvent {
 export interface CoverageReport {
   readonly sessions: number;
   readonly sessionsWithNoEntries: string[];
+  /** Sessions the caller knows started but which emitted NOTHING — not even a
+   *  void. Derivable only from outside, since a session with no events leaves
+   *  no trace in `events`. This is the worst silence the report exists to make
+   *  legible, and the one case it cannot find on its own. */
+  readonly sessionsWithNoEvents: string[];
   readonly voids: number;
   readonly sequenceGaps: string[];
-  readonly downgradedAnchors: string[];
+  /** `null` means NOT ASSESSED, not "none found". Retention computes downgrades;
+   *  a caller that never ran it must not be able to render an empty array and
+   *  imply a clean bill of health. */
+  readonly downgradedAnchors: string[] | null;
 }
 
 export function coverage(
   events: readonly JournalEvent[],
-  options: { readonly downgradedAnchors?: readonly string[] } = {},
+  options: {
+    readonly downgradedAnchors?: readonly string[];
+    /** Sessions the caller knows exist, so silence from one can be named. */
+    readonly knownSessions?: readonly string[];
+  } = {},
 ): CoverageReport {
   const sessions = new Set<string>();
   const withEntries = new Set<string>();
@@ -1989,9 +2054,12 @@ export function coverage(
   return {
     sessions: sessions.size,
     sessionsWithNoEntries: [...sessions].filter((s) => !withEntries.has(s)).sort(),
+    sessionsWithNoEvents: [...(options.knownSessions ?? [])].filter((s) => !sessions.has(s)).sort(),
     voids,
     sequenceGaps,
-    downgradedAnchors: [...(options.downgradedAnchors ?? [])],
+    downgradedAnchors: options.downgradedAnchors === undefined
+      ? null
+      : [...options.downgradedAnchors],
   };
 }
 ```
@@ -2273,6 +2341,9 @@ export async function runCli(
   }
 
   if (command === 'coverage') {
+    // No retention pass has run here, so downgraded anchors are UNASSESSED.
+    // Passing nothing yields `downgradedAnchors: null`, which renders as "not
+    // assessed" rather than an empty array implying none were found.
     const report = coverage(await readAll(root, workspace));
     return { code: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };
   }
@@ -2392,6 +2463,14 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 **Deliberately out of scope**, carried to the second plan: 9.2 harness adapters, 6.4 digest renderer, 5.6 and 5.7 entry-kind schemas as skill-level validation, 7.6 path claims, 10.1 rot and premise re-checks, 10.2 traversal, the derived index, and the `decision-journal` skill itself.
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
+
+**Known gap from Task 8 — a source that stops stamping `sequence` goes dark.**
+Gap detection only considers events carrying a `sequence`, so a source that emits sequenced
+events, silently drops to unsequenced ones — an adapter regression rather than a hook failure —
+and later resumes, produces no numeric signal for the whole unsequenced interval however many
+events were lost in it. Detecting it needs per-source state across calls, which `coverage()` does
+not have. Recorded rather than half-solved; the honest mitigation is that the adapter conformance
+fixtures should assert sequence presence, not that the report should guess.
 
 **Forward obligation from Task 7 — `applyRetention` throws.**
 It is the only function in this package that raises on bad input, and that is deliberate: it
