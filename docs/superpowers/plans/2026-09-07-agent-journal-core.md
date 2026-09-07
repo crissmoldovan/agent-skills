@@ -1347,6 +1347,41 @@ test('an entry nobody revisited reports outcome unknown, not held', () => {
   assert.equal(project([entry('lonely')]).outcomes.get('lonely'), 'unknown');
 });
 
+test('invalidation outranks supersession regardless of event order', () => {
+  const x = entry('X');
+  const inv = entry('inv', { invalidates: 'X' });
+  const sup = entry('sup', { supersedes: 'X' });
+  // Both orders must agree, and both must say invalidated: an entry whose
+  // premise was false does not become merely "replaced" because someone later
+  // superseded it.
+  for (const order of [[x, inv, sup], [x, sup, inv]]) {
+    const p = project(order);
+    assert.equal(p.outcomes.get('X'), 'invalidated');
+    assert.ok(p.invalidated.has('X'));
+  }
+});
+
+test('a self-declared outcome never overrides a retraction edge', () => {
+  const p = project([
+    entry('Y', { outcome: 'held' }),
+    entry('r', { invalidates: 'Y' }),
+  ]);
+  assert.equal(p.outcomes.get('Y'), 'invalidated');
+});
+
+test('supersedes does NOT cascade to descendants — only invalidates does', () => {
+  // B rests on A. Superseding A means a newer decision replaced it, not that A
+  // was wrong, so B stands. Widening the propagation test to match `superseded`
+  // would conflate the two edges and pass every other test in this file.
+  const p = project([
+    entry('A'),
+    entry('B', { influences: [{ type: 'journal', ref: 'A' }] }),
+    entry('s', { supersedes: 'A' }),
+  ]);
+  assert.equal(p.invalidated.has('B'), false);
+  assert.ok(p.live.some((e) => e.id === 'B'), 'B must remain live');
+});
+
 test('a human retraction from outside a session is honoured', () => {
   const human = normalizeEvent({
     schemaVersion: 1, id: 'r1', source: 'cli/m/-/-', sourceEpoch: 'e2',
@@ -1405,20 +1440,29 @@ export function project(events: readonly JournalEvent[]): Projection {
 
   for (const e of events) outcomes.set(e.id, 'unknown');
 
+  // Collect the edges FIRST, then assign outcomes by precedence. Assigning
+  // inside this loop makes the result depend on array order: an entry that is
+  // both invalidated and superseded would display whichever edge happened to be
+  // processed last, so the same events in a different order give a different
+  // answer — the defect class Task 5 shipped.
   for (const e of events) {
     const sup = stringField(e, 'supersedes');
-    if (sup) {
-      superseded.add(sup);
-      outcomes.set(sup, 'reverted');
-    }
+    if (sup) superseded.add(sup);
     const inv = stringField(e, 'invalidates');
-    if (inv) {
-      invalidated.add(inv);
-      outcomes.set(inv, 'invalidated');
-    }
+    if (inv) invalidated.add(inv);
+  }
+
+  // Precedence, weakest to strongest. Invalidation is the strongest claim there
+  // is — "this was never sound" — and must never be displaced by a supersession
+  // that merely says "something newer replaced it". Displaying `reverted` for an
+  // invalidated entry tells a reader the original reasoning still stood, which is
+  // exactly the conflation this task exists to prevent.
+  for (const e of events) {
     const declared = e.data.outcome;
     if (declared === 'held' || declared === 'reverted') outcomes.set(e.id, declared);
   }
+  for (const id of superseded) outcomes.set(id, 'reverted');
+  for (const id of invalidated) outcomes.set(id, 'invalidated');
 
   // Invalidation propagates: anything resting on an invalidated entry is suppressed.
   let changed = true;
