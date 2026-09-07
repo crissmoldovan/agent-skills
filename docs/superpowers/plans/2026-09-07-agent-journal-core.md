@@ -2355,6 +2355,18 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
 
+**Forward obligation from Task 7 — `applyRetention` throws.**
+It is the only function in this package that raises on bad input, and that is deliberate: it
+deletes data, so it shares redaction's fail-loudly posture rather than the graceful degradation
+everything else uses. The consequence binds later work. **Any caller that invokes it from a hook
+path must catch**, because spec 12 requires a hook to exit 0 and never block a session. Tasks 8
+and 9 have no such call site today; whoever adds one owns this.
+
+Second, smaller: `unclassified` events are kept with no TTL of their own. A hook persistently
+emitting a typo'd kind accumulates forever. That is the deliberate trade — unbounded growth over
+silent data loss — and it is visible in the result and purgeable via tombstones, but nothing caps
+or tests it.
+
 **Residuals from Task 5, for the final review's fix wave.**
 
 1. **`localeCompare` is not guaranteed injective.** Used as the last tiebreak in three
