@@ -48,8 +48,14 @@ export class SegmentJournal {
     try {
       const info = await stat(this.segmentPath());
       if (info.size >= this.#rotateBytes) this.#index += 1;
-    } catch {
-      // No active segment yet; nothing to rotate.
+    } catch (error) {
+      // ENOENT is the benign case: no active segment yet, nothing to rotate.
+      // Anything else means the size was never read, so rotation is skipped and
+      // the segment grows past its bound with nobody told. A bare catch here made
+      // "no rotation needed" and "the check did not run" indistinguishable — the
+      // same conflation the coverage read path had. Every other handler in this
+      // package rethrows a non-ENOENT error; this was the one that did not.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
   }
 

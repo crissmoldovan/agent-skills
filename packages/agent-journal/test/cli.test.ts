@@ -492,3 +492,46 @@ test('record --supersedes and --invalidates reach the projection', async () => {
   const live = proj.live.map((e) => e.id).sort();
   assert.deepEqual(live, ['fix', 'newer'], `live set wrong: ${live.join(',')}`);
 });
+
+// The redaction-refusal path was handled; the I/O-error path was not, so a
+// filesystem failure escaped runCli as an unhandled rejection and the process
+// died with a raw stack instead of an exit code the caller can branch on.
+test('a filesystem failure is reported, not thrown as a raw stack', async () => {
+  const dir = await root();
+  await chmod(dir, 0o500);          // readable, not writable
+  try {
+    for (const argv of [
+      ['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+       '--question', 'q', '--chosen', 'c'],
+      ['invalidate', 'x1', '--workspace', 'ws', '--reason', 'wrong'],
+    ]) {
+      const r = await runCli(argv, { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+      assert.notEqual(r.code, 0, `${argv[0]} reported success on an unwritable root`);
+      assert.match(r.stderr, /EACCES|permission|could not/i,
+        `${argv[0]} gave no usable message: ${r.stderr}`);
+      assert.doesNotMatch(r.stderr, /\n\s+at /, 'a raw stack trace reached the user');
+    }
+  } finally {
+    await chmod(dir, 0o700);
+  }
+});
+
+// `invalidated <id>` on stdout at exit 0 is what a script reads as success. The
+// append-only design deliberately allows retracting an entry that has not
+// arrived yet, so this is not an error — but stdout must not claim something
+// was suppressed when nothing matched.
+test('invalidate does not claim success on stdout when nothing matched', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'real',
+    '--question', 'q', '--chosen', 'c'], env);
+
+  const hit = await runCli(['invalidate', 'real', '--workspace', 'ws', '--reason', 'w'], env);
+  assert.equal(hit.code, 0);
+  assert.match(hit.stdout, /^invalidated real/, `matched target: ${hit.stdout}`);
+
+  const miss = await runCli(['invalidate', 'ghost', '--workspace', 'ws', '--reason', 'w'], env);
+  assert.doesNotMatch(miss.stdout, /^invalidated ghost/,
+    `stdout claimed an unmatched id was invalidated: ${miss.stdout}`);
+  assert.match(miss.stdout + miss.stderr, /no matching entry|not present/i);
+});

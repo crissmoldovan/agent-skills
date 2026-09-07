@@ -158,6 +158,22 @@ export async function runCli(
   argv: readonly string[],
   env: Record<string, string | undefined>,
 ): Promise<CliResult> {
+  // Redaction refusal was handled; I/O failure was not, so a full disk or a
+  // read-only root escaped as an unhandled rejection and killed the process with
+  // a raw stack. A caller cannot branch on a stack trace.
+  try {
+    return await dispatch(argv, env);
+  } catch (error) {
+    const e = error as NodeJS.ErrnoException;
+    const detail = e.code ? `${e.code}: ${e.message}` : String(e.message ?? error);
+    return { code: 1, stdout: '', stderr: `could not complete: ${detail}\n` };
+  }
+}
+
+async function dispatch(
+  argv: readonly string[],
+  env: Record<string, string | undefined>,
+): Promise<CliResult> {
   const [command, ...rest] = argv;
   if (!command) return { code: 2, stdout: '', stderr: USAGE };
 
@@ -310,9 +326,15 @@ export async function runCli(
     // Append-only by design, so an unknown target is not an error — but a human
     // correcting a typo deserves to hear that nothing matched.
     const known = (await readAll(root, workspace)).events.some((e) => e.id === target);
+    // Exit stays 0: a retraction may legitimately precede the entry it names,
+    // arriving from another replica later. But `invalidated <id>` on stdout is
+    // what a script reads as success, and nothing was suppressed — so stdout
+    // says what actually happened and the claim is reserved for a real match.
     return {
       code: 0,
-      stdout: `invalidated ${target}\n`,
+      stdout: known
+        ? `invalidated ${target}\n`
+        : `retraction recorded for ${target}; no matching entry in this workspace\n`,
       stderr: known ? '' : `WARNING: no entry with id ${target} is present in this workspace\n`,
     };
   }

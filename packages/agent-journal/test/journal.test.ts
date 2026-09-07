@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -133,4 +133,24 @@ test('the path append reports agrees with the segment the journal is on', async 
         `append reported ${path} for ${id}, but the event is not in that file`);
     }
   }
+});
+
+// The only bare `catch {}` in the package. A missing segment means "nothing to
+// rotate" and is benign; any other error means the size check did not happen, so
+// rotation is silently skipped. What is testable here is the benign half: a
+// first append to a fresh journal must not be treated as an error.
+//
+// The non-ENOENT half is asserted by construction, not by fixture, and the
+// reason is worth writing down: every condition that makes `stat` fail on the
+// segment also makes the `appendFile` two lines later fail, so the write surfaces
+// an error anyway (measured: chmod 000 on the segment directory rejects with
+// EACCES from `open`). A fixture claiming to cover it would be passing on the
+// appendFile rejection, which is exactly the kind of test this branch has been
+// removing. The rethrow is still correct — it matches every other handler here
+// and stops a skipped rotation being indistinguishable from no rotation needed.
+test('a first append to a fresh journal is not treated as a rotation failure', async () => {
+  const { j } = await journal(200);
+  const r = await j.append(event('first'));
+  assert.equal(r.written, true);
+  assert.match(await readFile(r.path, 'utf8'), /"id":"first"/);
 });
