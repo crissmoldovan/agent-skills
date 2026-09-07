@@ -45,7 +45,7 @@ const USAGE = [
   '                       [--disclosure private|team|published] [--subject s]',
   '                       ...plus the fields for <kind>:',
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
-  '  agent-journal invalidate <entry-id> --reason <why> --workspace <id>',
+  '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
   '  agent-journal help',
@@ -108,7 +108,7 @@ const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
  */
 const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   record: [...RECORD_GLOBAL, ...Object.values(KIND_FIELDS).flat()],
-  invalidate: ['workspace', 'reason'],
+  invalidate: ['workspace', 'reason', 'disclosure'],
   coverage: ['workspace'],
   show: ['workspace', 'id'],
 };
@@ -485,12 +485,31 @@ async function dispatch(
     }
     if (!reason) return { code: 2, stdout: '', stderr: `--reason is required\n${USAGE}` };
 
+    // Same guard as record's: refuse an unrecognised value rather than let
+    // normalizeDisclosure silently contain it. A retraction's --reason can be
+    // as candid as an entry's rationale, so it needs the same escape to
+    // `private` record has, validated the same way.
+    const declaredDisclosure = opts.get('disclosure');
+    if (declaredDisclosure !== undefined
+        && !(DISCLOSURE_CLASSES as readonly string[]).includes(declaredDisclosure)) {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `--disclosure must be one of ${DISCLOSURE_CLASSES.join(', ')}, `
+          + `got ${JSON.stringify(declaredDisclosure)}\n`,
+      };
+    }
+
     // No session: a human retracting from a bare shell (spec 5.8).
     const event = normalizeEvent({
       schemaVersion: 1, id: randomUUID(), source: `cli/${hostname()}/-/-`, sourceEpoch: 'e1',
       time: nowStamp(), workspace, session: '-', agent: '-', author: 'human', provenance: 'cli',
       harness: 'other', context: 'coding', kind: 'decision',
       data: { invalidates: target, rationale: reason },
+      // The write-path default is `team`, per spec 13.3 — same distinction
+      // record draws: an entry THIS CLI wrote is known to have meant the
+      // default; only a foreign, unreadable record contains to `private`.
+      disclosure: declaredDisclosure ?? 'team',
     });
 
     const journal = journalFor(root, workspace, '-', '-');

@@ -1144,3 +1144,67 @@ test('a blank --subject leaves the key absent, like every other blank scalar', a
   const [entry] = await readAllEvents(dir, 'ws');
   assert.ok(!('subject' in entry!), `subject was stored as blank: ${JSON.stringify(entry!.subject)}`);
 });
+
+// Fix round 1 for Task 2: invalidate was left on the wrong side of the same
+// distinction record now draws. A retraction is an entry this CLI just wrote
+// and knows the intent of — it should default to `team` (spec 13.3), not
+// `private`, which is only right for a foreign record whose intent is
+// unknowable.
+test('invalidate defaults to team, not private, per spec 13.3', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['invalidate', 'f1', '--reason', 'wrong interpreter on PATH', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  const events = await readAllEvents(dir, 'ws');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  assert.equal(retraction!.disclosure, 'team',
+    'a retraction this CLI wrote defaults to team; only an unreadable foreign one contains');
+});
+
+test('invalidate --disclosure private writes private', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(
+    ['invalidate', 'f1', '--reason', 'names a person', '--workspace', 'ws', '--disclosure', 'private'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const events = await readAllEvents(dir, 'ws');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  assert.equal(retraction!.disclosure, 'private');
+});
+
+test('invalidate --disclosure public is refused, not silently contained', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  const r = await runCli(
+    ['invalidate', 'f1', '--reason', 'why', '--workspace', 'ws', '--disclosure', 'public'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 2, `--disclosure public was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /private, team, published/);
+  const events = await readAllEvents(dir, 'ws');
+  assert.ok(!events.some((e) => e.data.invalidates === 'f1'), 'no retraction should have been written');
+});
+
+test('a retraction and the entry it retracts both land at team level by default', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'f1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['invalidate', 'f1', '--reason', 'wrong interpreter on PATH', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  const events = await readAllEvents(dir, 'ws');
+  const entry = events.find((e) => e.id === 'f1');
+  const retraction = events.find((e) => e.data.invalidates === 'f1');
+  // Asserting on the written disclosure values themselves, not on digest
+  // output — a team-level digest does not exist yet.
+  assert.equal(entry!.disclosure, 'team');
+  assert.equal(retraction!.disclosure, 'team');
+});
