@@ -100,7 +100,7 @@ export async function runCli(
 
     const event = normalizeEvent({
       schemaVersion: 1, id, source: `cli/${hostname()}/${session}/${agent}`, sourceEpoch: 'e1',
-      time: nowStamp(), workspace, session, agent, author: 'agent', provenance: 'cli',
+      time: nowStamp(), workspace, session, agent, author, provenance: 'cli',
       harness: env.AGENT_JOURNAL_HARNESS ?? 'other', context: opts.get('context') ?? 'coding',
       kind, data,
     });
