@@ -1,5 +1,3 @@
-import type { Anchor } from './entry.ts';
-
 export type Author = 'agent' | 'human';
 export type Provenance = 'hook' | 'cli' | 'http' | 'mcp' | 'transcript';
 export type Capability = 'known' | 'unknown';
@@ -110,7 +108,7 @@ export function normalizeEvent(value: unknown): JournalEvent {
  */
 export function capabilitiesWithAnchors(
   base: Capabilities,
-  anchors: readonly Anchor[],
+  anchors: readonly { readonly type: AnchorClass; readonly ref?: string }[],
 ): Capabilities {
   const out = { ...base };
   for (const a of anchors) out[a.type] = 'known';
