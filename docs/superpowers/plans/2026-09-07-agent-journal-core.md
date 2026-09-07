@@ -1618,17 +1618,24 @@ test('a SUPERSEDED but not invalidated entry still pins', () => {
 });
 
 test('downgraded reflects a naturally EXPIRED referent, not only a tombstoned one', () => {
-  // d1 is invalidated, so it stops pinning o1 and o1 ages out. d2 still cites
-  // o1 and must be told its anchor is gone. Building `gone` from tombstoned ids
-  // alone would miss this and pass every other test in this file.
+  // A property worth stating, because it constrains what this test can even be:
+  // the ONLY entry that can cite an expired observation is one that is itself
+  // invalidated. Any live entry citing an observation pins it, so the
+  // observation cannot age out. An earlier version of this test added a second,
+  // live entry citing o1 and was therefore unsatisfiable — that entry pinned o1
+  // and nothing expired at all.
+  //
+  // So: d1 cites o1 and is invalidated, stopping its pin. o1 ages out. d1 is
+  // still in `keep` (entries are never aged) and must be told its anchor is
+  // gone. Building `gone` from tombstoned ids alone would miss this entirely
+  // and pass every other test in this file.
   const r = applyRetention([
     make('o1', 'tool_call', OLD),
     make('d1', 'decision', OLD, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
     make('inv', 'decision', NOW, { invalidates: 'd1' }),
-    make('d2', 'decision', NOW, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
   ], { now: NOW, observationTtlMs: THIRTY_DAYS });
   assert.deepEqual(r.expired, ['o1']);
-  assert.ok(r.downgraded.includes('d2'), 'an entry citing an expired observation must be downgraded');
+  assert.deepEqual(r.downgraded, ['d1']);
 });
 
 test('an unrecognised kind is kept and reported, never silently aged out', () => {
