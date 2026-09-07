@@ -161,7 +161,7 @@ Two retraction edges, and the difference carries real weight:
 | Means | A later decision replaced this | This entry's premise was false |
 | The original was | Reasonable at the time | Never sound |
 | Effect on descendants | None | **Suppressed, transitively** |
-| In a digest | Shown as history | Shown as retracted |
+| In a digest | `outcome reverted` | `outcome invalidated` |
 
 Invalidation propagates through `influences` links of type `journal`, walked at the
 projection layer. If B records that it rests on A and A is invalidated, B goes too — and

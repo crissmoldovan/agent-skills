@@ -27,15 +27,29 @@ function list(e: JournalEvent, field: string): string[] {
 }
 
 /**
- * The title becomes a markdown heading line (`## ${title}`). Collapse any
- * embedded whitespace — including a newline — to a single space and strip a
- * leading run of `#` so a title typed carelessly, or adversarially, cannot
- * inject its own heading or escape into the document as a raw line. Scoped to
- * the title only: body fields are deliberately left unescaped, a broader
- * question this fix round does not settle (see digest.test.ts).
+ * Every field this touches renders into a single-line bullet BY
+ * CONSTRUCTION — the title becomes a markdown heading (`## ${title}`), and
+ * `chosen`/`reversibility`/`blastRadius`/`rationale`/each `rejected[]` item
+ * becomes one `- **label** value` (or bare `- value`) line. Collapse any
+ * embedded whitespace — including a newline — to a single space, then strip
+ * a leading run of markdown block characters (`#`, `>`, `-`, `*`, backtick)
+ * so a value typed carelessly, or adversarially, cannot inject its own
+ * heading, blockquote, list marker, or escape into the document as a raw
+ * line of its own. This is narrow line-normalisation, not a general
+ * markdown escaper: nothing past the leading run is touched, so inline
+ * emphasis, links, and the rest of ordinary markdown inside a value pass
+ * through untouched.
+ *
+ * Originally scoped to the title alone, on the reasoning that body fields
+ * were a broader design question this package had not settled. That was
+ * wrong: `--rationale $'fine\n## Coverage\n\n- sessions observed: 9999'`
+ * renders a forged second `## Coverage` block, with a fabricated count,
+ * above the real one — in the artifact meant to be committed and reviewed.
+ * §10.3's coverage statement is this design's honesty control; an ordinary
+ * content field must not be able to forge it.
  */
-function sanitizeTitle(raw: string): string {
-  return raw.replace(/\s+/g, ' ').trim().replace(/^#+\s*/, '');
+function sanitizeLine(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim().replace(/^[#>*`-]+\s*/, '');
 }
 
 /** True only when EVERY influence is model_knowledge — 5.4's signal, not a mere mention. */
@@ -89,22 +103,41 @@ export function renderDigest(
   }
 
   for (const { e, outcome } of entries) {
-    const title = sanitizeTitle(str(e, 'question') ?? str(e, 'statement') ?? str(e, 'claim') ?? e.id);
+    // A retraction entry — from `invalidate`, or `record --supersedes` —
+    // carries none of question/statement/claim; it never had one. Without
+    // this fallback its title fell through to its own raw id, and the row
+    // that exists to say "this retracted that" named neither, anonymously.
+    // `show` was already fixed for exactly this with its `retracts` field;
+    // the digest is the committed, higher-stakes surface and was not.
+    const invalidatesTarget = str(e, 'invalidates');
+    const supersedesTarget = str(e, 'supersedes');
+    const retractionTitle = invalidatesTarget
+      ? `Retraction of ${invalidatesTarget}`
+      : supersedesTarget
+        ? `Supersession of ${supersedesTarget}`
+        : undefined;
+    const title = sanitizeLine(str(e, 'question') ?? str(e, 'statement') ?? str(e, 'claim')
+      ?? retractionTitle ?? e.id);
     out.push(`## ${title}`, '');
     out.push(`- **id** \`${e.id}\` · **kind** ${e.kind} · **outcome** ${outcome}`);
+    // Name the target explicitly — not just a readable title above, but the
+    // edge itself — so a reader does not have to infer it from the title's
+    // prose.
+    if (invalidatesTarget) out.push(`- **invalidates** \`${invalidatesTarget}\``);
+    if (supersedesTarget) out.push(`- **supersedes** \`${supersedesTarget}\``);
     const chosen = str(e, 'chosen');
-    if (chosen) out.push(`- **chosen** ${chosen}`);
+    if (chosen) out.push(`- **chosen** ${sanitizeLine(chosen)}`);
     const rev = str(e, 'reversibility');
-    if (rev) out.push(`- **reversibility** ${rev}`);
+    if (rev) out.push(`- **reversibility** ${sanitizeLine(rev)}`);
     const blast = str(e, 'blastRadius');
-    if (blast) out.push(`- **blast radius** ${blast}`);
+    if (blast) out.push(`- **blast radius** ${sanitizeLine(blast)}`);
     const rationale = str(e, 'rationale');
-    if (rationale) out.push(`- **why** ${rationale}`);
+    if (rationale) out.push(`- **why** ${sanitizeLine(rationale)}`);
 
     const rejected = list(e, 'rejected');
     if (rejected.length > 0) {
       out.push('', '**Rejected:**');
-      for (const r of rejected) out.push(`- ${r}`);
+      for (const r of rejected) out.push(`- ${sanitizeLine(r)}`);
     }
 
     if (restsOnPriorsAlone(e)) {

@@ -165,16 +165,102 @@ test('a rationale renders as the why line when the entry is readable', () => {
 });
 
 // A careless — or hostile — title should not be able to corrupt the digest's
-// heading structure. Scoped to the title only; body fields are deliberately
-// left unescaped (a broader design question this fix round does not settle):
-// e.g. `chosen`, `rationale` and `rejected[]` can still contain raw markdown
-// or newlines that are not stripped here.
+// heading structure. `chosen`, `rationale` and `rejected[]` get the same
+// treatment (see the tests below) — this fix round settled the question the
+// comment here used to say was left open.
 test('a markdown-heading-shaped title cannot inject a heading or leak a raw line', () => {
   const out = render([ev('inj', { question: '## nested\nsecond line', chosen: 'x' })]);
   assert.ok(out.includes('## nested second line'), 'the sanitized title must still render, on one line');
   assert.ok(!out.includes('## ## nested'), 'a leading # in the title was not stripped');
   assert.ok(!out.split('\n').includes('second line'),
     'a newline inside the title escaped into the document as a raw line');
+});
+
+// I3 — a forged `## Coverage` block through an ordinary content field. The
+// exact reproduction from the review finding: a multi-line `--rationale`
+// whose second line is a heading that looks exactly like the real coverage
+// block, with a fabricated count. Before the fix this rendered a SECOND
+// `## Coverage` heading above the real one, forgeable through a field with
+// no special status at all.
+test('a multi-line rationale cannot forge a second Coverage heading', () => {
+  const out = render([ev('d1', { question: 'q', chosen: 'c',
+    rationale: 'fine\n## Coverage\n\n- sessions observed: 9999' })]);
+  const headingLines = out.split('\n').filter((l) => l.startsWith('## '));
+  assert.equal(headingLines.length, 2, `expected exactly the entry heading and the real Coverage heading, got:\n${headingLines.join('\n')}`);
+  assert.equal(headingLines[1], '## Coverage', 'the real Coverage heading must still be the only one');
+  // The fabricated count is still visible as plain text under "why" — that is
+  // honest disclosure of what the entry says, not a forgery. What must not
+  // exist is a SECOND `- sessions observed:` line claiming to be the coverage
+  // report itself.
+  const coverageCountLines = out.split('\n').filter((l) => /^- sessions observed:/.test(l));
+  assert.deepEqual(coverageCountLines, ['- sessions observed: 1'],
+    `expected exactly one real coverage count line, got:\n${coverageCountLines.join('\n')}`);
+  assert.ok(out.includes('fine ## Coverage - sessions observed: 9999'),
+    'the sanitized rationale must still render its content, collapsed onto one line');
+});
+
+// The same injection shape through `chosen`, `reversibility`, `blastRadius`
+// and a `rejected[]` item — each is a single-line bullet by construction, so
+// each gets the same normalisation as the title and the rationale above.
+test('chosen, reversibility, blastRadius and rejected items get the same line-normalisation as the title', () => {
+  const out = render([ev('d2', {
+    question: 'q', chosen: '## injected chosen\nsecond line',
+    reversibility: '> injected', blastRadius: '- injected',
+    rejected: ['## injected rejected\nsecond line'],
+  })]);
+  const lines = out.split('\n');
+  assert.ok(lines.some((l) => l === '- **chosen** injected chosen second line'), `chosen not sanitized: ${out}`);
+  assert.ok(!lines.some((l) => l.startsWith('> injected') || l === 'second line'),
+    'a body field escaped onto its own raw line');
+  assert.ok(lines.some((l) => l === '- injected rejected second line'),
+    `rejected item not sanitized: ${out}`);
+  assert.ok(lines.some((l) => l === '- **blast radius** injected'), `blastRadius not sanitized: ${out}`);
+  assert.ok(!lines.some((l) => l.startsWith('## injected')), 'a body field injected its own heading');
+});
+
+// I4 — an `invalidate`-shaped entry (`kind: decision`, `data: { invalidates,
+// rationale }`, exactly what the CLI's `invalidate` command writes) has none
+// of question/statement/claim, so before the fix its title fell through to
+// its own raw id and the row named nothing it retracted. `show` already got
+// a `retracts` field for this; the digest — the committed, higher-stakes
+// surface — did not.
+test('a retraction renders with a readable title and names its target, not the bare id', () => {
+  const out = render([
+    ev('root', { question: 'the original call', chosen: 'x' }),
+    ev('r1', { invalidates: 'root', rationale: 'the premise was false' }),
+  ]);
+  const lines = out.split('\n');
+  assert.ok(!lines.includes('## r1'), 'the retraction titled itself with its bare id');
+  assert.ok(lines.includes('## Retraction of root'), `no readable retraction title, got:\n${out}`);
+  assert.ok(lines.includes('- **invalidates** `root`'), 'the retraction did not name its target');
+});
+
+// The supersedes edge gets the same treatment — a decision that only carries
+// `--supersedes` and no question of its own is a realistic shape too (the
+// CLI does not require `question` for `record --kind decision`).
+test('a supersession with no title of its own also names its target and titles readably', () => {
+  const out = render([
+    ev('old', { question: 'the original call', chosen: 'x' }),
+    ev('r2', { supersedes: 'old' }),
+  ]);
+  const lines = out.split('\n');
+  assert.ok(!lines.includes('## r2'), 'the supersession titled itself with its bare id');
+  assert.ok(lines.includes('## Supersession of old'), `no readable supersession title, got:\n${out}`);
+  assert.ok(lines.includes('- **supersedes** `old`'), 'the supersession did not name its target');
+});
+
+// I9 — same class of shape guard as trace.ts's `refs`/`journalRefs`: a
+// foreign record's `influences` can contain a bare `null` rather than an
+// object. `typeof null === 'object'` in JS, so without the `i !== null`
+// guard in `restsOnPriorsAlone`, this throws a TypeError out of
+// `renderDigest` instead of treating the null element as "not
+// model_knowledge".
+test('a null element in influences does not crash renderDigest', () => {
+  const out = render([ev('shaky', { question: 'q', chosen: 'c',
+    influences: [null, { type: 'model_knowledge', role: 'decisive' }] })]);
+  assert.ok(out.includes('## q'));
+  assert.ok(!/no source consulted/i.test(out),
+    'a null influence alongside a real one must not read as "every influence is model_knowledge"');
 });
 
 test('an entry resting only on model_knowledge is flagged', () => {

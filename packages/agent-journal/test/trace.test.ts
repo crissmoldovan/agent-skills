@@ -165,3 +165,35 @@ test('an edge naming an entry that does not exist is skipped, not fatal', () => 
   const chain = traceFrom(events, 'src/a.ts').chain;
   assert.deepEqual(chain.map((c) => c.id), ['d1'], 'a dangling edge broke the walk');
 });
+
+// I6 — the `invalidates` traversal edge (trace.ts:138) had zero coverage:
+// every existing chain test used `supersedes` or a `journal` influence, so
+// deleting `if (inv) queue.push(...)` left all 239 tests green and `via:
+// 'invalidates'` appeared in no assertion anywhere in the suite.
+test('traversal follows an invalidates edge backwards too, naming it', () => {
+  const events = [
+    ev('root', { question: 'the original', chosen: 'x' }),
+    ev('leaf', { question: 'says root was wrong', chosen: 'z', invalidates: 'root' }, 'src/z.ts'),
+  ];
+  const chain = traceFrom(events, 'src/z.ts').chain;
+  assert.deepEqual(chain.map((c) => c.id), ['leaf', 'root']);
+  assert.deepEqual(chain.map((c) => c.via), [null, 'invalidates']);
+});
+
+// I9 — three `!== null` shape guards (trace.ts:36 and :49, digest.ts:45)
+// protect against a foreign record whose `influences` array holds a bare
+// `null` rather than an object — a shape this package's own CLI never
+// writes, but a hand-edited or foreign-tool-written line legitimately can.
+// `typeof null === 'object'` in JS, so removing either guard in this file
+// throws a TypeError out of `traceFrom` instead of skipping the malformed
+// element. One fixture with `influences: [null]` exercises both: `refs`
+// (shared by anchors and influences, indexing time) and `journalRefs`
+// (influences only, traversal time) are both called on it by this one
+// `traceFrom` invocation.
+test('a null element in influences is skipped, not a thrown TypeError', () => {
+  const events = [ev('shaky', { question: 'q', chosen: 'c', influences: [null] }, 'src/z.ts')];
+  assert.doesNotThrow(() => traceFrom(events, 'src/z.ts'));
+  const result = traceFrom(events, 'src/z.ts');
+  assert.deepEqual(result.matched, [{ id: 'shaky', via: 'subject' }]);
+  assert.deepEqual(result.chain.map((c) => c.id), ['shaky']);
+});

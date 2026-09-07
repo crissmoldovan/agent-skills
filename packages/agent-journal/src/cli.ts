@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { readdir, readFile, mkdir, writeFile, realpath } from 'node:fs/promises';
-import { join, dirname, resolve, basename, sep } from 'node:path';
+import { readdir, readFile, mkdir, writeFile, realpath, lstat, readlink } from 'node:fs/promises';
+import { join, dirname, resolve, basename, sep, isAbsolute, relative } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
@@ -139,18 +139,15 @@ function journalFor(root: string, workspace: string, session: string, agent: str
 }
 
 /**
- * Resolve `p` as canonically as the filesystem allows, so a comparison against
- * it cannot be defeated by a relative path, a `..` traversal, or a symlink
- * anywhere in the chain — including a symlinked AGENT_JOURNAL_ROOT itself.
- * `path.resolve()` alone handles the first two but never follows symlinks;
- * `fs.realpath()` alone throws on a path that does not fully exist yet, which
- * `--out` to a fresh nested path always is. This walks up to the longest
- * existing ancestor, realpath()s that, and lexically rejoins whatever does
- * not exist yet — so the two sides of a "is this path inside that tree?"
- * check are always compared in the same coordinate system.
+ * Resolve the PARENT directory chain of `p` as canonically as the filesystem
+ * allows: walk up to the longest existing ancestor, `realpath()` that, and
+ * lexically rejoin whatever does not exist yet. Deliberately never inspects
+ * the final path component itself — that needs different treatment (see
+ * `canonicalize`), because a symlink AT that position must be followed to
+ * where it points, not treated as "this segment doesn't exist yet".
  */
-async function canonicalize(p: string): Promise<string> {
-  let current = resolve(p);
+async function realParentDir(dirPath: string): Promise<string> {
+  let current = resolve(dirPath);
   const tail: string[] = [];
   for (;;) {
     try {
@@ -164,6 +161,65 @@ async function canonicalize(p: string): Promise<string> {
       current = parent;
     }
   }
+}
+
+/**
+ * Resolve `p` as canonically as the filesystem allows, so a comparison against
+ * it cannot be defeated by a relative path, a `..` traversal, or a symlink
+ * anywhere in the chain — including the FINAL component being a symlink whose
+ * target does not exist yet.
+ *
+ * `fs.realpath()` alone throws ENOENT the instant any segment does not exist
+ * — including a dangling symlink's TARGET, which is exactly what `--out`
+ * pointed through such a symlink looks like from realpath's point of view.
+ * The previous version of this function treated every ENOENT the same way —
+ * walk up, lexically rejoin the basename — which for a dangling final-
+ * component symlink reconstructs the SYMLINK'S OWN location, never where it
+ * points. `writeFile` then follows the link anyway, so a dangling symlink
+ * into the segment tree canonicalized to somewhere harmless while the actual
+ * write landed inside the tree it was supposed to be caught by.
+ *
+ * The fix resolves the parent directory chain (which legitimately may not
+ * fully exist yet — `--out` to a fresh nested path always looks like that)
+ * separately from the final component. For the final component, `lstat` —
+ * never `realpath` — decides what it is: nonexistent (the ordinary "fresh
+ * output path" case, returned as-is), an existing non-symlink (already
+ * canonical, since its parent is), or a symlink, dangling or not, which is
+ * followed to wherever it actually points — recursively, since the target
+ * can itself be another symlink or another not-yet-existing nested path —
+ * rather than back to the link's own location.
+ */
+async function canonicalize(p: string, depth = 0): Promise<string> {
+  if (depth > 40) {
+    // A real filesystem refuses a symlink chain this long with ELOOP; this
+    // mirrors that instead of recursing forever around a symlink cycle.
+    throw Object.assign(new Error(`too many levels of symbolic links: ${p}`), { code: 'ELOOP' });
+  }
+  const abs = resolve(p);
+  const parentReal = await realParentDir(dirname(abs));
+  const candidate = join(parentReal, basename(abs));
+
+  let stat;
+  try {
+    stat = await lstat(candidate);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // Genuinely does not exist at all, at any level — nothing more to resolve.
+    return candidate;
+  }
+
+  if (!stat.isSymbolicLink()) {
+    // Exists, and is not itself a link: the parent is already canonical and
+    // this component adds nothing symlinked on top of it.
+    return candidate;
+  }
+
+  // A symlink, dangling or not — follow it to wherever it actually points,
+  // then canonicalize THAT (it may not exist yet either, or may itself be
+  // another symlink), rather than falling back to the link's own location.
+  const target = await readlink(candidate);
+  const resolvedTarget = isAbsolute(target) ? target : join(dirname(candidate), target);
+  return canonicalize(resolvedTarget, depth + 1);
 }
 
 interface ReadResult {
@@ -691,24 +747,60 @@ async function dispatch(
       };
     }
     const out = opts.get('out');
+
+    // §13.3, verbatim: "private never leaves the local journal — not to
+    // sync, not to a hosted sink, not to a digest." Printing to stdout is
+    // reading the local journal; writing a file is leaving it. Refused
+    // before any read or render happens, before the segment-tree guard below
+    // even runs.
+    if (out && level === 'private') {
+      return {
+        code: 2, stdout: '',
+        stderr: '--out is refused with --level private; private entries are not written to '
+          + 'a file (spec 13.3) — omit --out and read the digest from stdout for local inspection\n',
+      };
+    }
+
     if (out) {
-      // A digest written under the workspace's own segment tree becomes
-      // journal INPUT the next time this workspace is read: readAll() walks
-      // every `*.jsonl` under segments/, coverage/show/trace would treat this
-      // command's own artifact as journal data, and a name that happens to
-      // land on a `.jsonl` extension gets parsed as one — most likely wedging
-      // this workspace's damaged-journal refusal permanently, since the very
-      // next digest attempt reads its own prior output as corruption. Both
-      // sides are resolved through the filesystem, not compared as strings —
-      // a relative path, a `..` traversal, or a symlinked root must not slip
-      // past what would otherwise be a naive prefix check.
-      const segmentsDir = await canonicalize(join(root, 'workspaces', workspace, 'segments'));
+      // A digest written under ANY workspace's segment tree becomes journal
+      // INPUT the next time THAT workspace is read: readAll() walks every
+      // `*.jsonl` under a workspace's segments/, coverage/show/trace would
+      // treat this command's own artifact as journal data, and a name that
+      // happens to land on a `.jsonl` extension gets parsed as one — most
+      // likely wedging that workspace's damaged-journal refusal permanently,
+      // since the very next digest attempt reads its own prior output as
+      // corruption. This is deliberately NOT scoped to the rendered
+      // workspace alone: `--out` naming a DIFFERENT workspace's segment tree
+      // (`--workspace ws --out <root>/workspaces/other/segments/p.jsonl`)
+      // wedges that sibling just as permanently while this command still
+      // exits 0 for the workspace it was actually asked about — narrowing
+      // this check to only the rendered workspace's tree was itself a defect
+      // in an earlier pass, on the mistaken reasoning that anything outside
+      // it is "odd but harmless"; true of `<root>/digest.md`, false of a
+      // sibling's segment tree. Both sides are resolved through the
+      // filesystem, not compared as strings — a relative path, a `..`
+      // traversal, or a symlink (dangling or not) pointing back into a
+      // segment tree must not slip past what would otherwise be a naive
+      // prefix check.
+      const workspacesRoot = await canonicalize(join(root, 'workspaces'));
       const resolvedOut = await canonicalize(out);
-      if (resolvedOut === segmentsDir || resolvedOut.startsWith(segmentsDir + sep)) {
+      const rel = relative(workspacesRoot, resolvedOut);
+      const insideWorkspaces = rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`);
+      const candidateWorkspaceId = insideWorkspaces ? rel.split(sep)[0]! : undefined;
+      const hitSegmentsDir = candidateWorkspaceId === undefined
+        ? undefined
+        : join(workspacesRoot, candidateWorkspaceId, 'segments');
+      // Exact match (`--out` pointed AT the tree itself) and "strictly
+      // inside" are kept as two separate conditions, never a single
+      // `startsWith(hitSegmentsDir)` missing the separator — that would also
+      // match a sibling that merely shares the `segments` PREFIX, e.g.
+      // `<id>/segments-backup/d.md`, and falsely refuse a legitimate path.
+      if (hitSegmentsDir !== undefined
+          && (resolvedOut === hitSegmentsDir || resolvedOut.startsWith(hitSegmentsDir + sep))) {
         return {
           code: 2, stdout: '',
-          stderr: `--out must not write inside this workspace's own segment tree `
-            + `(${segmentsDir}); a digest written there becomes journal input on the next read\n`,
+          stderr: `--out must not write inside a workspace's own segment tree `
+            + `(${hitSegmentsDir}); a digest written there becomes journal input on the next read\n`,
         };
       }
     }

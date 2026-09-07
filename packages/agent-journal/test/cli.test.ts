@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
@@ -1414,6 +1414,145 @@ test('digest --out to a legitimate path outside the segment tree still works', a
   const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
   assert.equal(r.code, 0, r.stderr);
   assert.match(await readFile(out, 'utf8'), /Decision digest/);
+});
+
+// I1 — `realpath()` throws ENOENT for a DANGLING symlink's target exactly the
+// same way it throws for a path that simply does not exist yet. The old
+// `canonicalize` treated both cases identically — walk up, lexically rejoin
+// the basename — which for a dangling final-component symlink reconstructs
+// the LINK'S OWN location, never where it points. `writeFile` then follows
+// the link anyway: `--out` at a symlink whose (nonexistent) target lives
+// inside the segment tree slipped past the guard, exited 0, and the write
+// landed inside the tree — reproduced here exactly as in the review finding.
+test('digest --out through a dangling symlink into the segment tree is refused, not written through', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const poisonTarget = join(segDir, 'poison.jsonl'); // does not exist — the dangling half
+  const linkPath = join(dir, 'out-link.md'); // outside the segment tree entirely
+  await symlink(poisonTarget, linkPath);
+
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', linkPath], env);
+  assert.equal(r.code, 2, `a dangling symlink into the segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(() => readFile(poisonTarget, 'utf8'),
+    'a dangling symlink let the digest write through into the segment tree');
+
+  // The workspace must still read cleanly afterward.
+  const after = await runCli(['coverage', '--workspace', 'ws'], env);
+  assert.equal(after.code, 0, after.stderr);
+  assert.deepEqual(JSON.parse(after.stdout).malformed, []);
+  assert.deepEqual(JSON.parse(after.stdout).unreadable, []);
+});
+
+// I2 — the segment-tree guard was scoped to only the RENDERED workspace's own
+// tree. `--out` naming a DIFFERENT workspace's segment tree — one that may
+// never have been written to before — slipped past entirely and wedged that
+// sibling's damaged-journal refusal permanently, while this command exited 0
+// for the workspace it was actually asked about.
+test("digest --out into a DIFFERENT workspace's segment tree is refused, even one that never existed", async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  // `other` has never been recorded to — its segments/ directory does not
+  // exist on disk yet.
+  const poison = join(dir, 'workspaces', 'other', 'segments', 'p.jsonl');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', poison], env);
+  assert.equal(r.code, 2, `a sibling workspace's segment tree was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+  await assert.rejects(() => readFile(poison, 'utf8'),
+    "a digest was written inside a different workspace's segment tree");
+
+  // `other` must still read as a genuinely empty, undamaged workspace.
+  const otherCoverage = await runCli(['coverage', '--workspace', 'other'], env);
+  assert.equal(otherCoverage.code, 0, otherCoverage.stderr);
+  assert.deepEqual(JSON.parse(otherCoverage.stdout).malformed, []);
+  assert.deepEqual(JSON.parse(otherCoverage.stdout).unreadable, []);
+});
+
+// I8, half A — `resolvedOut === segmentsDir` (no filename at all, `--out`
+// pointed directly AT the tree) is a separate condition from "strictly
+// inside", and nothing previously exercised it on its own: every existing
+// test used a path WITH a filename under the tree.
+test('digest --out pointed AT a segments directory itself (no filename) is refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', segDir], env);
+  assert.equal(r.code, 2, `--out at the segments dir itself was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /segment/i);
+});
+
+// I8, half B — a sibling directory that merely shares the `segments` PREFIX,
+// e.g. `segments-backup`, must not be caught by a `startsWith(segmentsDir)`
+// missing the trailing separator. Nothing previously exercised this: no
+// existing test wrote to a sibling of the segment tree with a matching
+// prefix.
+test('digest --out to a sibling directory that only shares the "segments" prefix is not refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const out = join(dir, 'workspaces', 'ws', 'segments-backup', 'd.md');
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+  assert.equal(r.code, 0, `a legitimate sibling of the segment tree was refused: ${r.stderr}`);
+  assert.match(await readFile(out, 'utf8'), /Decision digest/);
+});
+
+// I5 — §13.3, verbatim: "private never leaves the local journal — not to
+// sync, not to a hosted sink, not to a digest." Writing a file is leaving;
+// stdout is local inspection and stays available.
+test('digest --level private --out is refused; stdout remains available', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'the candid one', '--chosen', 'c', '--disclosure', 'private'], env);
+
+  const out = join(dir, 'priv-digest.md');
+  const r = await runCli(['digest', '--workspace', 'ws', '--level', 'private', '--out', out], env);
+  assert.equal(r.code, 2, `--level private --out was accepted: ${r.stdout}`);
+  assert.match(r.stderr, /private/i);
+  assert.match(r.stderr, /stdout/i);
+  await assert.rejects(() => readFile(out, 'utf8'), 'a private digest was written to a file');
+
+  const stdoutR = await runCli(['digest', '--workspace', 'ws', '--level', 'private'], env);
+  assert.equal(stdoutR.code, 0, stdoutR.stderr);
+  assert.ok(stdoutR.stdout.includes('the candid one'),
+    'stdout must remain available for local inspection at --level private');
+});
+
+// I7 — `digest`'s damage check is `unreadable.length > 0 || malformed.length
+// > 0`. Every existing damaged-digest test corrupted a segment's CONTENT
+// (malformed), never made one unreadable (chmod 000) — so the `unreadable`
+// disjunct on its own had no test defending it.
+test('digest refuses when a segment is unreadable, not just when one is malformed', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--disclosure', 'published'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await chmod(join(segDir, seg), 0o000);
+  try {
+    const out = join(dir, 'digest.md');
+    const r = await runCli(['digest', '--workspace', 'ws', '--out', out], env);
+    assert.notEqual(r.code, 0, 'an unreadable segment produced a digest at exit 0');
+    assert.match(r.stderr, /unreadable/i);
+    await assert.rejects(() => readFile(out, 'utf8'),
+      'a digest was written from a journal with an unreadable segment');
+  } finally {
+    await chmod(join(segDir, seg), 0o600);
+  }
 });
 
 // `rest[0]` for `trace --workspace ws` (no positional at all) is the literal

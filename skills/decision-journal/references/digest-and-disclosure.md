@@ -192,7 +192,7 @@ warning invites exactly that: a partial document with no visible sign, once sepa
 from its stderr, that it is partial. Refusing outright is the only version of this
 command that cannot produce a silently-incomplete artifact.
 
-## `--out` refuses to write inside the workspace's own segment tree
+## `--out` refuses to write inside any workspace's segment tree
 
 Point `--out` at a path under `$AGENT_JOURNAL_ROOT/workspaces/<id>/segments/` — the tree
 `agent-journal` itself writes entries into — and the command exits 2 before rendering
@@ -203,9 +203,46 @@ Every read of a workspace walks every `.jsonl` file under its `segments/` tree. 
 written into that tree becomes journal input the next time anything reads the workspace
 — parsed as an entry, or as a malformed line if its extension happens to match and its
 content does not parse as one, either way corrupting the record it was rendered from.
+
+This is not scoped to the workspace named by `--workspace`. `--out` may name a
+*different* workspace's segment tree —
+`agent-journal digest --workspace ws --out $AGENT_JOURNAL_ROOT/workspaces/other/segments/p.jsonl`
+— and that sibling is refused too, even one that has never been written to before and
+has no `segments/` directory on disk yet. Only a path outside every workspace's segment
+tree is left alone; writing at `$AGENT_JOURNAL_ROOT/digest.md`, or elsewhere under a
+workspace's own directory that is not its `segments/` tree, is odd but harmless and is
+not refused.
+
 The check resolves both the segment root and `--out` through the filesystem —
-`realpath`, not string comparison — so a relative path, a `..` traversal, or a symlink
-pointing back into the tree is caught the same way a direct path would be.
+`realpath` on the parent chain, `lstat` on the final component — not string comparison,
+so a relative path, a `..` traversal, or a symlink pointing back into the tree is caught
+the same way a direct path would be. That includes a **dangling** symlink — one whose
+target does not exist yet, the shape `ln -s $ROOT/workspaces/ws/segments/poison.jsonl
+./out.md` produces. `realpath` alone cannot resolve a target that is not there yet, so
+the check follows the link itself (`readlink`, resolved against the link's own
+directory) rather than treating "the target doesn't exist" as "this whole path doesn't
+exist, so it must be fine": both are refused identically, exit 2, before anything is
+written.
+
+## `--out` refuses at `--level private`
+
+Spec §13.3, verbatim: *"private never leaves the local journal — not to sync, not to a
+hosted sink, not to a digest."* Printing a private-level digest to stdout is reading the
+local journal; writing it to a file is leaving it. So `--level private` combined with
+`--out` is refused outright, exit 2, before anything is read or rendered:
+
+```
+$ agent-journal digest --workspace api --level private --out ./digest.md
+--out is refused with --level private; private entries are not written to a file
+(spec 13.3) — omit --out and read the digest from stdout for local inspection
+```
+
+Drop `--out` and the same `--level private` render still works — stdout is local
+inspection, not leaving the journal, and stays available:
+
+```bash
+agent-journal digest --workspace api --level private
+```
 
 ## A digest is a rendered artifact, never the source of truth
 
