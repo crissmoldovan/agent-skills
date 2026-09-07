@@ -11,7 +11,9 @@
     "verify:skills": "node scripts/verify-skills.mjs",
     "prepare:lifecycle": "npm ci --prefix packages/agent-lifecycle --ignore-scripts --no-audit --no-fund",
     "verify:lifecycle": "npm run prepare:lifecycle && npm --prefix packages/agent-lifecycle run verify",
-    "verify": "npm test && node scripts/verify-skills.mjs && npm run verify:lifecycle"
+    "prepare:journal": "npm ci --prefix packages/agent-journal --ignore-scripts --no-audit --no-fund",
+    "verify:journal": "npm run prepare:journal && npm --prefix packages/agent-journal run verify",
+    "verify": "npm test && node scripts/verify-skills.mjs && npm run verify:lifecycle && npm run verify:journal"
   },
   "license": "MIT"
 }

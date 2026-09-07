@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Seventeen public, portable Agent Skills for agent operations, reviews, releases,
+  Twenty public, portable Agent Skills for agent operations, reviews, releases,
   codebase context, secure setup, change delivery, and evidence-backed
   investigation of what a change would touch.
 </p>
@@ -28,6 +28,9 @@ harnesses, and tested as part of one release catalogue.
 | `investigate-codebase` | Answer a question about a codebase with evidence that can prove it — score complexity before spending, fan out searches with controls, reconcile contradictions, and say what was not searched. Use when a code question needs a defensible answer, not a guess. | [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md) |
 | `blast-area` | Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) |
 | `visualise-blast-area` | Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into. | [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md) |
+| `decision-journal` | Record why a decision was made, anchored to evidence a reader can check, so months later the question 'why is this like this, and what did we already rule out' has an answer. Use when work is worth being able to reconstruct. | [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) |
+| `delphi-ground` | Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention. | [Skill](skills/delphi-ground/SKILL.md) · [Briefing format](skills/delphi-ground/references/briefing-format.md) |
+| `delphi-imagine` | Review an artefact from a named perspective without inventing the world it lives in: grounded scenarios, a mandatory case where the thing is useless, and every request traced to a moment and costed. Use when you want a critique that can be checked rather than one that reads well. | [Skill](skills/delphi-imagine/SKILL.md) · [Output contract](skills/delphi-imagine/references/output-contract.md) |
 | `land-complex-change` | Land a complex change with reduced side effects and regressions: declare a touch-set budget from its blast map, arm a regression gate per affected surface, and stop when work strays outside the budget. Use when a change is too risky to build without contained side effects. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
 | `resolve-problem-report` | Resolve a problem report end to end: reproduce the claim, dig to root cause or implications, offer candidate fixes with trade-offs, spec the chosen one, and land it through gated review. Use when a bug or feature report needs investigating and resolving rather than a quick patch. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
 | `new-ux-discovery` | Discover UX improvements a codebase can already support — across UI, API, CLI, MCP and notifications — and gate every candidate through a not-already-implemented sweep and a no-confusion check before proposing it. Use when you want evidence-backed UX opportunities, riding a change or from pure analysis. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
@@ -159,6 +162,16 @@ may continue using old instructions until reopened.
 ```text
 Use model-routing and agent-lifecycle for this task. Keep acceptance quality fixed,
 route bounded implementation economically, and make every child visibly reconciled.
+```
+
+```text
+Use decision-journal while you work. Record the choices that did not feel like
+choices, cite what you actually read, and say plainly where you consulted nothing.
+```
+
+```text
+Use delphi-ground on this spec, then delphi-imagine from three perspectives that
+would disagree. Withhold prior findings, and stop if the briefing comes back thin.
 ```
 
 ```text

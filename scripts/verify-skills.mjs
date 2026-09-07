@@ -17,7 +17,7 @@ const MAX_BODY_LINES = 484;
 // that the skill carries that exact file. Prose that means "reference files, or scripts"
 // must not be written as a path.
 const CARRIED_FILE_PATTERN = /(?:^|[^A-Za-z0-9._/-])((?:references|scripts|assets)\/[A-Za-z0-9._/-]+)/g;
-const ignoredDirectories = new Set(['.git', '.cache', '.next', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
+const ignoredDirectories = new Set(['.git', '.cache', '.next', '.superpowers', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
 
 function fail(message) {
   failures.push(message);
