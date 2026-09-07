@@ -1,3 +1,5 @@
+import type { Anchor } from './entry.ts';
+
 export type Author = 'agent' | 'human';
 export type Provenance = 'hook' | 'cli' | 'http' | 'mcp' | 'transcript';
 export type Capability = 'known' | 'unknown';
@@ -96,4 +98,21 @@ export function normalizeEvent(value: unknown): JournalEvent {
     ...(value.subject === undefined ? {} : { subject: text(value.subject, 'subject') }),
     data: isRecord(value.data) ? value.data : {},
   };
+}
+
+/**
+ * Spec 4.3 says preserve `unknown` rather than inferring optimistic defaults.
+ * An anchor is not optimism — it is the evidence itself, so the class it cites
+ * becomes `known`. Without this an entry cites a commit while its own
+ * capability table reports commits unavailable here, which is the table lying
+ * by omission in the one direction the rule exists to prevent. Nothing is ever
+ * downgraded: a declared `known` with no anchor stays `known`.
+ */
+export function capabilitiesWithAnchors(
+  base: Capabilities,
+  anchors: readonly Anchor[],
+): Capabilities {
+  const out = { ...base };
+  for (const a of anchors) out[a.type] = 'known';
+  return out;
 }
