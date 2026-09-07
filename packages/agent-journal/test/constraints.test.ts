@@ -122,3 +122,62 @@ test('a well-formed expiry is never marked malformedExpiry: false — the key is
   const live = liveConstraints([c], '2026-09-08T00:00:00.000Z');
   assert.ok(!('malformedExpiry' in live[0]!), 'malformedExpiry must be omitted, not false, when expiry is fine');
 });
+
+test('scope matching is case-insensitive on both sides', () => {
+  const live = liveConstraints([
+    ev('c1', 'constraint', { statement: 's', scope: 'Telemetry', enforcement: 'blocking' }),
+  ], '2026-09-08T00:00:00.000Z');
+  const entry = ev('d1', 'decision', { question: 'where does TELEMETRY pipeline data land?', chosen: 'x' });
+  assert.deepEqual(constraintsBearingOn(entry, live).map((c) => c.id), ['c1'],
+    'mixed-case scope must still bear on mixed-case entry text');
+});
+
+test('a scope containing a regex metacharacter does not throw, and still matches whole-word', () => {
+  const live = liveConstraints([
+    ev('c1', 'constraint', { statement: 'stray paren pasted from prose', scope: '(',
+      enforcement: 'advisory' }),
+  ], '2026-09-08T00:00:00.000Z');
+  const hit = ev('d1', 'decision', { question: 'unbalanced ( in the pasted text', chosen: 'x' });
+  const miss = ev('d2', 'decision', { question: 'nothing unusual here', chosen: 'x' });
+  assert.doesNotThrow(() => constraintsBearingOn(hit, live));
+  assert.deepEqual(constraintsBearingOn(hit, live).map((c) => c.id), ['c1']);
+  assert.deepEqual(constraintsBearingOn(miss, live), []);
+});
+
+test('a scope word appearing only inside an array-valued field still bears on the entry', () => {
+  const live = liveConstraints([
+    ev('c1', 'constraint', { statement: 'no unmanaged brokers', scope: 'redis', enforcement: 'blocking' }),
+  ], '2026-09-08T00:00:00.000Z');
+  const entry = ev('d1', 'decision', {
+    question: 'which cache do we use?', chosen: 'memcached',
+    rejected: ['redis — needs a broker we do not run', 'sqlite — not distributed'],
+  });
+  assert.deepEqual(constraintsBearingOn(entry, live).map((c) => c.id), ['c1'],
+    'the scope word is only inside the rejected list, not the top-level strings');
+});
+
+test('an unparseable now throws instead of silently treating every constraint as expired', () => {
+  const events = [
+    ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory' }),
+  ];
+  assert.throws(() => liveConstraints(events, 'not-a-timestamp'), /parseable timestamp/);
+});
+
+test('a present but non-string expiry is marked malformedExpiry, unlike an absent one', () => {
+  const now = '2026-09-08T00:00:00.000Z';
+  const numeric = ev('c1', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory', expiry: 20260930 });
+  const boolean = ev('c2', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory', expiry: true });
+  const array = ev('c3', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory', expiry: ['2026-09-30'] });
+  const absent = ev('c4', 'constraint', { statement: 's', scope: 'x', enforcement: 'advisory' });
+
+  for (const [label, e] of [['numeric', numeric], ['boolean', boolean], ['array', array]] as const) {
+    const live = liveConstraints([e], now);
+    assert.equal(live.length, 1, `${label}: still live`);
+    assert.equal(live[0]!.malformedExpiry, true, `${label}: marked malformed`);
+    assert.equal(live[0]!.expiry, undefined, `${label}: no string expiry to show`);
+  }
+
+  const liveAbsent = liveConstraints([absent], now);
+  assert.equal(liveAbsent.length, 1);
+  assert.ok(!('malformedExpiry' in liveAbsent[0]!), 'a missing expiry key is still unmarked');
+});

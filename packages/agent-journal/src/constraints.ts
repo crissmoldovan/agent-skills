@@ -8,7 +8,11 @@ export interface Constraint {
   readonly scope?: string;
   readonly expiry?: string;
   readonly enforcement: 'advisory' | 'blocking';
-  /** Set only when `expiry` was present but unparseable. Never `false`. */
+  /**
+   * Set when `expiry` is present but unusable — unparseable, or not a
+   * string at all. Absent when `expiry` is absent, empty, or fine. Never
+   * `false`.
+   */
   readonly malformedExpiry?: true;
 }
 
@@ -34,12 +38,17 @@ const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * parse and silently drops a still-live obligation, which is the direction
  * this function must never fail in.
  *
- * When `expiry` is present but parses under neither form, the constraint
- * stays LIVE and is marked `malformedExpiry: true` instead of being dropped.
- * A standing obligation whose expiry cannot be read might still apply, and
- * this design's ethos is that silence must be legible: an obligation that
+ * When `expiry` is present but cannot be read as a date — a string that
+ * parses under neither form above, or a value that is not a string at
+ * all (a number, a boolean, an array) — the constraint stays LIVE and is
+ * marked `malformedExpiry: true` instead of being dropped. A standing
+ * obligation whose expiry cannot be read might still apply, and this
+ * design's ethos is that silence must be legible: an obligation that
  * genuinely lapsed keeps appearing until its expiry is fixed — noisy, but
- * recoverable, which silently dropping a live one is not.
+ * recoverable, which silently dropping a live one is not. An `expiry` key
+ * that is absent, or a string that is empty or whitespace-only, is treated
+ * as "no expiry stated" and is never marked — only a key that is present
+ * and unusable is.
  */
 export function liveConstraints(events: readonly JournalEvent[], now: string): Constraint[] {
   const nowMs = Date.parse(now);
@@ -55,9 +64,19 @@ export function liveConstraints(events: readonly JournalEvent[], now: string): C
     const statement = text(e, 'statement');
     if (!statement) continue;
 
+    // Presence is checked on the raw value, before text() narrows a
+    // non-string away to undefined — a number, boolean or array in this
+    // field is present and unusable, not absent, and must be marked the
+    // same as a string that fails to parse. An empty or whitespace-only
+    // string is present but is treated as "no expiry stated", unmarked,
+    // matching absent — only text()'s own trim decides that case.
+    const rawExpiry = e.data.expiry;
+    const expiryPresent = rawExpiry !== undefined;
     const expiry = text(e, 'expiry');
     let malformedExpiry = false;
-    if (expiry) {
+    if (expiryPresent && typeof rawExpiry !== 'string') {
+      malformedExpiry = true;
+    } else if (expiry) {
       const end = BARE_DATE.test(expiry) ? Date.parse(`${expiry}T23:59:59.999Z`) : Date.parse(expiry);
       if (Number.isNaN(end)) {
         malformedExpiry = true;
