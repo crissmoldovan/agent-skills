@@ -70,11 +70,15 @@ test('invalidation outranks supersession regardless of event order', () => {
 });
 
 test('a self-declared outcome never overrides a retraction edge', () => {
-  const p = project([
-    entry('Y', { outcome: 'held' }),
-    entry('r', { invalidates: 'Y' }),
-  ]);
-  assert.equal(p.outcomes.get('Y'), 'invalidated');
+  const y = entry('Y', { outcome: 'held' });
+  const r = entry('r', { invalidates: 'Y' });
+  // BOTH orders, for the same reason as the precedence test above. Under
+  // last-write-wins, [Y, r] happens to give the right answer because the edge
+  // is processed second — only [r, Y] exposes the bug. Pinning one order here
+  // made this test pass against the very defect it was written to catch.
+  for (const order of [[y, r], [r, y]]) {
+    assert.equal(project(order).outcomes.get('Y'), 'invalidated');
+  }
 });
 
 test('supersedes does NOT cascade to descendants — only invalidates does', () => {
