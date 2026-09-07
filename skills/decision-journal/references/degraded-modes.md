@@ -82,8 +82,8 @@ file hash, over ones that are not, such as a tool call nobody else observed.
 
 A long-lived workspace will contain entries from more than one. The coverage report is
 where that becomes legible: it names sessions that recorded nothing, refused writes,
-sequence gaps, and — importantly — returns `null` rather than an empty array for
-anything it never assessed.
+sequence gaps, paths it could not read, lines that did not parse, and — importantly —
+returns `null` rather than an empty array for anything it never assessed.
 
 The distinction is not pedantry. `[]` means looked and found nothing. `null` means never
 looked. Rendering the second as the first turns an unexamined gap into a clean bill of

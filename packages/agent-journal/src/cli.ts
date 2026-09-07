@@ -98,26 +98,60 @@ function journalFor(root: string, workspace: string, session: string, agent: str
   return new SegmentJournal({ root, workspace, machine: hostname(), session, agent, epoch: 'e1' });
 }
 
-async function readAll(root: string, workspace: string): Promise<JournalEvent[]> {
+interface ReadResult {
+  readonly events: JournalEvent[];
+  /** Paths that exist but could not be read. Never silently empty. */
+  readonly unreadable: string[];
+  /** `path:line` for each line that did not parse. */
+  readonly malformed: string[];
+}
+
+/**
+ * Reading swallowed every error and discarded every parse diagnostic, so a
+ * destroyed journal and a journal that never existed produced the same all-zero
+ * report at exit 0 — from the one command whose stated purpose is making silence
+ * legible. An unreadable FILE meanwhile escaped as a raw stack, so the two
+ * adjacent failures behaved in opposite wrong ways.
+ *
+ * ENOENT is the only benign case: a workspace nobody has written to yet. Every
+ * other error is recorded and surfaced.
+ */
+async function readAll(root: string, workspace: string): Promise<ReadResult> {
   const base = join(root, 'workspaces', workspace, 'segments');
   const batches: JournalEvent[][] = [];
+  const unreadable: string[] = [];
+  const malformed: string[] = [];
+
+  const benign = (error: unknown): boolean =>
+    (error as NodeJS.ErrnoException).code === 'ENOENT';
 
   async function walk(dir: string): Promise<void> {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (!benign(error)) unreadable.push(`${dir} (${(error as NodeJS.ErrnoException).code})`);
       return;
     }
     for (const e of entries) {
       const full = join(dir, e.name);
-      if (e.isDirectory()) await walk(full);
-      else if (e.name.endsWith('.jsonl')) batches.push(parseSegment(await readFile(full, 'utf8')).events);
+      if (e.isDirectory()) { await walk(full); continue; }
+      if (!e.name.endsWith('.jsonl')) continue;
+      let text;
+      try {
+        text = await readFile(full, 'utf8');
+      } catch (error) {
+        unreadable.push(`${full} (${(error as NodeJS.ErrnoException).code})`);
+        continue;
+      }
+      const { events, bad } = parseSegment(text);
+      for (const d of bad) malformed.push(`${full}:${d.line} ${d.message}`);
+      batches.push(events);
     }
   }
 
   await walk(base);
-  return mergeEvents(batches);
+  return { events: mergeEvents(batches), unreadable, malformed };
 }
 
 export async function runCli(
@@ -167,7 +201,24 @@ export async function runCli(
 
     const session = env.AGENT_JOURNAL_SESSION ?? 'unknown';
     const agent = env.AGENT_JOURNAL_AGENT ?? 'primary';
-    const id = opts.get('id') ?? randomUUID();
+    const explicitId = opts.get('id');
+    const id = explicitId ?? randomUUID();
+
+    // Merge dedups by id, first writer wins, so a second entry under an id that
+    // already exists lands on disk and is then invisible to every read path —
+    // written, acknowledged, and unrecoverable. Only an explicit --id can
+    // collide; a generated UUID cannot, and does not pay for this read.
+    if (explicitId !== undefined) {
+      const { events } = await readAll(root, workspace);
+      if (events.some((e) => e.id === explicitId)) {
+        return {
+          code: 2,
+          stdout: '',
+          stderr: `an entry with id ${explicitId} already exists in this workspace; `
+            + `ids are unique and the existing entry was not modified\n`,
+        };
+      }
+    }
 
     // A human running this by hand is not an agent. Defaults to agent because
     // hooks are the common caller, but a refusal recorded against the wrong
@@ -247,7 +298,7 @@ export async function runCli(
     }
     // Append-only by design, so an unknown target is not an error — but a human
     // correcting a typo deserves to hear that nothing matched.
-    const known = (await readAll(root, workspace)).some((e) => e.id === target);
+    const known = (await readAll(root, workspace)).events.some((e) => e.id === target);
     return {
       code: 0,
       stdout: `invalidated ${target}\n`,
@@ -259,8 +310,21 @@ export async function runCli(
     // No retention pass has run here, so downgraded anchors are UNASSESSED.
     // Passing nothing yields `downgradedAnchors: null`, which renders as "not
     // assessed" rather than an empty array implying none were found.
-    const report = coverage(await readAll(root, workspace));
-    return { code: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const report = coverage(events);
+    // Damage is reported IN the report, not only on stderr, because the report is
+    // what gets pasted into a review. A journal that could not be fully read has
+    // not earned exit 0: its zeroes mean "we could not look", not "nothing there".
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    const out = { ...report, unreadable, malformed };
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify(out, null, 2)}\n`,
+      stderr: damaged
+        ? `WARNING: this journal could not be fully read — ${unreadable.length} unreadable path(s), `
+          + `${malformed.length} malformed line(s). The counts above are a floor, not a total.\n`
+        : '',
+    };
   }
 
   return { code: 2, stdout: '', stderr: `unknown command: ${command}\n${USAGE}` };

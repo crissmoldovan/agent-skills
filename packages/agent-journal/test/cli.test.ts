@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.ts';
@@ -344,4 +344,104 @@ test('help names the installed binary, not an internal module name', async () =>
   const r = await runCli(['help'], { AGENT_JOURNAL_ROOT: '/nonexistent' });
   assert.match(r.stdout, /agent-journal record/);
   assert.doesNotMatch(r.stdout, /^\s+journal /m);
+});
+
+// `coverage` exists to make silence legible, and it was the one command where
+// "nothing was ever recorded" and "the record is unreadable" produced the same
+// all-zero report at exit 0. The read path swallowed every readdir error and
+// discarded the parser's diagnostics; an unreadable FILE meanwhile threw a raw
+// stack. Both halves of that asymmetry are the failure.
+test('coverage does not report a clean journal when the record is corrupt', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[])
+    .find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'this is not json\nnor is this\n');
+
+  const r = await runCli(['coverage', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.notEqual(r.code, 0, 'a corrupt journal reported success');
+  assert.match(r.stdout + r.stderr, /malformed/i,
+    `corruption was not surfaced: ${r.stdout}${r.stderr}`);
+});
+
+test('coverage reports an unreadable segment instead of crashing or reporting zero', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[])
+    .find((f) => f.endsWith('.jsonl'))!;
+  await chmod(join(segDir, seg), 0o000);
+  try {
+    const r = await runCli(['coverage', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+    assert.notEqual(r.code, 0, 'an unreadable segment reported success');
+    assert.match(r.stdout + r.stderr, /unreadable/i,
+      `unreadability was not surfaced: ${r.stdout}${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /at \w+ \(/, 'a raw stack trace reached the user');
+  } finally {
+    await chmod(join(segDir, seg), 0o600);
+  }
+});
+
+test('coverage still reports cleanly for a workspace that genuinely has nothing', async () => {
+  const dir = await root();
+  const r = await runCli(['coverage', '--workspace', 'never-used'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, `an absent workspace should not be an error: ${r.stderr}`);
+  assert.match(r.stdout, /"sessions": 0/);
+});
+
+// Merge dedups by id, first writer wins. So a second `record --id dup` landed on
+// disk, was told "recorded dup", and was then invisible to every read path — the
+// journal held two lines and no reader could ever see the second. Silent,
+// unrecoverable data loss with a success message on top.
+test('a duplicate explicit --id is refused, not written and hidden', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  const first = await runCli(['record', '--workspace', 'ws', '--kind', 'decision',
+    '--id', 'dup', '--question', 'first', '--chosen', 'a'], env);
+  assert.equal(first.code, 0);
+
+  const second = await runCli(['record', '--workspace', 'ws', '--kind', 'decision',
+    '--id', 'dup', '--question', 'second', '--chosen', 'b'], env);
+  assert.equal(second.code, 2, `duplicate id accepted: ${second.stdout}${second.stderr}`);
+  assert.match(second.stderr, /dup/);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 1, 'a second, unreachable entry was written');
+  assert.equal((events[0]!.data as Record<string, unknown>).question, 'first');
+});
+
+test('auto-generated ids do not pay for the duplicate check', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  for (let i = 0; i < 3; i += 1) {
+    const r = await runCli(['record', '--workspace', 'ws', '--kind', 'decision',
+      '--question', `q${i}`, '--chosen', 'c'], env);
+    assert.equal(r.code, 0, r.stderr);
+  }
+  assert.equal((await readAllEvents(dir, 'ws')).length, 3);
+});
+
+// The directory case, distinct from the file case above: `walk` swallowed every
+// readdir error, so an unreadable segments directory produced output
+// byte-identical to a workspace that had never been written to.
+test('coverage reports an unreadable segments DIRECTORY, not an empty journal', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  await chmod(segDir, 0o000);
+  try {
+    const r = await runCli(['coverage', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+    assert.notEqual(r.code, 0, 'an unreadable segments directory reported success');
+    assert.match(r.stdout + r.stderr, /unreadable/i,
+      `unreadability was not surfaced: ${r.stdout}${r.stderr}`);
+  } finally {
+    await chmod(segDir, 0o700);
+  }
 });

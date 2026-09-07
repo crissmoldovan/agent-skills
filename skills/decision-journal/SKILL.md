@@ -55,6 +55,10 @@ That prints sessions observed, sessions that recorded nothing, refused writes, s
 gaps — and `null`, not `[]`, for anything it never assessed. An empty array would claim
 a clean bill of health it never established.
 
+It also names what it could not read. A corrupt or unreadable journal exits non-zero and
+lists the `unreadable` paths and `malformed` lines, because an all-zero report from a
+destroyed record and one from a quiet week must not look the same.
+
 ## When to Use
 
 - A choice was made that a reasonable person could have made differently.
@@ -146,15 +150,22 @@ explicitly marked as resting on nothing.
 
 ### 4. Say when you consulted nothing
 
-If a decision rested on your own priors and no source, record that. The journal has a
-first-class way to say it, and it is deliberately not the absence of a field — "I
-consulted nothing" and "I forgot to record my sources" must not look identical.
+If a decision rested on your own priors and no source, record that. The schema has a
+first-class way to say it — an influence of type `model_knowledge` — and it is
+deliberately not the absence of a field, because "I consulted nothing" and "I forgot to
+record my sources" must not look identical.
 
 This feels like an admission. It is the most useful signal in the entire record: it
 tells a later reader which decisions were reasoned from evidence and which were reasoned
 from vibes, and no other tool surfaces that at all.
 
-**Complete when:** an entry with no sources says so explicitly.
+**Through the CLI, say it in words.** As with anchors in step 3 and influence links in
+step 5, there is no flag for this yet: write it in `--rationale` — *"nothing was
+consulted; this rests on prior knowledge"* — and a later reader gets the signal even
+though nothing can query for it. Hook adapters write the typed field directly.
+
+**Complete when:** an entry with no sources says so explicitly, in whichever form the
+interface allows.
 
 ### 5. Retract what turns out to be wrong
 
@@ -250,8 +261,10 @@ agent-journal invalidate 7f3a --workspace api \
 
 Before treating a journal as a record you can rely on:
 
-- **Every entry cites something, or admits it does not.** `agent-journal coverage`
-  reports entries whose anchors have gone; an entry that never had any is a story.
+- **Every entry cites something, or admits it does not.** Read the entries and check.
+  `coverage` cannot answer this for you — it reports `downgradedAnchors: null`, meaning
+  *not assessed*, because it runs no retention pass. An entry that cites nothing and does
+  not say so is a story.
 - **The coverage report distinguishes `null` from `[]`.** If a field reads as an empty
   array when nothing assessed it, the report is claiming a clean bill of health it never
   earned. That is a bug, not a clean journal.
@@ -259,8 +272,14 @@ Before treating a journal as a record you can rely on:
   written; a payload the redactor cannot scan at all — oversized, or too deeply nested —
   is refused outright, and that refusal is recorded as a void. If refusals vanish
   silently, the gap they leave is invisible and the coverage report is lying by omission.
-- **Retractions took effect.** An invalidated entry and everything resting on it are
-  suppressed from what a later session reads.
+- **The journal could be read at all.** `coverage` exits non-zero and lists
+  `unreadable` paths and `malformed` lines when the record is damaged. Zeroes from a
+  damaged journal mean "we could not look", not "nothing happened" — treat its counts as
+  a floor.
+- **Retractions took effect.** This is a projection-layer property, and the CLI ships no
+  `read` command to observe it: check by reading the segment files, or through the
+  library's `project()`. An invalidated entry and everything resting on it are suppressed
+  from what a later session reads.
 
 ## Deeper reading
 

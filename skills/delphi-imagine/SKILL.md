@@ -84,6 +84,13 @@ evidence contract and nothing to ground it produces disciplined fiction — labe
 citations, a plausible anti-scenario — at full cost, and the discipline is what makes it
 persuasive. Say the grounding is absent and recommend a direct read instead.
 
+**If the briefing comes back *thin*, carry the word through.** `delphi-ground` requires a
+thin briefing's strength to be stated in every downstream prompt, and this is where that
+lands: say `briefing strength: thin` at the top of your output, and expect most moments to
+be labelled `inferred` or `constructed`. A thin briefing does not stop the run; silently
+dropping the label does, because the reader then weighs the output as though it were
+grounded.
+
 ## Procedure
 
 ### 1. Take the perspective, and its stakes
@@ -126,7 +133,10 @@ Vagueness here is where a review stops being checkable. "It should handle this b
 not a finding; "§6.3 ages out the evidence while §5.1 claims the citations are permanent"
 is.
 
-**Complete when:** every need either points at a section or says there is none.
+**Complete when:** every need either points at a section, says there is none, or is
+marked *cannot verify from here* with the check a reader should run — the third form the
+[output contract](references/output-contract.md) defines, for a requirement living in
+code this review did not see.
 
 ### 4. Write the anti-scenario
 
