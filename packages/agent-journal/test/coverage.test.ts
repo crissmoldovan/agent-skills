@@ -113,6 +113,49 @@ test('a void records which transport went silent', () => {
   assert.equal(d.provenance, 'hook');
 });
 
+test('source participates in the key, not just sourceEpoch', () => {
+  // The MIRROR of the test above. That one varies epoch with a shared source;
+  // this varies source with a shared epoch. Without both, an implementation
+  // keying on either field alone passes the whole file — which is exactly what
+  // happened after the first fix.
+  const report = coverage([
+    make('a', 'tool_call', 's1', { source: 'S1', sourceEpoch: 'E', sequence: 1 }),
+    make('b', 'tool_call', 's1', { source: 'S2', sourceEpoch: 'E', sequence: 9 }),
+  ]);
+  assert.deepEqual(report.sequenceGaps, []);
+});
+
+test('sessionsWithNoEvents is null when never assessed, and sorted when it is', () => {
+  const one = make('o1', 'tool_call', 's1');
+  // Omitted knownSessions must NOT read as "none missing".
+  assert.equal(coverage([one]).sessionsWithNoEvents, null);
+  // Supplied, out of alphabetical order, so the sort is load-bearing.
+  assert.deepEqual(
+    coverage([one], { knownSessions: ['zz', 's1', 'aa', 'mm'] }).sessionsWithNoEvents,
+    ['aa', 'mm', 'zz'],
+  );
+});
+
+test('downgradedAnchors passes its contents through, not just its emptiness', () => {
+  // An implementation returning [] whenever the option is present would swallow
+  // real downgrade data and still satisfy a null-vs-empty test.
+  const report = coverage([make('o1', 'tool_call', 's1')], { downgradedAnchors: ['d1', 'd2'] });
+  assert.deepEqual(report.downgradedAnchors, ['d1', 'd2']);
+});
+
+test('a void defaults context as well as provenance, and can name a human', () => {
+  const base = {
+    source: 'h/m/s1/a', sourceEpoch: 'e1', time: '2026-09-07T10:00:00.000Z',
+    workspace: 'ws', session: 's1', agent: 'a', harness: 'claude-code', reason: 'refused',
+  };
+  const d = voidEvent({ ...base, id: 'v1' });
+  assert.equal(d.context, 'coding');
+  assert.equal(d.author, 'agent');
+  // A human running the CLI and hitting a refusal is not an agent failure.
+  const h = voidEvent({ ...base, id: 'v2', author: 'human', provenance: 'cli' });
+  assert.equal(h.author, 'human');
+});
+
 test('a space in source or epoch cannot fake a sequence gap', () => {
   // Under a bare-space join these two collide on the key "foo bar baz", their
   // sequences merge to [1, 5], and a phantom gap is reported across two

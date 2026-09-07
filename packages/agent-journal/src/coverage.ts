@@ -1,4 +1,4 @@
-import { normalizeEvent, type JournalEvent, type Provenance } from './envelope.ts';
+import { normalizeEvent, type Author, type JournalEvent, type Provenance } from './envelope.ts';
 import { isEntry } from './retention.ts';
 
 export interface VoidInput {
@@ -15,6 +15,9 @@ export interface VoidInput {
   /** Which transport went silent. A refused CLI write is not a hook failure. */
   readonly provenance?: Provenance;
   readonly context?: string;
+  /** Who was acting. A human running the CLI and hitting a refusal is not an
+   *  agent failure — the same misattribution as provenance, one field over. */
+  readonly author?: Author;
 }
 
 /** A refused write, dropped sink or hook failure, recorded so silence is auditable. */
@@ -28,7 +31,7 @@ export function voidEvent(input: VoidInput): JournalEvent {
     workspace: input.workspace,
     session: input.session,
     agent: input.agent,
-    author: 'agent',
+    author: input.author ?? 'agent',
     provenance: input.provenance ?? 'hook',
     harness: input.harness,
     context: input.context ?? 'coding',
@@ -43,8 +46,13 @@ export interface CoverageReport {
   /** Sessions the caller knows started but which emitted NOTHING — not even a
    *  void. Derivable only from outside, since a session with no events leaves
    *  no trace in `events`. This is the worst silence the report exists to make
-   *  legible, and the one case it cannot find on its own. */
-  readonly sessionsWithNoEvents: string[];
+   *  legible, and the one case it cannot find on its own.
+   *
+   *  `null` means NOT ASSESSED — no `knownSessions` was supplied — for the same
+   *  reason `downgradedAnchors` is nullable. An empty array from a caller that
+   *  never told us which sessions exist reads as "none missing", which is the
+   *  precise dishonesty this field was added to remove. */
+  readonly sessionsWithNoEvents: string[] | null;
   readonly voids: number;
   readonly sequenceGaps: string[];
   /** `null` means NOT ASSESSED, not "none found". Retention computes downgrades;
@@ -95,7 +103,9 @@ export function coverage(
   return {
     sessions: sessions.size,
     sessionsWithNoEntries: [...sessions].filter((s) => !withEntries.has(s)).sort(),
-    sessionsWithNoEvents: [...(options.knownSessions ?? [])].filter((s) => !sessions.has(s)).sort(),
+    sessionsWithNoEvents: options.knownSessions === undefined
+      ? null
+      : [...options.knownSessions].filter((s) => !sessions.has(s)).sort(),
     voids,
     sequenceGaps,
     downgradedAnchors: options.downgradedAnchors === undefined
