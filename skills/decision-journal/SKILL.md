@@ -138,12 +138,23 @@ That distinction is the single most important thing in this skill, and it is cov
 [references/anchors.md](references/anchors.md). A perfectly anchored entry resting on a
 false premise is worse than no entry, because it is citable.
 
-**What this looks like through the CLI.** There is no `--anchor` flag: an entry recorded
-by hand cites its evidence inside `--rationale`, and every anchor class on it reads
-`unknown` — which is the honest default, not a gap to paper over. Structured anchors are
-written by hook adapters, which see the tool calls as they happen. Read
-[references/anchors.md](references/anchors.md) for what each class would prove; treat the
-structure as where this is going, and informal citation as what you have now.
+```bash
+agent-journal record --workspace <id> --kind decision \
+  --question "<what was being decided>" --chosen "<what you picked>" \
+  --anchor file:src/queue.ts:14 \
+  --anchor commit:9f2c1ab
+```
+
+`--anchor <class>:<ref>` is repeatable and splits on the **first** colon, so a ref keeps
+its own — `file:src/queue.ts:14` records the path and line, not a truncation of it. The
+classes are `commit`, `file`, `environment`, `visual`, `runtime`, `tool_use`, `message`,
+`url` and `external`; [references/anchors.md](references/anchors.md) says what each one
+proves and, more usefully, what it does not.
+
+**Citing an anchor marks its class available.** The entry's capability table records
+`file: known` once a file anchor is on it, and leaves every other class `unknown`. That
+is not optimism — the anchor *is* the evidence that the class is reachable here. What the
+rule forbids is the reverse: assuming a class is available because it usually is.
 
 **Complete when:** every factual claim in the entry points at something checkable, or is
 explicitly marked as resting on nothing.
@@ -159,13 +170,21 @@ This feels like an admission. It is the most useful signal in the entire record:
 tells a later reader which decisions were reasoned from evidence and which were reasoned
 from vibes, and no other tool surfaces that at all.
 
-**Through the CLI, say it in words.** As with anchors in step 3 and influence links in
-step 5, there is no flag for this yet: write it in `--rationale` — *"nothing was
-consulted; this rests on prior knowledge"* — and a later reader gets the signal even
-though nothing can query for it. Hook adapters write the typed field directly.
+```bash
+agent-journal record --workspace <id> --kind decision \
+  --question "..." --chosen "..." \
+  --influence model_knowledge:decisive
+```
 
-**Complete when:** an entry with no sources says so explicitly, in whichever form the
-interface allows.
+`model_knowledge` is the one influence type that needs no reference, because there is
+nothing to point at — that is the claim. Every other type takes
+`--influence <type>:<role>[:<ref>]`, splitting on the first two colons so a URL keeps
+its own: `--influence url:contradicted:https://example.com/bench?a=1:2`. The roles are
+`decisive`, `supporting`, `considered` and **`contradicted`** — the last meaning *I read
+this and chose against it*, which pairs with `--rejected` and is otherwise unrecoverable.
+
+**Complete when:** an entry with no sources says so explicitly, as a value rather than an
+absence.
 
 ### 5. Retract what turns out to be wrong
 
@@ -183,16 +202,24 @@ agent-journal invalidate <id> --workspace <ws> --reason "<what was actually true
 This works with no session, deliberately. The canonical case is a root cause found in a
 shell hours after the agent that wrote the entry has gone.
 
-**What propagation needs, and what the CLI can do today.** Suppression follows
-`influences` links of type `journal` — an entry saying, in its own record, that it rests
-on another. The projection layer walks those to a fixed point. **The CLI cannot create
-them:** flags carry flat strings, and an influence is a typed object. So a CLI-issued
-`invalidate` suppresses the entry you name and nothing downstream of it. Hook adapters
-write the envelope directly and are not limited this way.
+**Suppression follows the links you recorded.** An entry declares what it rests on with
+`--influence journal:<role>:<id>`, and the projection layer walks those to a fixed point.
+So invalidating an entry suppresses everything that cited it, and everything that cited
+*those*:
 
-**Complete when:** the wrong entry is marked wrong. If other entries rested on it, name
-them in the reason until influence links can be recorded — the suppression will not find
-them for you.
+```bash
+agent-journal record --workspace api --kind finding --id f1 \
+  --claim "the 256 bound is never reached" --influence journal:decisive:d1
+agent-journal invalidate d1 --workspace api --reason "the bound was measured, not assumed"
+agent-journal show --workspace api
+```
+
+`f1` now reads `outcome: invalidated, live: false` alongside `d1`, without being named in
+the retraction. An entry that rested on nothing you recorded is not reached — the graph
+only knows the edges you gave it, which is the reason step 4 is worth the keystrokes.
+
+**Complete when:** the wrong entry is marked wrong, and anything that declared a
+dependence on it went with it.
 
 ### 6. Read the coverage before you trust the record
 
@@ -222,9 +249,9 @@ agent-journal record --workspace api --kind decision \
 
 ```bash
 agent-journal record --workspace api --kind assumption \
-  --question "is the upstream call idempotent?" \
-  --chosen "assumed yes, retried on timeout" \
-  --rationale "the method name reads like a read; nothing was checked"
+  --assumed "the upstream call is idempotent" \
+  --ifWrong "a retry double-charges the customer" \
+  --checked no
 ```
 
 That entry is what turns a future incident from *nobody knows why* into *here is exactly
@@ -276,10 +303,16 @@ Before treating a journal as a record you can rely on:
   `unreadable` paths and `malformed` lines when the record is damaged. Zeroes from a
   damaged journal mean "we could not look", not "nothing happened" — treat its counts as
   a floor.
-- **Retractions took effect.** This is a projection-layer property, and the CLI ships no
-  `read` command to observe it: check by reading the segment files, or through the
-  library's `project()`. An invalidated entry and everything resting on it are suppressed
-  from what a later session reads.
+- **Retractions took effect.** `agent-journal show --workspace <ws>` reports `outcome`
+  and `live` per entry. An invalidated entry and everything that declared a dependence on
+  it both read `live: false`.
+- **You can tell a retraction from a decision.** `invalidate` appends its retraction as a
+  `decision` record, so a workspace with two entries and one retraction shows **three**
+  rows. The retraction is the one whose `retracts` field is populated; the entries it
+  acted on carry `retracts: null`. A count of live decisions that forgets this is wrong by
+  one per retraction, forever.
+- **`null` is not `[]` in `show` either.** `anchors`, `influences` and `retracts` read
+  `null` when the entry has none — not recorded, rather than assessed and empty.
 
 ## Deeper reading
 
