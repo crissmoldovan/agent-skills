@@ -134,6 +134,11 @@ test('sessionsWithNoEvents is null when never assessed, and sorted when it is', 
     coverage([one], { knownSessions: ['zz', 's1', 'aa', 'mm'] }).sessionsWithNoEvents,
     ['aa', 'mm', 'zz'],
   );
+  // Explicitly EMPTY is not the same as omitted: "I know of no sessions, and
+  // none are missing" must read as [] and not collapse into null. Its sibling
+  // downgradedAnchors has this case; without it here, an implementation folding
+  // empty into the undefined branch passes the whole file.
+  assert.deepEqual(coverage([one], { knownSessions: [] }).sessionsWithNoEvents, []);
 });
 
 test('downgradedAnchors passes its contents through, not just its emptiness', () => {
