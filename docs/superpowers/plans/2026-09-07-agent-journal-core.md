@@ -1947,4 +1947,16 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
 
+**Known gap carried to the final review — `Map`, `Set` and `Error` are never scanned.**
+They hold their data in internal slots or non-enumerable properties, so `Object.entries` returns
+`[]`, they collapse to `{}`, and `redact()` reports `clean` for content nothing examined. This is
+**not a leak** — `JSON.stringify` collapses them identically, so the value reaching disk is `{}`
+and no secret is written. It is data loss with a misleading verdict. `Error` matters most: a hook
+recording a caught exception would silently store `{}` and lose the message.
+
+The fix belongs in Task 1's `normalizeEvent`, which currently passes `data` through unchecked —
+the sibling package's `sanitize()` throws on non-serialisable values and this one does not.
+Rejecting non-JSON-shaped `data` at validation stops these types reaching the redactor at all.
+Putting the check inside the redactor instead would conflate redaction with serialisation.
+
 **Known gap the executor must not paper over.** Spec open question 2 leaves the observation retention window undecided, so `applyRetention` takes `observationTtlMs` as a required argument with no default. Do not invent one — the caller supplies it until that question is answered.
