@@ -2177,23 +2177,29 @@ async function root(): Promise<string> {
 
 // Reads every event back off disk, so tests assert what landed rather than what
 // was printed. Without this the CLI tests only prove exit codes.
+//
+// It MUST mirror `readAll` in src/cli.ts, including the mergeEvents call. An
+// earlier version collected raw parsed events and skipped the merge, so every
+// assertion in this file read `readdir` order rather than the order a consumer
+// sees — which made the retraction-ordering test unsatisfiable while the code
+// under test was correct.
 async function readAllEvents(root: string, workspace: string) {
   const { readdir, readFile } = await import('node:fs/promises');
-  const { parseSegment } = await import('../src/read.ts');
+  const { parseSegment, mergeEvents } = await import('../src/read.ts');
   // Typed: an untyped [] here is TS7034/TS7005 across the closure.
   const base = join(root, 'workspaces', workspace, 'segments');
-  const out: JournalEvent[] = [];
+  const batches: JournalEvent[][] = [];
   async function walk(dir: string): Promise<void> {
     let entries;
     try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       const full = join(dir, e.name);
       if (e.isDirectory()) await walk(full);
-      else if (e.name.endsWith('.jsonl')) out.push(...parseSegment(await readFile(full, 'utf8')).events);
+      else if (e.name.endsWith('.jsonl')) batches.push(parseSegment(await readFile(full, 'utf8')).events);
     }
   }
   await walk(base);
-  return out;
+  return mergeEvents(batches);
 }
 
 test('record writes one entry and reports its id', async () => {
@@ -2378,8 +2384,11 @@ test('a retraction never sorts before the finding it retracts', async () => {
     { AGENT_JOURNAL_ROOT: dir });
   const ids = (await readAllEvents(dir, 'ws')).map((e) => e.id);
   // Truncating timestamps to whole seconds made these tie, and the tiebreak is
-  // lexical on source — under which invalidate's `cli/host/-/-` leads.
-  assert.ok(ids.indexOf('f1') < ids.findIndex((i) => i !== 'f1'), `retraction led: ${ids.join()}`);
+  // lexical on source — under which invalidate's `cli/host/-/-` leads. This
+  // asserts on merged order, which is what a consumer sees; reading raw
+  // filesystem order would measure readdir instead.
+  assert.equal(ids[0], 'f1', `retraction led: ${ids.join()}`);
+  assert.equal(ids.length, 2);
 });
 
 test('an unknown subcommand exits non-zero with usage', async () => {
