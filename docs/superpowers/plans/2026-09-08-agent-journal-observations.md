@@ -63,26 +63,30 @@ Until this lands, every anchor in a real journal is something a person or an age
 
 The author of this plan does not know the exact shape of a Claude Code or Codex hook payload and has deliberately not guessed. A previous plan in this project asserted a behaviour the author had reasoned about but not run; an implementer wrote it into a report as verified; it was false. Do not repeat that. Everything Tasks 5 and 6 rely on comes from what you observe here.
 
-There is a real, working hook on this machine to learn from: `~/.claude/settings.json` has a `SessionStart` hook with a `matcher` and a `command`. Read it — it is a live example of the configuration shape, installed by another tool.
+There is a real, working hook on this machine to learn from: `~/.claude/settings.json` has a `SessionStart` hook with a `matcher` and a `command`. **Read it — do not modify it.** It is a live example of the configuration shape, installed by another tool, and it belongs to the user's running sessions including this one.
 
 - [ ] **Step 1: Record the configuration shape**
 
 Read `~/.claude/settings.json`. Record, in `adapters/NOTES.md`: which key hooks live under, how an event maps to a list of matchers, what fields a `command` hook takes, and whether the command receives arguments, stdin, or both.
 
-- [ ] **Step 2: Capture a real payload**
+- [ ] **Step 2: Build a throwaway project to probe in**
 
-Install a temporary hook that does nothing but record what it receives. Write it somewhere outside the repo — `/tmp` — so a stray file cannot be committed:
+**Do not install a probe into `~/.claude/settings.json`.** That file is outside this worktree, drives the user's other sessions, and a hook added to it can fire inside the session running this plan. Build an isolated project instead and point a headless run at it:
 
 ```bash
-cat > /tmp/journal-probe.sh <<'EOF'
+P=$(mktemp -d)/probe && mkdir -p "$P/.claude"
+cat > "$P/journal-probe.sh" <<'EOF'
 #!/bin/sh
-{ printf '=== %s ===\n' "$(date -u +%FT%TZ)"; printf 'ARGS: %s\n' "$*"; printf 'STDIN:\n'; cat; printf '\n'; } >> /tmp/journal-probe.log 2>/dev/null
+{ printf '=== %s ===\n' "$(date -u +%FT%TZ)"; printf 'ARGS: %s\n' "$*"; printf 'STDIN:\n'; cat; printf '\n'; } >> "$PROBE_LOG" 2>/dev/null
 exit 0
 EOF
-chmod +x /tmp/journal-probe.sh
+chmod +x "$P/journal-probe.sh"
+# .claude/settings.json in $P wires every event you want to observe to that script.
 ```
 
-Add it to your own Claude Code settings for **one** event first, trigger that event, and read `/tmp/journal-probe.log`.
+Then exercise it with a headless run whose cwd is `$P` — `claude -p "list the files here"` — and read the log. A project-scoped `.claude/settings.json` is read for work done in that project, so the probe fires there and nowhere else.
+
+If a project-scoped settings file turns out not to be honoured for hooks, say so in the notes and fall back to `claude --settings <path>` if that flag exists. **Do not fall back to editing the user's global settings.** If no isolated route works, record that Task 1 could not gather evidence and let Tasks 5 and 6 build against published documentation, marked unverified.
 
 **Record verbatim** in `adapters/NOTES.md`: whether the payload arrives on stdin or as arguments; if JSON, the exact top-level keys; whether a session identifier is present and what it is called; whether the tool name and its input are present for tool events; and whether a transcript path is present.
 
@@ -90,15 +94,20 @@ Add it to your own Claude Code settings for **one** event first, trigger that ev
 
 Repeat for each event you can trigger. Aim to cover at least: session start, a tool call before it runs, a tool call after it runs, a subagent starting or stopping, and compaction if you can induce it. For each, record the event name **as the harness spells it** and the keys its payload carries.
 
-**Record what you could not trigger, and why.** An event you did not observe is not an event that does not exist, and Task 5 must not treat an untested event name as verified. This distinction is the whole point of the task.
+**Record what you could not trigger, and why.** An event you did not observe is not an event that does not exist, and Task 5 must not treat an untested event name as verified. A headless run may simply not emit some of these — that is a finding to write down, not a gap to fill from memory. This distinction is the whole point of the task.
 
 - [ ] **Step 4: Do the same for Codex, or record that you could not**
 
 If Codex is not installed or its hooks cannot be exercised here, say so plainly in the notes with what you tried. Task 6 will then build against its published contract and mark the adapter unverified — which is honest and useful — rather than pretending to evidence nobody gathered.
 
-- [ ] **Step 5: Remove the probe**
+- [ ] **Step 5: Clean up and confirm you touched nothing you should not have**
 
-Restore your settings, delete `/tmp/journal-probe.sh` and `/tmp/journal-probe.log`. Confirm `git status --short` is empty apart from `adapters/NOTES.md`.
+Delete the temp project. Then confirm the user's config is byte-identical to how you found it, and that the worktree carries only the notes:
+
+```bash
+git -C ~/.claude diff --stat 2>/dev/null || echo "(not a repo — compare against the copy you read in Step 1)"
+git status --short   # must show only adapters/NOTES.md
+```
 
 - [ ] **Step 6: Commit**
 
@@ -143,6 +152,12 @@ git commit -m "docs(adapters): the hook contract, as observed rather than assume
 | `environment` | see Task 3 — `observe` accepts it, Task 3 populates it |
 | `path_claim` | see Task 4 |
 | `void` | written by `voidEvent`, not by this command |
+
+**Two corrections the pre-flight scan found, which are requirements, not suggestions.**
+
+*`retention.ts` already has this list — take it over rather than adding a second.* `src/retention.ts:9` defines a private `const OBSERVATION_KINDS` holding the same fourteen names. Two copies of one list drift silently. Delete retention's local copy, import the exported one from `./observe.ts` (which imports nothing, so there is no cycle), and add a test asserting retention still classifies a known observation as retainable and an unknown kind as `unclassified` — so the swap is covered rather than merely compiling.
+
+*`observe` must reject a kind it does not know.* `normalizeEvent` does **not** validate `kind` — `envelope.ts:28` types it as a free string and line 98 passes it through. Without a membership check, `observe --kind constructor` writes a garbage event and exits 0, and retention files it as `unclassified`. Rejecting entry kinds and `void` is not enough; check membership in `OBSERVATION_KINDS` and exit 2 otherwise.
 
 **Two decisions this task locks in.**
 
@@ -239,12 +254,34 @@ test('observe refuses to write a void', async () => {
   assert.equal((await readAllEvents(dir, 'ws')).length, 0);
 });
 
+// envelope.ts does not validate `kind`, so without this an `observe --kind
+// constructor` writes a garbage event and exits 0 — the exact shape of the
+// word-splitting incident this project already paid for.
+test('observe refuses a kind that is not an observation kind', async () => {
+  const dir = await root();
+  for (const bad of ['constructor', '__proto__', 'not_a_kind', '']) {
+    const r = await runCli(['observe', '--workspace', 'ws', '--kind', bad],
+      { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `--kind ${JSON.stringify(bad)} was accepted`);
+  }
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'a garbage kind reached disk');
+});
+
 test('observe refuses an entry kind — record writes those', async () => {
   const dir = await root();
   const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'decision'],
     { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
   assert.equal(r.code, 2);
   assert.match(r.stderr, /record/i);
+});
+
+test('retention still classifies observations after the list moves to observe.ts', async () => {
+  const { applyRetention } = await import('../src/retention.ts');
+  const { OBSERVATION_KINDS } = await import('../src/observe.ts');
+  assert.ok(OBSERVATION_KINDS.includes('heartbeat'));
+  // A known observation is subject to retention; an unknown kind is kept and named.
+  // Assert on applyRetention's own report, not on the list it now imports —
+  // comparing the list to itself proves agreement, not correctness.
 });
 
 // Observations carry tool inputs — the highest-volume source of secrets here.
@@ -402,6 +439,8 @@ Run: `cd packages/agent-journal && pnpm test`
 | `ENTRY_KINDS_SET.has(kind)` → `false` | observe refuses an entry kind |
 | `/^\d+$/` → `/\d/` | observe refuses a non-numeric or negative sequence |
 | `...(sequence === undefined ? {} : { sequence })` → `sequence: sequence ?? 0` | observe omits sequence when not given |
+| drop the `OBSERVATION_KINDS` membership check | observe refuses a kind that is not an observation kind |
+| `retention.ts` keeps its own private copy of the list | retention still classifies observations after the list moves |
 | `hasOwnProperty` → `OBSERVATION_FIELDS[kind] ?? []` | an unrecognised kind carries no fields — **also try `--kind constructor`** |
 
 - [ ] **Step 6: Verify through the built binary**
@@ -876,18 +915,17 @@ Test the script as a black box — feed it a payload on stdin with a scratch `AG
 // packages/agent-journal/test/adapter-claude-code.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-const run = promisify(execFile);
+import { spawnSync } from 'node:child_process';
+// NOT execFile — it has no `input` option, and passing one silently feeds the
+// child nothing. Verify by running: a hook that receives an empty payload will
+// look like it "handled" every case.
 
 // Rule 1, and the one that decides whether this ships at all: a hook that can
 // fail the call it observes gets uninstalled, and then nothing is recorded.
 test('the hook exits 0 on every malformed input', async () => {
   for (const payload of ['', 'not json', '{}', '{"hook_event_name":"Unknown"}', '[]']) {
-    const { code } = await run('sh', [HOOK], { input: payload })
-      .then(() => ({ code: 0 }))
-      .catch((e: { code?: number }) => ({ code: e.code ?? 1 }));
-    assert.equal(code, 0, `exited non-zero on ${JSON.stringify(payload)}`);
+    const r = spawnSync('sh', [HOOK], { input: payload, env: { ...process.env, ...ENV } });
+    assert.equal(r.status, 0, `exited ${r.status} on ${JSON.stringify(payload)}: ${r.stderr}`);
   }
 });
 
