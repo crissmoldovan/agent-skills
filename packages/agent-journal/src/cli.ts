@@ -10,6 +10,7 @@ import {
 import {
   OBSERVATION_KINDS, OBSERVATION_FIELDS, fieldsForObservation, normalizeObservationData,
 } from './observe.ts';
+import { captureEnvironment } from './environment.ts';
 import { DISCLOSURE_CLASSES, type Disclosure } from './disclosure.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
@@ -668,7 +669,14 @@ async function dispatch(
       author: 'agent', provenance: 'hook',
       harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
       context: opts.get('context') ?? 'coding',
-      kind, data: normalizeObservationData(kind, all),
+      kind,
+      // `environment` self-populates from the process that is actually running
+      // this CLI invocation. Explicit flags still win — spread order — so a
+      // hook that knows better than the current process (a remote runner, a
+      // container) can override what was captured here.
+      data: kind === 'environment'
+        ? { ...captureEnvironment(), ...normalizeObservationData(kind, all) }
+        : normalizeObservationData(kind, all),
     });
 
     const journal = journalFor(root, workspace, session, agent);

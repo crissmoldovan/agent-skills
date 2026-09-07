@@ -1687,3 +1687,42 @@ test('an observation goes through the redactor like any other write', async () =
   const [e] = await readAllEvents(dir, 'ws');
   assert.ok(!JSON.stringify(e!.data).includes(token), 'a token reached disk from an observation');
 });
+
+test('observe --kind environment populates itself, needing no flags', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'environment'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.kind, 'environment');
+  assert.equal(e!.data.version, process.version);
+  assert.ok(String(e!.data.interpreter).includes('/'));
+});
+
+// 4.3: these values are machine-identifying. The home-path pattern already
+// masks them and must not be bypassed for this kind.
+test('an environment observation is redacted like anything else', async () => {
+  const dir = await root();
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'environment'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [e] = await readAllEvents(dir, 'ws');
+  const written = JSON.stringify(e!.data);
+  assert.ok(!/\/Users\/[^/"]+/.test(written) && !/\/home\/[^/"]+/.test(written),
+    `a home path reached disk: ${written}`);
+});
+
+// Explicit flags win over the capture — a hook that knows better than the
+// current process (a remote runner, a container) can override what would
+// otherwise be self-populated.
+test('an explicit flag on observe --kind environment overrides the capture', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace', 'ws', '--kind', 'environment', '--interpreter', '/remote/bin/node'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.interpreter, '/remote/bin/node');
+  // The rest of the capture still populates — only the named field was overridden.
+  assert.equal(e!.data.version, process.version);
+});
