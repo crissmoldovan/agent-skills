@@ -66,6 +66,65 @@ test('an entry whose id merely contains the key is not reported via id when its 
   assert.deepEqual(traceFrom(events, 'x').matched, [{ id: 'dx1', via: 'subject' }]);
 });
 
+// I1 — nothing previously defended "the walk starts from EVERY match", not
+// just the first. Two decisions independently cite the same ticket, and each
+// supersedes a DIFFERENT ancestor. If only one matched root were walked, one
+// ancestor would silently vanish from the "why is it like this" answer.
+test('the walk starts from every match, not just the first', () => {
+  const events = [
+    ev('anc1', { question: 'first ancestor', chosen: 'x' }),
+    ev('anc2', { question: 'second ancestor', chosen: 'y' }),
+    ev('d1', { question: 'q', chosen: 'c', supersedes: 'anc1',
+      influences: [{ type: 'ticket', role: 'decisive', ref: 'PROJ-1' }] }),
+    ev('d2', { question: 'q', chosen: 'c', supersedes: 'anc2',
+      influences: [{ type: 'ticket', role: 'decisive', ref: 'PROJ-1' }] }),
+  ];
+  const ids = traceFrom(events, 'PROJ-1').chain.map((c) => c.id);
+  assert.ok(ids.includes('anc1'), `anc1 missing from chain: ${JSON.stringify(ids)}`);
+  assert.ok(ids.includes('anc2'), `anc2 missing from chain: ${JSON.stringify(ids)}`);
+});
+
+// I2 — the match precedence (id, subject, anchor, influence) was only ever
+// exercised across DIFFERENT entries sharing a key. A single entry whose own
+// four sources all tie on the same key never appeared, so an adjacent swap in
+// matchSource's check order had nothing to catch it.
+test('within a single entry, id beats subject beats anchor beats influence', () => {
+  const allTie = [ev('tieall', {
+    question: 'q', chosen: 'c',
+    anchors: [{ type: 'file', ref: 'tieall' }],
+    influences: [{ type: 'ticket', role: 'decisive', ref: 'tieall' }],
+  }, 'tieall')];
+  assert.deepEqual(traceFrom(allTie, 'tieall').matched, [{ id: 'tieall', via: 'id' }]);
+
+  const subjectTie = [ev('other', {
+    question: 'q', chosen: 'c',
+    anchors: [{ type: 'file', ref: 'tieB' }],
+    influences: [{ type: 'ticket', role: 'decisive', ref: 'tieB' }],
+  }, 'tieB')];
+  assert.deepEqual(traceFrom(subjectTie, 'tieB').matched, [{ id: 'other', via: 'subject' }]);
+
+  const anchorTie = [ev('another', {
+    question: 'q', chosen: 'c',
+    anchors: [{ type: 'file', ref: 'tieC' }],
+    influences: [{ type: 'ticket', role: 'decisive', ref: 'tieC' }],
+  })];
+  assert.deepEqual(traceFrom(anchorTie, 'tieC').matched, [{ id: 'another', via: 'anchor' }]);
+});
+
+// I3 — journalRefs's `rec.type === 'journal'` clause is what stops a ticket-
+// or url-typed influence from driving the backward walk. Such refs are
+// indexed for lookup (found the entry above) but must never be traversed.
+test('a ticket influence does not drive the backward walk, only a journal one does', () => {
+  const events = [
+    ev('unrelated', { question: 'q', chosen: 'c' }),
+    ev('start', { question: 'q', chosen: 'c',
+      influences: [{ type: 'ticket', role: 'decisive', ref: 'unrelated' }] }, 'src/y.ts'),
+  ];
+  const chain = traceFrom(events, 'src/y.ts').chain;
+  assert.deepEqual(chain.map((c) => c.id), ['start'],
+    'a ticket influence drove the walk — only journal influences should');
+});
+
 test('lookup is exact and case-insensitive, never a substring match', () => {
   const events = [ev('d1', { question: 'q', chosen: 'c' }, 'src/queue.ts')];
   assert.deepEqual(traceFrom(events, 'SRC/QUEUE.TS').matched, [{ id: 'd1', via: 'subject' }]);
