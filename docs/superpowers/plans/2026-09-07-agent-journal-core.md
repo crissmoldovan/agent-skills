@@ -599,6 +599,7 @@ Spec 6.1. The winning method must be recorded, and a worktree must resolve to th
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveWorkspace } from '../src/identity.ts';
@@ -633,7 +634,10 @@ test('falls back to a cwd hash when there is no git', async () => {
   const dir = await tmp();
   const id = resolveWorkspace(dir, { gitCommonDir: null });
   assert.equal(id.method, 'cwd');
-  assert.equal(id.detail, dir);
+  // realpathSync, not `dir`: on macOS mkdtemp returns /var/... which canonicalises
+  // to /private/var/..., so comparing against the raw path fails there and passes
+  // on Linux — a platform-dependent RED that would waste the next person's hour.
+  assert.equal(id.detail, realpathSync(dir));
 });
 
 test('a declared id is used when no filesystem rung applies', () => {
