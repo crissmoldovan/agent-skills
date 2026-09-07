@@ -1103,11 +1103,14 @@ test('a source keeps its own sequence order regardless of clock skew', () => {
 test('a space in source or epoch cannot merge two distinct sequence spaces', () => {
   const one = ev('one', { source: 'foo', sourceEpoch: 'bar baz', sequence: 2 });
   const two = ev('two', { source: 'foo bar', sourceEpoch: 'baz', sequence: 1 });
-  // Distinct sources: their sequence numbers are not comparable, so they must
-  // land in separate groups rather than being reordered against each other.
-  const merged = mergeEvents([[one, two]]);
-  assert.equal(merged.length, 2);
-  assert.deepEqual(mergeEvents([[two, one]]).map((e) => e.id), merged.map((e) => e.id));
+  // Pin the EXPECTED order, not merely self-consistency. Under the space-join
+  // bug both events land in one group and sort by sequence to ['two','one'];
+  // correctly separated, they are distinct groups tied on time and broken by
+  // key, giving ['one','two']. Asserting only that two batch orders agree
+  // passes under both, which is how the earlier version of this test failed to
+  // catch anything.
+  assert.deepEqual(mergeEvents([[one, two]]).map((e) => e.id), ['one', 'two']);
+  assert.deepEqual(mergeEvents([[two, one]]).map((e) => e.id), ['one', 'two']);
 });
 
 test('duplicate sequence numbers in one source still order deterministically', () => {
@@ -1747,7 +1750,11 @@ export function coverage(
     if (isEntry(e)) withEntries.add(e.session);
     if (e.kind === 'void') voids += 1;
     if (e.sequence !== undefined) {
-      const key = `${e.source} ${e.sourceEpoch}`;
+      // NUL-joined, not space-joined: both fields are unconstrained text, so
+      // "foo" + "bar baz" and "foo bar" + "baz" would collide into one key and
+      // report a phantom sequence gap across two unrelated sources. Same defect
+      // Task 5 fixed in read.ts; caught here before it was written.
+      const key = `${e.source}\0${e.sourceEpoch}`;
       const list = bySource.get(key) ?? [];
       list.push(e.sequence);
       bySource.set(key, list);
@@ -1759,7 +1766,7 @@ export function coverage(
     const sorted = [...seqs].sort((a, b) => a - b);
     for (let i = 1; i < sorted.length; i += 1) {
       if (sorted[i]! - sorted[i - 1]! > 1) {
-        sequenceGaps.push(`${key}: ${sorted[i - 1]} to ${sorted[i]}`);
+        sequenceGaps.push(`${key.replace('\0', '@')}: ${sorted[i - 1]} to ${sorted[i]}`);
       }
     }
   }
@@ -2170,6 +2177,20 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 **Deliberately out of scope**, carried to the second plan: 9.2 harness adapters, 6.4 digest renderer, 5.6 and 5.7 entry-kind schemas as skill-level validation, 7.6 path claims, 10.1 rot and premise re-checks, 10.2 traversal, the derived index, and the `decision-journal` skill itself.
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
+
+**Residuals from Task 5, for the final review's fix wave.**
+
+1. **`localeCompare` is not guaranteed injective.** Used as the last tiebreak in three
+   places in `read.ts`. Collation can equate strings differing only by case or diacritics
+   under some locale, which would let sort stability leak input order back in — the exact
+   defect class fixed twice in this task, unfixed for id and key ties. Ids are UUIDs in
+   practice, so the risk is low. Replace with a plain codepoint comparison (`a < b ? -1 :
+   a > b ? 1 : 0`), which is total by construction and needs no locale reasoning.
+2. **`earliest()` is recomputed on every pairwise group comparison**, re-parsing every
+   event's timestamp O(g log g) times instead of once. Correctness is unaffected;
+   precompute per group before sorting.
+3. **No test pins cross-group ordering** across two or more sources with differing times.
+   The 1000-trial fuzz covers it functionally; the checked-in suite does not.
 
 **Test-rigor gaps on the fail-closed guarantee, for the final review's fix wave.**
 Task 4's re-review named three regressions the committed tests would still miss. The
