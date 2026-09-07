@@ -2721,6 +2721,30 @@ git commit -m "chore(journal): wire the package into the repo verify chain"
 
 **Type consistency.** `JournalEvent` from Task 1 is the argument type throughout. `RedactionVerdict` from Task 2 appears in `AppendResult` in Task 4. `isEntry` is defined once in Task 7 and imported by Task 8. `project` from Task 6 is used by Task 7. Task 9 consumes `normalizeEvent`, `SegmentJournal`, `parseSegment`, `mergeEvents` and `coverage` under exactly the names those tasks export.
 
+**Two unguarded fixes from Task 9, for the final review's fix wave.**
+Both are correct in the shipped code and protected by nothing. A future regression on either
+passes the full 88-test suite silently.
+
+1. **`nowStamp()`'s millisecond precision.** Reverting it to `.000Z` truncation is undetectable.
+   The ordering test used to catch this deterministically — and round 4 removed that test, because
+   its *assertion* was wrong (it claimed a cross-source ordering the spec disclaims) even though it
+   happened to be the only guard on this. Fixing a wrong test removed the only protection on a
+   right fix, which is a failure shape worth naming. The remedy is not to restore the ordering
+   claim: make `nowStamp` injectable — `nowStamp(now: Date = new Date())` — and assert
+   `nowStamp(new Date('2026-09-07T10:00:00.123Z'))` round-trips the `.123`. Deterministic, and it
+   discriminates against truncation exactly.
+2. **`bin.ts` has no test at all.** Nothing in the repo spawns it. Reverting `process.exitCode` to
+   `process.exit()` — reintroducing output truncation on a pipe, where `coverage` emits the largest
+   payload — passes everything. The remedy is one integration test that spawns the built binary
+   with stdout piped and asserts both the payload and the exit code.
+
+Also recorded, not fixed: the `trace.written` warning added in Task 9 guards a narrow case. A real
+I/O failure (disk full, permission denied) throws out of `SegmentJournal.append` uncaught rather
+than returning `written: false`, so the warning only covers a redaction refusal on the void's own
+short payload — which is very unlikely to exceed the scan budget. And the warning is stderr text,
+not a distinct exit code, so a hook checking only the code cannot tell "refused, void recorded"
+from "refused, and even the void is gone".
+
 **Known gap from Task 8 — a source that stops stamping `sequence` goes dark.**
 Gap detection only considers events carrying a `sequence`, so a source that emits sequenced
 events, silently drops to unsequenced ones — an adapter regression rather than a hook failure —
