@@ -55,6 +55,41 @@ test('an entry nobody revisited reports outcome unknown, not held', () => {
   assert.equal(project([entry('lonely')]).outcomes.get('lonely'), 'unknown');
 });
 
+test('invalidation outranks supersession regardless of event order', () => {
+  const x = entry('X');
+  const inv = entry('inv', { invalidates: 'X' });
+  const sup = entry('sup', { supersedes: 'X' });
+  // Both orders must agree, and both must say invalidated: an entry whose
+  // premise was false does not become merely "replaced" because someone later
+  // superseded it.
+  for (const order of [[x, inv, sup], [x, sup, inv]]) {
+    const p = project(order);
+    assert.equal(p.outcomes.get('X'), 'invalidated');
+    assert.ok(p.invalidated.has('X'));
+  }
+});
+
+test('a self-declared outcome never overrides a retraction edge', () => {
+  const p = project([
+    entry('Y', { outcome: 'held' }),
+    entry('r', { invalidates: 'Y' }),
+  ]);
+  assert.equal(p.outcomes.get('Y'), 'invalidated');
+});
+
+test('supersedes does NOT cascade to descendants — only invalidates does', () => {
+  // B rests on A. Superseding A means a newer decision replaced it, not that A
+  // was wrong, so B stands. Widening the propagation test to match `superseded`
+  // would conflate the two edges and pass every other test in this file.
+  const p = project([
+    entry('A'),
+    entry('B', { influences: [{ type: 'journal', ref: 'A' }] }),
+    entry('s', { supersedes: 'A' }),
+  ]);
+  assert.equal(p.invalidated.has('B'), false);
+  assert.ok(p.live.some((e) => e.id === 'B'), 'B must remain live');
+});
+
 test('a human retraction from outside a session is honoured', () => {
   const human = normalizeEvent({
     schemaVersion: 1, id: 'r1', source: 'cli/m/-/-', sourceEpoch: 'e2',

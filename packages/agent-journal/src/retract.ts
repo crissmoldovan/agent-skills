@@ -35,20 +35,29 @@ export function project(events: readonly JournalEvent[]): Projection {
 
   for (const e of events) outcomes.set(e.id, 'unknown');
 
+  // Collect the edges FIRST, then assign outcomes by precedence. Assigning
+  // inside this loop makes the result depend on array order: an entry that is
+  // both invalidated and superseded would display whichever edge happened to be
+  // processed last, so the same events in a different order give a different
+  // answer — the defect class Task 5 shipped.
   for (const e of events) {
     const sup = stringField(e, 'supersedes');
-    if (sup) {
-      superseded.add(sup);
-      outcomes.set(sup, 'reverted');
-    }
+    if (sup) superseded.add(sup);
     const inv = stringField(e, 'invalidates');
-    if (inv) {
-      invalidated.add(inv);
-      outcomes.set(inv, 'invalidated');
-    }
+    if (inv) invalidated.add(inv);
+  }
+
+  // Precedence, weakest to strongest. Invalidation is the strongest claim there
+  // is — "this was never sound" — and must never be displaced by a supersession
+  // that merely says "something newer replaced it". Displaying `reverted` for an
+  // invalidated entry tells a reader the original reasoning still stood, which is
+  // exactly the conflation this task exists to prevent.
+  for (const e of events) {
     const declared = e.data.outcome;
     if (declared === 'held' || declared === 'reverted') outcomes.set(e.id, declared);
   }
+  for (const id of superseded) outcomes.set(id, 'reverted');
+  for (const id of invalidated) outcomes.set(id, 'invalidated');
 
   // Invalidation propagates: anything resting on an invalidated entry is suppressed.
   let changed = true;
