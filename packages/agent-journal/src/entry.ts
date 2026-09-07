@@ -67,3 +67,61 @@ export function parseInfluence(spec: string): Influence {
   if (!ref) throw new TypeError(`influence ${type} has no ref; only model_knowledge may omit one`);
   return { type: type as InfluenceType, role: role as InfluenceRole, ref };
 }
+
+/** Spec 5.6 and 5.7, verbatim. A kind carries its own fields and no other's. */
+export const KIND_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  decision: ['question', 'chosen', 'rejected', 'rationale', 'reversibility', 'blastRadius', 'confidence'],
+  finding: ['claim', 'evidence', 'premise', 'scope'],
+  assumption: ['assumed', 'ifWrong', 'checked'],
+  blocker: ['blocked', 'on', 'owner', 'clearedBy'],
+  progress: ['did', 'next', 'externalRef'],
+  constraint: ['statement', 'origin', 'scope', 'expiry', 'enforcement'],
+};
+
+/** Stored as arrays. A second `--rejected` used to discard the first. */
+export const LIST_FIELDS: ReadonlySet<string> = new Set(['rejected', 'evidence', 'premise']);
+
+/**
+ * Keyed by kind, then field. `scope` exists on both `finding` and `constraint`
+ * and means different things: 5.6 constrains a finding's reach to three values
+ * so a machine-local fact cannot propagate as a universal one, while 5.7's
+ * constraint scope is the subject an obligation covers and is free text. One
+ * table keyed by field name alone would reject every real constraint.
+ */
+export const ENUM_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  decision: { reversibility: ['trivial', 'moderate', 'hard', 'one-way'] },
+  assumption: { checked: ['yes', 'no'] },
+  constraint: { enforcement: ['advisory', 'blocking'] },
+  finding: { scope: ['machine', 'workspace', 'general'] },
+};
+
+/** An unrecognised kind gets no fields rather than a guess. */
+export function fieldsFor(kind: string): readonly string[] {
+  return KIND_FIELDS[kind] ?? [];
+}
+
+/**
+ * Build an entry's `data` from the values a caller supplied per field. Absent
+ * stays absent: a field nobody set must not appear as '' or [], both of which
+ * read as "assessed, nothing there".
+ */
+export function normalizeEntryData(
+  kind: string,
+  given: ReadonlyMap<string, readonly string[]>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const field of fieldsFor(kind)) {
+    const values = given.get(field);
+    if (!values || values.length === 0) continue;
+    const allowed = ENUM_FIELDS[kind]?.[field];
+    if (allowed) {
+      for (const v of values) {
+        if (!allowed.includes(v)) {
+          throw new TypeError(`--${field} must be one of ${allowed.join(', ')}, got ${JSON.stringify(v)}`);
+        }
+      }
+    }
+    out[field] = LIST_FIELDS.has(field) ? [...values] : values[values.length - 1];
+  }
+  return out;
+}

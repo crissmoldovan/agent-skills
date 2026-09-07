@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAnchor, parseInfluence, INFLUENCE_TYPES, INFLUENCE_ROLES } from '../src/entry.ts';
+import {
+  parseAnchor, parseInfluence, INFLUENCE_TYPES, INFLUENCE_ROLES,
+  fieldsFor, normalizeEntryData, KIND_FIELDS,
+} from '../src/entry.ts';
 import { capabilitiesWithAnchors, normalizeCapabilities } from '../src/envelope.ts';
 
 test('an anchor spec splits on the FIRST colon, so refs may contain colons', () => {
@@ -54,4 +57,43 @@ test('an explicitly known capability is never downgraded by an absent anchor', (
   const base = normalizeCapabilities({ visual: 'known' });
   const up = capabilitiesWithAnchors(base, []);
   assert.equal(up.visual, 'known');
+});
+
+test('every kind in the spec has its fields, and no kind borrows another\'s', () => {
+  assert.deepEqual([...Object.keys(KIND_FIELDS)].sort(),
+    ['assumption', 'blocker', 'constraint', 'decision', 'finding', 'progress']);
+  assert.deepEqual([...fieldsFor('finding')], ['claim', 'evidence', 'premise', 'scope']);
+  assert.deepEqual([...fieldsFor('assumption')], ['assumed', 'ifWrong', 'checked']);
+  assert.deepEqual([...fieldsFor('blocker')], ['blocked', 'on', 'owner', 'clearedBy']);
+  assert.deepEqual([...fieldsFor('progress')], ['did', 'next', 'externalRef']);
+  assert.deepEqual([...fieldsFor('constraint')], ['statement', 'origin', 'scope', 'expiry', 'enforcement']);
+  assert.ok(!fieldsFor('finding').includes('question'), 'finding must not accept decision fields');
+});
+
+test('list fields collect every value rather than keeping the last', () => {
+  const data = normalizeEntryData('decision', new Map([['rejected', ['redis — needs a broker', 'kafka — three days']]]));
+  assert.deepEqual(data.rejected, ['redis — needs a broker', 'kafka — three days']);
+});
+
+test('an out-of-range enumeration is refused', () => {
+  assert.throws(() => normalizeEntryData('decision', new Map([['reversibility', ['sort of']]])), TypeError);
+  assert.throws(() => normalizeEntryData('assumption', new Map([['checked', ['maybe']]])), TypeError);
+  assert.throws(() => normalizeEntryData('constraint', new Map([['enforcement', ['advisory-ish']]])), TypeError);
+  assert.throws(() => normalizeEntryData('finding', new Map([['scope', ['everywhere']]])), TypeError);
+  // and the valid ones are accepted
+  assert.equal(normalizeEntryData('assumption', new Map([['checked', ['no']]])).checked, 'no');
+});
+
+// `scope` is enumerated on `finding` and free text on `constraint`. A table
+// keyed by field name alone would reject every constraint anyone would write.
+test('constraint scope is free text; finding scope is not', () => {
+  assert.equal(
+    normalizeEntryData('constraint', new Map([['scope', ['telemetry']]])).scope,
+    'telemetry',
+  );
+  assert.throws(() => normalizeEntryData('finding', new Map([['scope', ['telemetry']]])), TypeError);
+});
+
+test('an unknown kind carries no fields rather than guessing', () => {
+  assert.deepEqual([...fieldsFor('not_a_kind')], []);
 });

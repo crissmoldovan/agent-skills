@@ -69,7 +69,9 @@ test('record refuses and exits non-zero when redaction fails', async () => {
 test('invalidate works with no session and is attributed to a human', async () => {
   const dir = await root();
   await runCli(
-    ['record', '--kind', 'finding', '--question', 'why', '--chosen', 'wrong',
+    // `question`/`chosen` are decision fields (task 3 scopes fields per kind);
+    // this test is about invalidate/retraction, not which kind was recorded.
+    ['record', '--kind', 'decision', '--question', 'why', '--chosen', 'wrong',
       '--workspace', 'ws', '--id', 'f1'],
     { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
   );
@@ -220,7 +222,9 @@ test('record requires --kind', async () => {
 
 test('a retraction takes effect regardless of merge order', async () => {
   const dir = await root();
-  await runCli(['record', '--kind', 'finding', '--question', 'why', '--chosen', 'wrong',
+  // `question`/`chosen` are decision fields (task 3 scopes fields per kind);
+  // this test is about retraction ordering, not which kind was recorded.
+  await runCli(['record', '--kind', 'decision', '--question', 'why', '--chosen', 'wrong',
     '--workspace', 'ws', '--id', 'f1'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
   await runCli(['invalidate', 'f1', '--reason', 'bad premise', '--workspace', 'ws'],
     { AGENT_JOURNAL_ROOT: dir });
@@ -248,7 +252,9 @@ test('record stores rejected — the field the design exists for', async () => {
   const [entry] = await readAllEvents(dir, 'ws');
   // This was silently dropped for as long as the field list omitted it: exit 0,
   // entry written, the alternatives gone. Nothing else in the system records them.
-  assert.equal(entry!.data.rejected, 'redis — needs a broker we do not run');
+  // `rejected` is a list field (task 3): one --rejected still lands as a
+  // one-element array, not a bare string.
+  assert.deepEqual(entry!.data.rejected, ['redis — needs a broker we do not run']);
 });
 
 test('record stores the other decision fields it advertises', async () => {
@@ -626,4 +632,36 @@ test('a CLI-recorded journal influence makes invalidation propagate', async () =
   assert.equal(proj.outcomes.get('base'), 'invalidated');
   assert.equal(proj.outcomes.get('rests'), 'invalidated',
     'an entry resting on an invalidated one was not suppressed');
+});
+
+test('each kind accepts its own fields and refuses another kind\'s', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  const ok = await runCli(['record', '--workspace', 'ws', '--kind', 'assumption', '--id', 'a1',
+    '--assumed', 'the upstream call is idempotent', '--ifWrong', 'retries double-charge',
+    '--checked', 'no'], env);
+  assert.equal(ok.code, 0, ok.stderr);
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.equal(entry!.data.assumed, 'the upstream call is idempotent');
+  assert.equal(entry!.data.checked, 'no');
+
+  const crossed = await runCli(['record', '--workspace', 'ws', '--kind', 'assumption', '--id', 'a2',
+    '--assumed', 'x', '--question', 'belongs to decision'], env);
+  assert.equal(crossed.code, 2, `a decision field was accepted on an assumption: ${crossed.stdout}`);
+  assert.match(crossed.stderr, /--question/);
+});
+
+test('a repeated --rejected keeps every alternative, not just the last', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c',
+    '--rejected', 'redis — needs a broker we do not run',
+    '--rejected', 'kafka — three days of setup for one queue'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [entry] = await readAllEvents(dir, 'ws');
+  assert.deepEqual(entry!.data.rejected, [
+    'redis — needs a broker we do not run',
+    'kafka — three days of setup for one queue',
+  ]);
 });

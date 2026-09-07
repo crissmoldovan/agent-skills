@@ -3,7 +3,10 @@ import { hostname } from 'node:os';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
-import { parseAnchor, parseInfluence, type Anchor, type Influence } from './entry.ts';
+import {
+  parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS,
+  type Anchor, type Influence,
+} from './entry.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
@@ -61,16 +64,12 @@ function flags(argv: readonly string[]): ParsedFlags {
 }
 
 /**
- * Fields `record` stores. `rejected` is here because it is the point of the
- * whole design — the alternatives you considered and discarded are what nothing
- * else captures — and it was silently dropped for as long as this list omitted
- * it: the CLI exited 0, wrote the entry, and discarded the field.
+ * Fields every kind shares, regardless of which kind `--kind` names.
+ * `supersedes`/`invalidates` are retraction edges, not kind fields — they are
+ * set on `data` after `normalizeEntryData` runs, not through it.
  */
-const RECORD_FIELDS = [
-  'question', 'chosen', 'rationale', 'rejected',
-  'reversibility', 'blastRadius', 'confidence',
-  'supersedes', 'invalidates',
-] as const;
+const RECORD_GLOBAL = ['workspace', 'kind', 'id', 'author', 'context',
+  'supersedes', 'invalidates', 'anchor', 'influence'] as const;
 
 /**
  * What each subcommand accepts. One shared list was wrong in both directions:
@@ -78,9 +77,15 @@ const RECORD_FIELDS = [
  * and throw it away at exit 0 — and `--reason` is the likeliest mistyping of
  * `--rationale`. The reverse held too: `invalidate` accepted `--kind`,
  * `--question`, `--id` and `--context` and silently ignored all four.
+ *
+ * `record`'s allowed set is the union of every kind's fields, since which
+ * fields actually apply depends on `--kind` and that is not known yet at this
+ * generic gate. This gate only catches genuine typos (`--rejcted`); a field
+ * that belongs to some OTHER kind than the one given passes here and is
+ * caught precisely, once `kind` is read, by the per-kind check below.
  */
 const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
-  record: [...RECORD_FIELDS, 'workspace', 'kind', 'id', 'author', 'context', 'anchor', 'influence'],
+  record: [...RECORD_GLOBAL, ...Object.values(KIND_FIELDS).flat()],
   invalidate: ['workspace', 'reason'],
   coverage: ['workspace'],
 };
@@ -221,6 +226,22 @@ async function dispatch(
     const kind = opts.get('kind');
     if (!kind) return { code: 2, stdout: '', stderr: `--kind is required\n${USAGE}` };
 
+    // The generic gate above only catches typos: it allows every kind's fields
+    // through regardless of which kind was actually given. This is the precise
+    // check — a field genuinely allowed on some OTHER kind must still be
+    // refused here, or a `--question` on an `assumption` would silently pass.
+    const allowedForKind = new Set<string>([...RECORD_GLOBAL, ...fieldsFor(kind)]);
+    const wrongKind = [...opts.keys()].filter((k) => !allowedForKind.has(k)).sort();
+    if (wrongKind.length > 0) {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `${wrongKind.map((f) => `--${f}`).join(', ')} `
+          + `${wrongKind.length > 1 ? 'are' : 'is'} not a field of kind '${kind}'; `
+          + `it takes ${fieldsFor(kind).map((f) => `--${f}`).join(', ') || 'no fields'}\n`,
+      };
+    }
+
     const session = env.AGENT_JOURNAL_SESSION ?? 'unknown';
     const agent = env.AGENT_JOURNAL_AGENT ?? 'primary';
     const explicitId = opts.get('id');
@@ -269,11 +290,21 @@ async function dispatch(
       return { code: 2, stdout: '', stderr: `${(error as Error).message}\n${USAGE}` };
     }
 
-    const data: Record<string, unknown> = {};
-    for (const field of RECORD_FIELDS) {
-      const v = opts.get(field);
-      if (v !== undefined) data[field] = v;
+    let data: Record<string, unknown>;
+    try {
+      data = normalizeEntryData(kind, all);
+    } catch (error) {
+      return { code: 2, stdout: '', stderr: `${(error as Error).message}\n` };
     }
+
+    // Retraction edges, not kind fields — set after normalizeEntryData so a
+    // `--supersedes`/`--invalidates` id is never mistaken for one of the kind's
+    // own fields (or rejected by a kind that has neither).
+    for (const edge of ['supersedes', 'invalidates'] as const) {
+      const v = opts.get(edge);
+      if (v !== undefined) data[edge] = v;
+    }
+
     // Absent stays absent. Writing [] would claim "assessed, none found", which
     // is the exact conflation `coverage` reports null to avoid.
     if (anchors.length > 0) data.anchors = anchors;
