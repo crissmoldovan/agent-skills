@@ -323,6 +323,37 @@ reference — every status, what `decay` does and does not look at, and why an
 each one does and does not commit to, and you know that reading the report is not the
 same as acting on it.
 
+### 9. Delete something that must not exist
+
+A decision can be entirely sound and still contain a leaked credential or a named
+person. `invalidate` is the wrong tool for that — it says the reasoning was wrong, and
+this content might not be. `tombstone` takes no position on the reasoning at all; it
+says the content itself must not exist.
+
+```bash
+agent-journal tombstone <id> --reason "<why this must not exist>" --workspace <id>
+```
+
+That appends an event and purges nothing. `compact` is the only command in this
+package that deletes, and it is a dry run unless `--apply` is given — this is the one
+command meant to run unattended, from a hook or CI, with nobody there to confirm it:
+
+```bash
+agent-journal compact --workspace <id> [--entry-ttl-days <n>] [--observation-ttl-days <n>] [--apply]
+```
+
+An omitted TTL flag means that axis never expires, not "expire everything," and
+`compact` refuses outright on a journal it could not fully read rather than risk
+purging on an incomplete view. Neither command reaches into a replica that has not
+seen the tombstone yet — that replica keeps the bytes until it does; §13.2 states this
+as the honest price of being able to erase anything at all. See
+[references/retention-and-deletion.md](references/retention-and-deletion.md) for the
+full mechanics, including what an anchor citing purged content renders as afterward.
+
+**Complete when:** you can say, for content that must go, whether `invalidate` or
+`tombstone` is the right tool — and, if it is `tombstone`, that you ran `compact`
+without `--apply` first and read what it would do before adding the flag.
+
 ## Usage Examples
 
 **Recording a rejection, which is the entry nothing else captures:**
@@ -424,6 +455,10 @@ Before treating a journal as a record you can rely on:
 - [references/digest-and-disclosure.md](references/digest-and-disclosure.md) — the
   three disclosure classes, why the write default and the parse default differ, how a
   digest orders and gates entries, and what `trace` can and cannot find.
+- [references/retention-and-deletion.md](references/retention-and-deletion.md) —
+  tombstones versus `invalidate`, why a tombstone forfeits pure CRDT convergence,
+  `compact`'s dry-run default and its refusal on a damaged journal, entry TTL, and the
+  pinning interaction between the two.
 - [references/degraded-modes.md](references/degraded-modes.md) — running without the
   CLI, without a filesystem, or without hooks, and how to say so honestly.
 - [references/adapters.md](references/adapters.md) — the observation plane hooks feed

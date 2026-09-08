@@ -11,42 +11,19 @@ kind of gap to lose: the tests pass, the command runs, and nothing anywhere says
 other half was never built. Each item below names the section it comes from and what
 would close it.
 
-## 1. Tombstones — half-built, and it is the half that matters
+## Closed since the last audit
 
-**§13.2, listed in §16's v1 set.**
+**Tombstones (§13.2) and entry TTL (§13.2, same paragraph)** — both shipped: the
+`tombstone` event kind, `agent-journal tombstone <id> --reason …`, `tombstoned`
+derived from the journal itself via `suppressedIds`, purge-on-compaction through
+`compact --apply`, and an independent `--entry-ttl-days` alongside
+`--observation-ttl-days`. See
+[`skills/decision-journal/references/retention-and-deletion.md`](../../skills/decision-journal/references/retention-and-deletion.md)
+for the mechanics — what a tombstone costs, why `compact` defaults to a dry run and
+refuses on a damaged journal, and the pinning interaction between an entry's own TTL
+and what it anchors.
 
-`applyRetention` handles the *consequence* correctly and with real tests: a tombstoned
-id is suppressed from projections, and anchors citing purged content downgrade to
-`unknown` per §6.3. But it does that only when a caller passes `options.tombstoned`,
-a list of ids. Nothing produces that list.
-
-Missing:
-
-- A tombstone **event kind**. §13.2 says a tombstone *is* an appended event; there is
-  no such kind in `OBSERVATION_KINDS` or `KIND_FIELDS`.
-- An `agent-journal tombstone <id> --reason …` command.
-- Derivation of `tombstoned` from the journal itself, so a replica that reads the
-  segments learns what was suppressed.
-- Purge-on-compaction of the referenced bytes.
-
-So today the only way to tombstone anything is to be a library caller who already knows
-the id. This is the mechanism for removing a leaked secret or a named person from a
-grow-only store, which makes it the most consequential item here. §13.2 argues the
-price — forfeiting pure CRDT convergence — is worth paying, and pays none of it yet.
-
-## 2. Entry TTL
-
-**§13.2, same paragraph.**
-
-`applyRetention` takes `observationTtlMs` and nothing else. Entries are kept
-indefinitely, which §13.2 names directly as *"a volume decision masquerading as a
-policy"*. Entry retention is supposed to be symmetric with observations: a long
-default, but not infinite.
-
-Closing 1 and 2 together is the coherent next plan — one governance argument, and the
-retention plumbing both need is already built and tested.
-
-## 3. The `runtime` anchor class has no producer
+## 1. The `runtime` anchor class has no producer
 
 **§16's v1 set names it beside `environment`.**
 
@@ -58,7 +35,7 @@ carve-out — it reads as something that should be captured.
 
 Decide which it is, and either capture it or say in the spec that it is a schema.
 
-## 4. §11's authoring floors are not wired
+## 2. §11's authoring floors are not wired
 
 **§11.1–11.3.**
 
@@ -78,7 +55,7 @@ journal records what an agent felt like recording.
 
 `SKILL.md` mentions compaction once. That is the extent of it.
 
-## 5. Digest cadence — the open question with teeth
+## 3. Digest cadence — the open question with teeth
 
 **§17.4.**
 
@@ -104,8 +81,10 @@ source, and a dropped hook leaves no trace because `sequenceGaps` cannot see one
 
 §17's seven. Beyond cadence (above), the two that now bite hardest:
 
-- **Retention windows (§17.2)** — needed numbers before, and now doubly so, since
-  item 2 means entries have no window at all.
+- **Retention windows (§17.2)** — still no numbers, on either axis. `compact
+  --entry-ttl-days` and `--observation-ttl-days` both work now and are genuinely
+  independent, but neither has a default; a caller must type both, every run, or
+  nothing expires on that axis at all.
 - **An axis above workspace (§17.6)** — an initiative spanning several repos has no
   home, and `context` is workspace-scoped.
 
