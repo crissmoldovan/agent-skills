@@ -2235,3 +2235,32 @@ test('decay redacts the live "now" environment before printing it, not just the 
   assert.match(r.stdout, /\/\[REDACTED\]\/bin\/node/,
     'the live "now" interpreter should have been redacted, not merely absent');
 });
+
+// A regression guard, and NOT a test of the TOCTOU fix it sits beside -- worth
+// being exact about, because the first version of this comment claimed
+// otherwise.
+//
+// The guards canonicalize `--out` and check the resolved path; the write now
+// uses that same resolved path rather than re-following `out`. Mutating it back
+// leaves this GREEN, and that is correct: `canonicalize` resolves the PARENT and
+// rejoins the basename, so both paths reach the same file. The fix buys a
+// narrower window between check and write, not a different destination -- and a
+// window is not something a deterministic test can observe.
+//
+// What this does prove is that a symlinked parent still works at all, which the
+// change could plausibly have broken.
+test('digest --out through a symlinked parent lands at the resolved location', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--claim=x', '--scope', 'machine',
+    '--disclosure', 'published', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const real = join(dir, 'real-dir');
+  await mkdir(real, { recursive: true });
+  await symlink(real, join(dir, 'link-dir'));
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', join(dir, 'link-dir', 'd.md')],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const written = await readFile(join(real, 'd.md'), 'utf8');
+  assert.match(written, /## Coverage/);
+  assert.match(r.stdout, /link-dir/);
+});

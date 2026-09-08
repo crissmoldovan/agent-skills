@@ -941,6 +941,9 @@ async function dispatch(
       };
     }
 
+    // Hoisted out of the guard block below so the WRITE can use the very path
+    // the guard vetted, rather than re-deriving it from `out` afterwards.
+    let resolvedOut = out;
     if (out) {
       // A digest written under ANY workspace's segment tree becomes journal
       // INPUT the next time THAT workspace is read: readAll() walks every
@@ -963,7 +966,7 @@ async function dispatch(
       // segment tree must not slip past what would otherwise be a naive
       // prefix check.
       const workspacesRoot = await canonicalize(join(root, 'workspaces'));
-      const resolvedOut = await canonicalize(out);
+      resolvedOut = await canonicalize(out);
       const rel = relative(workspacesRoot, resolvedOut);
       const insideWorkspaces = rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`);
       const candidateWorkspaceId = insideWorkspaces ? rel.split(sep)[0]! : undefined;
@@ -1002,8 +1005,17 @@ async function dispatch(
       ...(level === undefined ? {} : { level: level as Disclosure }),
     });
     if (out) {
-      await mkdir(dirname(out), { recursive: true });
-      await writeFile(out, rendered, 'utf8');
+      // Write the path the guards above actually vetted, not `out`, which they
+      // vetted only by proxy. Anything changing in between — a symlink swapped
+      // in after canonicalize returned — would be followed by a write to `out`
+      // and land outside the tree the guard just proved it was inside. Writing
+      // the resolved path closes that window: the bytes go where the check
+      // looked.
+      await mkdir(dirname(resolvedOut), { recursive: true });
+      await writeFile(resolvedOut, rendered, 'utf8');
+      // ...but report `out`, the path the caller typed. `resolvedOut` may name
+      // a location they never mentioned, and telling somebody you wrote
+      // somewhere they did not ask for is its own small betrayal.
       return { code: 0, stdout: `wrote ${out}\n`, stderr: '' };
     }
     return { code: 0, stdout: rendered, stderr: '' };
