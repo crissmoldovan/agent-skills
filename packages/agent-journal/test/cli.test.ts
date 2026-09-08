@@ -1654,7 +1654,7 @@ test('retention still classifies observations after the list moves to observe.ts
 
   const report = applyRetention(
     [make('o1', 'heartbeat'), make('u1', 'some_future_kind_nobody_wrote_yet')],
-    { now: NOW, observationTtlMs: 30 * 86400000 },
+    { now: NOW, observationTtlMs: 30 * 86400000, entryTtlMs: 30 * 86400000 },
   );
   // heartbeat is a known observation with nothing citing it: it ages out.
   assert.deepEqual(report.expired, ['o1']);
@@ -1671,7 +1671,7 @@ test('retention still classifies observations after the list moves to observe.ts
   // unclassified and this fails.
   const all = applyRetention(
     OBSERVATION_KINDS.map((k, i) => make(`k${i}`, k)),
-    { now: NOW, observationTtlMs: 30 * 86400000 },
+    { now: NOW, observationTtlMs: 30 * 86400000, entryTtlMs: 30 * 86400000 },
   );
   assert.deepEqual(all.unclassified, [],
     `retention does not recognise every kind observe.ts declares: ${all.unclassified}`);
