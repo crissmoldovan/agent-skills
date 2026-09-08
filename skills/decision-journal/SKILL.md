@@ -297,6 +297,32 @@ reaches it anyway, because that is frequently where "why is this like this" ends
 see, and a symptom traces back to the decision it actually depends on, not just the
 entry that happens to mention it.
 
+### 8. Check what has decayed
+
+Entries do not stay true because they were true once. A cited file gets deleted, a
+ticket closes, an interpreter on `PATH` is not the one a decision was made under.
+
+```bash
+agent-journal decay --workspace api --repo .
+```
+
+This reports two different things, never resolves either, and exits `0` regardless of
+what it finds — a `failing` finding does not invalidate anything, and a `drifted`
+finding is not a verdict. `--repo` defaults to nothing on purpose: without it every
+`codebase` influence reads `not-checkable` rather than this command silently scanning
+whatever directory you happened to be standing in.
+
+**Know the honest limit before you trust a `passing` codebase finding**: `path:symbol`
+checks that the symbol's name still appears in the file's text — a grep, not a parse.
+It catches a deleted or renamed symbol. It does not catch one that kept its name and
+changed what it does. See [references/decay.md](references/decay.md) for the full
+reference — every status, what `decay` does and does not look at, and why an
+`environment` anchor's drift is reported as `drifted` rather than `failing`.
+
+**Complete when:** you can name which of the five statuses a finding carries and what
+each one does and does not commit to, and you know that reading the report is not the
+same as acting on it.
+
 ## Usage Examples
 
 **Recording a rejection, which is the entry nothing else captures:**
@@ -348,6 +374,10 @@ agent-journal invalidate 7f3a --workspace api \
 - **Assuming order implies causality.** Entries from different sources are ordered for
   display, not for meaning. If one thing caused another, the edge between them says so —
   the sequence in a list does not.
+- **Reading a `passing` `codebase` finding as "the reasoning still holds".** It means
+  the symbol's name is still in the file. `decay`'s `path:symbol` check is a grep, not
+  a parse — it says nothing about whether the symbol still does what the entry said it
+  did. See [references/decay.md](references/decay.md).
 
 ## Verification
 
@@ -378,11 +408,17 @@ Before treating a journal as a record you can rely on:
   one per retraction, forever.
 - **`null` is not `[]` in `show` either.** `anchors`, `influences` and `retracts` read
   `null` when the entry has none — not recorded, rather than assessed and empty.
+- **A `decay` report is something to read, not something that gates.** It exits `0`
+  whether every finding is `passing` or half of them are `failing` — treating a clean
+  exit code as "nothing decayed" skips the one field, `findings`, that actually says so.
 
 ## Deeper reading
 
 - [references/anchors.md](references/anchors.md) — what a claim can point at, what each
   anchor class actually proves, and why anchoring is one-directional.
+- [references/decay.md](references/decay.md) — the five statuses `decay` can report,
+  what it does and does not check, the `codebase` grep's honest limit, and why
+  environment drift is reported rather than resolved.
 - [references/entry-kinds.md](references/entry-kinds.md) — decision, finding,
   assumption, blocker, progress, constraint: which to use and how they differ.
 - [references/digest-and-disclosure.md](references/digest-and-disclosure.md) — the
