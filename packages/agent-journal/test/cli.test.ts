@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir, hostname } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { runCli } from '../src/cli.ts';
 import { normalizeEvent, type JournalEvent } from '../src/envelope.ts';
 import { project } from '../src/retract.ts';
@@ -2663,4 +2663,80 @@ test('a bare --apply still works, and --apply with a value is still refused', as
   const ok = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
   assert.equal(ok.code, 0, ok.stderr);
   assert.ok(!(await readAllEvents(dir, 'ws')).some((e) => e.id === 'gone'));
+});
+
+// The naive read -> filter -> writeFile destroyed anything appended while it
+// worked: with a writer appending during a compaction of a large segment, 23 of
+// 70 appended events were overwritten, exit 0, nothing warned. Appends are the
+// one thing §7.1 promises need no coordination, and the active segment is
+// exactly the file a purge must rewrite, because it holds the target.
+//
+// Made deterministic here by appending BEFORE compact runs but AFTER the events
+// it was told about — the same shape without a race: the purge must not remove
+// a line it never read.
+test('compact leaves an event appended after its read intact', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'doomed', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'doomed', '--reason=test', '--workspace', 'ws'], env);
+  await runCli(['record', '--kind', 'finding', '--id', 'late-arrival', '--claim=y',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(after.some((e) => e.id === 'late-arrival'), 'a later append was destroyed');
+  assert.ok(!after.some((e) => e.id === 'doomed'));
+});
+
+// Re-serialising from the parsed event dropped unknown top-level fields on
+// lines that were never targeted. A newer or foreign replica's field simply
+// vanished from a segment this version rewrote.
+test('compact preserves fields it does not understand on lines it keeps', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'doomed', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'doomed', '--reason=test', '--workspace', 'ws'], env);
+
+  // A line from a replica that knows a field this version does not.
+  const seg = join(dir, 'workspaces', 'ws', 'segments', 'foreign', 's9', 'primary.e1.0.jsonl');
+  await mkdir(dirname(seg), { recursive: true });
+  await writeFile(seg, `${JSON.stringify({
+    schemaVersion: 1, id: 'from-the-future', source: 'cli/foreign/s9/primary', sourceEpoch: 'e1',
+    time: '2026-09-09T10:00:00.000Z', workspace: 'ws', session: 's9', agent: 'primary',
+    author: 'agent', provenance: 'cli', harness: 'other', context: 'coding',
+    kind: 'finding', data: { claim: 'c', scope: 'machine' },
+    signature: 'sig-v2', futureField: { nested: true },
+  })}\n`, 'utf8');
+
+  await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  const raw = await readFile(seg, 'utf8');
+  assert.match(raw, /"signature":"sig-v2"/, 'an unknown field was stripped from an untargeted line');
+  assert.match(raw, /"futureField"/);
+});
+
+// On the one path that destroys data, a line we cannot parse is kept. Unreadable
+// to us is not the same as unwanted.
+test('compact keeps a line it cannot parse rather than dropping it', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'doomed', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'doomed', '--reason=test', '--workspace', 'ws'], env);
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const [host] = await readdir(segDir);
+  const sessionDir = join(segDir, host!, 's1');
+  const [file] = await readdir(sessionDir);
+  const target = join(sessionDir, file!);
+  await writeFile(target, `${await readFile(target, 'utf8')}{ not json at all\n`, 'utf8');
+
+  // The journal is now damaged, so compact must refuse outright — which is the
+  // stronger guarantee, and the reason the keep-unparseable rule is a backstop
+  // rather than the primary defence.
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /refusing to compact/);
+  assert.match(await readFile(target, 'utf8'), /not json at all/);
 });

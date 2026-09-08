@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readdir, readFile, mkdir, writeFile, stat, rename, rm } from 'node:fs/promises';
 import { join, dirname, sep, relative } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
@@ -334,6 +334,86 @@ async function readAll(root: string, workspace: string): Promise<ReadResult> {
   return { events: mergeEvents(batches), unreadable, malformed };
 }
 
+
+/**
+ * Rewrite one segment with purged events removed, without destroying anything a
+ * concurrently running session appends while we work.
+ *
+ * The naive read -> filter -> writeFile lost data, measurably: with a writer
+ * appending every 100ms during a compaction of a large segment, 23 of 70
+ * appended events were overwritten out of existence, exit 0, nothing warned.
+ * Appends are the one thing §7.1 promises need no coordination, and the active
+ * segment is exactly the file a purge must rewrite, because it holds the target.
+ *
+ * Three defences, in order of what they fix:
+ *
+ *  1. `stat` before and after building the output. A segment only ever grows,
+ *     so a changed size or mtime means an append landed. Retry; after
+ *     MAX_ATTEMPTS, SKIP the file and report it. A skipped file loses nothing —
+ *     the purge simply has not happened yet, and the next run gets it.
+ *  2. Write a temp file and `rename` it. `writeFile` truncates in place, so a
+ *     crash mid-write left a truncated segment. `rename` is atomic.
+ *  3. Keep every retained line's ORIGINAL bytes. Re-serialising from the parsed
+ *     event silently dropped unknown top-level fields — a field this version
+ *     does not know about, written by a newer or foreign replica, vanished from
+ *     lines that were never targeted.
+ *
+ * A window remains between the final `stat` and the `rename`. It cannot be
+ * closed without a lock, which §7.1 rules out; it is microseconds against the
+ * seconds the old window spanned, and a skip is reported rather than silent.
+ */
+const MAX_PURGE_ATTEMPTS = 3;
+
+async function purgeOneSegment(
+  full: string,
+  purgeIds: ReadonlySet<string>,
+  flipTombstoneIds: ReadonlySet<string>,
+): Promise<'unchanged' | 'rewritten' | 'skipped'> {
+  for (let attempt = 0; attempt < MAX_PURGE_ATTEMPTS; attempt += 1) {
+    const before = await stat(full);
+    const text = await readFile(full, 'utf8');
+
+    let changed = false;
+    const lines: string[] = [];
+    for (const raw of text.split('\n')) {
+      if (!raw.trim()) continue;
+      let parsed: { id?: unknown; kind?: unknown; data?: unknown };
+      try {
+        parsed = JSON.parse(raw) as typeof parsed;
+      } catch {
+        // Unreadable to us is not the same as unwanted. On the one path in this
+        // package that destroys data, a line we cannot parse is kept.
+        lines.push(raw);
+        continue;
+      }
+      const id = typeof parsed.id === 'string' ? parsed.id : undefined;
+      if (id !== undefined && purgeIds.has(id)) { changed = true; continue; }
+      if (id !== undefined && parsed.kind === TOMBSTONE_KIND && flipTombstoneIds.has(id)) {
+        const data = (parsed.data ?? {}) as Record<string, unknown>;
+        lines.push(JSON.stringify({ ...parsed, data: { ...data, purged: true } }));
+        changed = true;
+        continue;
+      }
+      lines.push(raw); // original bytes, unknown fields and all
+    }
+    if (!changed) return 'unchanged';
+
+    const after = await stat(full);
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) continue;
+
+    const tmp = `${full}.compact-${process.pid}-${Date.now()}.tmp`;
+    await writeFile(tmp, lines.length > 0 ? `${lines.join('\n')}\n` : '', 'utf8');
+    const finalCheck = await stat(full);
+    if (finalCheck.size !== before.size || finalCheck.mtimeMs !== before.mtimeMs) {
+      await rm(tmp, { force: true });
+      continue;
+    }
+    await rename(tmp, full);
+    return 'rewritten';
+  }
+  return 'skipped';
+}
+
 /**
  * The only place this package writes to a segment file after its initial
  * append. Everything else in `cli.ts` only ever appends (`SegmentJournal`) or
@@ -360,7 +440,8 @@ async function purgeSegments(
   workspace: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
-): Promise<void> {
+): Promise<string[]> {
+  const skipped: string[] = [];
   const base = join(root, 'workspaces', workspace, 'segments');
 
   async function walk(dir: string): Promise<void> {
@@ -376,29 +457,13 @@ async function purgeSegments(
       if (e.isDirectory()) { await walk(full); continue; }
       if (!e.name.endsWith('.jsonl')) continue;
 
-      const text = await readFile(full, 'utf8');
-      // The journal was already confirmed undamaged by the caller's own
-      // `readAll` immediately before this runs; `bad` here is expected empty.
-      const { events } = parseSegment(text);
-
-      let changed = false;
-      const lines: string[] = [];
-      for (const event of events) {
-        if (purgeIds.has(event.id)) { changed = true; continue; }
-        if (event.kind === TOMBSTONE_KIND && flipTombstoneIds.has(event.id)) {
-          lines.push(JSON.stringify({ ...event, data: { ...event.data, purged: true } }));
-          changed = true;
-          continue;
-        }
-        lines.push(JSON.stringify(event));
-      }
-
-      if (!changed) continue;
-      await writeFile(full, lines.length > 0 ? `${lines.join('\n')}\n` : '', 'utf8');
+      const outcome = await purgeOneSegment(full, purgeIds, flipTombstoneIds);
+      if (outcome === 'skipped') skipped.push(full);
     }
   }
 
   await walk(base);
+  return skipped;
 }
 
 export async function runCli(
@@ -1396,7 +1461,21 @@ async function dispatch(
     };
 
     if (apply) {
-      await purgeSegments(root, workspace, purgeIds, new Set(tombstonesToFlip.map((t) => t.id)));
+      const skippedPaths = await purgeSegments(
+        root, workspace, purgeIds, new Set(tombstonesToFlip.map((t) => t.id)),
+      );
+      if (skippedPaths.length > 0) {
+        // Not a failure: nothing was lost, the purge simply did not happen for
+        // these files because a session kept appending to them. Saying so is
+        // the whole point — a silent skip on a deletion the caller asked for
+        // would leave them believing content is gone when it is not.
+        return {
+          code: 1,
+          stdout: `${JSON.stringify({ ...report, skipped: skippedPaths }, null, 2)}\n`,
+          stderr: `${skippedPaths.length} segment(s) were being written during compaction `
+            + `and were left untouched; re-run when writers are idle\n`,
+        };
+      }
     }
 
     return { code: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };
