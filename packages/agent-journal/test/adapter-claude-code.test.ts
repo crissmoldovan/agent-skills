@@ -151,6 +151,33 @@ test('the hook does nothing when the workspace is unconfigured', async () => {
   assert.deepEqual(found, [], 'nothing should have been created under AGENT_JOURNAL_ROOT');
 });
 
+// A property test, not a guard test, and worth being precise about which.
+//
+// A whitespace-only workspace is refused three times over. The .sh does NOT
+// catch it (`[ -z " " ]` is false, so it falls through); the .mjs trims;
+// cli.ts's `!workspace` check refuses; and underneath both, envelope.ts's
+// `text()` throws `workspace is required` for any blank field, so no event
+// carrying one can be CONSTRUCTED at all. Verified by mutation: removing the
+// .mjs trim leaves this green, and removing the CLI check too STILL leaves it
+// green -- the envelope refuses regardless, which is the guarantee that
+// actually holds the line.
+//
+// So this does not isolate any single guard, and no single-guard mutation
+// turns it red. What it does prove is the end-to-end property: a blank
+// workspace materialises no journal directory, and the adapter does not route
+// around the envelope to create one.
+test('a whitespace-only workspace is unconfigured too, not a workspace named " "', async () => {
+  const dir = await root();
+  const r = runHook(sessionStartPayload(), {
+    AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_WORKSPACE: '   ',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const found = await readdir(dir).catch(() => []);
+  assert.deepEqual(found, [], 'a blank workspace name created a journal');
+});
+
 test('a broken exit-0 rule surfaces here first: verified live, not assumed', async () => {
   // Documents, with a passing assertion, the bug found while building this
   // adapter: the brief\u2019s own sketch used
