@@ -394,3 +394,21 @@ test('codebaseRefs extracts only codebase-type refs, deduplicated', () => {
   const refs = codebaseRefs([e]);
   assert.deepEqual([...refs].sort(), ['src/a.ts', 'src/b.ts']);
 });
+
+// Both orderings passed every test, so this pins the right one. When BOTH are
+// true -- the cited observation is absent AND no current environment was
+// supplied -- the missing observation wins, and it is `failing`.
+//
+// The two facts are not the same kind of fact. "The observation you cited is
+// not in this journal" is a defect in the ENTRY, true no matter how this run
+// was configured. "No current environment was supplied" is a property of THIS
+// RUN. Reporting the second would hide a real dangling reference behind a
+// configuration detail the reader can fix in a second, and they would never
+// learn the entry was broken.
+test('a dangling environment ref is failing even when no current environment is supplied', () => {
+  const e = entry('c1', [], { anchors: [{ type: 'environment', ref: 'no-such-observation' }] });
+  const f = computeDecay([e]).findings.find((x) => x.type === 'environment')!;
+  assert.equal(f.status, 'failing', 'a dangling ref was hidden behind the missing-now branch');
+  assert.match(f.detail, /not present/i);
+  assert.doesNotMatch(f.detail, /no current environment/i);
+});
