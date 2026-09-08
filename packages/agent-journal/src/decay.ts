@@ -184,21 +184,6 @@ function classify(inf: RawInfluence, ctx: CheckContext): { status: DecayStatus; 
   }
 }
 
-/** Belt-and-suspenders: keeps the switch above and the two documentation sets
- *  from silently drifting apart. Cheap (nine entries) and runs once, at
- *  import time, throwing loudly rather than misclassifying at runtime. */
-(function checkClassificationsAgree(): void {
-  const dummy: CheckContext = { allIds: new Set(), invalidated: new Set(), superseded: new Set(), codebase: undefined };
-  for (const type of INFLUENCE_TYPES) {
-    const { status } = classify({ type, ref: null }, dummy);
-    if (NOT_CHECKABLE.has(type) && status !== 'not-checkable') {
-      throw new TypeError(`decay: NOT_CHECKABLE and the switch disagree on ${type}`);
-    }
-    if (NOT_IMPLEMENTED.has(type) && status !== 'not-implemented') {
-      throw new TypeError(`decay: NOT_IMPLEMENTED and the switch disagree on ${type}`);
-    }
-  }
-})();
 
 /**
  * Checks every live, directly-non-retracted entry's influences for decay.

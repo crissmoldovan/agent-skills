@@ -138,3 +138,60 @@ test('a codebase influence uses the injected map, and is not-checkable without o
   const noMap = computeDecay([citing]);
   assert.equal(noMap.findings.find((f) => f.ref === 'src/gone.ts')?.status, 'not-checkable');
 });
+
+// The skip guard is `proj.superseded.has(id) || directInvalidated.has(id)`, and
+// only the second half had a test -- removing the first left the suite green.
+// Supersession does not cascade (project() only cascades invalidation), so the
+// projection's set is exactly the directly-superseded entries and is the right
+// thing to read; it just was not covered.
+test('a superseded entry is not decay-checked either', () => {
+  const old = entry('o1', [{ type: 'journal', role: 'decisive', ref: 'ghost' }]);
+  const replacement = entry('n1', [], { supersedes: 'o1' });
+  const r = computeDecay([old, replacement]);
+  assert.deepEqual(r.findings.filter((f) => f.entryId === 'o1'), [],
+    'a replaced entry still generated decay noise');
+});
+
+// An independent table, written out rather than read from the implementation's
+// own sets. Asserting the sets against the switch they document proves the two
+// agree; it does not prove either is right. This says what each type SHOULD be.
+test('every influence type has the status this release claims for it', () => {
+  const expected: Record<string, string> = {
+    journal: 'failing',          // ref 'ghost' resolves to nothing
+    tool_result: 'failing',      // same
+    codebase: 'not-checkable',   // no map supplied
+    person: 'not-checkable',
+    model_knowledge: 'not-checkable',
+    conversation: 'not-checkable',
+    url: 'not-implemented',
+    ticket: 'not-implemented',
+    document: 'not-implemented',
+  };
+  const e = entry('c1', Object.keys(expected).map((type) => ({
+    type, role: 'decisive', ...(type === 'model_knowledge' ? {} : { ref: 'ghost' }),
+  })));
+  const got = Object.fromEntries(
+    computeDecay([e]).findings.map((f) => [f.type, f.status]),
+  );
+  assert.deepEqual(got, expected);
+});
+
+// Undocumented until now: what a malformed or missing ref does. `failing` is
+// right -- an influence that names no source cannot be resting on one -- but it
+// was a silent choice, and a silent choice is one nobody can disagree with.
+test('an influence whose ref is missing or blank is failing, not skipped', () => {
+  const e = entry('c1', [
+    { type: 'journal', role: 'decisive' },
+    { type: 'tool_result', role: 'supporting', ref: '   ' },
+  ]);
+  const r = computeDecay([e]);
+  assert.equal(r.findings.length, 2, 'a refless influence was dropped rather than reported');
+  for (const f of r.findings) assert.equal(f.status, 'failing', `${f.type} was ${f.status}`);
+});
+
+test('a codebase ref the map does not answer is not-checkable, never passing', () => {
+  const e = entry('c1', [{ type: 'codebase', role: 'decisive', ref: 'src/unasked.ts' }]);
+  const r = computeDecay([e], { codebase: new Map([['src/other.ts', true]]) });
+  assert.equal(r.findings[0]!.status, 'not-checkable',
+    'an unanswered ref must not inherit the map\'s optimism');
+});
