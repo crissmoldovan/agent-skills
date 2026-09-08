@@ -77,16 +77,24 @@ Do not trust that a hook fired because the configuration looks right. Run a real
 session against the harness, then:
 
 ```bash
-agent-journal coverage --workspace <id>
+agent-journal show --workspace <id>
 ```
 
-Read this the same way [the main skill file](../SKILL.md) already teaches for the
-decision plane, because the exact same honesty rule applies: `sessions`,
-`sessionsWithNoEntries`, `voids` and `sequenceGaps` are real counts; `null` fields
+**`show` is the command that answers this, not `coverage`.** `coverage` reports on
+sessions, and a session that recorded one hand-written entry and a session that
+recorded four hundred observations both print `sessions: 1` — it cannot tell you a
+hook fired. `show` lists what is actually in the journal: if observation kinds
+(`tool_call`, `session_start`, …) appear there with `provenance: "hook"`, a hook
+fired. A hooks-configuration file that merely parses is not proof of anything.
+
+`coverage` is still worth reading alongside it, under the same honesty rule [the main
+skill file](../SKILL.md) teaches for the decision plane: `sessions`,
+`sessionsWithNoEntries` and `voids` are real counts; `null` fields
 (`sessionsWithNoEvents`, `downgradedAnchors`) mean **not assessed**, not **assessed and
-clean**. A coverage report with a nonzero `sessions` count and observation-kind entries
-in the underlying journal is the actual proof a hook fired — a hooks-configuration file
-that merely parses is not.
+clean**. One caveat specific to this plane: **`sequenceGaps` is permanently `0` here.**
+It counts gaps in a writer's declared `--seq`, and neither adapter emits one — there is
+no safe stateless counter in a hook. So it cannot surface a dropped hook, and a `0`
+there means nothing was measured, not that nothing was lost.
 
 If coverage shows nothing after a real session with hooks configured, check in this
 order, cheapest first:
@@ -201,6 +209,14 @@ own hook, not by the agent that made the claim.
 The observation plane is not a transcript. It is exactly as complete as the events a
 harness's hooks expose, and no more. Both adapters were built to say plainly what falls
 outside that, rather than let a reader assume completeness:
+
+**A dropped hook leaves no trace.** `coverage`'s `sequenceGaps` is the field that would
+catch one, and it is permanently `0` on this plane: it counts gaps in a writer's
+declared `--seq`, and neither adapter emits one, because a hook has no safe stateless
+counter to derive it from. So if a hook fails to fire — a crash, a misconfigured
+matcher, a harness that renamed an event — nothing anywhere reports the loss. That is
+the plane's sharpest limit, and it is why an observation's absence must never be read
+as evidence that the thing did not happen.
 
 - **`heartbeat` is wired on neither adapter, structurally, not by omission.** Every
   event either harness exposes fires because the agent acted or a phase changed — there

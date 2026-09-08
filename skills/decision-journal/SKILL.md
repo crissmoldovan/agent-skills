@@ -97,8 +97,10 @@ help you make them.
    tool calls from inside a subagent. See
    [references/adapters.md](references/adapters.md) for the whole loop and before
    assuming a class of claim is covered that isn't. **Complete when:** you know whether
-   this session's harness has an adapter wired, and `agent-journal coverage` confirms
-   observations if it does.
+   this session's harness has an adapter wired, and — if it does — `agent-journal show`
+   shows observation kinds with `provenance: "hook"`. Use `show`, not `coverage`:
+   `coverage` counts sessions, so a hooked session and a hookless one both report
+   `sessions: 1` and it cannot tell you a hook fired.
 
 ## Procedure
 
