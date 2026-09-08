@@ -66,17 +66,21 @@ export function liveClaims(events: readonly JournalEvent[], now: string): PathCl
     if (!checkout) continue; // claims nothing
 
     const rawTtl = e.data.ttlSeconds;
-    const ttlPresent = rawTtl !== undefined;
     const ttlText = text(e, 'ttlSeconds');
     let ttl: number | null;
-    if (!ttlPresent || ttlText === undefined) {
+    if (rawTtl === undefined || (typeof rawTtl === 'string' && !rawTtl.trim())) {
       // Absent, or present-but-blank: no TTL stated, so the default applies.
       // Never marked malformed — only a key that is present and unusable is.
       ttl = DEFAULT_TTL_SECONDS;
-    } else if (typeof rawTtl === 'string' && /^\d+$/.test(ttlText)) {
+    } else if (ttlText !== undefined && /^\d+$/.test(ttlText)) {
       ttl = Number(ttlText);
     } else {
-      ttl = null; // present and unreadable
+      // Present and unusable — including a NON-STRING, which a foreign writer
+      // can easily produce (`ttlSeconds: 7200`). Defaulting one of those meant
+      // reading a 2-hour claim as a 1-hour claim and dropping it while it was
+      // still held: unreadable must fail toward keeping the claim, never toward
+      // discarding it.
+      ttl = null;
     }
 
     const worktree = text(e, 'worktree');

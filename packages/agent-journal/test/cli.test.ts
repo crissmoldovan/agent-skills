@@ -1711,6 +1711,21 @@ test('an environment observation is redacted like anything else', async () => {
     `a home path reached disk: ${written}`);
 });
 
+// The test above can only fail on a machine whose interpreter actually lives
+// under a home directory. On CI with a system-wide /usr/bin/node it passes
+// vacuously even if redaction were removed entirely. This one supplies the home
+// path itself, so it means the same thing everywhere.
+test('an environment observation is redacted even where the toolchain is not in a home dir', async () => {
+  const dir = await root();
+  const home = '/Users' + '/someone';
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'environment',
+    '--interpreter', `${home}/.local/bin/node`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!JSON.stringify(e!.data).includes(home),
+    `a supplied home path reached disk: ${JSON.stringify(e!.data)}`);
+});
+
 // Explicit flags win over the capture — a hook that knows better than the
 // current process (a remote runner, a container) can override what would
 // otherwise be self-populated.
@@ -1737,4 +1752,8 @@ test('claims lists live claims and says plainly that nothing is enforced', async
   const out = JSON.parse(r.stdout);
   assert.equal(out.claims.length, 1);
   assert.equal(out.claims[0].branch, 'main');
+  // The payload says so in-band, so a consumer cannot mistake `claims` for a
+  // lock without having read the docs. Untested, this field could be deleted
+  // or flipped and nothing would notice.
+  assert.equal(out.advisory, true, 'the advisory marker is missing from the payload');
 });

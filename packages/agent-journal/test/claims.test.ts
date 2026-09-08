@@ -12,6 +12,18 @@ function claim(id: string, session: string, time: string, data: Record<string, u
 }
 const BASE = { checkout: '/work/repo', worktree: '/work/repo', branch: 'main', ttlSeconds: '3600' };
 
+// A foreign writer — another CLI, a hook in another language, a hand-edited
+// segment — can easily record ttlSeconds as a NUMBER. Treating that as "no TTL
+// stated" read a 2-hour claim as a 1-hour one and dropped it while it was still
+// held: an unreadable lifetime must never shorten a claim.
+test('a non-string ttlSeconds is unusable, not a silent default', () => {
+  const c = claim('c1', 's1', '2026-09-08T10:00:00.000Z', { checkout: '/w/r', ttlSeconds: 7200 });
+  const live = liveClaims([c], '2026-09-08T11:30:00.000Z');
+  assert.equal(live.length, 1, 'a 2-hour claim was dropped 90 minutes in');
+  assert.equal(live[0]!.malformedTtl, true);
+  assert.ok(!('expiresAt' in live[0]!), 'an unreadable lifetime must not produce an expiry');
+});
+
 test('a claim inside its TTL is live', () => {
   const c = claim('c1', 's1', '2026-09-08T10:00:00.000Z', BASE);
   assert.equal(liveClaims([c], '2026-09-08T10:30:00.000Z').length, 1);
