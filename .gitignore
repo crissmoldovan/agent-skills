@@ -3,3 +3,10 @@ dist/
 *.tgz
 pnpm-lock.yaml
 .superpowers/
+
+# A journal written by running the CLI without AGENT_JOURNAL_ROOT set: it
+# defaults to the working directory, so any dev invocation from inside the
+# package writes a real journal here. One reached a commit this way, carrying
+# the machine hostname in its segment path — and scripts/verify-skills.mjs did
+# not catch it, because .jsonl is not among the extensions it scans.
+packages/agent-journal/workspaces/
