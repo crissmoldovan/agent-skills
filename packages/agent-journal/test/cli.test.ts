@@ -2032,3 +2032,22 @@ test('help names the FIELDS of each observation kind, not the kind names again',
   // A kind with no fields says so rather than trailing an empty space.
   assert.match(r.stdout, /heartbeat: \(no fields\)/);
 });
+
+// The documented way to answer "did a hook actually fire" is `show` -- coverage
+// counts sessions and cannot distinguish a hooked session from a hookless one.
+// That answer depends entirely on provenance being in the payload: `author` is
+// 'agent' for both planes, so without this an observation and an entry are
+// indistinguishable and the documented check verifies nothing.
+test('show reports which plane an event came from', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'tool_call', '--tool=Bash'], env);
+  await runCli(['record', '--kind', 'finding', '--claim=x', '--scope', 'machine',
+    '--workspace', 'ws'], env);
+  const r = await runCli(['show', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  const byKind = Object.fromEntries(
+    JSON.parse(r.stdout).entries.map((e: { kind: string; provenance: string }) => [e.kind, e.provenance]),
+  );
+  assert.equal(byKind.tool_call, 'hook', 'an observation must be identifiable as hook-captured');
+  assert.equal(byKind.finding, 'cli', 'an authored entry must not read as hook-captured');
+});

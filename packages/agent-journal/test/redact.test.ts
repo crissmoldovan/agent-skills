@@ -127,3 +127,22 @@ test('a failed verdict reports no partial hits, even when one was already found'
     `a failed verdict leaked partial hits: ${JSON.stringify(r.hits)}`);
   assert.equal(r.value, undefined);
 });
+
+// The observation plane changed what reaches the redactor. Previously only
+// agent prose did; now every Bash command line and tool response does,
+// verbatim. A secret with no distinctive shape -- no `ghp_`, no `AKIA` -- has
+// nothing for the shape patterns to catch, so it is matched by the NAME it is
+// assigned to instead.
+test('a secret with no shape, caught by the name it is assigned to', () => {
+  const r = redact({ input: 'export aws_secret_access_key=wJalrXUtnFEMIK7MDENGbPxRfiCY' });
+  const s = JSON.stringify(r.value);
+  assert.ok(!s.includes('wJalrXUtnFEMIK7MDENGbPxRfiCY'), `a shapeless secret reached disk: ${s}`);
+  // The name survives: a journal that hides WHICH credential leaked is worth less.
+  assert.ok(s.includes('aws_secret_access_key='), `the name was destroyed too: ${s}`);
+});
+
+test('an ordinary assignment is not a secret', () => {
+  const r = redact({ input: 'node --max-old-space-size=4096 build.js --mode=production' });
+  assert.ok(!JSON.stringify(r.value).includes('[REDACTED]'),
+    'a benign flag was redacted; the pattern is too broad');
+});

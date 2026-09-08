@@ -414,6 +414,37 @@ test('an observation cannot occupy the digest even when it is the only event', (
     'a journal of pure observations must read as empty, not as one anonymous entry');
 });
 
+// `record` writes an unrecognised kind at exit 0 with a warning rather than
+// destroying it, and retention keeps it and reports it as `unclassified`. The
+// digest is the third layer of that commitment, and it cannot display one --
+// an unknown kind stores no fields at all, so it would render as a contentless
+// `## <uuid>` heading, exactly the noise the test above forbids. Silently
+// dropping it made the digest the one layer that lost the entry outright. It is
+// counted in Coverage instead: not displayed, never unmentioned.
+test('an entry of an unrecognised kind is counted in Coverage, not silently dropped', () => {
+  const out = render([
+    ev('kept', { question: 'the known one', chosen: 'x' }),
+    evKind('odd', 'hypothesis', {}),
+  ]);
+  const headings = out.split('\n').filter((l) => l.startsWith('## '));
+  assert.deepEqual(headings, ['## the known one', '## Coverage'],
+    `an unknown kind rendered as a section: ${JSON.stringify(headings)}`);
+  assert.match(out, /- entries of an unrecognised kind, kept but not displayed: 1$/m,
+    'the entry was dropped without a word in the honesty control');
+});
+
+// An observation is NOT an unrecognised kind -- it is a recognised one that
+// belongs to the other plane. Counting it here would make the line useless the
+// moment a hook is installed.
+test('observations and voids are not counted as unrecognised', () => {
+  const out = render([
+    ev('kept', { question: 'the known one', chosen: 'x' }),
+    evKind('o1', 'tool_call', { tool: 'Bash' }),
+    evKind('v1', 'void', {}),
+  ]);
+  assert.match(out, /- entries of an unrecognised kind, kept but not displayed: 0$/m);
+});
+
 // The display list narrowed; the PROJECTION deliberately did not. `project()`
 // still runs over every event, so a retraction edge carried by something that
 // is not an entry — a foreign writer, or a future kind retention.ts keeps as

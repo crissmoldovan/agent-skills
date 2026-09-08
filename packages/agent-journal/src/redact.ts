@@ -27,13 +27,23 @@ export interface RedactOptions {
  * dropping the anchors costs nothing but over-redaction — which is the direction
  * a fail-closed rule is supposed to err in.
  */
-const PATTERNS: readonly { name: string; re: RegExp }[] = [
+const PATTERNS: readonly { name: string; re: RegExp; keepPrefix?: true }[] = [
   { name: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{16,}/g },
   { name: 'openai-key', re: /sk-[A-Za-z0-9_-]{16,}/g },
   { name: 'aws-access-key', re: /AKIA[0-9A-Z]{16}/g },
   { name: 'jwt', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   { name: 'private-key-block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
   { name: 'bearer', re: /Bearer\s+[A-Za-z0-9._-]{16,}/gi },
+  // Every pattern above matches a secret by its own SHAPE. This one matches by
+  // the name it is assigned to, because the observation plane changed what
+  // reaches this function: previously only agent prose, now every Bash command
+  // line and tool response, verbatim. A secret with no distinctive prefix --
+  // `aws_secret_access_key=wJalrXUt...` -- has no shape to catch, and went to
+  // disk byte-for-byte. Deliberately narrow: it requires a secret-ish NAME, an
+  // `=` or `:`, and 8+ non-space characters, so an ordinary `--flag=value` or
+  // `key=1` is untouched.
+  { name: 'assigned-secret', re: /((?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth)[A-Za-z0-9_-]*\s*[:=]\s*)(?:"|')?[^\s"';,]{8,}/gi, keepPrefix: true },
+
   { name: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
   { name: 'home-path', re: /\/(?:Users|home)\/[^/\s"']+/g },
   { name: 'home-path-win', re: /[A-Za-z]:\\Users\\[^\\\s"']+/g },
@@ -44,12 +54,17 @@ const DEFAULT_MAX_DEPTH = 32;
 
 function scrub(input: string, hits: string[], path: string): string {
   let out = input;
-  for (const { name, re } of PATTERNS) {
+  for (const { name, re, keepPrefix } of PATTERNS) {
     re.lastIndex = 0;
     if (!re.test(out)) continue;
     re.lastIndex = 0;
     hits.push(`${path}:${name}`);
-    out = name === 'home-path' ? out.replace(re, '/[REDACTED]') : out.replace(re, '[REDACTED]');
+    // keepPrefix leaves the captured NAME in place: `aws_secret_access_key=
+    // [REDACTED]` tells a reader which credential was there, which is the whole
+    // value of a journal, while `[REDACTED]` alone loses it.
+    out = keepPrefix ? out.replace(re, '$1[REDACTED]')
+      : name === 'home-path' ? out.replace(re, '/[REDACTED]')
+      : out.replace(re, '[REDACTED]');
   }
   return out;
 }

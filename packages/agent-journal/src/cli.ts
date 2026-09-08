@@ -697,8 +697,11 @@ async function dispatch(
     if (!(OBSERVATION_KINDS as readonly string[]).includes(kind)) {
       return {
         code: 2, stdout: '',
+        // OBSERVABLE_KINDS, not OBSERVATION_KINDS: `void` is refused ten lines
+        // above, so offering it here sends the caller straight back into that
+        // refusal. USAGE already got this right.
         stderr: `${JSON.stringify(kind)} is not an observation kind; one of `
-          + `${OBSERVATION_KINDS.join(', ')}\n`,
+          + `${OBSERVABLE_KINDS.join(', ')}\n`,
       };
     }
 
@@ -930,6 +933,13 @@ async function dispatch(
 
         return {
           id: e.id, kind: e.kind, time: e.time, author: e.author,
+          // Which PLANE this came from, and the only field that says so. `author`
+          // does not: `observe` writes `author: 'agent'` too, so a hook-captured
+          // observation and an agent-authored entry are indistinguishable without
+          // this. Verifying "did a hook actually fire" is exactly the question
+          // adapters.md sends a reader to `show` to answer, and it could not be
+          // answered from this payload.
+          provenance: e.provenance,
           // What the event is about, and what it carries. Both were missing,
           // and their absence broke the citing loop the observation plane
           // exists for: id/kind/time/outcome/live renders two `tool_call`
