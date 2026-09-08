@@ -1897,3 +1897,105 @@ test("--flag '' still parses as a value and normalizes to absent", async () => {
   const [e] = await readAllEvents(dir, 'ws');
   assert.ok(!('turn' in e!.data), 'a blank value must be absent, never stored as ""');
 });
+
+// ---------------------------------------------------------------------------
+// The cite-an-observation loop. `record --anchor tool_use:<obs-id>` always
+// worked IF you already knew the id — and nothing could tell you one.
+// `observe` took no --subject, so `trace Bash` returned empty; `show`
+// rendered id/kind/time/outcome/live and no data, so two `tool_call`
+// observations were indistinguishable. Only raw JSONL yielded an id, which is
+// not a documented command, so SKILL.md's "second witness to check your own
+// account against" was unreachable through the shipped surface.
+
+test('an observation carries a subject and trace finds it by that subject', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_1', '--input={"command":"pnpm test"}'], env);
+  const r = await runCli(['trace', 'Bash', '--workspace=ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.matched.length, 1, 'trace Bash found nothing');
+  assert.equal(out.matched[0].via, 'subject', 'the match must be attributed to the subject');
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(out.matched[0].id, e!.id);
+  assert.equal(e!.subject, 'Bash', 'the subject must be on the envelope, not buried in data');
+});
+
+test('a blank --subject on observe is absent, never an empty subject', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=tool_call', '--tool=Bash', '--subject', '   '],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!('subject' in e!), 'a blank subject must not be stored at all');
+});
+
+test('show renders subject and data, so two tool_calls are distinguishable', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--id=obs-a', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_a', '--input={"command":"pnpm test"}'], env);
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--id=obs-b', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_b', '--input={"command":"pnpm build"}'], env);
+
+  const r = await runCli(['show', '--workspace=ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const byId = Object.fromEntries(JSON.parse(r.stdout).entries.map((e: any) => [e.id, e]));
+  assert.equal(byId['obs-a'].subject, 'Bash');
+  assert.equal(byId['obs-b'].subject, 'Bash');
+  // The whole point: something in the rendered payload separates the two.
+  assert.equal(byId['obs-a'].data.callId, 'toolu_a');
+  assert.equal(byId['obs-b'].data.callId, 'toolu_b');
+  assert.equal(byId['obs-a'].data.input, '{"command":"pnpm test"}');
+  assert.notDeepEqual(byId['obs-a'].data, byId['obs-b'].data,
+    'two tool_call observations rendered identically');
+});
+
+test('show renders null — never "" — for an event that names no subject', async () => {
+  const dir = await root();
+  await runCli(['observe', '--workspace=ws', '--kind=turn_end', '--turn=done'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const r = await runCli(['show', '--workspace=ws'], { AGENT_JOURNAL_ROOT: dir });
+  const [entry] = JSON.parse(r.stdout).entries;
+  assert.equal(entry.subject, null);
+  assert.notEqual(entry.subject, '', 'absent is not the empty string');
+});
+
+test('the whole loop: observe, find by subject, read the id, cite it, trace back', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  // 1. Capture: two Bash calls, only one of which is the one being cited.
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_noise', '--input={"command":"ls"}'], env);
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_real', '--input={"command":"pnpm test"}'], env);
+
+  // 2. Find: by the tool name, which is what a reader actually knows.
+  const found = JSON.parse((await runCli(['trace', 'Bash', '--workspace=ws'],
+    { AGENT_JOURNAL_ROOT: dir })).stdout);
+  assert.equal(found.matched.length, 2);
+
+  // 3. Pick: `show` renders enough to tell them apart and read the right id.
+  const shown = JSON.parse((await runCli(['show', '--workspace=ws'],
+    { AGENT_JOURNAL_ROOT: dir })).stdout);
+  const wanted = shown.entries.find((e: any) => e.data.callId === 'toolu_real');
+  assert.ok(wanted, 'show did not render enough to identify the right observation');
+
+  // 4. Cite it from an authored entry.
+  const rec = await runCli(['record', '--workspace=ws', '--kind=finding',
+    '--claim=the suite passes', '--scope=workspace', `--anchor=tool_use:${wanted.id}`], env);
+  assert.equal(rec.code, 0, rec.stderr);
+
+  // 5. Trace back from the observation id: the observation itself by id, and
+  //    the entry that cites it by anchor.
+  const back = JSON.parse((await runCli(['trace', wanted.id, '--workspace=ws'],
+    { AGENT_JOURNAL_ROOT: dir })).stdout);
+  const vias = Object.fromEntries(back.matched.map((m: any) => [m.via, m.id]));
+  assert.equal(vias.id, wanted.id, 'the observation itself must match by id');
+  assert.ok(vias.anchor, 'the citing entry must match by anchor');
+  assert.notEqual(vias.anchor, wanted.id);
+});

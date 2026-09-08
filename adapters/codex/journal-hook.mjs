@@ -111,6 +111,15 @@ function summarize(value) {
  * this event has nothing to record. `null` is the expected outcome for most
  * event names this adapter sees -- see the `default` case below for exactly
  * which, and why each is left unmapped on purpose.
+ *
+ * A mapping may also carry `subject`: what the observation is ABOUT, which is
+ * the key `agent-journal trace` indexes it under. Four of the seven mapped
+ * events set one (tool_call, tool_result, subagent_start, subagent_stop) and
+ * three deliberately do not: session_start, session_end and turn_end are
+ * about the session, which the envelope's own `session` field already
+ * carries, and compact is about nothing a reader would search for by name.
+ * An invented subject on those would be a key matching every one of them,
+ * which is worse than no key at all.
  */
 export function mapPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -164,6 +173,13 @@ export function mapPayload(payload) {
       return {
         kind: 'tool_call',
         sessionId,
+        // The TOOL NAME, not the call id: it is the thing a later reader
+        // actually knows to search for ("did I really run Bash here?"), and
+        // `trace` matches a subject exactly, never as a substring, so
+        // `Bash:toolu_01…` would be findable by nobody. The call id stays in
+        // `data.callId`, which `show` now renders -- that is how a reader
+        // picks the right one out of several Bash calls.
+        subject: str(payload.tool_name),
         fields: {
           tool: str(payload.tool_name),
           input: truncate(summarize(payload.tool_input), MAX_FIELD_CHARS),
@@ -181,6 +197,10 @@ export function mapPayload(payload) {
       return {
         kind: 'tool_result',
         sessionId,
+        // Same subject as the matching tool_call, deliberately: one
+        // `trace <tool>` lists the call and its result together, and
+        // `data.callId` is what pairs a specific two.
+        subject: str(payload.tool_name),
         fields: {
           tool: str(payload.tool_name),
           callId: str(payload.tool_use_id),
@@ -198,6 +218,9 @@ export function mapPayload(payload) {
       return {
         kind: 'subagent_start',
         sessionId,
+        // The agent id, which is the only identifier on this payload a later
+        // reader could hold -- `agent_type` names a class, not an instance.
+        subject: str(payload.agent_id),
         agentId: str(payload.agent_id),
         fields: { agentId: str(payload.agent_id), purpose: str(payload.agent_type) },
       };
@@ -213,6 +236,7 @@ export function mapPayload(payload) {
       return {
         kind: 'subagent_stop',
         sessionId,
+        subject: str(payload.agent_id),
         agentId: str(payload.agent_id),
         fields: { agentId: str(payload.agent_id), status: 'stopped' },
       };
@@ -324,6 +348,15 @@ async function main() {
   // it is the value, `--` prefix, embedded `=`, newlines and all. See
   // `flags()` in src/cli.ts.
   const args = [...preArgs, 'observe', `--workspace=${workspace}`, `--kind=${mapped.kind}`];
+  // `--subject` is what makes an observation FINDABLE. `agent-journal trace`
+  // indexes an event's subject, so `trace Bash` lists every Bash tool_call and
+  // tool_result; without one, an observation can only be reached by a uuid no
+  // command prints, which made the cite-an-observation loop unreachable in
+  // practice. Only set where the payload carries something a later reader
+  // would actually search for -- absent stays absent, never a placeholder.
+  if (typeof mapped.subject === 'string' && mapped.subject.trim()) {
+    args.push(`--subject=${mapped.subject}`);
+  }
   for (const [field, value] of Object.entries(mapped.fields)) {
     if (typeof value !== 'string' || !value.trim()) continue; // absent stays absent
     args.push(`--${field}=${value}`);

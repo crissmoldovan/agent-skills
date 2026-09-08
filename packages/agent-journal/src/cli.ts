@@ -53,6 +53,7 @@ const USAGE = [
   '                       ...plus the fields for <kind>:',
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
   '  agent-journal observe --kind <kind> --workspace <id> [--id id] [--context c] [--seq n]',
+  '                        [--subject s]',
   '                        ...plus the fields for <kind>: ' + Object.keys(OBSERVATION_FIELDS).join(', '),
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
@@ -149,8 +150,17 @@ const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
  * what makes it Plane A — and `--disclosure` — observations are machinery,
  * not candour, so they take the envelope default rather than a caller's
  * stated intent.
+ *
+ * `subject` is here for a sharper reason than symmetry with `record`. Without
+ * it the citing loop the observation plane exists for was unreachable:
+ * `indexEntries` (trace.ts) indexes `e.subject` over EVERY non-void event, so
+ * an observation with no subject is findable only by an id nothing prints —
+ * `trace Bash` returned empty, and `show` rendered no `data`, so two
+ * `tool_call` observations were indistinguishable. An agent could cite an
+ * observation it already knew the uuid of, and had no documented way to learn
+ * one. See references/adapters.md, "Citing an observation".
  */
-const OBSERVATION_GLOBAL = ['workspace', 'kind', 'id', 'context', 'seq'] as const;
+const OBSERVATION_GLOBAL = ['workspace', 'kind', 'id', 'context', 'seq', 'subject'] as const;
 
 /** Kinds `record` writes. `observe` refuses any of these — that is `record`'s job. */
 const ENTRY_KINDS_SET = new Set<string>(Object.keys(KIND_FIELDS));
@@ -697,6 +707,12 @@ async function dispatch(
       sequence = Number(rawSeq);
     }
 
+    // Same blank-is-absent rule `record` applies to its own --subject: `''`
+    // would claim a subject was assessed and found empty, which is not what
+    // an unset shell variable means.
+    const rawSubject = opts.get('subject');
+    const subject = rawSubject !== undefined && rawSubject.trim() ? rawSubject.trim() : undefined;
+
     const session = env.AGENT_JOURNAL_SESSION ?? 'unknown';
     const agent = env.AGENT_JOURNAL_AGENT ?? 'primary';
     const event = normalizeEvent({
@@ -718,6 +734,11 @@ async function dispatch(
       data: kind === 'environment'
         ? { ...captureEnvironment(), ...normalizeObservationData(kind, all) }
         : normalizeObservationData(kind, all),
+      // What this observation is ABOUT — a tool name, an agent id — which is
+      // what makes it findable by `trace` rather than only by a uuid nobody
+      // has. Absent stays absent: an observation with nothing worth naming
+      // carries no subject rather than a placeholder.
+      ...(subject === undefined ? {} : { subject }),
     });
 
     const journal = journalFor(root, workspace, session, agent);
@@ -885,6 +906,16 @@ async function dispatch(
 
         return {
           id: e.id, kind: e.kind, time: e.time, author: e.author,
+          // What the event is about, and what it carries. Both were missing,
+          // and their absence broke the citing loop the observation plane
+          // exists for: id/kind/time/outcome/live renders two `tool_call`
+          // observations identically, so `show` could not tell a reader WHICH
+          // id to put in an `--anchor`. Only reading raw JSONL could, which
+          // is not a documented command. `subject` is null — never '' — when
+          // the event names none; `data` renders whatever the event actually
+          // carries, which for an observation is its whole content.
+          subject: e.subject ?? null,
+          data: e.data,
           outcome: proj.outcomes.get(e.id) ?? 'unknown',
           live: e.kind === 'constraint' ? liveConstraintIds.has(e.id) : liveIds.has(e.id),
           // null, never []: an entry with no anchors has none recorded, which is

@@ -550,3 +550,57 @@ test('every other harness-supplied field takes a ---leading value too', async ()
   assert.equal(byKind.compact!.data.reason, '--auto');
   assert.equal(byKind.tool_call!.data.input, '--version');
 });
+
+// ---------------------------------------------------------------------------
+// A subject is what makes an observation findable. Without one, an
+// observation is reachable only by a uuid no command prints.
+// ---------------------------------------------------------------------------
+
+test('a tool_call and its tool_result share the tool name as their subject', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: { command: 'pnpm test' }, tool_use_id: 'toolu_7',
+  }), env);
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash',
+    tool_response: { stdout: 'ok' }, tool_use_id: 'toolu_7',
+  }), env);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 2);
+  // The TOOL NAME, exactly -- `trace` matches a subject exactly, never as a
+  // substring, so anything richer (`Bash:toolu_7`) would be findable by
+  // nobody. The call id lives in data, which `show` renders.
+  assert.deepEqual(events.map((e) => e.subject), ['Bash', 'Bash']);
+  assert.deepEqual(events.map((e) => e.data.callId), ['toolu_7', 'toolu_7']);
+
+  // Proof the subject is actually usable as a lookup key, not just present.
+  const { traceFrom } = await import('../src/trace.ts');
+  const matched = traceFrom(events, 'Bash').matched;
+  assert.equal(matched.length, 2, 'trace Bash did not find the captured calls');
+  assert.deepEqual([...new Set(matched.map((m) => m.via))], ['subject']);
+});
+
+test('a subagent observation is subjected to the agent id, not its type', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'SubagentStart',
+    agent_id: 'agent-42', agent_type: 'general-purpose',
+  }), env);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.subject, 'agent-42', 'agent_type names a class, not an instance');
+});
+
+test('an event with nothing worth naming carries no subject at all', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  // session_start/session_end/turn_end are about the session, which the
+  // envelope already carries; compact is about nothing a reader searches for.
+  // An invented subject on these would be a key matching every one of them.
+  runHook(JSON.stringify({ session_id: 's', hook_event_name: 'Stop', last_assistant_message: 'done' }), env);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!('subject' in e!), 'a placeholder subject is worse than none');
+});
