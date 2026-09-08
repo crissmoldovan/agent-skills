@@ -142,15 +142,21 @@ export function applyRetention(
     // — exactly what §13.2 exists to prevent. This branch applies to ANY kind
     // (entry, observation, or a tombstone naming another tombstone), not only
     // observations, because suppression is not scoped to one bucket.
-    if (tombstoned.has(e.id)) { tombstonedOut.push(e.id); continue; }
-    // A tombstone event is the record of a deletion, not the deletion's
-    // target. It is never itself expired or unclassified — ageing it out
-    // would un-delete its target on the next union that doesn't re-derive
-    // suppression from a still-live tombstone. This check must run before the
-    // entry-TTL and unclassified branches below, or an old tombstone (entry
-    // kind check does not match 'tombstone') would fall through to
-    // "unclassified" and eventually be aged as a generic unknown kind.
+    // A tombstone event is NEVER suppressed, purged, or expired — this check
+    // runs FIRST, before suppression, and that order is the whole guard.
+    //
+    // It was the other way round, and the hole was real and reachable with two
+    // CLI calls: tombstone T2 naming tombstone T1 put T1 into `tombstoned`,
+    // `compact --apply` physically erased T1, and when T1's target arrived
+    // later from an unsynced segment it rendered as a fully live entry —
+    // credential and all — because no tombstone naming it existed any more.
+    // Deleting the record of a deletion un-deletes its target.
+    //
+    // So a tombstone cannot be tombstoned. Recording one is irreversible, which
+    // is the honest price: §13.2 already forfeits convergence to allow erasure
+    // at all, and an erasure that can itself be erased buys nothing.
     if (e.kind === TOMBSTONE_KIND) { keep.push(e); continue; }
+    if (tombstoned.has(e.id)) { tombstonedOut.push(e.id); continue; }
     if (isEntry(e)) {
       if (Date.parse(e.time) >= entryCutoff) { keep.push(e); continue; }
       expired.push(e.id);

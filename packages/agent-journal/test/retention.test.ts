@@ -322,3 +322,20 @@ test('an entry inside its TTL still pins an observation past its own window', ()
   assert.deepEqual(r.expired, []);
   assert.equal(r.keep.length, 2);
 });
+
+// Isolates the retention half of the tombstone-purge guard. `compact` also
+// filters tombstones out of its purge set, so at the CLI layer either fix alone
+// keeps the invariant and neither mutation reddens on its own — genuine defence
+// in depth, but it leaves this layer untested unless asserted directly here.
+test('a tombstone is never suppressed by another tombstone', () => {
+  const t1 = make('t1', 'tombstone', RECENT, { target: 'leaky', reason: 'held a credential' });
+  const t2 = make('t2', 'tombstone', RECENT, { target: 't1', reason: 'recorded in error' });
+  const r = applyRetention([t1, t2], {
+    now: NOW, observationTtlMs: THIRTY_DAYS, entryTtlMs: THIRTY_DAYS,
+  });
+  assert.ok(!r.tombstoned.includes('t1'),
+    'a tombstone reached the purge list; erasing it would resurrect its target');
+  assert.deepEqual(r.keep.map((e) => e.id).sort(), ['t1', 't2']);
+  assert.deepEqual(r.expired, []);
+  assert.deepEqual(r.unclassified, []);
+});

@@ -107,8 +107,11 @@ interface ParsedFlags {
   readonly opts: Map<string, string>;
   /** Every value seen for a flag, in order. Repeatable flags read this. */
   readonly all: Map<string, string[]>;
-  /** Flags given no value. Every flag this CLI accepts takes one. */
+  /** Bare `--flag` with nothing after it. A declared boolean may accept this. */
   readonly valueless: readonly string[];
+  /** `--flag=` — an explicit, EMPTY value. Never a boolean's presence: this is
+   *  what an unset variable in `--apply=$FLAG` collapses to. */
+  readonly explicitEmpty: readonly string[];
 }
 
 /**
@@ -139,6 +142,7 @@ function flags(argv: readonly string[]): ParsedFlags {
   const opts = new Map<string, string>();
   const all = new Map<string, string[]>();
   const valueless: string[] = [];
+  const explicitEmpty: string[] = [];
   const take = (name: string, value: string): void => {
     opts.set(name, value);
     all.set(name, [...(all.get(name) ?? []), value]);
@@ -153,7 +157,14 @@ function flags(argv: readonly string[]): ParsedFlags {
       // the flag `input` carrying `a=b`, not a malformed anything.
       const name = body.slice(0, eq);
       const value = body.slice(eq + 1);
-      if (value === '') valueless.push(name);
+      // `--flag=` is NOT the same as a bare `--flag`, and collapsing them was
+      // exploitable on the one destructive flag in the CLI: `--apply=` reached
+      // the boolean carve-out as "present" and enabled deletion. That is the
+      // `--workspace $UNSET` failure this file already guards against, wearing
+      // a different shape — `--apply=$FLAG` with `$FLAG` unset expands to a
+      // single token that lands here rather than in the bare-flag branch.
+      // Tracked separately so a boolean can refuse it while a bare flag stands.
+      if (value === '') explicitEmpty.push(name);
       else take(name, value);
       continue;
     }
@@ -170,7 +181,7 @@ function flags(argv: readonly string[]): ParsedFlags {
       valueless.push(name);
     }
   }
-  return { opts, all, valueless };
+  return { opts, all, valueless, explicitEmpty };
 }
 
 /**
@@ -427,7 +438,7 @@ async function dispatch(
     return { code: 0, stdout: USAGE, stderr: '' };
   }
 
-  const { opts, all, valueless } = flags(rest);
+  const { opts, all, valueless, explicitEmpty } = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');
 
   // Every flag is an error without a value, EXCEPT a flag this command has
@@ -436,7 +447,14 @@ async function dispatch(
   // `--apply`'s presence-is-the-value shape does not need its own copy of
   // this whole check.
   const declaredBoolean = new Set<string>(BOOLEAN_FLAGS[command] ?? []);
-  const genuinelyValueless = valueless.filter((f) => !declaredBoolean.has(f));
+  // `--flag=` is refused for EVERY flag, boolean included. A declared boolean
+  // exempts the bare `--flag` form only. Without this split, `--apply=` — which
+  // is what `--apply=$FLAG` becomes when the variable is unset — read as the
+  // flag being present and silently enabled the one destructive operation here.
+  const genuinelyValueless = [
+    ...valueless.filter((f) => !declaredBoolean.has(f)),
+    ...explicitEmpty,
+  ];
   if (genuinelyValueless.length > 0) {
     const which = genuinelyValueless.map((f) => `--${f}`).join(', ');
     return {
@@ -1339,12 +1357,21 @@ async function dispatch(
     // ALWAYS passed, never a caller-supplied `tombstoned` list -- suppression
     // is derived from the journal itself, same as everywhere else this reads.
     const result = applyRetention(events, { now: nowStamp(), entryTtlMs, observationTtlMs });
+    const byId = new Map(events.map((e) => [e.id, e] as const));
 
-    // What gets purged is exactly what applyRetention declined to keep for a
-    // reason OTHER than being the tombstone event itself -- expired entries
-    // and observations, and tombstoned targets. applyRetention already
-    // guarantees a TOMBSTONE_KIND event is never in either list.
-    const purgeIds = new Set<string>([...result.expired, ...result.tombstoned]);
+    // What gets purged is what applyRetention declined to keep: expired
+    // entries and observations, and tombstoned targets.
+    //
+    // Belt and braces on the one irreversible path in this package. retention
+    // now guarantees a tombstone reaches neither list — but the previous
+    // version's comment here asserted that same guarantee while it was false,
+    // and the gap between the claim and the code is what let a tombstone be
+    // purged. A second, local check costs nothing and does not rely on another
+    // module keeping a promise.
+    const purgeIds = new Set<string>(
+      [...result.expired, ...result.tombstoned]
+        .filter((id) => byId.get(id)?.kind !== TOMBSTONE_KIND),
+    );
 
     // Which tombstone EVENTS need `purged` flipped true: exactly the
     // well-formed tombstones (tombstonesIn, not a bare kind check) whose

@@ -2604,3 +2604,63 @@ test('coverage still reads the journal after compact --apply', async () => {
   const r = await runCli(['coverage', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
   assert.equal(r.code, 0, r.stderr);
 });
+
+// The un-delete. Reachable with two CLI calls, no file editing: tombstone T2
+// naming tombstone T1 put T1 into `tombstoned`, `compact --apply` erased T1,
+// and when T1's target later arrived from an unsynced segment it rendered as a
+// fully live entry -- credential and all -- because no tombstone naming it
+// existed any more. Deleting the record of a deletion undoes the deletion.
+test('a tombstone cannot be tombstoned away, which would resurrect its target', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=leaked a credential',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'leaky', '--reason=contained a live credential',
+    '--workspace', 'ws'], env);
+  const t1 = (await readAllEvents(dir, 'ws')).find((e) => e.kind === 'tombstone')!;
+
+  const r = await runCli(['tombstone', t1.id, '--reason=recorded in error',
+    '--workspace', 'ws'], env);
+  // Whether the second tombstone is refused at write time or simply cannot take
+  // effect, the invariant is the same and is asserted below: T1 survives.
+  assert.ok(r.code === 0 || r.code === 2, r.stderr);
+
+  await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(after.some((e) => e.id === t1.id),
+    'the tombstone protecting "leaky" was purged — its target can now come back');
+  assert.ok(!after.some((e) => e.id === 'leaky'), 'the target should still be gone');
+});
+
+// `--apply=$FLAG` with the variable unset collapses to `--apply=`, a single
+// token. It reached the boolean carve-out as "present" and enabled deletion --
+// the same shape as the `--workspace $UNSET` bug this CLI already guards, on
+// the one flag where the silent default destroys data.
+test('--apply= is refused, not read as apply', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'keep-me', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'keep-me', '--reason=test', '--workspace', 'ws'], env);
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply='], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2, 'an empty --apply= value enabled destruction');
+  assert.match(r.stderr, /given no value/);
+  assert.ok((await readAllEvents(dir, 'ws')).some((e) => e.id === 'keep-me'),
+    'bytes were purged by a flag that should have been refused');
+});
+
+test('a bare --apply still works, and --apply with a value is still refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'gone', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'gone', '--reason=test', '--workspace', 'ws'], env);
+  for (const bad of ['--apply=false', '--apply=true', '--apply=0']) {
+    const r = await runCli(['compact', '--workspace', 'ws', bad], { AGENT_JOURNAL_ROOT: dir });
+    assert.equal(r.code, 2, `${bad} was accepted`);
+  }
+  const ok = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.ok(!(await readAllEvents(dir, 'ws')).some((e) => e.id === 'gone'));
+});
