@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { readdir, readFile, mkdir, writeFile, realpath, lstat, readlink } from 'node:fs/promises';
-import { join, dirname, resolve, basename, sep, isAbsolute, relative } from 'node:path';
+import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { join, dirname, sep, relative } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
@@ -20,6 +20,10 @@ import { liveConstraints, constraintsBearingOn } from './constraints.ts';
 import { liveClaims } from './claims.ts';
 import { renderDigest } from './digest.ts';
 import { traceFrom } from './trace.ts';
+import { canonicalize } from './paths.ts';
+import { computeDecay, codebaseRefs, type CurrentEnvironment } from './decay.ts';
+import { resolveCodebaseRefs } from './codebase.ts';
+import { redact } from './redact.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -85,6 +89,9 @@ const USAGE = [
   '  agent-journal claims --workspace <id>  (advisory only — reports, never blocks)',
   '  agent-journal digest --workspace <id> [--level private|team|published] [--out <path>]',
   '  agent-journal trace <key> --workspace <id>',
+  '  agent-journal decay --workspace <id> [--repo <path>]',
+  '    (--repo is required before any codebase influence is resolved; omitted, those',
+  '     findings are not-checkable rather than guessed at)',
   '  agent-journal help',
   '',
 ].join('\n');
@@ -211,6 +218,10 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   claims: ['workspace'],
   digest: ['workspace', 'level', 'out'],
   trace: ['workspace'],
+  // `unknownFlags()` returns `[]` for any command with no entry here at all --
+  // this registration is what makes flag checking exist for `decay` in the
+  // first place, not merely what shapes it.
+  decay: ['workspace', 'repo'],
 };
 
 function unknownFlags(command: string, opts: Map<string, string>): string[] {
@@ -232,89 +243,7 @@ function journalFor(root: string, workspace: string, session: string, agent: str
   return new SegmentJournal({ root, workspace, machine: hostname(), session, agent, epoch: 'e1' });
 }
 
-/**
- * Resolve the PARENT directory chain of `p` as canonically as the filesystem
- * allows: walk up to the longest existing ancestor, `realpath()` that, and
- * lexically rejoin whatever does not exist yet. Deliberately never inspects
- * the final path component itself — that needs different treatment (see
- * `canonicalize`), because a symlink AT that position must be followed to
- * where it points, not treated as "this segment doesn't exist yet".
- */
-async function realParentDir(dirPath: string): Promise<string> {
-  let current = resolve(dirPath);
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = await realpath(current);
-      return tail.length === 0 ? real : join(real, ...tail);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      const parent = dirname(current);
-      if (parent === current) return join(current, ...tail); // reached the fs root; nothing more to resolve
-      tail.unshift(basename(current));
-      current = parent;
-    }
-  }
-}
 
-/**
- * Resolve `p` as canonically as the filesystem allows, so a comparison against
- * it cannot be defeated by a relative path, a `..` traversal, or a symlink
- * anywhere in the chain — including the FINAL component being a symlink whose
- * target does not exist yet.
- *
- * `fs.realpath()` alone throws ENOENT the instant any segment does not exist
- * — including a dangling symlink's TARGET, which is exactly what `--out`
- * pointed through such a symlink looks like from realpath's point of view.
- * The previous version of this function treated every ENOENT the same way —
- * walk up, lexically rejoin the basename — which for a dangling final-
- * component symlink reconstructs the SYMLINK'S OWN location, never where it
- * points. `writeFile` then follows the link anyway, so a dangling symlink
- * into the segment tree canonicalized to somewhere harmless while the actual
- * write landed inside the tree it was supposed to be caught by.
- *
- * The fix resolves the parent directory chain (which legitimately may not
- * fully exist yet — `--out` to a fresh nested path always looks like that)
- * separately from the final component. For the final component, `lstat` —
- * never `realpath` — decides what it is: nonexistent (the ordinary "fresh
- * output path" case, returned as-is), an existing non-symlink (already
- * canonical, since its parent is), or a symlink, dangling or not, which is
- * followed to wherever it actually points — recursively, since the target
- * can itself be another symlink or another not-yet-existing nested path —
- * rather than back to the link's own location.
- */
-async function canonicalize(p: string, depth = 0): Promise<string> {
-  if (depth > 40) {
-    // A real filesystem refuses a symlink chain this long with ELOOP; this
-    // mirrors that instead of recursing forever around a symlink cycle.
-    throw Object.assign(new Error(`too many levels of symbolic links: ${p}`), { code: 'ELOOP' });
-  }
-  const abs = resolve(p);
-  const parentReal = await realParentDir(dirname(abs));
-  const candidate = join(parentReal, basename(abs));
-
-  let stat;
-  try {
-    stat = await lstat(candidate);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    // Genuinely does not exist at all, at any level — nothing more to resolve.
-    return candidate;
-  }
-
-  if (!stat.isSymbolicLink()) {
-    // Exists, and is not itself a link: the parent is already canonical and
-    // this component adds nothing symlinked on top of it.
-    return candidate;
-  }
-
-  // A symlink, dangling or not — follow it to wherever it actually points,
-  // then canonicalize THAT (it may not exist yet either, or may itself be
-  // another symlink), rather than falling back to the link's own location.
-  const target = await readlink(candidate);
-  const resolvedTarget = isAbsolute(target) ? target : join(dirname(candidate), target);
-  return canonicalize(resolvedTarget, depth + 1);
-}
 
 interface ReadResult {
   readonly events: JournalEvent[];
@@ -1096,6 +1025,54 @@ async function dispatch(
         : result.matched.length === 0
           ? `no entry is indexed under ${JSON.stringify(key)} in this workspace\n`
           : '',
+    };
+  }
+
+  if (command === 'decay') {
+    // Defaults to nothing, never to `process.cwd()`: silently scanning
+    // whatever directory the caller happens to be standing in is a surprise,
+    // and `not-checkable` (computeDecay's behaviour with no `codebase` map
+    // at all) is the honest default for a codebase influence when no repo
+    // was named.
+    const repo = opts.get('repo');
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+
+    const codebase = repo
+      ? await resolveCodebaseRefs(codebaseRefs(events), repo)
+      : undefined;
+
+    // Captured here, at the CLI boundary, and injected -- computeDecay stays
+    // pure and never touches `process` itself. Every OTHER value this CLI
+    // ever prints was written through `journal.append` first, which redacts
+    // on write (spec 4.3: an interpreter path is machine-identifying). A
+    // captured-live "now" is deliberately never persisted -- computeDecay
+    // only ever compares it, so it never passes through that gate -- which
+    // makes this the one spot a raw, unredacted path could reach stdout
+    // straight from `process`, on the exact field 4.3 already requires
+    // masked for a STORED environment observation. Redacted explicitly here
+    // for that reason. A `failed` verdict (the tiny capture object exceeding
+    // the scan budget, in practice never) omits `now` rather than risk
+    // printing it unscrubbed -- `not-checkable` is the same honest fallback
+    // `computeDecay` already uses when nothing was supplied at all.
+    const redactedNow = redact(captureEnvironment());
+    const report = computeDecay(events, {
+      ...(codebase === undefined ? {} : { codebase }),
+      ...(redactedNow.verdict === 'failed' ? {} : { now: redactedNow.value as CurrentEnvironment }),
+    });
+
+    // Same guarantee `claims`/`show` make, for the same reason: a journal
+    // that could not be fully read has not earned exit 0, and its floor of
+    // findings must never be mistaken for a total. This is deliberately
+    // NOT how a `failing` finding is treated -- §10.1 is explicit that decay
+    // is reported, never judged, so no finding's status ever changes this
+    // exit code. Only damage to the JOURNAL does.
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify({ ...report, unreadable, malformed }, null, 2)}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read — the findings above are a floor, not a total.\n'
+        : '',
     };
   }
 
