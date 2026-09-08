@@ -216,6 +216,9 @@ outside that, rather than let a reader assume completeness:
   premise to the toolchain that actually ran ([anchors.md](anchors.md)'s own worked
   example) still needs that called explicitly, or hand-typed as a `runtime` anchor if
   it wasn't.
+- **`path_claim` is written by you, not by a hook.** See "Two observation kinds you
+  write yourself" below. No harness event announces "I am about to work in this
+  checkout", so nothing can capture it automatically.
 - **`permission` is wired on neither adapter, for two different reasons that both
   matter.** On Claude Code, `PermissionRequest` was attempted directly and never fired
   in any captured session — there is no confirmed source to wire. On Codex, the
@@ -249,6 +252,47 @@ outside that, rather than let a reader assume completeness:
 None of this is a defect to route around quietly. It is the reason Plane B's
 `--anchor` flag stays manual for these cases rather than the skill quietly implying
 "the hook would have caught this" for a class of claim no hook here actually reaches.
+
+## Two observation kinds you write yourself
+
+Twelve of the fourteen observation kinds come from hooks. Two do not, and neither is
+reachable unless something tells you its fields — `agent-journal help` now lists every
+observation kind's own flags, the same way it already did for `record`.
+
+**`environment`** — what actually ran. Self-populating: the fields come from the
+process executing the CLI, and an explicit flag overrides one (for a remote runner or
+a container, where the CLI's own process is not the interesting one).
+
+```bash
+agent-journal observe --workspace=<id> --kind=environment
+# --interpreter --version --platform --packageManager --flags
+```
+
+**`path_claim`** — an advisory "I am working in this checkout", so a second session
+can see it before touching the same files (spec §7.6).
+
+```bash
+agent-journal observe --workspace=<id> --kind=path_claim \
+  --checkout=/abs/path/to/repo --worktree=feature-x --branch=feat/thing --ttlSeconds=7200
+agent-journal claims --workspace=<id>
+```
+
+Three things about it that a reader has to know before relying on it:
+
+- **`--checkout` is the whole claim.** A `path_claim` written without it is accepted
+  at exit 0 and then reported by nothing — `claims` skips a claim that claims no path.
+  If `claims` comes back empty right after you wrote one, that is the first thing to
+  check.
+- **`--ttlSeconds` is optional and defaults to one hour.** That default is what stops
+  a crashed session holding a claim forever; `expiresAt` is derived at read time from
+  the claim's own timestamp, so a reader evaluates it against its own clock rather
+  than trusting the writer's. A `ttlSeconds` that is present but unreadable keeps the
+  claim live and marks it `malformedTtl` — an unreadable lifetime fails toward keeping
+  a claim that may still be held, never toward discarding it.
+- **It is advisory, and nothing anywhere enforces it.** `claims` reports; it does not
+  block, wait, lock or refuse, and its payload says `advisory: true` in band so a
+  consumer cannot mistake it for a lock. A `session_end` for that session drops its
+  claims immediately, TTL or not.
 
 ## What this costs, honestly
 

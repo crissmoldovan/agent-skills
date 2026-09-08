@@ -1999,3 +1999,36 @@ test('the whole loop: observe, find by subject, read the id, cite it, trace back
   assert.ok(vias.anchor, 'the citing entry must match by anchor');
   assert.notEqual(vias.anchor, wanted.id);
 });
+
+// ---------------------------------------------------------------------------
+// `help` named not one observation field. The line printed
+// `Object.keys(OBSERVATION_FIELDS)` — the KIND names — under the label
+// "…plus the fields for <kind>", one line below `record` doing it correctly
+// via kindUsageLine. So `--checkout`, `--ttlSeconds`, `--tool` and the rest
+// were undiscoverable from the CLI's own help, and `observe --kind path_claim`
+// with no fields exits 0 while `claims` then reports nothing.
+// ---------------------------------------------------------------------------
+
+test('help names the FIELDS of each observation kind, not the kind names again', async () => {
+  const r = await runCli(['help'], {});
+  assert.equal(r.code, 0);
+  // Every field of every observable kind, by flag, generated from the same
+  // source of truth the parser uses — so adding a kind cannot leave help stale.
+  const { OBSERVATION_FIELDS, fieldsForObservation } = await import('../src/observe.ts');
+  for (const kind of Object.keys(OBSERVATION_FIELDS)) {
+    if (kind === 'void') {
+      // `observe` refuses void outright, so advertising it would be a lie.
+      assert.ok(!/^ +void:/m.test(r.stdout), 'help advertises a kind observe refuses');
+      continue;
+    }
+    for (const field of fieldsForObservation(kind)) {
+      assert.ok(r.stdout.includes(`--${field}`),
+        `help never names --${field}, a field of observation kind ${kind}`);
+    }
+  }
+  // The two the finding named specifically: a path_claim with no fields is
+  // accepted and then reports nothing, so its fields have to be findable.
+  assert.match(r.stdout, /path_claim: --checkout --worktree --branch --ttlSeconds/);
+  // A kind with no fields says so rather than trailing an empty space.
+  assert.match(r.stdout, /heartbeat: \(no fields\)/);
+});

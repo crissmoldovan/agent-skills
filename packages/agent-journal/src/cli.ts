@@ -44,6 +44,28 @@ function kindUsageLine(kind: string): string {
   return `    ${kind}: ${flags.join(' ')}`;
 }
 
+/**
+ * The observation twin of `kindUsageLine`, and it exists because this line
+ * used to print `Object.keys(OBSERVATION_FIELDS)` — the KIND names — under
+ * the label "…plus the fields for `<kind>`". `agent-journal help` therefore
+ * named not one observation field: `--checkout`, `--ttlSeconds`, `--tool`,
+ * `--callId` and the rest were undiscoverable from the CLI's own help, one
+ * line below `record` doing it correctly. `observe --kind path_claim` with no
+ * fields still exits 0, and `claims` then reports nothing, which is exactly
+ * the shape of failure this project keeps paying for.
+ *
+ * `void` is excluded: `observe` refuses it outright (the refusal path writes
+ * voids, never a caller), so listing it here would advertise a command that
+ * cannot work. A kind with no fields says so rather than trailing an empty
+ * space.
+ */
+function observationUsageLine(kind: string): string {
+  const flags = fieldsForObservation(kind).map((field) => `--${field}`);
+  return `    ${kind}: ${flags.join(' ') || '(no fields)'}`;
+}
+
+const OBSERVABLE_KINDS = Object.keys(OBSERVATION_FIELDS).filter((k) => k !== 'void');
+
 const USAGE = [
   'usage:',
   '  agent-journal record --kind <kind> --workspace <id> [--id id] [--author agent|human]',
@@ -54,7 +76,9 @@ const USAGE = [
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
   '  agent-journal observe --kind <kind> --workspace <id> [--id id] [--context c] [--seq n]',
   '                        [--subject s]',
-  '                        ...plus the fields for <kind>: ' + Object.keys(OBSERVATION_FIELDS).join(', '),
+  '                        ...plus the fields for <kind>:',
+  ...OBSERVABLE_KINDS.map(observationUsageLine),
+  '    (environment self-populates from the running process; an explicit flag wins)',
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
