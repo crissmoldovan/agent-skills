@@ -1,0 +1,92 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
