@@ -7,12 +7,17 @@ import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
   type Anchor, type Influence,
 } from './entry.ts';
+import {
+  OBSERVATION_KINDS, OBSERVATION_FIELDS, fieldsForObservation, normalizeObservationData,
+} from './observe.ts';
+import { captureEnvironment } from './environment.ts';
 import { DISCLOSURE_CLASSES, type Disclosure } from './disclosure.ts';
 import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
 import { project } from './retract.ts';
 import { liveConstraints, constraintsBearingOn } from './constraints.ts';
+import { liveClaims } from './claims.ts';
 import { renderDigest } from './digest.ts';
 import { traceFrom } from './trace.ts';
 
@@ -39,6 +44,28 @@ function kindUsageLine(kind: string): string {
   return `    ${kind}: ${flags.join(' ')}`;
 }
 
+/**
+ * The observation twin of `kindUsageLine`, and it exists because this line
+ * used to print `Object.keys(OBSERVATION_FIELDS)` — the KIND names — under
+ * the label "…plus the fields for `<kind>`". `agent-journal help` therefore
+ * named not one observation field: `--checkout`, `--ttlSeconds`, `--tool`,
+ * `--callId` and the rest were undiscoverable from the CLI's own help, one
+ * line below `record` doing it correctly. `observe --kind path_claim` with no
+ * fields still exits 0, and `claims` then reports nothing, which is exactly
+ * the shape of failure this project keeps paying for.
+ *
+ * `void` is excluded: `observe` refuses it outright (the refusal path writes
+ * voids, never a caller), so listing it here would advertise a command that
+ * cannot work. A kind with no fields says so rather than trailing an empty
+ * space.
+ */
+function observationUsageLine(kind: string): string {
+  const flags = fieldsForObservation(kind).map((field) => `--${field}`);
+  return `    ${kind}: ${flags.join(' ') || '(no fields)'}`;
+}
+
+const OBSERVABLE_KINDS = Object.keys(OBSERVATION_FIELDS).filter((k) => k !== 'void');
+
 const USAGE = [
   'usage:',
   '  agent-journal record --kind <kind> --workspace <id> [--id id] [--author agent|human]',
@@ -47,9 +74,15 @@ const USAGE = [
   '                       [--disclosure private|team|published] [--subject s]',
   '                       ...plus the fields for <kind>:',
   ...Object.keys(KIND_FIELDS).map(kindUsageLine),
+  '  agent-journal observe --kind <kind> --workspace <id> [--id id] [--context c] [--seq n]',
+  '                        [--subject s]',
+  '                        ...plus the fields for <kind>:',
+  ...OBSERVABLE_KINDS.map(observationUsageLine),
+  '    (environment self-populates from the running process; an explicit flag wins)',
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
+  '  agent-journal claims --workspace <id>  (advisory only — reports, never blocks)',
   '  agent-journal digest --workspace <id> [--level private|team|published] [--out <path>]',
   '  agent-journal trace <key> --workspace <id>',
   '  agent-journal help',
@@ -64,18 +97,56 @@ interface ParsedFlags {
   readonly valueless: readonly string[];
 }
 
+/**
+ * Two forms, both accepted: `--flag value` and `--flag=value`.
+ *
+ * The space-separated form cannot carry a value that itself begins with `--`,
+ * and it never could: this parser has to treat a `--`-prefixed token as the
+ * next flag name, or a genuinely valueless flag becomes indistinguishable
+ * from one whose value happens to look like a flag. That was not a
+ * theoretical hazard. An assistant message opening with a markdown horizontal
+ * rule makes `--turn ---\nSummary: …` a valueless `--turn`, the CLI exits 2,
+ * and both adapters ignore the exit code by design — so nothing is written,
+ * no `void` is recorded, and `coverage` shows no gap. Silence with no trace
+ * is the one failure the observation plane exists to prevent, so the
+ * adapters now emit `--flag=value` exclusively, which cannot be confused
+ * with anything: the name ends at the first `=` and everything after it is
+ * the value, `--` prefix, embedded `=`, newlines and all.
+ *
+ * `--flag=` — nothing after the `=` — is an ERROR, not an empty value. It is
+ * the same accident in `=` clothing: `--workspace=$WS` with `WS` unset
+ * expands to exactly that, and the whole reason the valueless guard exists is
+ * that `--workspace $WS` once wrote to a workspace literally named `true` at
+ * exit 0. `--flag ''` (an explicitly quoted empty argument) is a different
+ * act — deliberate, not an expansion accident — and still parses as a value,
+ * which the field normalizers then treat as absent.
+ */
 function flags(argv: readonly string[]): ParsedFlags {
   const opts = new Map<string, string>();
   const all = new Map<string, string[]>();
   const valueless: string[] = [];
+  const take = (name: string, value: string): void => {
+    opts.set(name, value);
+    all.set(name, [...(all.get(name) ?? []), value]);
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]!;
     if (!token.startsWith('--')) continue;
-    const name = token.slice(2);
+    const body = token.slice(2);
+    const eq = body.indexOf('=');
+    if (eq >= 0) {
+      // First `=` only. A later one belongs to the value — `--input=a=b` is
+      // the flag `input` carrying `a=b`, not a malformed anything.
+      const name = body.slice(0, eq);
+      const value = body.slice(eq + 1);
+      if (value === '') valueless.push(name);
+      else take(name, value);
+      continue;
+    }
+    const name = body;
     const next = argv[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
-      opts.set(name, next);
-      all.set(name, [...(all.get(name) ?? []), next]);
+      take(name, next);
       i += 1;
     } else {
       // Storing 'true' here was silent data invention. `--workspace $WS` with an
@@ -98,6 +169,27 @@ const RECORD_GLOBAL = ['workspace', 'kind', 'id', 'author', 'context',
 const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
 
 /**
+ * Fields every observation shares, regardless of `--kind`. Deliberately
+ * missing `--author` — an observation is never authored by a human, which is
+ * what makes it Plane A — and `--disclosure` — observations are machinery,
+ * not candour, so they take the envelope default rather than a caller's
+ * stated intent.
+ *
+ * `subject` is here for a sharper reason than symmetry with `record`. Without
+ * it the citing loop the observation plane exists for was unreachable:
+ * `indexEntries` (trace.ts) indexes `e.subject` over EVERY non-void event, so
+ * an observation with no subject is findable only by an id nothing prints —
+ * `trace Bash` returned empty, and `show` rendered no `data`, so two
+ * `tool_call` observations were indistinguishable. An agent could cite an
+ * observation it already knew the uuid of, and had no documented way to learn
+ * one. See references/adapters.md, "Citing an observation".
+ */
+const OBSERVATION_GLOBAL = ['workspace', 'kind', 'id', 'context', 'seq', 'subject'] as const;
+
+/** Kinds `record` writes. `observe` refuses any of these — that is `record`'s job. */
+const ENTRY_KINDS_SET = new Set<string>(Object.keys(KIND_FIELDS));
+
+/**
  * What each subcommand accepts. One shared list was wrong in both directions:
  * `reason` belongs to `invalidate`, but listing it globally let `record` take it
  * and throw it away at exit 0 — and `--reason` is the likeliest mistyping of
@@ -112,9 +204,11 @@ const RECORD_GLOBAL_SET = new Set<string>(RECORD_GLOBAL);
  */
 const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   record: [...RECORD_GLOBAL, ...Object.values(KIND_FIELDS).flat()],
+  observe: [...OBSERVATION_GLOBAL, ...Object.values(OBSERVATION_FIELDS).flat()],
   invalidate: ['workspace', 'reason', 'disclosure'],
   coverage: ['workspace'],
   show: ['workspace', 'id'],
+  claims: ['workspace'],
   digest: ['workspace', 'level', 'out'],
   trace: ['workspace'],
 };
@@ -573,6 +667,129 @@ async function dispatch(
     return { code: 0, stdout: `recorded ${id}\n`, stderr: kindWarning + targetWarning };
   }
 
+  if (command === 'observe') {
+    const kind = opts.get('kind');
+    if (!kind) return { code: 2, stdout: '', stderr: `--kind is required\n${USAGE}` };
+
+    // A void records a refused write and is produced by the failure path
+    // itself. Letting a caller fabricate one would let a hook manufacture
+    // evidence of its own silence, which is precisely backwards.
+    if (kind === 'void') {
+      return {
+        code: 2, stdout: '',
+        stderr: 'void observations are written by the refusal path itself, never by a caller\n',
+      };
+    }
+
+    // An entry kind belongs to `record`, not here — routing it there rather
+    // than writing it as a garbage observation.
+    if (ENTRY_KINDS_SET.has(kind)) {
+      return {
+        code: 2, stdout: '',
+        stderr: `${kind} is an entry kind — use \`agent-journal record\`\n`,
+      };
+    }
+
+    // normalizeEvent does NOT validate `kind` — it is a free string all the
+    // way to disk. Without this membership check, `observe --kind
+    // constructor` (or any other unrecognised kind) writes a garbage event
+    // and exits 0, and retention.ts then files it as `unclassified` forever.
+    if (!(OBSERVATION_KINDS as readonly string[]).includes(kind)) {
+      return {
+        code: 2, stdout: '',
+        // OBSERVABLE_KINDS, not OBSERVATION_KINDS: `void` is refused ten lines
+        // above, so offering it here sends the caller straight back into that
+        // refusal. USAGE already got this right.
+        stderr: `${JSON.stringify(kind)} is not an observation kind; one of `
+          + `${OBSERVABLE_KINDS.join(', ')}\n`,
+      };
+    }
+
+    // The generic gate above only catches typos across every kind's fields.
+    // This is the precise check: a field genuinely allowed on some OTHER
+    // observation kind must still be refused here.
+    const allowedForKind = new Set<string>([...OBSERVATION_GLOBAL, ...fieldsForObservation(kind)]);
+    const wrong = [...opts.keys()].filter((k) => !allowedForKind.has(k)).sort();
+    if (wrong.length > 0) {
+      return {
+        code: 2, stdout: '',
+        stderr: `${wrong.map((f) => `--${f}`).join(', ')} `
+          + `${wrong.length > 1 ? 'are' : 'is'} not a field of observation '${kind}'\n`,
+      };
+    }
+
+    // `--seq` is optional: absent means the source declares no sequence,
+    // which `mergeEvents` already handles. Observations are the only
+    // high-volume writer here, and a gap in the sequence is how a dropped
+    // hook becomes visible in `coverage`.
+    let sequence: number | undefined;
+    const rawSeq = opts.get('seq');
+    if (rawSeq !== undefined) {
+      if (!/^\d+$/.test(rawSeq)) {
+        return {
+          code: 2, stdout: '',
+          stderr: `--seq must be a non-negative whole number, got ${JSON.stringify(rawSeq)}\n`,
+        };
+      }
+      sequence = Number(rawSeq);
+    }
+
+    // Same blank-is-absent rule `record` applies to its own --subject: `''`
+    // would claim a subject was assessed and found empty, which is not what
+    // an unset shell variable means.
+    const rawSubject = opts.get('subject');
+    const subject = rawSubject !== undefined && rawSubject.trim() ? rawSubject.trim() : undefined;
+
+    const session = env.AGENT_JOURNAL_SESSION ?? 'unknown';
+    const agent = env.AGENT_JOURNAL_AGENT ?? 'primary';
+    const event = normalizeEvent({
+      schemaVersion: 1, id: opts.get('id') ?? randomUUID(),
+      source: `hook/${hostname()}/${session}/${agent}`, sourceEpoch: 'e1',
+      ...(sequence === undefined ? {} : { sequence }),
+      time: nowStamp(), workspace, session, agent,
+      // An observation is never authored by a human — that is what makes it
+      // Plane A — and it takes the envelope's disclosure default rather than
+      // a caller's stated intent: observations are machinery, not candour.
+      author: 'agent', provenance: 'hook',
+      harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
+      context: opts.get('context') ?? 'coding',
+      kind,
+      // `environment` self-populates from the process that is actually running
+      // this CLI invocation. Explicit flags still win — spread order — so a
+      // hook that knows better than the current process (a remote runner, a
+      // container) can override what was captured here.
+      data: kind === 'environment'
+        ? { ...captureEnvironment(), ...normalizeObservationData(kind, all) }
+        : normalizeObservationData(kind, all),
+      // What this observation is ABOUT — a tool name, an agent id — which is
+      // what makes it findable by `trace` rather than only by a uuid nobody
+      // has. Absent stays absent: an observation with nothing worth naming
+      // carries no subject rather than a placeholder.
+      ...(subject === undefined ? {} : { subject }),
+    });
+
+    const journal = journalFor(root, workspace, session, agent);
+    const result = await journal.append(event);
+    if (!result.written) {
+      // Persist the refusal, the same guarantee `record` makes — otherwise
+      // this refusal never reaches coverage()'s `voids` count and the
+      // silence it creates stays invisible.
+      const trace = await journal.append(voidEvent({
+        id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
+        time: nowStamp(), workspace, session, agent,
+        harness: env.AGENT_JOURNAL_HARNESS ?? 'other',
+        reason: `redaction ${result.verdict}`, provenance: 'hook', author: 'agent',
+        ...(result.reason === undefined ? {} : { detail: result.reason }),
+      }));
+      return {
+        code: 1, stdout: '',
+        stderr: `refused: redaction ${result.verdict} — ${result.reason ?? 'no detail'}\n`
+          + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
+      };
+    }
+    return { code: 0, stdout: `observed ${event.id}\n`, stderr: '' };
+  }
+
   if (command === 'invalidate') {
     const target = rest[0];
     const reason = opts.get('reason');
@@ -716,6 +933,23 @@ async function dispatch(
 
         return {
           id: e.id, kind: e.kind, time: e.time, author: e.author,
+          // Which PLANE this came from, and the only field that says so. `author`
+          // does not: `observe` writes `author: 'agent'` too, so a hook-captured
+          // observation and an agent-authored entry are indistinguishable without
+          // this. Verifying "did a hook actually fire" is exactly the question
+          // adapters.md sends a reader to `show` to answer, and it could not be
+          // answered from this payload.
+          provenance: e.provenance,
+          // What the event is about, and what it carries. Both were missing,
+          // and their absence broke the citing loop the observation plane
+          // exists for: id/kind/time/outcome/live renders two `tool_call`
+          // observations identically, so `show` could not tell a reader WHICH
+          // id to put in an `--anchor`. Only reading raw JSONL could, which
+          // is not a documented command. `subject` is null — never '' — when
+          // the event names none; `data` renders whatever the event actually
+          // carries, which for an observation is its whole content.
+          subject: e.subject ?? null,
+          data: e.data,
           outcome: proj.outcomes.get(e.id) ?? 'unknown',
           live: e.kind === 'constraint' ? liveConstraintIds.has(e.id) : liveIds.has(e.id),
           // null, never []: an entry with no anchors has none recorded, which is
@@ -734,6 +968,23 @@ async function dispatch(
       stdout: `${JSON.stringify({ entries, liveConstraints: live, unreadable, malformed }, null, 2)}\n`,
       stderr: damaged
         ? 'WARNING: this journal could not be fully read — the entries above are a floor, not a total.\n'
+        : '',
+    };
+  }
+
+  if (command === 'claims') {
+    // Advisory only (spec 7.6): this reports what it can read and nothing
+    // here blocks, waits, locks, or refuses on the result. `advisory: true`
+    // is in the payload deliberately, so a consumer cannot mistake this for
+    // a lock without having read the docs.
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const claims = liveClaims(events, nowStamp());
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify({ claims, advisory: true, unreadable, malformed }, null, 2)}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read — the claims above are a floor.\n'
         : '',
     };
   }

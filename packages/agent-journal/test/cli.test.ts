@@ -1566,3 +1566,488 @@ test('trace with an explicitly empty key is refused, not treated as no key at al
   assert.equal(r.code, 2, r.stdout);
   assert.match(r.stderr, /key/i);
 });
+
+test('observe writes an observation through the same validated path entries use', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'tool_call',
+    '--tool', 'Bash', '--input', 'git status', '--callId', 'c1'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.kind, 'tool_call');
+  assert.equal(e!.data.tool, 'Bash');
+  assert.equal(e!.provenance, 'hook',
+    'an observation records that a hook produced it, not the CLI');
+});
+
+// A hook firing forty times a turn is the only writer that needs this, and a gap
+// in the sequence is how a dropped hook becomes visible in `coverage`.
+test('observe accepts a sequence, and omits it when not given', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'heartbeat', '--id', 'h1',
+    '--seq', '7'], env);
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'heartbeat', '--id', 'h2'], env);
+  const byId = Object.fromEntries((await readAllEvents(dir, 'ws')).map((e) => [e.id, e]));
+  assert.equal(byId.h1!.sequence, 7);
+  assert.ok(!('sequence' in byId.h2!), 'an absent sequence must not become 0');
+});
+
+test('observe refuses a non-numeric or negative sequence', async () => {
+  const dir = await root();
+  for (const bad of ['x', '-1', '1.5', '']) {
+    const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'heartbeat',
+      '--seq', bad], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `--seq ${JSON.stringify(bad)} was accepted`);
+  }
+});
+
+// A void records a refused write and is produced by the failure path itself.
+// Letting a caller fabricate one lets a hook manufacture evidence of its own
+// silence, which is exactly backwards.
+test('observe refuses to write a void', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'void'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /void/i);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+// envelope.ts does not validate `kind`, so without this an `observe --kind
+// constructor` writes a garbage event and exits 0 — the exact shape of the
+// word-splitting incident this project already paid for.
+test('observe refuses a kind that is not an observation kind', async () => {
+  const dir = await root();
+  for (const bad of ['constructor', '__proto__', 'not_a_kind', '']) {
+    const r = await runCli(['observe', '--workspace', 'ws', '--kind', bad],
+      { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 2, `--kind ${JSON.stringify(bad)} was accepted`);
+  }
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'a garbage kind reached disk');
+});
+
+test('observe refuses an entry kind — record writes those', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'decision'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /record/i);
+});
+
+test('retention still classifies observations after the list moves to observe.ts', async () => {
+  const { applyRetention } = await import('../src/retention.ts');
+  const { OBSERVATION_KINDS } = await import('../src/observe.ts');
+  const { normalizeEvent } = await import('../src/envelope.ts');
+  assert.ok(OBSERVATION_KINDS.includes('heartbeat'));
+
+  // A known observation is subject to retention; an unknown kind is kept and named.
+  // Assert on applyRetention's own report, not on the list it now imports —
+  // comparing the list to itself proves agreement, not correctness.
+  const OLD = '2026-01-01T00:00:00.000Z';
+  const NOW = '2026-09-07T00:00:00.000Z';
+  const make = (id: string, kind: string) => normalizeEvent({
+    schemaVersion: 1, id, source: 'h/m/s/a', sourceEpoch: 'e1', time: OLD,
+    workspace: 'ws', session: 's', agent: 'a', author: 'agent', provenance: 'hook',
+    harness: 'claude-code', context: 'coding', kind, data: {},
+  });
+
+  const report = applyRetention(
+    [make('o1', 'heartbeat'), make('u1', 'some_future_kind_nobody_wrote_yet')],
+    { now: NOW, observationTtlMs: 30 * 86400000 },
+  );
+  // heartbeat is a known observation with nothing citing it: it ages out.
+  assert.deepEqual(report.expired, ['o1']);
+  // An unknown kind is neither entry nor observation: kept and named, never
+  // silently aged, and NOT reported as expired.
+  assert.deepEqual(report.unclassified, ['u1']);
+  assert.equal(report.keep.length, 1);
+  assert.equal(report.keep[0]!.id, 'u1');
+
+  // Drift guard. A byte-identical private copy in retention.ts is behaviourally
+  // indistinguishable from the import, so no test can catch the copy itself —
+  // what a test CAN catch is the copy going stale. Every kind observe.ts declares
+  // must classify here; a retention-side list missing one files it as
+  // unclassified and this fails.
+  const all = applyRetention(
+    OBSERVATION_KINDS.map((k, i) => make(`k${i}`, k)),
+    { now: NOW, observationTtlMs: 30 * 86400000 },
+  );
+  assert.deepEqual(all.unclassified, [],
+    `retention does not recognise every kind observe.ts declares: ${all.unclassified}`);
+});
+
+// Observations carry tool inputs — the highest-volume source of secrets here.
+test('an observation goes through the redactor like any other write', async () => {
+  const dir = await root();
+  const token = 'ghp' + '_' + 'a1b2c3d4e5'.repeat(3);
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'tool_call', '--tool', 'Bash',
+    '--input', `git push https://${token}@example.com/r.git`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!JSON.stringify(e!.data).includes(token), 'a token reached disk from an observation');
+});
+
+test('observe --kind environment populates itself, needing no flags', async () => {
+  const dir = await root();
+  const r = await runCli(['observe', '--workspace', 'ws', '--kind', 'environment'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.kind, 'environment');
+  assert.equal(e!.data.version, process.version);
+  assert.ok(String(e!.data.interpreter).includes('/'));
+});
+
+// 4.3: these values are machine-identifying. The home-path pattern already
+// masks them and must not be bypassed for this kind.
+test('an environment observation is redacted like anything else', async () => {
+  const dir = await root();
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'environment'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [e] = await readAllEvents(dir, 'ws');
+  const written = JSON.stringify(e!.data);
+  assert.ok(!/\/Users\/[^/"]+/.test(written) && !/\/home\/[^/"]+/.test(written),
+    `a home path reached disk: ${written}`);
+});
+
+// The test above can only fail on a machine whose interpreter actually lives
+// under a home directory. On CI with a system-wide /usr/bin/node it passes
+// vacuously even if redaction were removed entirely. This one supplies the home
+// path itself, so it means the same thing everywhere.
+test('an environment observation is redacted even where the toolchain is not in a home dir', async () => {
+  const dir = await root();
+  const home = '/Users' + '/someone';
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'environment',
+    '--interpreter', `${home}/.local/bin/node`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!JSON.stringify(e!.data).includes(home),
+    `a supplied home path reached disk: ${JSON.stringify(e!.data)}`);
+});
+
+// Explicit flags win over the capture — a hook that knows better than the
+// current process (a remote runner, a container) can override what would
+// otherwise be self-populated.
+test('an explicit flag on observe --kind environment overrides the capture', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace', 'ws', '--kind', 'environment', '--interpreter', '/remote/bin/node'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.interpreter, '/remote/bin/node');
+  // The rest of the capture still populates — only the named field was overridden.
+  assert.equal(e!.data.version, process.version);
+});
+
+test('claims lists live claims and says plainly that nothing is enforced', async () => {
+  const dir = await root();
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'path_claim',
+    '--checkout', '/work/repo', '--branch', 'main', '--ttlSeconds', '3600'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const r = await runCli(['claims', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, 'claims must never fail on a healthy journal — it is advisory');
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.claims.length, 1);
+  assert.equal(out.claims[0].branch, 'main');
+  // The payload says so in-band, so a consumer cannot mistake `claims` for a
+  // lock without having read the docs. Untested, this field could be deleted
+  // or flipped and nothing would notice.
+  assert.equal(out.advisory, true, 'the advisory marker is missing from the payload');
+});
+
+// ---------------------------------------------------------------------------
+// `--flag=value`. The space-separated form cannot carry a value beginning with
+// `--`: the parser has to read a `--`-prefixed token as the next flag name, or
+// a genuinely valueless flag stops being detectable. Before `=` was accepted,
+// an assistant message opening with a markdown horizontal rule made
+// `--turn ---\nSummary: …` a valueless `--turn` and the CLI exited 2 — and
+// because both adapters ignore that exit code by design, nothing was written
+// AND no `void` was recorded, so `coverage` showed no gap at all. Silence with
+// no trace is the exact failure the observation plane exists to prevent.
+
+test('a turn_end whose value IS a markdown horizontal rule is recorded, not lost', async () => {
+  const dir = await root();
+  const turn = '---\nSummary: fixed it.';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=turn_end', `--turn=${turn}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  // The whole value, both lines, byte for byte — not merely "something landed".
+  assert.equal(e!.data.turn, turn);
+});
+
+test('the space-separated form still parses, unchanged', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace', 'ws', '--kind', 'turn_end', '--turn', 'plain text'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.turn, 'plain text');
+});
+
+test('a value that starts with -- mid-sentence survives the = form', async () => {
+  const dir = await root();
+  const turn = '--force was the flag that broke it';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=turn_end', `--turn=${turn}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.turn, turn);
+  // And specifically NOT parsed as a `--force` flag that the unknown-flag gate
+  // would have rejected, nor as a valueless `--turn`.
+  assert.equal(r.stderr, '');
+});
+
+test('the split is on the FIRST =, so a value containing = survives whole', async () => {
+  const dir = await root();
+  const input = '{"command":"AWS_REGION=eu-west-1 make deploy"}';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=tool_call', '--tool=Bash', `--input=${input}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.input, input);
+});
+
+test('a multi-line value survives the = form intact', async () => {
+  const dir = await root();
+  const summary = 'line one\nline two\n\nline four';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=tool_result', '--tool=Bash', `--summary=${summary}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.summary, summary);
+});
+
+test('every other field an adapter fills from harness text takes a -- value too', async () => {
+  const dir = await root();
+  // session_end --reason, compact --reason (from a Codex/Claude `trigger`),
+  // and a tool_call --input that arrived as a bare string rather than an
+  // object. All three are harness-supplied text the adapter does not control.
+  const cases: Array<[readonly string[], string, string]> = [
+    [['observe', '--workspace=ws', '--kind=session_end', '--reason=--- clear'], 'reason', '--- clear'],
+    [['observe', '--workspace=ws', '--kind=compact', '--reason=--auto triggered'], 'reason', '--auto triggered'],
+    [['observe', '--workspace=ws', '--kind=tool_call', '--tool=Bash', '--input=--version'], 'input', '--version'],
+  ];
+  for (const [argv, field, expected] of cases) {
+    const r = await runCli(argv, { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 0, `${argv.join(' ')}: ${r.stderr}`);
+  }
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 3, 'all three observations must have reached disk');
+  for (const [, field, expected] of cases) {
+    assert.ok(
+      events.some((e) => e.data[field] === expected),
+      `no event carries ${field} === ${JSON.stringify(expected)}`,
+    );
+  }
+});
+
+// The valueless guard is why `--flag=` cannot mean "empty value". `--workspace $WS`
+// with WS unset once wrote to a workspace literally named `true` at exit 0;
+// `--workspace=$WS` with WS unset expands to `--workspace=`, the same accident in
+// `=` clothing. Losing that guard would be a worse regression than the bug the `=`
+// form fixes.
+test('--flag= with nothing after the = is an error, not an empty value', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace=', '--kind=turn_end', '--turn=x'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2, 'an unset shell variable in the = form must not be a value');
+  assert.match(r.stderr, /flag given no value: --workspace/);
+  // Nothing may have been written under any name, least of all a plausible one.
+  assert.deepEqual(await readAllEvents(dir, 'ws'), []);
+  assert.deepEqual(await readAllEvents(dir, ''), []);
+  assert.deepEqual(await readAllEvents(dir, 'true'), []);
+});
+
+test('a bare --flag with no following token is still an error', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace', '--kind=turn_end', '--turn=x'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /flag given no value: --workspace/);
+});
+
+// An explicitly quoted empty argument is a deliberate act, not an expansion
+// accident, so it stays a value — which the field normalizers then treat as
+// absent, per this project's blank-is-not-assessed rule.
+test("--flag '' still parses as a value and normalizes to absent", async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=turn_end', '--turn', ''],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!('turn' in e!.data), 'a blank value must be absent, never stored as ""');
+});
+
+// ---------------------------------------------------------------------------
+// The cite-an-observation loop. `record --anchor tool_use:<obs-id>` always
+// worked IF you already knew the id — and nothing could tell you one.
+// `observe` took no --subject, so `trace Bash` returned empty; `show`
+// rendered id/kind/time/outcome/live and no data, so two `tool_call`
+// observations were indistinguishable. Only raw JSONL yielded an id, which is
+// not a documented command, so SKILL.md's "second witness to check your own
+// account against" was unreachable through the shipped surface.
+
+test('an observation carries a subject and trace finds it by that subject', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_1', '--input={"command":"pnpm test"}'], env);
+  const r = await runCli(['trace', 'Bash', '--workspace=ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.matched.length, 1, 'trace Bash found nothing');
+  assert.equal(out.matched[0].via, 'subject', 'the match must be attributed to the subject');
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(out.matched[0].id, e!.id);
+  assert.equal(e!.subject, 'Bash', 'the subject must be on the envelope, not buried in data');
+});
+
+test('a blank --subject on observe is absent, never an empty subject', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=tool_call', '--tool=Bash', '--subject', '   '],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!('subject' in e!), 'a blank subject must not be stored at all');
+});
+
+test('show renders subject and data, so two tool_calls are distinguishable', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--id=obs-a', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_a', '--input={"command":"pnpm test"}'], env);
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--id=obs-b', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_b', '--input={"command":"pnpm build"}'], env);
+
+  const r = await runCli(['show', '--workspace=ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const byId = Object.fromEntries(JSON.parse(r.stdout).entries.map((e: any) => [e.id, e]));
+  assert.equal(byId['obs-a'].subject, 'Bash');
+  assert.equal(byId['obs-b'].subject, 'Bash');
+  // The whole point: something in the rendered payload separates the two.
+  assert.equal(byId['obs-a'].data.callId, 'toolu_a');
+  assert.equal(byId['obs-b'].data.callId, 'toolu_b');
+  assert.equal(byId['obs-a'].data.input, '{"command":"pnpm test"}');
+  assert.notDeepEqual(byId['obs-a'].data, byId['obs-b'].data,
+    'two tool_call observations rendered identically');
+});
+
+test('show renders null — never "" — for an event that names no subject', async () => {
+  const dir = await root();
+  await runCli(['observe', '--workspace=ws', '--kind=turn_end', '--turn=done'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const r = await runCli(['show', '--workspace=ws'], { AGENT_JOURNAL_ROOT: dir });
+  const [entry] = JSON.parse(r.stdout).entries;
+  assert.equal(entry.subject, null);
+  assert.notEqual(entry.subject, '', 'absent is not the empty string');
+});
+
+test('the whole loop: observe, find by subject, read the id, cite it, trace back', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+
+  // 1. Capture: two Bash calls, only one of which is the one being cited.
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_noise', '--input={"command":"ls"}'], env);
+  await runCli(['observe', '--workspace=ws', '--kind=tool_call', '--subject=Bash',
+    '--tool=Bash', '--callId=toolu_real', '--input={"command":"pnpm test"}'], env);
+
+  // 2. Find: by the tool name, which is what a reader actually knows.
+  const found = JSON.parse((await runCli(['trace', 'Bash', '--workspace=ws'],
+    { AGENT_JOURNAL_ROOT: dir })).stdout);
+  assert.equal(found.matched.length, 2);
+
+  // 3. Pick: `show` renders enough to tell them apart and read the right id.
+  const shown = JSON.parse((await runCli(['show', '--workspace=ws'],
+    { AGENT_JOURNAL_ROOT: dir })).stdout);
+  const wanted = shown.entries.find((e: any) => e.data.callId === 'toolu_real');
+  assert.ok(wanted, 'show did not render enough to identify the right observation');
+
+  // 4. Cite it from an authored entry.
+  const rec = await runCli(['record', '--workspace=ws', '--kind=finding',
+    '--claim=the suite passes', '--scope=workspace', `--anchor=tool_use:${wanted.id}`], env);
+  assert.equal(rec.code, 0, rec.stderr);
+
+  // 5. Trace back from the observation id: the observation itself by id, and
+  //    the entry that cites it by anchor.
+  const back = JSON.parse((await runCli(['trace', wanted.id, '--workspace=ws'],
+    { AGENT_JOURNAL_ROOT: dir })).stdout);
+  const vias = Object.fromEntries(back.matched.map((m: any) => [m.via, m.id]));
+  assert.equal(vias.id, wanted.id, 'the observation itself must match by id');
+  assert.ok(vias.anchor, 'the citing entry must match by anchor');
+  assert.notEqual(vias.anchor, wanted.id);
+});
+
+// ---------------------------------------------------------------------------
+// `help` named not one observation field. The line printed
+// `Object.keys(OBSERVATION_FIELDS)` — the KIND names — under the label
+// "…plus the fields for <kind>", one line below `record` doing it correctly
+// via kindUsageLine. So `--checkout`, `--ttlSeconds`, `--tool` and the rest
+// were undiscoverable from the CLI's own help, and `observe --kind path_claim`
+// with no fields exits 0 while `claims` then reports nothing.
+// ---------------------------------------------------------------------------
+
+test('help names the FIELDS of each observation kind, not the kind names again', async () => {
+  const r = await runCli(['help'], {});
+  assert.equal(r.code, 0);
+  // Every field of every observable kind, by flag, generated from the same
+  // source of truth the parser uses — so adding a kind cannot leave help stale.
+  const { OBSERVATION_FIELDS, fieldsForObservation } = await import('../src/observe.ts');
+  for (const kind of Object.keys(OBSERVATION_FIELDS)) {
+    if (kind === 'void') {
+      // `observe` refuses void outright, so advertising it would be a lie.
+      assert.ok(!/^ +void:/m.test(r.stdout), 'help advertises a kind observe refuses');
+      continue;
+    }
+    for (const field of fieldsForObservation(kind)) {
+      assert.ok(r.stdout.includes(`--${field}`),
+        `help never names --${field}, a field of observation kind ${kind}`);
+    }
+  }
+  // The two the finding named specifically: a path_claim with no fields is
+  // accepted and then reports nothing, so its fields have to be findable.
+  assert.match(r.stdout, /path_claim: --checkout --worktree --branch --ttlSeconds/);
+  // A kind with no fields says so rather than trailing an empty space.
+  assert.match(r.stdout, /heartbeat: \(no fields\)/);
+});
+
+// The documented way to answer "did a hook actually fire" is `show` -- coverage
+// counts sessions and cannot distinguish a hooked session from a hookless one.
+// That answer depends entirely on provenance being in the payload: `author` is
+// 'agent' for both planes, so without this an observation and an entry are
+// indistinguishable and the documented check verifies nothing.
+test('show reports which plane an event came from', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--workspace', 'ws', '--kind', 'tool_call', '--tool=Bash'], env);
+  await runCli(['record', '--kind', 'finding', '--claim=x', '--scope', 'machine',
+    '--workspace', 'ws'], env);
+  const r = await runCli(['show', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  const byKind = Object.fromEntries(
+    JSON.parse(r.stdout).entries.map((e: { kind: string; provenance: string }) => [e.kind, e.provenance]),
+  );
+  assert.equal(byKind.tool_call, 'hook', 'an observation must be identifiable as hook-captured');
+  assert.equal(byKind.finding, 'cli', 'an authored entry must not read as hook-captured');
+});

@@ -127,3 +127,58 @@ test('a failed verdict reports no partial hits, even when one was already found'
     `a failed verdict leaked partial hits: ${JSON.stringify(r.hits)}`);
   assert.equal(r.value, undefined);
 });
+
+// The observation plane changed what reaches the redactor. Previously only
+// agent prose did; now every Bash command line and tool response does,
+// verbatim. A secret with no distinctive shape -- no `ghp_`, no `AKIA` -- has
+// nothing for the shape patterns to catch, so it is matched by the NAME it is
+// assigned to instead.
+test('a secret with no shape, caught by the name it is assigned to', () => {
+  const r = redact({ input: 'export aws_secret_access_key=wJalrXUtnFEMIK7MDENGbPxRfiCY' });
+  const s = JSON.stringify(r.value);
+  assert.ok(!s.includes('wJalrXUtnFEMIK7MDENGbPxRfiCY'), `a shapeless secret reached disk: ${s}`);
+  // The name survives: a journal that hides WHICH credential leaked is worth less.
+  assert.ok(s.includes('aws_secret_access_key='), `the name was destroyed too: ${s}`);
+});
+
+// Three separator forms, because a review found the first draft caught only
+// `=`. `--password value` -- no equals sign at all -- is at least as common on
+// a command line as `--password=value`, and that draft wrote it to disk whole.
+test('every separator form a command line actually uses', () => {
+  const cases: [string, string][] = [
+    ['--password hunter12345', 'hunter12345'],
+    ['docker login --password mysecretpw123 -u bob', 'mysecretpw123'],
+    ['aws configure set aws_secret_access_key wJalrXUtnFEMI7MDENGbPxRfi', 'wJalrXUtnFEMI7MDENGbPxRfi'],
+    ['{"password": "hunter12345"}', 'hunter12345'],
+    ['api_key: abcdefgh12345678', 'abcdefgh12345678'],
+    // A quoted value containing SPACES: the bare form stops at the first space
+    // and leaves most of the secret on disk.
+    ["password='my secret pw 12345'", 'my secret pw 12345'],
+    ['password="my secret pw 12345"', 'my secret pw 12345'],
+  ];
+  for (const [input, secret] of cases) {
+    const s = JSON.stringify(redact({ input }).value);
+    assert.ok(!s.includes(secret), `leaked from ${JSON.stringify(input)}: ${s}`);
+  }
+});
+
+// The cost of matching by name is false positives, and prose is full of these
+// words. Whitespace-separated matching is gated on the value looking generated
+// -- an unbroken 16+ run containing a digit -- precisely so these survive.
+test('prose that merely mentions a credential is not a secret', () => {
+  const benign = [
+    'node --max-old-space-size=4096 build.js --mode=production',
+    'the token required-immediately for the handoff',
+    'git commit -m "add auth to the login screen"',
+    'the auth token expired and needs refreshing today',
+    'rotate the api_key documentation before releasing',
+    'see the access_key section in docs/security/README.md',
+    'password reset instructions were emailed',
+    'the secret sauce is careful naming and small files',
+    'npm run build -- --watch',
+  ];
+  for (const input of benign) {
+    const s = JSON.stringify(redact({ input }).value);
+    assert.ok(!s.includes('[REDACTED]'), `over-redacted ${JSON.stringify(input)}: ${s}`);
+  }
+});

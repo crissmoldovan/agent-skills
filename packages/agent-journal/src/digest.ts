@@ -2,6 +2,10 @@ import type { JournalEvent } from './envelope.ts';
 import type { CoverageReport } from './coverage.ts';
 import { readableAt, type Disclosure } from './disclosure.ts';
 import { project, type Outcome } from './retract.ts';
+import { OBSERVATION_KINDS } from './observe.ts';
+import { isEntry } from './retention.ts';
+
+const OBSERVATION_KIND_SET = new Set<string>(OBSERVATION_KINDS);
 
 export interface DigestOptions {
   /** Who the digest is for. Defaults to `published` — the committed artifact. */
@@ -83,8 +87,19 @@ export function renderDigest(
   const level = options.level ?? 'published';
   const { outcomes } = project(events);
 
+  // `isEntry`, not `kind !== 'void'`. A digest is a rendering of AUTHORED
+  // entries — the six kinds in retention.ts's own entry set. Filtering only
+  // voids let every hook-captured observation through, so a session with the
+  // adapters wired rendered one anonymous `## <uuid>` section per tool call:
+  // no question, no statement, no claim to title it, `outcome: unknown`, and
+  // nothing an entry-shaped `rank()` can order. The observation plane is read
+  // through `show`, `trace` and `coverage`, never here.
+  //
+  // Note what does NOT change: `project(events)` above still runs over ALL
+  // events, so a retraction edge from anywhere in the journal still resolves.
+  // Only the display list narrows.
   const entries = events
-    .filter((e) => e.kind !== 'void' && readableAt(e, level))
+    .filter((e) => isEntry(e) && readableAt(e, level))
     .map((e) => ({ e, outcome: outcomes.get(e.id) ?? 'unknown' as Outcome }))
     .sort((x, y) => {
       const a = rank(x.e, x.outcome), b = rank(y.e, y.outcome);
@@ -146,6 +161,19 @@ export function renderDigest(
     out.push('');
   }
 
+  // `record` deliberately accepts an unrecognised kind, writing it at exit 0
+  // with a warning, because refusing would destroy the very entry retention.ts
+  // exists to keep — and retention keeps it, reporting it as `unclassified`.
+  // The digest cannot DISPLAY one: an unknown kind stores no fields at all
+  // (`data: {}`), so it would render as a contentless `## <uuid>` heading, the
+  // same noise the observation filter above exists to keep out. But dropping it
+  // in silence made the digest the one layer of that three-layer commitment
+  // that just lost the entry. So it is counted here instead, in the block
+  // 10.3 makes this design's honesty control. Not displayed, never unmentioned.
+  const unclassified = events.filter(
+    (e) => !isEntry(e) && !OBSERVATION_KIND_SET.has(e.kind),
+  ).length;
+
   const c = options.coverage;
   out.push(
     '---', '',
@@ -156,6 +184,7 @@ export function renderDigest(
     `- refused writes (voids): ${c.voids}`,
     `- sequence gaps: ${c.sequenceGaps.length}`,
     `- downgraded anchors: ${c.downgradedAnchors === null ? 'not assessed' : c.downgradedAnchors.length}`,
+    `- entries of an unrecognised kind, kept but not displayed: ${unclassified}`,
     '',
     '`not assessed` is not `none` — it means nothing computed the figure.',
     '',

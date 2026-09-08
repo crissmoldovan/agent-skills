@@ -27,13 +27,43 @@ export interface RedactOptions {
  * dropping the anchors costs nothing but over-redaction — which is the direction
  * a fail-closed rule is supposed to err in.
  */
-const PATTERNS: readonly { name: string; re: RegExp }[] = [
+const PATTERNS: readonly { name: string; re: RegExp; keepPrefix?: true }[] = [
   { name: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{16,}/g },
   { name: 'openai-key', re: /sk-[A-Za-z0-9_-]{16,}/g },
   { name: 'aws-access-key', re: /AKIA[0-9A-Z]{16}/g },
   { name: 'jwt', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   { name: 'private-key-block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
   { name: 'bearer', re: /Bearer\s+[A-Za-z0-9._-]{16,}/gi },
+  // Every pattern above matches a secret by its own SHAPE. These two match by
+  // the NAME it is assigned to, because the observation plane changed what
+  // reaches this function: previously only agent prose, now every Bash command
+  // line and tool response, verbatim. A secret with no distinctive prefix --
+  // `aws_secret_access_key=wJalrXUt...` -- has no shape to catch, and went to
+  // disk byte-for-byte.
+  //
+  // Two patterns rather than one, because the separator decides how much
+  // ambiguity is safe. With an explicit `=` or `:`, ANY secret-ish name is
+  // enough. With only whitespace, it is not -- `token required-immediately` is
+  // ordinary prose -- so that form additionally demands a leading `-`/`--`,
+  // making it a command-line flag rather than a sentence.
+  //
+  // The value alternation carries quoted forms FIRST so that a quoted secret
+  // containing spaces (`password="my secret pw"`) is taken whole; the bare form
+  // would otherwise stop at the first space and leave most of it on disk.
+  { name: 'assigned-secret', re: /((?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth)[A-Za-z0-9_-]*["']?\s*[:=]\s*)(?:"[^"\n]{8,}"|'[^'\n]{8,}'|[^\s"';,]{8,})/gi, keepPrefix: true },
+  // The third form: a bare keyword and whitespace, no `=` and no leading dash --
+  // `aws configure set aws_secret_access_key wJalrXUt...`. Whitespace alone
+  // cannot separate a secret from a sentence, so this one gates on the VALUE
+  // instead: an unbroken 16+ character run containing at least one digit. That
+  // is what a generated credential looks like and what prose does not --
+  // `token required-immediately` has no digit and is left alone.
+  //
+  // Note NOT case: an earlier draft also demanded an upper-case letter, which
+  // the /i flag silently made a no-op, so the comment described a gate that was
+  // not running. Length-and-digit is what is actually enforced.
+  { name: 'adjacent-secret', re: /((?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key)[A-Za-z0-9_-]*\s+)(?=[^\s"';,]{16,}(?:\s|$))(?=[^\s"';,]*[0-9])[^\s"';,]+/gi, keepPrefix: true },
+  { name: 'flag-secret', re: /(--?[A-Za-z0-9-]*(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth)[A-Za-z0-9_-]*\s+)(?:"[^"\n]{8,}"|'[^'\n]{8,}'|[^\s"';,-][^\s"';,]{7,})/gi, keepPrefix: true },
+
   { name: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
   { name: 'home-path', re: /\/(?:Users|home)\/[^/\s"']+/g },
   { name: 'home-path-win', re: /[A-Za-z]:\\Users\\[^\\\s"']+/g },
@@ -44,12 +74,17 @@ const DEFAULT_MAX_DEPTH = 32;
 
 function scrub(input: string, hits: string[], path: string): string {
   let out = input;
-  for (const { name, re } of PATTERNS) {
+  for (const { name, re, keepPrefix } of PATTERNS) {
     re.lastIndex = 0;
     if (!re.test(out)) continue;
     re.lastIndex = 0;
     hits.push(`${path}:${name}`);
-    out = name === 'home-path' ? out.replace(re, '/[REDACTED]') : out.replace(re, '[REDACTED]');
+    // keepPrefix leaves the captured NAME in place: `aws_secret_access_key=
+    // [REDACTED]` tells a reader which credential was there, which is the whole
+    // value of a journal, while `[REDACTED]` alone loses it.
+    out = keepPrefix ? out.replace(re, '$1[REDACTED]')
+      : name === 'home-path' ? out.replace(re, '/[REDACTED]')
+      : out.replace(re, '[REDACTED]');
   }
   return out;
 }
