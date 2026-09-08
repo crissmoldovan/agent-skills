@@ -16,6 +16,8 @@ import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
 import { project } from './retract.ts';
+import { TOMBSTONE_KIND, tombstonesIn, suppressedIds } from './tombstone.ts';
+import { applyRetention } from './retention.ts';
 import { liveConstraints, constraintsBearingOn } from './constraints.ts';
 import { liveClaims } from './claims.ts';
 import { renderDigest } from './digest.ts';
@@ -84,6 +86,11 @@ const USAGE = [
   ...OBSERVABLE_KINDS.map(observationUsageLine),
   '    (environment self-populates from the running process; an explicit flag wins)',
   '  agent-journal invalidate <entry-id> --reason <why> --workspace <id> [--disclosure private|team|published]',
+  '  agent-journal tombstone <target-id> --reason <why> --workspace <id>',
+  '    (records that the target must not exist; purges nothing — see `compact`)',
+  '  agent-journal compact --workspace <id> [--entry-ttl-days <n>] [--observation-ttl-days <n>] [--apply]',
+  '    (the only command that destroys data; a dry run unless --apply is given;',
+  '     refuses outright on a damaged journal; never removes a tombstone event itself)',
   '  agent-journal coverage --workspace <id>',
   '  agent-journal show --workspace <id> [--id <entry-id>]',
   '  agent-journal claims --workspace <id>  (advisory only — reports, never blocks)',
@@ -222,6 +229,8 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   // this registration is what makes flag checking exist for `decay` in the
   // first place, not merely what shapes it.
   decay: ['workspace', 'repo'],
+  tombstone: ['workspace', 'reason'],
+  compact: ['workspace', 'apply', 'entry-ttl-days', 'observation-ttl-days'],
 };
 
 function unknownFlags(command: string, opts: Map<string, string>): string[] {
@@ -230,6 +239,19 @@ function unknownFlags(command: string, opts: Map<string, string>): string[] {
   const known = new Set<string>(allowed);
   return [...opts.keys()].filter((k) => !known.has(k)).sort();
 }
+
+/**
+ * Flags that are genuine booleans: presence alone is the whole value.
+ * `compact --apply` is the first of these in this CLI — every other flag
+ * keeps the rule above it (a missing value is an error, never a default),
+ * because a boolean silently invented from an unset environment variable is
+ * exactly what broke `--workspace $WS` before that rule existed. Scoped per
+ * command so declaring `apply` boolean for `compact` grants no other command
+ * the same latitude.
+ */
+const BOOLEAN_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  compact: ['apply'],
+};
 
 function nowStamp(): string {
   // Real milliseconds, not truncated. Truncating made every event in a given
@@ -301,6 +323,73 @@ async function readAll(root: string, workspace: string): Promise<ReadResult> {
   return { events: mergeEvents(batches), unreadable, malformed };
 }
 
+/**
+ * The only place this package writes to a segment file after its initial
+ * append. Everything else in `cli.ts` only ever appends (`SegmentJournal`) or
+ * reads (`readAll`); this rewrites files in place, which is why `compact` is
+ * gated so hard above it.
+ *
+ * `purgeIds` are ids to drop entirely (§13.2's purge, plus TTL expiry) —
+ * dropped from every segment file that physically holds them, not just the
+ * one `mergeEvents` would have credited as the "real" copy of a duplicate id,
+ * because the goal is the bytes gone, wherever they are.
+ *
+ * `flipTombstoneIds` are the ids of tombstone EVENTS (not their targets)
+ * whose `data.purged` must become `true` — computed by the caller from
+ * `tombstonesIn(events)` filtered to `purgeIds.has(target)`, so this
+ * function never has to re-decide which targets are being purged.
+ *
+ * A file with nothing to change is left untouched — no read-then-write-back
+ * of identical content, and the one guarantee `compact` without `--apply`
+ * needs (byte-identical segments) falls out for free, since the dry-run path
+ * never calls this at all.
+ */
+async function purgeSegments(
+  root: string,
+  workspace: string,
+  purgeIds: ReadonlySet<string>,
+  flipTombstoneIds: ReadonlySet<string>,
+): Promise<void> {
+  const base = join(root, 'workspaces', workspace, 'segments');
+
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return;
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) { await walk(full); continue; }
+      if (!e.name.endsWith('.jsonl')) continue;
+
+      const text = await readFile(full, 'utf8');
+      // The journal was already confirmed undamaged by the caller's own
+      // `readAll` immediately before this runs; `bad` here is expected empty.
+      const { events } = parseSegment(text);
+
+      let changed = false;
+      const lines: string[] = [];
+      for (const event of events) {
+        if (purgeIds.has(event.id)) { changed = true; continue; }
+        if (event.kind === TOMBSTONE_KIND && flipTombstoneIds.has(event.id)) {
+          lines.push(JSON.stringify({ ...event, data: { ...event.data, purged: true } }));
+          changed = true;
+          continue;
+        }
+        lines.push(JSON.stringify(event));
+      }
+
+      if (!changed) continue;
+      await writeFile(full, lines.length > 0 ? `${lines.join('\n')}\n` : '', 'utf8');
+    }
+  }
+
+  await walk(base);
+}
+
 export async function runCli(
   argv: readonly string[],
   env: Record<string, string | undefined>,
@@ -341,12 +430,19 @@ async function dispatch(
   const { opts, all, valueless } = flags(rest);
   const root = env.AGENT_JOURNAL_ROOT ?? join(env.HOME ?? '.', '.agents', 'journal');
 
-  if (valueless.length > 0) {
-    const which = valueless.map((f) => `--${f}`).join(', ');
+  // Every flag is an error without a value, EXCEPT a flag this command has
+  // explicitly declared boolean in BOOLEAN_FLAGS — `compact --apply` today,
+  // and nothing else. Filtered here, before the generic guard fires, so
+  // `--apply`'s presence-is-the-value shape does not need its own copy of
+  // this whole check.
+  const declaredBoolean = new Set<string>(BOOLEAN_FLAGS[command] ?? []);
+  const genuinelyValueless = valueless.filter((f) => !declaredBoolean.has(f));
+  if (genuinelyValueless.length > 0) {
+    const which = genuinelyValueless.map((f) => `--${f}`).join(', ');
     return {
       code: 2,
       stdout: '',
-      stderr: `flag${valueless.length > 1 ? 's' : ''} given no value: ${which}\n${USAGE}`,
+      stderr: `flag${genuinelyValueless.length > 1 ? 's' : ''} given no value: ${which}\n${USAGE}`,
     };
   }
 
@@ -789,6 +885,65 @@ async function dispatch(
     };
   }
 
+  if (command === 'tombstone') {
+    const target = rest[0];
+    if (!target || target.startsWith('--')) {
+      return { code: 2, stdout: '', stderr: `a target id is required\n${USAGE}` };
+    }
+
+    // Non-blank after trim, the same rule tombstonesIn() itself enforces at
+    // read time. Accepting a blank reason here would record something that
+    // reads back as no tombstone at all — recorded, acknowledged, and inert.
+    const reason = opts.get('reason')?.trim();
+    if (!reason) {
+      return { code: 2, stdout: '', stderr: `--reason is required, and must be non-blank\n${USAGE}` };
+    }
+
+    // No session, author human, same as `invalidate` (spec 5.8) — §13.2 says
+    // a tombstone records that A HUMAN decided the content must not exist.
+    // `purged: false` is written explicitly: recording the intent and
+    // destroying the bytes are two separate acts, and this event predates
+    // the second one entirely — `compact` is the only thing that can ever
+    // flip this to true.
+    const event = normalizeEvent({
+      schemaVersion: 1, id: randomUUID(), source: `cli/${hostname()}/-/-`, sourceEpoch: 'e1',
+      time: nowStamp(), workspace, session: '-', agent: '-', author: 'human', provenance: 'cli',
+      harness: 'other', context: 'coding', kind: TOMBSTONE_KIND,
+      data: { target, reason, purged: false },
+    });
+
+    const journal = journalFor(root, workspace, '-', '-');
+    const result = await journal.append(event);
+    if (!result.written) {
+      // The same guarantee `invalidate` makes: a refusal that vanishes at
+      // exit 1 alone never reaches coverage()'s voids, and the silence a
+      // refused write creates is exactly what voidEvent exists to prevent.
+      const trace = await journal.append(voidEvent({
+        id: randomUUID(), source: event.source, sourceEpoch: event.sourceEpoch,
+        time: nowStamp(), workspace, session: '-', agent: '-', harness: 'other',
+        reason: `redaction ${result.verdict}`, provenance: 'cli', author: 'human',
+        ...(result.reason === undefined ? {} : { detail: result.reason }),
+      }));
+      return {
+        code: 1,
+        stdout: '',
+        stderr: `refused: redaction ${result.verdict}\n`
+          + (trace.written ? '' : 'WARNING: the refusal itself could not be recorded\n'),
+      };
+    }
+
+    // Append-only, same as `invalidate`: a tombstone may legitimately precede
+    // the entry it names (another replica writes the target later), so an
+    // unknown target is not an error — but a human correcting a typo deserves
+    // to hear that nothing matched.
+    const known = (await readAll(root, workspace)).events.some((e) => e.id === target);
+    return {
+      code: 0,
+      stdout: `tombstoned ${target}\n`,
+      stderr: known ? '' : `WARNING: no entry with id ${target} is present in this workspace\n`,
+    };
+  }
+
   if (command === 'coverage') {
     // No retention pass has run here, so downgraded anchors are UNASSESSED.
     // Passing nothing yields `downgradedAnchors: null`, which renders as "not
@@ -812,8 +967,13 @@ async function dispatch(
 
   if (command === 'show') {
     const { events, unreadable, malformed } = await readAll(root, workspace);
+    // `project()` and `liveConstraints()` run over the FULL read, same as
+    // retention.ts's own `project(events)` call — a retraction edge carried
+    // by a since-tombstoned event still resolves. Only the RENDERED list is
+    // narrowed, below.
     const proj = project(events);
     const live = liveConstraints(events, nowStamp());
+    const hidden = suppressedIds(events);
     const liveIds = new Set(proj.live.map((e) => e.id));
     // A constraint's own liveness needs more than "not superseded, not
     // invalidated" — it also needs a real statement and to not have expired.
@@ -832,7 +992,10 @@ async function dispatch(
       typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
 
     const entries = events
-      .filter((e) => e.kind !== 'void' && (wanted === undefined || e.id === wanted))
+      // A tombstoned id stops rendering here even though its bytes are still
+      // on disk — `compact` is the only thing that removes them. Rendering
+      // it anyway until then would make the tombstone event itself pointless.
+      .filter((e) => e.kind !== 'void' && !hidden.has(e.id) && (wanted === undefined || e.id === wanted))
       .map((e) => {
         const anchors = Array.isArray(e.data.anchors) ? e.data.anchors : null;
         const influences = Array.isArray(e.data.influences) ? e.data.influences : null;
@@ -1000,7 +1163,14 @@ async function dispatch(
           + `${malformed.length} malformed line(s)\n`,
       };
     }
-    const rendered = renderDigest(events, {
+    // Coverage still reports over the FULL journal — a tombstoned event was
+    // still recorded, and still contributes real signal to sessions/voids/
+    // sequence gaps. Only the RENDERED entries below are narrowed: a
+    // tombstoned entry stops appearing in the committed document, exactly
+    // like it stops appearing in `show`.
+    const hidden = suppressedIds(events);
+    const visible = events.filter((e) => !hidden.has(e.id));
+    const rendered = renderDigest(visible, {
       coverage: coverage(events), now: nowStamp(),
       ...(level === undefined ? {} : { level: level as Disclosure }),
     });
@@ -1033,7 +1203,13 @@ async function dispatch(
       return { code: 2, stdout: '', stderr: `a key is required: trace <key> --workspace <id>\n` };
     }
     const { events, unreadable, malformed } = await readAll(root, workspace);
-    const result = traceFrom(events, key);
+    // Same narrowing as `show`/`digest`: a tombstoned id stops being
+    // findable, and stops being a step a chain can walk through — traceFrom
+    // already tolerates a dangling edge gracefully, which is exactly what a
+    // link pointing at a now-hidden id becomes.
+    const hidden = suppressedIds(events);
+    const visible = events.filter((e) => !hidden.has(e.id));
+    const result = traceFrom(visible, key);
     const damaged = unreadable.length > 0 || malformed.length > 0;
     return {
       code: damaged ? 1 : 0,
@@ -1092,6 +1268,111 @@ async function dispatch(
         ? 'WARNING: this journal could not be fully read — the findings above are a floor, not a total.\n'
         : '',
     };
+  }
+
+  if (command === 'compact') {
+    // `--apply` is the one boolean flag this CLI has (BOOLEAN_FLAGS above),
+    // which only means the guard above stopped treating its bare presence as
+    // an error. It still must not silently accept a VALUE — `--apply true`
+    // or `--apply=maybe` is refused outright rather than guessed at, the same
+    // "refuse rather than contain" instinct every other flag in this file
+    // follows.
+    if (opts.has('apply')) {
+      return {
+        code: 2, stdout: '',
+        stderr: `--apply takes no value; pass it as a bare flag\n${USAGE}`,
+      };
+    }
+    const apply = valueless.includes('apply');
+
+    const parseTtlDays = (flag: string): number | undefined | { error: string } => {
+      const raw = opts.get(flag);
+      if (raw === undefined) return undefined;
+      if (!/^\d+$/.test(raw)) {
+        return { error: `--${flag} must be a non-negative whole number, got ${JSON.stringify(raw)}` };
+      }
+      return Number(raw);
+    };
+    const entryTtlDaysRaw = parseTtlDays('entry-ttl-days');
+    if (entryTtlDaysRaw !== undefined && typeof entryTtlDaysRaw === 'object') {
+      return { code: 2, stdout: '', stderr: `${entryTtlDaysRaw.error}\n` };
+    }
+    const observationTtlDaysRaw = parseTtlDays('observation-ttl-days');
+    if (observationTtlDaysRaw !== undefined && typeof observationTtlDaysRaw === 'object') {
+      return { code: 2, stdout: '', stderr: `${observationTtlDaysRaw.error}\n` };
+    }
+    const entryTtlDays = entryTtlDaysRaw as number | undefined;
+    const observationTtlDays = observationTtlDaysRaw as number | undefined;
+
+    // §17.2 leaves the window undecided, same as applyRetention's own two
+    // required options — no default here would hide a decision nobody has
+    // made. But compact's flags are OPTIONAL, unlike applyRetention's, so
+    // "not supplied" must still mean something: NEVER expire under that axis,
+    // not "expire everything". A sentinel this large as an entryCutoff sits
+    // deep in negative time, so `Date.parse(e.time) < cutoff` is false for
+    // every real event — while staying finite, which applyRetention requires
+    // (Infinity is refused there).
+    const DAY_MS = 86400000;
+    const NEVER_MS = Number.MAX_SAFE_INTEGER;
+    const entryTtlMs = entryTtlDays === undefined ? NEVER_MS : entryTtlDays * DAY_MS;
+    const observationTtlMs = observationTtlDays === undefined ? NEVER_MS : observationTtlDays * DAY_MS;
+
+    // Refuse on a damaged journal BEFORE doing anything else -- the most
+    // important guard in this command. A segment that failed to parse might
+    // hold the very tombstone protecting something, or the content a
+    // tombstone names; compacting on an incomplete read could destroy
+    // content whose tombstone status this read never saw. Nothing below this
+    // point may run first.
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    if (damaged) {
+      return {
+        code: 1, stdout: '',
+        stderr: `refusing to compact: ${unreadable.length} unreadable path(s), `
+          + `${malformed.length} malformed line(s) -- compacting a partial view could `
+          + `destroy content whose tombstone status was never seen\n`,
+      };
+    }
+
+    // `compact` is applyRetention's first real caller (Task 2 built it as a
+    // pure library function with no caller in this file). Both TTLs are
+    // ALWAYS passed, never a caller-supplied `tombstoned` list -- suppression
+    // is derived from the journal itself, same as everywhere else this reads.
+    const result = applyRetention(events, { now: nowStamp(), entryTtlMs, observationTtlMs });
+
+    // What gets purged is exactly what applyRetention declined to keep for a
+    // reason OTHER than being the tombstone event itself -- expired entries
+    // and observations, and tombstoned targets. applyRetention already
+    // guarantees a TOMBSTONE_KIND event is never in either list.
+    const purgeIds = new Set<string>([...result.expired, ...result.tombstoned]);
+
+    // Which tombstone EVENTS need `purged` flipped true: exactly the
+    // well-formed tombstones (tombstonesIn, not a bare kind check) whose
+    // target is about to be purged this run. A tombstone whose target was
+    // already purged in an earlier run keeps its (already-true) `purged`
+    // untouched here -- its target is simply absent from `events` by now, so
+    // it never enters `purgeIds` again.
+    const tombstonesToFlip = tombstonesIn(events).filter((t) => purgeIds.has(t.target));
+
+    const report = {
+      apply,
+      entryTtlDays: entryTtlDays ?? null,
+      observationTtlDays: observationTtlDays ?? null,
+      expired: result.expired,
+      tombstoned: result.tombstoned,
+      pinned: result.pinned,
+      downgraded: result.downgraded,
+      unclassified: result.unclassified,
+      // The ids of the TOMBSTONE EVENTS whose `purged` flag is (--apply) or
+      // would be (dry run) flipped true -- not the ids of their targets.
+      tombstonesMarkedPurged: tombstonesToFlip.map((t) => t.id),
+    };
+
+    if (apply) {
+      await purgeSegments(root, workspace, purgeIds, new Set(tombstonesToFlip.map((t) => t.id)));
+    }
+
+    return { code: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };
   }
 
   return { code: 2, stdout: '', stderr: `unknown command: ${command}\n${USAGE}` };
