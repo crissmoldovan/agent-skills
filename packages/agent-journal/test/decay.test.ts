@@ -12,6 +12,15 @@ function entry(id: string, influences: unknown[], extra: Record<string, unknown>
   });
 }
 
+/** A Plane A event: hook-written, never authored. */
+function observation(id: string, kind: string, data: Record<string, unknown>) {
+  return normalizeEvent({
+    schemaVersion: 1, id, source: 'hook/h/s/a', sourceEpoch: 'e1',
+    time: '2026-09-08T10:00:00.000Z', workspace: 'ws', session: 's', agent: 'a',
+    author: 'agent', provenance: 'hook', harness: 'test', context: 'coding', kind, data,
+  });
+}
+
 test('a journal influence pointing at an invalidated entry is failing', () => {
   const target = entry('t1', []);
   const bad = normalizeEvent({
@@ -436,4 +445,44 @@ test('a refless influence and a blank-ref influence fail for different, accurate
   assert.match(byType.tool_result!.detail, /not present/i);
   assert.doesNotMatch(byType.tool_result!.detail, /no ref/i,
     'a blank ref is not the same as no ref — the writer named something');
+});
+
+// A `journal` influence claims to rest on an ENTRY and a `tool_result` on an
+// OBSERVATION. Checking only that the id exists let either point anywhere and
+// still report `passing` with a detail naming something the row is not:
+// "cited entry X is live" for an observation, "cited observation X is present"
+// for a decision. The status was wrong AND the sentence was false.
+test('a journal influence pointing at an observation is failing, and says which way round', () => {
+  const obs = observation('obs-1', 'tool_call', { tool: 'Bash' });
+  const e = entry('c1', [{ type: 'journal', role: 'decisive', ref: 'obs-1' }]);
+  const f = computeDecay([obs, e]).findings.find((x) => x.type === 'journal')!;
+  assert.equal(f.status, 'failing');
+  assert.match(f.detail, /observation/i);
+  assert.doesNotMatch(f.detail, /is live/i, 'it reported a live entry for an observation');
+});
+
+test('a tool_result influence pointing at an entry is failing', () => {
+  const target = entry('t1', []);
+  const e = entry('c1', [{ type: 'tool_result', role: 'decisive', ref: 't1' }]);
+  const f = computeDecay([target, e]).findings.find((x) => x.type === 'tool_result')!;
+  assert.equal(f.status, 'failing');
+  assert.match(f.detail, /entry, not an observation/i);
+});
+
+// The sharpest version of the error. A `void` is the journal's own record that
+// a write was REFUSED -- redaction stopped it. Reading one as a surviving
+// source says "your evidence still holds" about a row whose entire content is
+// that nothing was written.
+test('citing a void is failing on both influence types, never passing', () => {
+  const v = observation('v1', 'void', {});
+  const e = entry('c1', [
+    { type: 'journal', role: 'decisive', ref: 'v1' },
+    { type: 'tool_result', role: 'supporting', ref: 'v1' },
+  ]);
+  const r = computeDecay([v, e]);
+  assert.equal(r.findings.length, 2);
+  for (const f of r.findings) {
+    assert.equal(f.status, 'failing', `${f.type} reported ${f.status} for a void`);
+    assert.match(f.detail, /void/i);
+  }
 });

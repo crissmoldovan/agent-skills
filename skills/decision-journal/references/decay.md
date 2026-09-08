@@ -64,6 +64,25 @@ what [references/anchors.md](anchors.md) is about), but `decay` has nothing to s
 about it. Do not read a clean decay report as "every anchor on this entry was
 verified"; read it as "every influence, and any `environment` anchor, was verified."
 
+### What `journal` and `tool_result` each verify
+
+Both resolve their `ref` inside this journal, and both check the **kind** of what they
+find, because a citation that points the wrong way is a defect in the entry rather
+than decay in a source:
+
+- **`journal`** — the ref must name an *entry*, and that entry must still be live. It
+  reports `failing` if the entry is absent, superseded, invalidated, a `void`, or an
+  observation (cite an observation as `tool_result` instead).
+- **`tool_result`** — the ref must name an *observation*, and this is a **presence
+  check only**. It confirms the observation is still in the journal. It does **not**
+  confirm that what the tool reported then is still true now. A `tool_result` reading
+  `passing` means "that row is still there", never "that command would still print
+  this". Nothing in this release re-runs anything.
+
+Citing a `void` fails on both. A `void` is the journal's own record that a write was
+*refused* — reading it as a surviving source would say "your evidence still holds"
+about a row whose entire content is that nothing was written.
+
 An entry that was itself directly superseded or invalidated is skipped — its own
 sources stopped mattering the moment it stopped counting. An entry that merely *cites*
 a casualty through a `journal` influence is not skipped: that citation is exactly what
@@ -192,7 +211,7 @@ agent-journal decay --workspace decay-demo
 { "entryId": "d-node-pin", "type": "environment",
   "ref": "obs-node-pin",
   "status": "drifted",
-  "detail": "environment drifted: recorded /opt/build/bin/node@v18.20.4, now /[REDACTED]/.hermes/node/bin/node@v26.7.0" }
+  "detail": "environment drifted: recorded /opt/build/bin/node@v18.20.4, now /[REDACTED]/.local/share/node/bin/node@v26.7.0" }
 ```
 
 (The live interpreter path is redacted before it ever reaches stdout — the same
@@ -288,6 +307,19 @@ agent-journal decay --workspace decay-demo
 | `document` | `not-implemented` | There is no ref convention yet for what a "document" points at or how to resolve it. |
 | `person` | `not-checkable` | Nothing can re-interview a person. This is permanent, not a future release. |
 | `model_knowledge` | `not-checkable` | There is nothing to point at — that is the claim it makes. Permanent. |
+
+### `premise[]` is deferred too
+
+§10.1 conditions the premise re-check on a `finding` declaring `premise[]` **and** an
+environment anchor. Only the environment half ships. A `finding` whose premises are now
+plainly false, but whose interpreter has not moved, reports clean — because nothing
+reads `premise[]` at all.
+
+This is named here rather than left silent for the same reason `visual` and `living`
+are: a gap a reader can see is a gap they can work around. Re-checking a premise means
+re-running the reasoning that produced it, and this release does not attempt that.
+Environment drift is the one premise check that can be made deterministic, which is why
+it is the one that shipped.
 | `conversation` | `not-checkable` | This journal does not keep transcripts to re-check against. Permanent. |
 
 The line that matters: `url`, `ticket` and `document` are **`not-implemented`** — a

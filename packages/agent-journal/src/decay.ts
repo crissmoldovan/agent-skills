@@ -1,6 +1,8 @@
 import type { JournalEvent } from './envelope.ts';
 import { project } from './retract.ts';
 import { INFLUENCE_TYPES, type InfluenceType } from './entry.ts';
+import { isEntry } from './retention.ts';
+import { OBSERVATION_KINDS } from './observe.ts';
 import type { Environment } from './environment.ts';
 
 /**
@@ -66,13 +68,13 @@ export interface ComputeDecayOptions {
   readonly now?: CurrentEnvironment;
 }
 
-/** Influence types for which nothing could ever check freshness. A property
- *  of the source itself, not of what this release happens to implement. */
-const NOT_CHECKABLE = new Set<InfluenceType>(['person', 'model_knowledge', 'conversation']);
+// The two classifications live in `classify`'s switch alone. They were also
+// declared as Sets here, read only by an import-time self-check that has since
+// moved into a test -- leaving two Sets nothing consulted, so a maintainer
+// adding a type to one would get silence. `test/decay.test.ts` pins every
+// type's status from the outside, which is the guard that actually holds.
 
-/** Influence types a checker could in principle exist for, but this release
- *  has deferred. A property of this release, not of the source. */
-const NOT_IMPLEMENTED = new Set<InfluenceType>(['url', 'ticket', 'document']);
+const OBSERVATION_KIND_SET = new Set<string>(OBSERVATION_KINDS);
 
 function stringField(event: JournalEvent, field: string): string | undefined {
   const v = (event.data as Record<string, unknown>)[field];
@@ -156,7 +158,7 @@ function directlyInvalidatedIds(events: readonly JournalEvent[]): ReadonlySet<st
 }
 
 interface CheckContext {
-  readonly allIds: ReadonlySet<string>;
+  readonly byId: ReadonlyMap<string, JournalEvent>;
   readonly invalidated: ReadonlySet<string>;
   readonly superseded: ReadonlySet<string>;
   readonly codebase: ReadonlyMap<string, boolean> | undefined;
@@ -168,8 +170,23 @@ interface CheckContext {
 
 function checkJournal(ref: string | null, ctx: CheckContext): { status: DecayStatus; detail: string } {
   if (ref === null) return { status: 'failing', detail: 'journal influence has no ref to check' };
-  if (!ctx.allIds.has(ref)) {
+  const target = ctx.byId.get(ref);
+  if (!target) {
     return { status: 'failing', detail: `cited entry "${ref}" is not present in this journal` };
+  }
+  // A `journal` influence claims to rest on an ENTRY. Confirming only that the
+  // id exists let it point at an observation, or at a `void`, and still report
+  // "cited entry is live" -- a detail that names something the row is not. A
+  // void is the journal's record that a write was REFUSED, so reading it as a
+  // surviving source is the sharpest version of the error.
+  if (target.kind === 'void') {
+    return { status: 'failing', detail: `"${ref}" is a void — the record of a refused write, not a source` };
+  }
+  if (!isEntry(target)) {
+    return {
+      status: 'failing',
+      detail: `"${ref}" is a ${target.kind} observation, not an entry — cite it as tool_result`,
+    };
   }
   // Invalidation outranks supersession -- same precedence project() itself
   // enforces -- so an entry that is somehow both is reported by the stronger
@@ -185,9 +202,21 @@ function checkJournal(ref: string | null, ctx: CheckContext): { status: DecaySta
 
 function checkToolResult(ref: string | null, ctx: CheckContext): { status: DecayStatus; detail: string } {
   if (ref === null) return { status: 'failing', detail: 'tool_result influence has no ref to check' };
-  if (!ctx.allIds.has(ref)) {
+  const target = ctx.byId.get(ref);
+  if (!target) {
     return { status: 'failing', detail: `cited observation "${ref}" is not present in this journal` };
   }
+  if (target.kind === 'void') {
+    return { status: 'failing', detail: `"${ref}" is a void — the record of a refused write, not a result` };
+  }
+  if (!OBSERVATION_KIND_SET.has(target.kind)) {
+    return {
+      status: 'failing',
+      detail: `"${ref}" is a ${target.kind} entry, not an observation — cite it as journal`,
+    };
+  }
+  // Presence only, and the docs say so: this confirms the observation is still
+  // in the journal, never that what it recorded still holds.
   return { status: 'passing', detail: `cited observation "${ref}" is present` };
 }
 
@@ -308,7 +337,7 @@ export function computeDecay(
   options: ComputeDecayOptions = {},
 ): DecayReport {
   const proj = project(events);
-  const allIds = new Set(events.map((e) => e.id));
+  const byId = new Map(events.map((e) => [e.id, e] as const));
   const directInvalidated = directlyInvalidatedIds(events);
   const environmentObservations = new Map<string, JournalEvent>();
   for (const e of events) {
@@ -316,7 +345,7 @@ export function computeDecay(
   }
 
   const ctx: CheckContext = {
-    allIds,
+    byId,
     invalidated: proj.invalidated,
     superseded: proj.superseded,
     codebase: options.codebase,
