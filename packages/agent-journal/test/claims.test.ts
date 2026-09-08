@@ -117,3 +117,49 @@ test('a later non-claim event from the same session must not hide its still-live
   assert.equal(live.length, 1, 'a later, unrelated event on the same session hid a still-live claim');
   assert.equal(live[0]!.checkout, '/work/repo');
 });
+
+// ---------------------------------------------------------------------------
+// DEFAULT_TTL_SECONDS. Every test above supplies a ttlSeconds, so nothing
+// exercised the default at all — and that default is the only thing stopping a
+// crashed session from holding a claim forever. Both halves of the guard that
+// selects it were individually deletable with the suite green.
+// ---------------------------------------------------------------------------
+
+// Half one: `rawTtl === undefined`. `OBSERVATION_FIELDS.path_claim` lists
+// ttlSeconds but nothing requires a caller supply it, so this is the ordinary
+// CLI-reachable shape: `observe --kind path_claim --checkout=…` and nothing more.
+test('a claim with no ttlSeconds at all gets the one-hour default, not a malformed mark', () => {
+  const c = claim('c1', 's1', '2026-09-08T10:00:00.000Z', { checkout: '/w/r' });
+  const live = liveClaims([c], '2026-09-08T10:30:00.000Z');
+  assert.equal(live.length, 1, 'a claim with no stated TTL was dropped');
+  // The exact default, derived from the claim's own timestamp — not merely
+  // "some expiry". 10:00 + 3600s.
+  assert.equal(live[0]!.expiresAt, '2026-09-08T11:00:00.000Z');
+  assert.ok(!('malformedTtl' in live[0]!),
+    'an absent TTL is not an unreadable one — absent is not malformed');
+});
+
+test('the default TTL actually expires, rather than holding the claim forever', () => {
+  const c = claim('c1', 's1', '2026-09-08T10:00:00.000Z', { checkout: '/w/r' });
+  assert.equal(liveClaims([c], '2026-09-08T11:00:00.000Z').length, 1, 'expired one second early');
+  assert.equal(liveClaims([c], '2026-09-08T11:00:00.001Z').length, 0,
+    'a defaulted claim never expires — a crashed session would hold it forever');
+});
+
+// Half two: present-but-blank. NOT reachable through this CLI —
+// normalizeObservationData drops a blank value, so `--ttlSeconds=` cannot even
+// be typed (it is a valueless flag) and `--ttlSeconds ''` normalizes to absent.
+// This is the foreign-writer shape, the same class as the non-string case
+// above, which was a real bug: a key present and empty states no lifetime, and
+// stating none is not the same act as stating an unreadable one.
+test('a present-but-blank ttlSeconds is no TTL stated, not an unreadable one', () => {
+  for (const blank of ['', '   ', '\t\n']) {
+    const c = claim('c1', 's1', '2026-09-08T10:00:00.000Z', { checkout: '/w/r', ttlSeconds: blank });
+    const live = liveClaims([c], '2026-09-08T10:30:00.000Z');
+    assert.equal(live.length, 1, `dropped for ttlSeconds ${JSON.stringify(blank)}`);
+    assert.equal(live[0]!.expiresAt, '2026-09-08T11:00:00.000Z',
+      `blank ttlSeconds ${JSON.stringify(blank)} did not take the default`);
+    assert.ok(!('malformedTtl' in live[0]!),
+      `blank ttlSeconds ${JSON.stringify(blank)} was marked unreadable`);
+  }
+});
