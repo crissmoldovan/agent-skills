@@ -123,16 +123,22 @@ test('the test harness actually delivers the payload to the script', async () =>
   const logged = await readFile(stubLog, 'utf8').catch(() => '');
   assert.ok(logged.trim().length > 0, 'the stub was never invoked -- the payload did not reach journal-hook.mjs');
   const args = JSON.parse(logged.trim().split('\n')[0]!) as string[];
+  // `--flag=value` throughout, never `--flag value` -- same reasoning as the
+  // Claude Code adapter's own copy of this assertion: in the space-separated
+  // form a value beginning with `--` parses as the next flag name, and
+  // agent-journal exits 2 having written nothing, silently, because this
+  // script ignores its exit code by design.
   assert.deepEqual(
-    args.slice(0, 4),
-    ['observe', '--workspace', 'ws', '--kind'],
+    args.slice(0, 3),
+    ['observe', '--workspace=ws', '--kind=tool_call'],
     `unexpected argv shape reached the observe command: ${JSON.stringify(args)}`,
   );
-  assert.ok(args.includes('tool_call'));
-  assert.ok(args.includes('--tool'));
-  assert.ok(args.includes('apply_patch'));
-  assert.ok(args.includes('--callId'));
-  assert.ok(args.includes('call_1'));
+  assert.ok(args.includes('--tool=apply_patch'), JSON.stringify(args));
+  assert.ok(args.includes('--callId=call_1'), JSON.stringify(args));
+  assert.ok(
+    args.every((a) => a.startsWith('--') === false || a.includes('=')),
+    `every flag must carry its value inline: ${JSON.stringify(args)}`,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -489,4 +495,29 @@ test('no input maps to a heartbeat observation -- it is never wired, structurall
   }
   const events = await readAllEvents(dir, 'ws');
   assert.ok(events.every((e) => e.kind !== 'heartbeat'));
+});
+
+// ---------------------------------------------------------------------------
+// Harness text that looks like a flag. Same hazard, same fix, and worth having
+// on BOTH adapters rather than assuming the shared `--flag=value` shape: this
+// is the one property that must hold for whatever a harness happens to put in
+// a text field, and Codex's payload shapes are documentation-derived.
+// ---------------------------------------------------------------------------
+
+test('an assistant message opening with a horizontal rule still reaches disk', async () => {
+  const dir = await root();
+  const message = '---\nSummary: applied the patch.';
+  const r = runHook(
+    JSON.stringify({
+      session_id: 'sid-rule',
+      hook_event_name: 'Stop',
+      last_assistant_message: message,
+    }),
+    { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 1, 'the observation was silently lost');
+  assert.equal(events[0]!.kind, 'turn_end');
+  assert.equal(events[0]!.data.turn, message, 'the value must survive byte for byte');
 });

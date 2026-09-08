@@ -112,16 +112,24 @@ test('the test harness actually delivers the payload to the script', async () =>
   const logged = await readFile(stubLog, 'utf8').catch(() => '');
   assert.ok(logged.trim().length > 0, 'the stub was never invoked -- the payload did not reach journal-hook.mjs');
   const args = JSON.parse(logged.trim().split('\n')[0]!) as string[];
+  // `--flag=value` throughout, never `--flag value`: a value beginning with
+  // `--` (a markdown horizontal rule opening an assistant message is the
+  // everyday case) parses as the next flag name in the space-separated form,
+  // and agent-journal then exits 2 having written nothing. This script ignores
+  // that exit code by design, so the observation would vanish leaving no
+  // `void` behind. Asserted here as argv shape because that is the only place
+  // the choice is observable.
   assert.deepEqual(
-    args.slice(0, 4),
-    ['observe', '--workspace', 'ws', '--kind'],
+    args.slice(0, 3),
+    ['observe', '--workspace=ws', '--kind=tool_call'],
     `unexpected argv shape reached the observe command: ${JSON.stringify(args)}`,
   );
-  assert.ok(args.includes('tool_call'));
-  assert.ok(args.includes('--tool'));
-  assert.ok(args.includes('Bash'));
-  assert.ok(args.includes('--callId'));
-  assert.ok(args.includes('toolu_1'));
+  assert.ok(args.includes('--tool=Bash'), JSON.stringify(args));
+  assert.ok(args.includes('--callId=toolu_1'), JSON.stringify(args));
+  assert.ok(
+    args.every((a) => a.startsWith('--') === false || a.includes('=')),
+    `every flag must carry its value inline: ${JSON.stringify(args)}`,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -489,4 +497,56 @@ test('no input maps to a heartbeat observation -- it is never wired, structurall
   }
   const events = await readAllEvents(dir, 'ws');
   assert.ok(events.every((e) => e.kind !== 'heartbeat'));
+});
+
+// ---------------------------------------------------------------------------
+// Harness text that looks like a flag. End to end, through the real script and
+// the real CLI -- the argv-shape assertion above proves the FORM, this proves
+// the CONSEQUENCE, which is the thing that was actually broken.
+// ---------------------------------------------------------------------------
+
+test('an assistant message opening with a horizontal rule still reaches disk', async () => {
+  const dir = await root();
+  // The reproducer, verbatim: `--turn ---\nSummary: ...` made `--turn` look
+  // valueless, agent-journal exited 2, and this script ignored that by design
+  // -- nothing written, and no `void` for `coverage` to report either.
+  const message = '---\nSummary: fixed the parser.';
+  const r = runHook(
+    JSON.stringify({
+      session_id: 'sid-rule',
+      hook_event_name: 'Stop',
+      last_assistant_message: message,
+    }),
+    { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 1, 'the observation was silently lost');
+  assert.equal(events[0]!.kind, 'turn_end');
+  assert.equal(events[0]!.data.turn, message, 'the value must survive byte for byte');
+});
+
+test('every other harness-supplied field takes a ---leading value too', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  // `reason` (SessionEnd), `trigger` -> reason (PostCompact), and a
+  // string-valued `tool_input` -- every field either adapter fills from text
+  // the harness chose, not text this project controls.
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'SessionEnd', reason: '--- done',
+  }), env);
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PostCompact', trigger: '--auto',
+  }), env);
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: '--version', tool_use_id: 'toolu_9',
+  }), env);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 3, `expected three observations, got ${events.length}`);
+  const byKind = Object.fromEntries(events.map((e) => [e.kind, e]));
+  assert.equal(byKind.session_end!.data.reason, '--- done');
+  assert.equal(byKind.compact!.data.reason, '--auto');
+  assert.equal(byKind.tool_call!.data.input, '--version');
 });

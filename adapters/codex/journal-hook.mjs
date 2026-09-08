@@ -310,10 +310,23 @@ async function main() {
   const [bin, ...preArgs] = commandSpec;
   if (!bin) return;
 
-  const args = [...preArgs, 'observe', '--workspace', workspace, '--kind', mapped.kind];
+  // Every flag goes out as `--flag=value`, never as `--flag value`. In the
+  // space-separated form a value that itself begins with `--` parses as the
+  // NEXT flag name, agent-journal reports a valueless flag and exits 2, and
+  // the whole observation is lost. A markdown horizontal rule opening an
+  // assistant message (`---`) is the everyday way that happens, and it is
+  // not confined to `turn`: `reason`, `trigger` and a string-valued
+  // `tool_input` all come from harness text this script does not control.
+  // Rule 1 means this script ignores that exit code, so the loss would be
+  // silent AND leave no `void` behind for `coverage` to show -- the one
+  // failure mode the observation plane exists to prevent. `--flag=value`
+  // cannot be misread: the name ends at the first `=`, and everything after
+  // it is the value, `--` prefix, embedded `=`, newlines and all. See
+  // `flags()` in src/cli.ts.
+  const args = [...preArgs, 'observe', `--workspace=${workspace}`, `--kind=${mapped.kind}`];
   for (const [field, value] of Object.entries(mapped.fields)) {
     if (typeof value !== 'string' || !value.trim()) continue; // absent stays absent
-    args.push(`--${field}`, value);
+    args.push(`--${field}=${value}`);
   }
 
   const childEnv = { ...process.env };

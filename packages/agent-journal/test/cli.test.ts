@@ -1757,3 +1757,143 @@ test('claims lists live claims and says plainly that nothing is enforced', async
   // or flipped and nothing would notice.
   assert.equal(out.advisory, true, 'the advisory marker is missing from the payload');
 });
+
+// ---------------------------------------------------------------------------
+// `--flag=value`. The space-separated form cannot carry a value beginning with
+// `--`: the parser has to read a `--`-prefixed token as the next flag name, or
+// a genuinely valueless flag stops being detectable. Before `=` was accepted,
+// an assistant message opening with a markdown horizontal rule made
+// `--turn ---\nSummary: …` a valueless `--turn` and the CLI exited 2 — and
+// because both adapters ignore that exit code by design, nothing was written
+// AND no `void` was recorded, so `coverage` showed no gap at all. Silence with
+// no trace is the exact failure the observation plane exists to prevent.
+
+test('a turn_end whose value IS a markdown horizontal rule is recorded, not lost', async () => {
+  const dir = await root();
+  const turn = '---\nSummary: fixed it.';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=turn_end', `--turn=${turn}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  // The whole value, both lines, byte for byte — not merely "something landed".
+  assert.equal(e!.data.turn, turn);
+});
+
+test('the space-separated form still parses, unchanged', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace', 'ws', '--kind', 'turn_end', '--turn', 'plain text'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.turn, 'plain text');
+});
+
+test('a value that starts with -- mid-sentence survives the = form', async () => {
+  const dir = await root();
+  const turn = '--force was the flag that broke it';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=turn_end', `--turn=${turn}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.turn, turn);
+  // And specifically NOT parsed as a `--force` flag that the unknown-flag gate
+  // would have rejected, nor as a valueless `--turn`.
+  assert.equal(r.stderr, '');
+});
+
+test('the split is on the FIRST =, so a value containing = survives whole', async () => {
+  const dir = await root();
+  const input = '{"command":"AWS_REGION=eu-west-1 make deploy"}';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=tool_call', '--tool=Bash', `--input=${input}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.input, input);
+});
+
+test('a multi-line value survives the = form intact', async () => {
+  const dir = await root();
+  const summary = 'line one\nline two\n\nline four';
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=tool_result', '--tool=Bash', `--summary=${summary}`],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.equal(e!.data.summary, summary);
+});
+
+test('every other field an adapter fills from harness text takes a -- value too', async () => {
+  const dir = await root();
+  // session_end --reason, compact --reason (from a Codex/Claude `trigger`),
+  // and a tool_call --input that arrived as a bare string rather than an
+  // object. All three are harness-supplied text the adapter does not control.
+  const cases: Array<[readonly string[], string, string]> = [
+    [['observe', '--workspace=ws', '--kind=session_end', '--reason=--- clear'], 'reason', '--- clear'],
+    [['observe', '--workspace=ws', '--kind=compact', '--reason=--auto triggered'], 'reason', '--auto triggered'],
+    [['observe', '--workspace=ws', '--kind=tool_call', '--tool=Bash', '--input=--version'], 'input', '--version'],
+  ];
+  for (const [argv, field, expected] of cases) {
+    const r = await runCli(argv, { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+    assert.equal(r.code, 0, `${argv.join(' ')}: ${r.stderr}`);
+  }
+  const events = await readAllEvents(dir, 'ws');
+  assert.equal(events.length, 3, 'all three observations must have reached disk');
+  for (const [, field, expected] of cases) {
+    assert.ok(
+      events.some((e) => e.data[field] === expected),
+      `no event carries ${field} === ${JSON.stringify(expected)}`,
+    );
+  }
+});
+
+// The valueless guard is why `--flag=` cannot mean "empty value". `--workspace $WS`
+// with WS unset once wrote to a workspace literally named `true` at exit 0;
+// `--workspace=$WS` with WS unset expands to `--workspace=`, the same accident in
+// `=` clothing. Losing that guard would be a worse regression than the bug the `=`
+// form fixes.
+test('--flag= with nothing after the = is an error, not an empty value', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace=', '--kind=turn_end', '--turn=x'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2, 'an unset shell variable in the = form must not be a value');
+  assert.match(r.stderr, /flag given no value: --workspace/);
+  // Nothing may have been written under any name, least of all a plausible one.
+  assert.deepEqual(await readAllEvents(dir, 'ws'), []);
+  assert.deepEqual(await readAllEvents(dir, ''), []);
+  assert.deepEqual(await readAllEvents(dir, 'true'), []);
+});
+
+test('a bare --flag with no following token is still an error', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace', '--kind=turn_end', '--turn=x'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /flag given no value: --workspace/);
+});
+
+// An explicitly quoted empty argument is a deliberate act, not an expansion
+// accident, so it stays a value — which the field normalizers then treat as
+// absent, per this project's blank-is-not-assessed rule.
+test("--flag '' still parses as a value and normalizes to absent", async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['observe', '--workspace=ws', '--kind=turn_end', '--turn', ''],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const [e] = await readAllEvents(dir, 'ws');
+  assert.ok(!('turn' in e!.data), 'a blank value must be absent, never stored as ""');
+});

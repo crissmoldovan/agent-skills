@@ -72,18 +72,56 @@ interface ParsedFlags {
   readonly valueless: readonly string[];
 }
 
+/**
+ * Two forms, both accepted: `--flag value` and `--flag=value`.
+ *
+ * The space-separated form cannot carry a value that itself begins with `--`,
+ * and it never could: this parser has to treat a `--`-prefixed token as the
+ * next flag name, or a genuinely valueless flag becomes indistinguishable
+ * from one whose value happens to look like a flag. That was not a
+ * theoretical hazard. An assistant message opening with a markdown horizontal
+ * rule makes `--turn ---\nSummary: …` a valueless `--turn`, the CLI exits 2,
+ * and both adapters ignore the exit code by design — so nothing is written,
+ * no `void` is recorded, and `coverage` shows no gap. Silence with no trace
+ * is the one failure the observation plane exists to prevent, so the
+ * adapters now emit `--flag=value` exclusively, which cannot be confused
+ * with anything: the name ends at the first `=` and everything after it is
+ * the value, `--` prefix, embedded `=`, newlines and all.
+ *
+ * `--flag=` — nothing after the `=` — is an ERROR, not an empty value. It is
+ * the same accident in `=` clothing: `--workspace=$WS` with `WS` unset
+ * expands to exactly that, and the whole reason the valueless guard exists is
+ * that `--workspace $WS` once wrote to a workspace literally named `true` at
+ * exit 0. `--flag ''` (an explicitly quoted empty argument) is a different
+ * act — deliberate, not an expansion accident — and still parses as a value,
+ * which the field normalizers then treat as absent.
+ */
 function flags(argv: readonly string[]): ParsedFlags {
   const opts = new Map<string, string>();
   const all = new Map<string, string[]>();
   const valueless: string[] = [];
+  const take = (name: string, value: string): void => {
+    opts.set(name, value);
+    all.set(name, [...(all.get(name) ?? []), value]);
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]!;
     if (!token.startsWith('--')) continue;
-    const name = token.slice(2);
+    const body = token.slice(2);
+    const eq = body.indexOf('=');
+    if (eq >= 0) {
+      // First `=` only. A later one belongs to the value — `--input=a=b` is
+      // the flag `input` carrying `a=b`, not a malformed anything.
+      const name = body.slice(0, eq);
+      const value = body.slice(eq + 1);
+      if (value === '') valueless.push(name);
+      else take(name, value);
+      continue;
+    }
+    const name = body;
     const next = argv[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
-      opts.set(name, next);
-      all.set(name, [...(all.get(name) ?? []), next]);
+      take(name, next);
       i += 1;
     } else {
       // Storing 'true' here was silent data invention. `--workspace $WS` with an
