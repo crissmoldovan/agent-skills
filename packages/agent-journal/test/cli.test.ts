@@ -2051,3 +2051,187 @@ test('show reports which plane an event came from', async () => {
   assert.equal(byKind.tool_call, 'hook', 'an observation must be identifiable as hook-captured');
   assert.equal(byKind.finding, 'cli', 'an authored entry must not read as hook-captured');
 });
+
+// ---------------------------------------------------------------------------
+// `decay` — §10.1's rot/premise report. Reports, never judges: no finding's
+// status ever changes the exit code, only damage to the journal itself does.
+// ---------------------------------------------------------------------------
+
+// `unknownFlags()` returns `[]` for any command with no `ALLOWED_FLAGS` entry
+// at all, so this is what proves `decay: ['workspace', 'repo']` is actually
+// registered -- without a test, that registration can be deleted silently
+// and every other decay test still passes.
+test('a typo\'d flag on decay is rejected, not silently accepted', async () => {
+  const dir = await root();
+  const r = await runCli(['decay', '--workspace', 'ws', '--repoo', '/tmp'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2, 'a typo\'d flag on decay was accepted');
+  assert.match(r.stderr, /unknown flag: --repoo/);
+});
+
+test('decay reports findings and exits 0 on a healthy journal', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'decision', '--question', 'db?', '--chosen', 'postgres',
+    '--workspace', 'ws', '--id', 't1'], env);
+  await runCli(['record', '--kind', 'decision', '--question', 'cache?', '--chosen', 'redis',
+    '--workspace', 'ws', '--influence', 'journal:decisive:t1'], env);
+
+  const r = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.ok(Array.isArray(out.findings), 'decay must report a findings array');
+  const f = out.findings.find((x: any) => x.type === 'journal');
+  assert.equal(f.status, 'passing');
+});
+
+// A reporting command that fails the build the moment a source moves would be
+// switched off within a week, and §10.1 forbids auto-resolution anyway.
+test('decay exits 0 even when findings are failing — it reports, it does not judge', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'decision', '--question', 'q', '--chosen', 'c',
+    '--workspace', 'ws', '--influence', 'journal:decisive:ghost'], env);
+
+  const r = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, `a failing finding must not change decay's exit code: ${r.stderr}`);
+  const out = JSON.parse(r.stdout);
+  assert.ok(out.findings.some((f: any) => f.status === 'failing'),
+    'the dangling reference should have produced a failing finding');
+});
+
+// Mirrors `claims`/`show`: a journal that could not be fully read is a
+// different thing from a source that decayed, and must not be reported as a
+// clean run.
+test('decay warns and exits 1 when the journal itself could not be fully read', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[])
+    .find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'this is not json\nnor is this\n');
+
+  const r = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.notEqual(r.code, 0, 'a damaged journal reported success');
+  assert.match(r.stdout + r.stderr, /malformed/i,
+    `corruption was not surfaced: ${r.stdout}${r.stderr}`);
+});
+
+// The damage guard is `unreadable.length > 0 || malformed.length > 0` -- the
+// test above only exercises the `malformed` half. This is the `unreadable`
+// half, so a mutation dropping either term still fails a test.
+test('decay reports an unreadable segment, the other half of "damaged"', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'a1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[])
+    .find((f) => f.endsWith('.jsonl'))!;
+  await chmod(join(segDir, seg), 0o000);
+  try {
+    const r = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+    assert.notEqual(r.code, 0, 'an unreadable segment reported success');
+    assert.match(r.stdout + r.stderr, /unreadable/i,
+      `unreadability was not surfaced: ${r.stdout}${r.stderr}`);
+  } finally {
+    await chmod(join(segDir, seg), 0o600);
+  }
+});
+
+test('decay --repo is required before any codebase ref is resolved', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'decision', '--question', 'q', '--chosen', 'c',
+    '--workspace', 'ws', '--influence', 'codebase:decisive:src/here.ts'], env);
+
+  // Without --repo, a codebase influence must never come back passing --
+  // that would mean guessing the filesystem answer with nothing checked.
+  const withoutRepo = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(withoutRepo.code, 0);
+  const noRepoFinding = JSON.parse(withoutRepo.stdout).findings
+    .find((f: any) => f.type === 'codebase');
+  assert.equal(noRepoFinding.status, 'not-checkable',
+    'a codebase ref resolved to something without a --repo being given');
+
+  // Prove --repo actually resolves it -- not merely that omitting it refuses
+  // to guess, which the assertion above alone could satisfy vacuously.
+  const repoDir = await mkdtemp(join(tmpdir(), 'journal-repo-'));
+  await mkdir(join(repoDir, 'src'), { recursive: true });
+  await writeFile(join(repoDir, 'src', 'here.ts'), 'export const here = true;\n');
+
+  const withRepo = await runCli(['decay', '--workspace', 'ws', '--repo', repoDir],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(withRepo.code, 0, withRepo.stderr);
+  const repoFinding = JSON.parse(withRepo.stdout).findings.find((f: any) => f.type === 'codebase');
+  assert.equal(repoFinding.status, 'passing');
+});
+
+// The reason this whole plan exists (§2.1): an entry anchored to an
+// `environment` observation carries the toolchain it was decided under, and a
+// reader must be told when that ground has moved -- distinctly from a broken
+// source. `captureEnvironment()` (the real running process) is guaranteed to
+// differ from these fabricated values, so this is deterministic rather than a
+// coin flip on whatever machine runs the suite.
+test('decay reports environment drift end to end, and it is `drifted`, not `failing`', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  const obs = await runCli(['observe', '--workspace', 'ws', '--kind', 'environment',
+    '--interpreter', '/remote/bin/node', '--version', 'v1.0.0'], env);
+  assert.equal(obs.code, 0, obs.stderr);
+  const obsId = /observed (\S+)/.exec(obs.stdout)?.[1];
+  assert.ok(obsId, `could not read the observed id back out of: ${obs.stdout}`);
+
+  await runCli(['record', '--kind', 'decision', '--question', 'q', '--chosen', 'c',
+    '--workspace', 'ws', '--anchor', `environment:${obsId}`], env);
+
+  const r = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  const f = out.findings.find((x: any) => x.type === 'environment');
+  assert.equal(f.status, 'drifted', `expected drifted, got: ${JSON.stringify(f)}`);
+  assert.match(f.detail, /v1\.0\.0/, 'the recorded (fabricated) version must appear in the detail');
+  assert.equal(out.drifted, 1);
+});
+
+// Every OTHER value `decay` (or any command) ever prints was written through
+// `journal.append` first, which redacts on write. The freshly-captured "now"
+// environment is deliberately never persisted -- computeDecay only compares
+// it -- so it never passes through that gate, which makes it the one place a
+// raw interpreter path could reach stdout straight from `process`, on the
+// exact field spec 4.3 already requires masked for a STORED environment
+// observation. This was caught only by running the built binary end to end,
+// not by any unit test, and is deterministic regardless of where THIS
+// machine's own node binary happens to live: `runCli` executes in-process,
+// so `process.execPath` is overridden directly rather than relying on the
+// test runner's own install path being home-shaped by chance.
+test('decay redacts the live "now" environment before printing it, not just the stored side', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  const obs = await runCli(['observe', '--workspace', 'ws', '--kind', 'environment',
+    '--interpreter', '/remote/bin/node', '--version', 'v1.0.0'], env);
+  const obsId = /observed (\S+)/.exec(obs.stdout)?.[1];
+  await runCli(['record', '--kind', 'decision', '--question', 'q', '--chosen', 'c',
+    '--workspace', 'ws', '--anchor', `environment:${obsId}`], env);
+
+  // Built by concatenation, not one contiguous literal, for the same reason
+  // the environment-observation redaction tests above do this: the repo's
+  // own skill verifier flags a literal machine-shaped home-directory path in
+  // source, fixture or not.
+  const fakeHomeInterpreter = '/Users' + '/deterministic-fixture/bin/node';
+  const originalExecPath = process.execPath;
+  process.execPath = fakeHomeInterpreter;
+  let r;
+  try {
+    r = await runCli(['decay', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  } finally {
+    process.execPath = originalExecPath;
+  }
+
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(!r.stdout.includes('deterministic-fixture'),
+    `decay printed an unredacted machine-identifying path in its own output: ${r.stdout}`);
+  assert.match(r.stdout, /\/\[REDACTED\]\/bin\/node/,
+    'the live "now" interpreter should have been redacted, not merely absent');
+});

@@ -21,6 +21,9 @@ import { liveClaims } from './claims.ts';
 import { renderDigest } from './digest.ts';
 import { traceFrom } from './trace.ts';
 import { canonicalize } from './paths.ts';
+import { computeDecay, codebaseRefs, type CurrentEnvironment } from './decay.ts';
+import { resolveCodebaseRefs } from './codebase.ts';
+import { redact } from './redact.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -86,6 +89,9 @@ const USAGE = [
   '  agent-journal claims --workspace <id>  (advisory only — reports, never blocks)',
   '  agent-journal digest --workspace <id> [--level private|team|published] [--out <path>]',
   '  agent-journal trace <key> --workspace <id>',
+  '  agent-journal decay --workspace <id> [--repo <path>]',
+  '    (--repo is required before any codebase influence is resolved; omitted, those',
+  '     findings are not-checkable rather than guessed at)',
   '  agent-journal help',
   '',
 ].join('\n');
@@ -212,6 +218,10 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   claims: ['workspace'],
   digest: ['workspace', 'level', 'out'],
   trace: ['workspace'],
+  // `unknownFlags()` returns `[]` for any command with no entry here at all --
+  // this registration is what makes flag checking exist for `decay` in the
+  // first place, not merely what shapes it.
+  decay: ['workspace', 'repo'],
 };
 
 function unknownFlags(command: string, opts: Map<string, string>): string[] {
@@ -1015,6 +1025,54 @@ async function dispatch(
         : result.matched.length === 0
           ? `no entry is indexed under ${JSON.stringify(key)} in this workspace\n`
           : '',
+    };
+  }
+
+  if (command === 'decay') {
+    // Defaults to nothing, never to `process.cwd()`: silently scanning
+    // whatever directory the caller happens to be standing in is a surprise,
+    // and `not-checkable` (computeDecay's behaviour with no `codebase` map
+    // at all) is the honest default for a codebase influence when no repo
+    // was named.
+    const repo = opts.get('repo');
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+
+    const codebase = repo
+      ? await resolveCodebaseRefs(codebaseRefs(events), repo)
+      : undefined;
+
+    // Captured here, at the CLI boundary, and injected -- computeDecay stays
+    // pure and never touches `process` itself. Every OTHER value this CLI
+    // ever prints was written through `journal.append` first, which redacts
+    // on write (spec 4.3: an interpreter path is machine-identifying). A
+    // captured-live "now" is deliberately never persisted -- computeDecay
+    // only ever compares it, so it never passes through that gate -- which
+    // makes this the one spot a raw, unredacted path could reach stdout
+    // straight from `process`, on the exact field 4.3 already requires
+    // masked for a STORED environment observation. Redacted explicitly here
+    // for that reason. A `failed` verdict (the tiny capture object exceeding
+    // the scan budget, in practice never) omits `now` rather than risk
+    // printing it unscrubbed -- `not-checkable` is the same honest fallback
+    // `computeDecay` already uses when nothing was supplied at all.
+    const redactedNow = redact(captureEnvironment());
+    const report = computeDecay(events, {
+      ...(codebase === undefined ? {} : { codebase }),
+      ...(redactedNow.verdict === 'failed' ? {} : { now: redactedNow.value as CurrentEnvironment }),
+    });
+
+    // Same guarantee `claims`/`show` make, for the same reason: a journal
+    // that could not be fully read has not earned exit 0, and its floor of
+    // findings must never be mistaken for a total. This is deliberately
+    // NOT how a `failing` finding is treated -- §10.1 is explicit that decay
+    // is reported, never judged, so no finding's status ever changes this
+    // exit code. Only damage to the JOURNAL does.
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+    return {
+      code: damaged ? 1 : 0,
+      stdout: `${JSON.stringify({ ...report, unreadable, malformed }, null, 2)}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read — the findings above are a floor, not a total.\n'
+        : '',
     };
   }
 

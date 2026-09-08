@@ -1,11 +1,20 @@
 import type { JournalEvent } from './envelope.ts';
 import { project } from './retract.ts';
 import { INFLUENCE_TYPES, type InfluenceType } from './entry.ts';
+import type { Environment } from './environment.ts';
 
 /**
- * Four statuses that must never collapse into each other:
+ * Five statuses that must never collapse into each other:
  *  - `passing`        — checked, and the source still holds.
  *  - `failing`        — checked, and the source no longer holds.
+ *  - `drifted`        — checked, and it differs, but the difference is not a
+ *                        verdict: an `environment` anchor whose interpreter or
+ *                        version no longer matches the one running now. A
+ *                        moved SOURCE is broken (`failing`); a moved
+ *                        ENVIRONMENT may simply be a different machine, and
+ *                        collapsing the two would train people to ignore the
+ *                        flag (§10.1's own reasoning for exempting living
+ *                        sources from hash rot, applied here to a machine).
  *  - `not-checkable`  — nothing could ever check this (a property of the
  *                        source: a person, a model's own knowledge, a
  *                        conversation transcript this journal does not keep).
@@ -15,11 +24,13 @@ import { INFLUENCE_TYPES, type InfluenceType } from './entry.ts';
  * distinction this design exists to preserve. A `person` influence must never
  * report as `passing`.
  */
-export type DecayStatus = 'passing' | 'failing' | 'not-checkable' | 'not-implemented';
+export type DecayStatus = 'passing' | 'failing' | 'drifted' | 'not-checkable' | 'not-implemented';
 
 export interface DecayFinding {
   readonly entryId: string;
-  readonly type: InfluenceType;
+  /** An `InfluenceType`, or the literal `'environment'` for the one anchor
+   *  class this checker looks at — see `checkEnvironmentAnchor`. */
+  readonly type: InfluenceType | 'environment';
   readonly ref: string | null;
   readonly status: DecayStatus;
   readonly detail: string;
@@ -30,10 +41,29 @@ export interface DecayReport {
   readonly checked: number;
   readonly notCheckable: number;
   readonly notImplemented: number;
+  /** Separate from `checked`: a drifted finding was evaluated, but its
+   *  outcome is a flag for a human, not a pass/fail verdict — see
+   *  `DecayStatus`. Keeping it out of `checked` is what "coherent counts"
+   *  means here; folding it in would silently redefine what `checked` means. */
+  readonly drifted: number;
 }
+
+/** What `computeDecay` needs to know about "now" to check environment drift.
+ *  Deliberately narrower than the full `Environment` shape `captureEnvironment`
+ *  returns — `platform`, `packageManager` and `flags` are not compared, so a
+ *  caller (or a test) supplying only these two fields is not a lie. A full
+ *  `Environment` satisfies this structurally, so `captureEnvironment()` is
+ *  passed straight through with no adapting. */
+export type CurrentEnvironment = Pick<Environment, 'interpreter' | 'version'>;
 
 export interface ComputeDecayOptions {
   readonly codebase?: ReadonlyMap<string, boolean>;
+  /** The environment this run is executing under, injected rather than
+   *  captured inside this module -- `captureEnvironment()` touches `process`,
+   *  and this module stays pure and synchronously testable by never calling
+   *  it itself. Absent (not just non-matching) is why an environment anchor
+   *  reports `not-checkable` rather than guessing. */
+  readonly now?: CurrentEnvironment;
 }
 
 /** Influence types for which nothing could ever check freshness. A property
@@ -54,6 +84,10 @@ interface RawInfluence {
   readonly ref: string | null;
 }
 
+interface RawEnvironmentAnchor {
+  readonly ref: string | null;
+}
+
 /**
  * Pulls `influences` out of `event.data`. Both the array and its elements may
  * be absent or malformed -- an entry written by a foreign writer can carry
@@ -71,6 +105,29 @@ function extractInfluences(event: JournalEvent): RawInfluence[] {
     if (typeof rec.type !== 'string' || !(INFLUENCE_TYPES as readonly string[]).includes(rec.type)) continue;
     const ref = typeof rec.ref === 'string' && rec.ref !== '' ? rec.ref : null;
     out.push({ type: rec.type as InfluenceType, ref });
+  }
+  return out;
+}
+
+/**
+ * Pulls `environment`-class `anchors` out of `event.data`, the anchor twin of
+ * `extractInfluences` immediately above and defensive for the same reason: a
+ * foreign writer's `anchors` array can carry anything short of "an object
+ * with a known `type`". Every other anchor class (`commit`, `file`, `visual`,
+ * ...) is deliberately ignored here -- this release's premise check is
+ * scoped to `environment`, per the task-3 brief; extending it to another
+ * anchor class is a decision this function's callers have not made.
+ */
+function extractEnvironmentAnchors(event: JournalEvent): RawEnvironmentAnchor[] {
+  const raw = (event.data as Record<string, unknown>).anchors;
+  if (!Array.isArray(raw)) return [];
+  const out: RawEnvironmentAnchor[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    if (rec.type !== 'environment') continue;
+    const ref = typeof rec.ref === 'string' && rec.ref !== '' ? rec.ref : null;
+    out.push({ ref });
   }
   return out;
 }
@@ -103,6 +160,10 @@ interface CheckContext {
   readonly invalidated: ReadonlySet<string>;
   readonly superseded: ReadonlySet<string>;
   readonly codebase: ReadonlyMap<string, boolean> | undefined;
+  /** Every `environment`-kind observation present in this event list, keyed
+   *  by id -- what an `environment` anchor's `ref` names. */
+  readonly environmentObservations: ReadonlyMap<string, JournalEvent>;
+  readonly now: CurrentEnvironment | undefined;
 }
 
 function checkJournal(ref: string | null, ctx: CheckContext): { status: DecayStatus; detail: string } {
@@ -142,6 +203,56 @@ function checkCodebase(ref: string | null, ctx: CheckContext): { status: DecaySt
   return present
     ? { status: 'passing', detail: `"${ref}" is present in the codebase` }
     : { status: 'failing', detail: `"${ref}" is no longer present in the codebase` };
+}
+
+/**
+ * §2.1's canonical failure, closed: an entry anchored `environment:<id>`
+ * carries the toolchain it was decided under. This compares that observation's
+ * `interpreter` and `version` against the environment this run is executing
+ * under (`ctx.now`, injected -- see `ComputeDecayOptions`).
+ *
+ * A difference is `drifted`, never `failing` -- §10.1's own distinction:
+ * `failing` means a SOURCE is broken, and an environment simply being a
+ * different machine is not that. It is reported so a human can judge whether
+ * the difference matters, exactly as §10.1 requires for a premise re-check:
+ * surfaced, never auto-invalidated.
+ *
+ * Ordered deliberately: a structurally broken anchor (`ref: null`, or a `ref`
+ * naming nothing in this journal) is `failing` -- that is not a drift, it is a
+ * dead citation, the same class of defect `checkJournal`/`checkToolResult`
+ * report. Only once the anchor resolves to a real observation does this ask
+ * whether a COMPARISON is even possible: no `now` supplied, or the observation
+ * itself missing the fields being compared, is `not-checkable` -- "we could
+ * not check this" must not collapse into "we checked and it matches".
+ */
+function checkEnvironmentAnchor(
+  ref: string | null,
+  ctx: CheckContext,
+): { status: DecayStatus; detail: string } {
+  if (ref === null) return { status: 'failing', detail: 'environment anchor has no ref to check' };
+  const obs = ctx.environmentObservations.get(ref);
+  if (!obs) {
+    return { status: 'failing', detail: `referenced environment observation "${ref}" is not present in this journal` };
+  }
+  if (!ctx.now) {
+    return { status: 'not-checkable', detail: 'no current environment was supplied for this run' };
+  }
+  const recordedInterpreter = stringField(obs, 'interpreter');
+  const recordedVersion = stringField(obs, 'version');
+  if (!recordedInterpreter || !recordedVersion) {
+    return {
+      status: 'not-checkable',
+      detail: `environment observation "${ref}" has no recorded interpreter/version to compare`,
+    };
+  }
+  if (recordedInterpreter === ctx.now.interpreter && recordedVersion === ctx.now.version) {
+    return { status: 'passing', detail: `environment matches: ${recordedInterpreter}@${recordedVersion}` };
+  }
+  return {
+    status: 'drifted',
+    detail: `environment drifted: recorded ${recordedInterpreter}@${recordedVersion}, `
+      + `now ${ctx.now.interpreter}@${ctx.now.version}`,
+  };
 }
 
 function assertNever(x: never): never {
@@ -186,10 +297,11 @@ function classify(inf: RawInfluence, ctx: CheckContext): { status: DecayStatus; 
 
 
 /**
- * Checks every live, directly-non-retracted entry's influences for decay.
- * Filesystem truth is injected pre-resolved via `options.codebase` so this
- * module stays pure and synchronously testable -- Task 2 builds the map,
- * Task 3 wires it in.
+ * Checks every live, directly-non-retracted entry's influences -- plus its
+ * `environment` anchors, Task 3's addition -- for decay. Filesystem truth is
+ * injected pre-resolved via `options.codebase`, and "now" is injected via
+ * `options.now`, so this module stays pure and synchronously testable: Task 2
+ * built the codebase map, Task 3 wires both in from the CLI.
  */
 export function computeDecay(
   events: readonly JournalEvent[],
@@ -198,12 +310,18 @@ export function computeDecay(
   const proj = project(events);
   const allIds = new Set(events.map((e) => e.id));
   const directInvalidated = directlyInvalidatedIds(events);
+  const environmentObservations = new Map<string, JournalEvent>();
+  for (const e of events) {
+    if (e.kind === 'environment') environmentObservations.set(e.id, e);
+  }
 
   const ctx: CheckContext = {
     allIds,
     invalidated: proj.invalidated,
     superseded: proj.superseded,
     codebase: options.codebase,
+    environmentObservations,
+    now: options.now,
   };
 
   const findings: DecayFinding[] = [];
@@ -221,16 +339,63 @@ export function computeDecay(
       const { status, detail } = classify(inf, ctx);
       findings.push({ entryId: event.id, type: inf.type, ref: inf.ref, status, detail });
     }
+
+    for (const anchor of extractEnvironmentAnchors(event)) {
+      const { status, detail } = checkEnvironmentAnchor(anchor.ref, ctx);
+      findings.push({ entryId: event.id, type: 'environment', ref: anchor.ref, status, detail });
+    }
   }
 
   let checked = 0;
   let notCheckable = 0;
   let notImplemented = 0;
+  let drifted = 0;
+  // An exhaustive switch, the same reason `classify`'s dispatch is one and
+  // not an if-chain: a sixth `DecayStatus` added without a case here stops
+  // compiling instead of silently landing in none of the four counters
+  // (which is exactly the bug `drifted` would have been, folded into
+  // `checked` by an `else` that was never taught the new status existed).
   for (const f of findings) {
-    if (f.status === 'passing' || f.status === 'failing') checked++;
-    else if (f.status === 'not-checkable') notCheckable++;
-    else if (f.status === 'not-implemented') notImplemented++;
+    switch (f.status) {
+      case 'passing':
+      case 'failing':
+        checked++;
+        break;
+      case 'not-checkable':
+        notCheckable++;
+        break;
+      case 'not-implemented':
+        notImplemented++;
+        break;
+      case 'drifted':
+        drifted++;
+        break;
+      default:
+        assertNever(f.status);
+    }
   }
 
-  return { findings, checked, notCheckable, notImplemented };
+  return { findings, checked, notCheckable, notImplemented, drifted };
+}
+
+/**
+ * Every `codebase` influence ref across `events`, deduplicated -- what a
+ * caller (the CLI) must resolve via `resolveCodebaseRefs` before calling
+ * `computeDecay` with the result. Built by reusing `extractInfluences` rather
+ * than re-parsing `data.influences` a second way in the CLI: a second parser
+ * that trims, or filters, even slightly differently than this one is exactly
+ * how a ref gets resolved under one string and looked up under another --
+ * this project has already found one helper living in two copies, and a
+ * ref-extraction pair diverging the same way would fail every codebase check
+ * silently, each one reporting `not-checkable` instead of what the filesystem
+ * actually says.
+ */
+export function codebaseRefs(events: readonly JournalEvent[]): string[] {
+  const refs = new Set<string>();
+  for (const event of events) {
+    for (const inf of extractInfluences(event)) {
+      if (inf.type === 'codebase' && inf.ref !== null) refs.add(inf.ref);
+    }
+  }
+  return [...refs];
 }
