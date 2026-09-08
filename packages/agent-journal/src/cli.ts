@@ -943,7 +943,7 @@ async function dispatch(
 
     // Hoisted out of the guard block below so the WRITE can use the very path
     // the guard vetted, rather than re-deriving it from `out` afterwards.
-    let resolvedOut = out;
+    let resolvedOut: string | undefined;
     if (out) {
       // A digest written under ANY workspace's segment tree becomes journal
       // INPUT the next time THAT workspace is read: readAll() walks every
@@ -1011,6 +1011,12 @@ async function dispatch(
       // and land outside the tree the guard just proved it was inside. Writing
       // the resolved path closes that window: the bytes go where the check
       // looked.
+      if (resolvedOut === undefined) {
+        // Unreachable: the guard block above runs under this same `if (out)`.
+        // Refusing beats falling back to `out`, which would write a path
+        // nothing vetted — the exact hole this hoist exists to close.
+        return { code: 1, stdout: '', stderr: 'internal: --out was not vetted before write\n' };
+      }
       await mkdir(dirname(resolvedOut), { recursive: true });
       await writeFile(resolvedOut, rendered, 'utf8');
       // ...but report `out`, the path the caller typed. `resolvedOut` may name
