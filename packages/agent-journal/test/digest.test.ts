@@ -374,3 +374,59 @@ test('ordering is total across many shuffles, not just a two-item reverse', () =
     assert.equal(r, rendered[0], 'ordering is not total — shuffled input changed the output');
   }
 });
+
+// ---------------------------------------------------------------------------
+// A digest renders AUTHORED entries. Filtering only `kind !== 'void'` let
+// every hook-captured observation through, so a session with the adapters
+// wired produced one anonymous `## <uuid>` section per tool call — no
+// question, statement or claim to title it, `outcome: unknown`, and nothing
+// an entry-shaped `rank()` can meaningfully order.
+// ---------------------------------------------------------------------------
+
+test('hook observations do not reach the digest', () => {
+  const out = render([
+    ev('d1', { question: 'which database?', chosen: 'postgres' }),
+    evKind('11111111-2222-3333-4444-555555555555', 'tool_call',
+      { tool: 'Bash', input: '{"command":"pnpm test"}', callId: 'toolu_1' }),
+    evKind('66666666-7777-8888-9999-000000000000', 'tool_result',
+      { tool: 'Bash', callId: 'toolu_1', summary: 'ok' }),
+    evKind('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'session_start',
+      { harness: 'claude-code', cwd: '/work' }),
+  ]);
+  assert.ok(out.includes('which database?'), 'the authored entry must still render');
+  // Precisely: no section titled by a bare uuid, which is what an observation
+  // with nothing to title it fell back to.
+  for (const id of ['11111111', '66666666', 'aaaaaaaa']) {
+    assert.ok(!out.includes(id), `an observation reached the digest: ${id}`);
+  }
+  // One entry section plus the fixed `## Coverage` block the digest always
+  // ends with — not one section per tool call.
+  const headings = (out.match(/^## .*$/gm) ?? []);
+  assert.deepEqual(headings, ['## which database?', '## Coverage'],
+    `the digest is not a transcript: ${JSON.stringify(headings)}`);
+});
+
+test('an observation cannot occupy the digest even when it is the only event', () => {
+  const out = render([
+    evKind('99999999-0000-1111-2222-333333333333', 'tool_call', { tool: 'Bash' }),
+  ]);
+  assert.ok(out.includes('_No entries at this disclosure level._'),
+    'a journal of pure observations must read as empty, not as one anonymous entry');
+});
+
+// The display list narrowed; the PROJECTION deliberately did not. `project()`
+// still runs over every event, so a retraction edge carried by something that
+// is not an entry — a foreign writer, or a future kind retention.ts keeps as
+// `unclassified` rather than destroying — still resolves. `observe` refuses
+// --supersedes/--invalidates, so this shape cannot come from this CLI; it is
+// the case the wider scope exists for. Narrowing project() to entries would
+// leave d1 rendering as live.
+test('a retraction edge on a non-entry event still lands, though it is not displayed', () => {
+  const out = render([
+    ev('d1', { question: 'the retracted one', chosen: 'x' }),
+    evKind('r-foreign', 'some_future_kind', { invalidates: 'd1' }),
+  ]);
+  assert.ok(out.includes('the retracted one'), 'the entry itself must still render');
+  assert.ok(!out.includes('r-foreign'), 'the non-entry event must not be displayed');
+  assert.match(out, /invalidated/i, 'the retraction edge did not reach the projection');
+});

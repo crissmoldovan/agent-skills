@@ -2,6 +2,7 @@ import type { JournalEvent } from './envelope.ts';
 import type { CoverageReport } from './coverage.ts';
 import { readableAt, type Disclosure } from './disclosure.ts';
 import { project, type Outcome } from './retract.ts';
+import { isEntry } from './retention.ts';
 
 export interface DigestOptions {
   /** Who the digest is for. Defaults to `published` — the committed artifact. */
@@ -83,8 +84,19 @@ export function renderDigest(
   const level = options.level ?? 'published';
   const { outcomes } = project(events);
 
+  // `isEntry`, not `kind !== 'void'`. A digest is a rendering of AUTHORED
+  // entries — the six kinds in retention.ts's own entry set. Filtering only
+  // voids let every hook-captured observation through, so a session with the
+  // adapters wired rendered one anonymous `## <uuid>` section per tool call:
+  // no question, no statement, no claim to title it, `outcome: unknown`, and
+  // nothing an entry-shaped `rank()` can order. The observation plane is read
+  // through `show`, `trace` and `coverage`, never here.
+  //
+  // Note what does NOT change: `project(events)` above still runs over ALL
+  // events, so a retraction edge from anywhere in the journal still resolves.
+  // Only the display list narrows.
   const entries = events
-    .filter((e) => e.kind !== 'void' && readableAt(e, level))
+    .filter((e) => isEntry(e) && readableAt(e, level))
     .map((e) => ({ e, outcome: outcomes.get(e.id) ?? 'unknown' as Outcome }))
     .sort((x, y) => {
       const a = rank(x.e, x.outcome), b = rank(y.e, y.outcome);
