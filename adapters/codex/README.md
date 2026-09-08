@@ -148,10 +148,11 @@ different approach:
 ## What this costs — not measured, extrapolated
 
 No timing measurement exists for this adapter — there is no Codex session to
-time it against. The Claude Code adapter's own measured cost (270–470ms per
-mapped event, five back-to-back `PreToolUse` calls, dominated by two Node
-process starts) is the only real number either adapter has, and this one
-does the same two-process work (`journal-hook.sh` spawning
+time it against. The Claude Code adapter's own measured cost (68–78ms per
+mapped event warm, 168–327ms on the first cold call, five back-to-back
+`PreToolUse` calls against the built binary — see that adapter's README for
+the full table and the machine it was measured on) is the only real number
+either adapter has, and this one does the same two-process work (`journal-hook.sh` spawning
 `journal-hook.mjs` spawning `agent-journal observe`), so it is a reasonable
 planning estimate — **not a claim about Codex**. Measure it for real on the
 machine this actually runs on before treating any number as authoritative.

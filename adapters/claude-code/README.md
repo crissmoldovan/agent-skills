@@ -72,15 +72,26 @@ nothing injected as `argv`). So every variable below is set as a prefix
 Every mapped hook event spawns two subprocesses: `node journal-hook.mjs`,
 which in turn spawns `agent-journal observe`. That is the price of routing
 through `agent-journal`'s own redaction rather than writing JSONL directly —
-see "Why it shells out" below — and it is not optimised away. Measured
-directly here (five back-to-back `PreToolUse` calls against the built
-binary, `date +%s%N` around the whole `journal-hook.sh` invocation): roughly
-270–470ms of wall time added to the tool call it observes, dominated by two
-Node process starts back-to-back. That is specific to this machine and this
-moment — measure it on the machine this actually runs on before treating any
-number here as authoritative. On a fast local disk this may not be
-noticeable; on a slow one, or under load, it will be. This is the accepted
-cost of the fail-closed path, not a bug to file.
+see "Why it shells out" below — and it is not optimised away.
+
+Measured here, five back-to-back `PreToolUse` calls with `performance.now()`
+around the whole `sh journal-hook.sh` invocation (macOS 26.3.1, arm64, Node
+v26.7.0), `AGENT_JOURNAL_CMD` pointing at the built `dist/bin.js`:
+
+| | per hook |
+| --- | --- |
+| warm — the steady state after the first call of a session | **68–78ms** |
+| the first call after a fresh `pnpm build`, cold caches | 168–327ms |
+| running from TypeScript source via `--experimental-strip-types` instead | 109–143ms |
+
+Read those as the shape of the cost, not as a constant: they are two Node
+process starts, so they track whatever this machine's process-start cost is
+at that moment. An earlier revision of this file claimed 270–470ms, measured
+by the same five-call method; re-running it here produced the table above
+instead, and the gap is almost entirely cold-versus-warm. Measure it on the
+machine this actually runs on rather than trusting either number. On a fast
+local disk this may not be noticeable; on a slow one, or under load, it will
+be. This is the accepted cost of the fail-closed path, not a bug to file.
 
 Two bounded timeouts exist purely as safety nets against a harness that
 doesn't behave the way every capture in NOTES.md shows: reading the payload

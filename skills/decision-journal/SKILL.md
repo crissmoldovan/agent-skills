@@ -87,14 +87,18 @@ help you make them.
    of implying otherwise. See [references/anchors.md](references/anchors.md).
    **Complete when:** you can name which anchor classes are available.
 4. **Knowing whether anything is watching automatically.** On a harness with hooks
-   wired (a Claude Code or Codex adapter under `adapters/`), tool calls and session
-   boundaries are observed independently of what you write — a second witness to check
-   your own account against, not a replacement for it. It does not cover everything:
-   no heartbeat, no confirmed permission events, and unattributed tool calls from
-   inside a subagent. See
-   [references/adapters.md](references/adapters.md) before assuming a class of claim is
-   covered that isn't. **Complete when:** you know whether this session's harness has an
-   adapter wired, and `agent-journal coverage` confirms observations if it does.
+   wired, tool calls and session boundaries are observed independently of what you
+   write — a second witness to check your own account against, not a replacement for
+   it. Cite one with `--anchor tool_use:<observation-id>`; find the id with
+   `trace <tool-name>` and then `show`. The adapters are **not installed with this
+   skill** — they live in the repository, at
+   <https://github.com/crissmoldovan/agent-skills/tree/main/adapters>. Hooks do not
+   cover everything: no heartbeat, no confirmed permission events, and unattributed
+   tool calls from inside a subagent. See
+   [references/adapters.md](references/adapters.md) for the whole loop and before
+   assuming a class of claim is covered that isn't. **Complete when:** you know whether
+   this session's harness has an adapter wired, and `agent-journal coverage` confirms
+   observations if it does.
 
 ## Procedure
 
@@ -385,6 +389,8 @@ Before treating a journal as a record you can rely on:
 - [references/degraded-modes.md](references/degraded-modes.md) — running without the
   CLI, without a filesystem, or without hooks, and how to say so honestly.
 - [references/adapters.md](references/adapters.md) — the observation plane hooks feed
-  automatically: what it proves that self-reported entries can't, installing the
-  Claude Code and Codex adapters, verifying arrival with `coverage`, what still has to
-  be hand-anchored, and the honest, unequal status of each adapter.
+  automatically: what it proves that self-reported entries can't, obtaining and
+  installing the Claude Code and Codex adapters (they ship in the repository, not with
+  this skill), verifying arrival with `coverage`, the capture → find → cite loop for
+  anchoring an entry to an observation, what still has to be hand-anchored, and the
+  honest, unequal status of each adapter.
