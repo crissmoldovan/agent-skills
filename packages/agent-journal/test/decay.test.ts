@@ -412,3 +412,28 @@ test('a dangling environment ref is failing even when no current environment is 
   assert.match(f.detail, /not present/i);
   assert.doesNotMatch(f.detail, /no current environment/i);
 });
+
+// The last known-uncovered branch on this plan. Both paths already report
+// `failing`, so no status is at stake; what was untested is which DETAIL a
+// reader gets.
+//
+// The two cases are genuinely different and the code is right to separate them.
+// An influence with NO ref never named a source, so "no ref to check" is the
+// whole story. An influence whose ref is blank DID name something — and the CLI
+// refuses to write one (`--influence journal:decisive:"   "` exits 2), so a
+// blank ref can only have come from a foreign writer, where reporting the
+// nothing it actually named is the honest answer.
+test('a refless influence and a blank-ref influence fail for different, accurate reasons', () => {
+  const e = entry('c1', [
+    { type: 'journal', role: 'decisive' },
+    { type: 'tool_result', role: 'supporting', ref: '  ' },
+  ]);
+  const byType = Object.fromEntries(computeDecay([e]).findings.map((f) => [f.type, f]));
+  assert.equal(byType.journal!.status, 'failing');
+  assert.match(byType.journal!.detail, /no ref/i);
+
+  assert.equal(byType.tool_result!.status, 'failing');
+  assert.match(byType.tool_result!.detail, /not present/i);
+  assert.doesNotMatch(byType.tool_result!.detail, /no ref/i,
+    'a blank ref is not the same as no ref — the writer named something');
+});
