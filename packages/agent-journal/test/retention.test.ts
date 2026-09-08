@@ -13,6 +13,8 @@ function make(id: string, kind: string, time: string, data: Record<string, unkno
 
 const OLD = '2026-01-01T00:00:00.000Z';
 const NOW = '2026-09-07T00:00:00.000Z';
+/** Inside a 30-day window from NOW, where OLD is far outside it. */
+const RECENT = '2026-09-01T00:00:00.000Z';
 const THIRTY_DAYS = 30 * 86400000;
 // OLD is ~249 days before NOW. LONG_TTL comfortably outlives that gap, so
 // fixtures that use it for entryTtlMs are asserting something about
@@ -287,4 +289,36 @@ test('suppression comes from the journal, not from a caller-supplied list', () =
     'a caller-supplied tombstoned list must be ignored — suppression comes only from tombstone EVENTS');
   assert.ok(r.keep.some((e) => e.id === 'o1'),
     'an id named only in the (removed) tombstoned option, with no tombstone event, must survive');
+});
+
+// 6.3 pins an observation cited by an entry "that has not been invalidated" —
+// written when entries never expired. Now they do, and the omission mattered:
+// observations outweigh entries by roughly 100x (6.3's own figure), so an
+// expired entry that kept pinning its anchors would free about a hundredth of
+// what expiring it implies, and those observations would outlive every decision
+// that justified them. An entry nobody can read protects nothing.
+test('an entry outside its own TTL stops pinning what it cited', () => {
+  const r = applyRetention([
+    make('o1', 'tool_call', OLD),
+    make('e1', 'decision', OLD, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
+  ], { now: NOW, observationTtlMs: THIRTY_DAYS, entryTtlMs: THIRTY_DAYS });
+
+  assert.deepEqual(r.pinned, [], 'an expired entry still pinned its evidence');
+  assert.deepEqual(r.expired.sort(), ['e1', 'o1'],
+    'the observation outlived the only entry that justified keeping it');
+  assert.deepEqual(r.keep, []);
+});
+
+// The other side of the same rule: a LIVE entry still pins an observation that
+// is itself long past the observation window. That is the whole point of 6.3,
+// and the fix above must not have broken it.
+test('an entry inside its TTL still pins an observation past its own window', () => {
+  const r = applyRetention([
+    make('o1', 'tool_call', OLD),
+    make('e1', 'decision', RECENT, { anchors: [{ type: 'tool_use', ref: 'o1' }] }),
+  ], { now: NOW, observationTtlMs: THIRTY_DAYS, entryTtlMs: THIRTY_DAYS });
+
+  assert.deepEqual(r.pinned, ['o1']);
+  assert.deepEqual(r.expired, []);
+  assert.equal(r.keep.length, 2);
 });

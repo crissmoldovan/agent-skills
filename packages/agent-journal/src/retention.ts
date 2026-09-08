@@ -109,17 +109,21 @@ export function applyRetention(
 
   const { invalidated } = project(events);
 
-  // Only a live, non-tombstoned entry pins. An invalidated entry's citations
-  // stop protecting anything, and a tombstoned one is not in the projection at
-  // all — leaving it able to pin would protect an observation with nothing alive
-  // left to justify it. Deliberately NOT gated on entryCutoff here: whether the
-  // citing entry itself is inside or outside its own TTL window is a separate
-  // question from whether it is live and unretracted, and the brief's three
-  // rules say nothing about entry age revoking a pin — only invalidation and
-  // tombstoning do.
+  // Only an entry that SURVIVES this pass pins. Three ways to stop surviving,
+  // and all three revoke the pin for the same reason: 6.3's pin exists so
+  // evidence outlives its window for a decision somebody might still read, and
+  // none of these can be read any more.
+  //
+  // The third — the citing entry falling outside its own TTL — was not in 6.3,
+  // which was written when entries never expired. Now they do, and leaving it
+  // out made entry retention nearly pointless: observations outweigh entries by
+  // roughly 100x (6.3's own figure), so an expired entry that still pinned its
+  // anchors would free about a hundredth of what expiring it implies, and the
+  // pinned observations would outlive every decision that justified them.
   const pinnedIds = new Set<string>();
   for (const e of events) {
     if (!isEntry(e) || invalidated.has(e.id) || tombstoned.has(e.id)) continue;
+    if (Date.parse(e.time) < entryCutoff) continue;
     for (const ref of anchorRefs(e)) pinnedIds.add(ref);
   }
 
