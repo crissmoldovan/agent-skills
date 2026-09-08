@@ -1,5 +1,6 @@
-import { readFile, lstat, realpath, readlink } from 'node:fs/promises';
-import { dirname, basename, isAbsolute, join, resolve, sep } from 'node:path';
+import { readFile, lstat } from 'node:fs/promises';
+import { isAbsolute, join, sep } from 'node:path';
+import { canonicalize } from './paths.ts';
 
 /**
  * The ref convention this module defines: a bare `path/to/file.ts` checks
@@ -9,66 +10,7 @@ import { dirname, basename, isAbsolute, join, resolve, sep } from 'node:path';
  * name and changed meaning. Nothing here claims otherwise.
  */
 
-/**
- * Resolve the PARENT directory chain of `dirPath` as canonically as the
- * filesystem allows: walk up to the longest existing ancestor, `realpath()`
- * that, and lexically rejoin whatever does not exist yet. Mirrors `cli.ts`'s
- * `realParentDir` -- this module needs the same symlink-proof containment
- * check `digest --out` needed, for the same reason: a ref an entry cites can
- * point anywhere by a typo or a foreign writer's hand, and resolving it
- * before vetting it would let a journal read anywhere on the machine.
- */
-async function realParentDir(dirPath: string): Promise<string> {
-  let current = resolve(dirPath);
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = await realpath(current);
-      return tail.length === 0 ? real : join(real, ...tail);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      const parent = dirname(current);
-      if (parent === current) return join(current, ...tail); // reached the fs root
-      tail.unshift(basename(current));
-      current = parent;
-    }
-  }
-}
 
-/**
- * Resolve `p` as canonically as the filesystem allows -- including a live or
- * dangling symlink at the FINAL path component, followed to wherever it
- * actually points (recursively, since the target may itself be another
- * symlink or a not-yet-existing path) rather than treated as "doesn't exist
- * yet". Mirrors `cli.ts`'s `canonicalize`. A containment check run against
- * anything less than this (a lexical join, or `realpath` on an intermediate
- * segment alone) can be defeated by a symlink sitting at exactly this
- * position.
- */
-async function canonicalize(p: string, depth = 0): Promise<string> {
-  if (depth > 40) {
-    // A real filesystem refuses a symlink chain this long with ELOOP; this
-    // mirrors that instead of recursing forever around a symlink cycle.
-    throw Object.assign(new Error(`too many levels of symbolic links: ${p}`), { code: 'ELOOP' });
-  }
-  const abs = resolve(p);
-  const parentReal = await realParentDir(dirname(abs));
-  const candidate = join(parentReal, basename(abs));
-
-  let stat;
-  try {
-    stat = await lstat(candidate);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    return candidate; // genuinely does not exist at all, at any level
-  }
-
-  if (!stat.isSymbolicLink()) return candidate;
-
-  const target = await readlink(candidate);
-  const resolvedTarget = isAbsolute(target) ? target : join(dirname(candidate), target);
-  return canonicalize(resolvedTarget, depth + 1);
-}
 
 /**
  * `undefined` covers "does not exist", "is not a file" (a directory, a

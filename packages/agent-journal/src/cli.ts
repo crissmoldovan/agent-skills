@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { readdir, readFile, mkdir, writeFile, realpath, lstat, readlink } from 'node:fs/promises';
-import { join, dirname, resolve, basename, sep, isAbsolute, relative } from 'node:path';
+import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { join, dirname, sep, relative } from 'node:path';
 import { capabilitiesWithAnchors, normalizeCapabilities, normalizeEvent, type JournalEvent } from './envelope.ts';
 import {
   parseAnchor, parseInfluence, fieldsFor, normalizeEntryData, KIND_FIELDS, ENUM_FIELDS, LIST_FIELDS,
@@ -20,6 +20,7 @@ import { liveConstraints, constraintsBearingOn } from './constraints.ts';
 import { liveClaims } from './claims.ts';
 import { renderDigest } from './digest.ts';
 import { traceFrom } from './trace.ts';
+import { canonicalize } from './paths.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -232,89 +233,7 @@ function journalFor(root: string, workspace: string, session: string, agent: str
   return new SegmentJournal({ root, workspace, machine: hostname(), session, agent, epoch: 'e1' });
 }
 
-/**
- * Resolve the PARENT directory chain of `p` as canonically as the filesystem
- * allows: walk up to the longest existing ancestor, `realpath()` that, and
- * lexically rejoin whatever does not exist yet. Deliberately never inspects
- * the final path component itself — that needs different treatment (see
- * `canonicalize`), because a symlink AT that position must be followed to
- * where it points, not treated as "this segment doesn't exist yet".
- */
-async function realParentDir(dirPath: string): Promise<string> {
-  let current = resolve(dirPath);
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = await realpath(current);
-      return tail.length === 0 ? real : join(real, ...tail);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      const parent = dirname(current);
-      if (parent === current) return join(current, ...tail); // reached the fs root; nothing more to resolve
-      tail.unshift(basename(current));
-      current = parent;
-    }
-  }
-}
 
-/**
- * Resolve `p` as canonically as the filesystem allows, so a comparison against
- * it cannot be defeated by a relative path, a `..` traversal, or a symlink
- * anywhere in the chain — including the FINAL component being a symlink whose
- * target does not exist yet.
- *
- * `fs.realpath()` alone throws ENOENT the instant any segment does not exist
- * — including a dangling symlink's TARGET, which is exactly what `--out`
- * pointed through such a symlink looks like from realpath's point of view.
- * The previous version of this function treated every ENOENT the same way —
- * walk up, lexically rejoin the basename — which for a dangling final-
- * component symlink reconstructs the SYMLINK'S OWN location, never where it
- * points. `writeFile` then follows the link anyway, so a dangling symlink
- * into the segment tree canonicalized to somewhere harmless while the actual
- * write landed inside the tree it was supposed to be caught by.
- *
- * The fix resolves the parent directory chain (which legitimately may not
- * fully exist yet — `--out` to a fresh nested path always looks like that)
- * separately from the final component. For the final component, `lstat` —
- * never `realpath` — decides what it is: nonexistent (the ordinary "fresh
- * output path" case, returned as-is), an existing non-symlink (already
- * canonical, since its parent is), or a symlink, dangling or not, which is
- * followed to wherever it actually points — recursively, since the target
- * can itself be another symlink or another not-yet-existing nested path —
- * rather than back to the link's own location.
- */
-async function canonicalize(p: string, depth = 0): Promise<string> {
-  if (depth > 40) {
-    // A real filesystem refuses a symlink chain this long with ELOOP; this
-    // mirrors that instead of recursing forever around a symlink cycle.
-    throw Object.assign(new Error(`too many levels of symbolic links: ${p}`), { code: 'ELOOP' });
-  }
-  const abs = resolve(p);
-  const parentReal = await realParentDir(dirname(abs));
-  const candidate = join(parentReal, basename(abs));
-
-  let stat;
-  try {
-    stat = await lstat(candidate);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    // Genuinely does not exist at all, at any level — nothing more to resolve.
-    return candidate;
-  }
-
-  if (!stat.isSymbolicLink()) {
-    // Exists, and is not itself a link: the parent is already canonical and
-    // this component adds nothing symlinked on top of it.
-    return candidate;
-  }
-
-  // A symlink, dangling or not — follow it to wherever it actually points,
-  // then canonicalize THAT (it may not exist yet either, or may itself be
-  // another symlink), rather than falling back to the link's own location.
-  const target = await readlink(candidate);
-  const resolvedTarget = isAbsolute(target) ? target : join(dirname(candidate), target);
-  return canonicalize(resolvedTarget, depth + 1);
-}
 
 interface ReadResult {
   readonly events: JournalEvent[];
