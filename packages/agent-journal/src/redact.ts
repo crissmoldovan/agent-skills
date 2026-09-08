@@ -34,15 +34,35 @@ const PATTERNS: readonly { name: string; re: RegExp; keepPrefix?: true }[] = [
   { name: 'jwt', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   { name: 'private-key-block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
   { name: 'bearer', re: /Bearer\s+[A-Za-z0-9._-]{16,}/gi },
-  // Every pattern above matches a secret by its own SHAPE. This one matches by
-  // the name it is assigned to, because the observation plane changed what
+  // Every pattern above matches a secret by its own SHAPE. These two match by
+  // the NAME it is assigned to, because the observation plane changed what
   // reaches this function: previously only agent prose, now every Bash command
   // line and tool response, verbatim. A secret with no distinctive prefix --
   // `aws_secret_access_key=wJalrXUt...` -- has no shape to catch, and went to
-  // disk byte-for-byte. Deliberately narrow: it requires a secret-ish NAME, an
-  // `=` or `:`, and 8+ non-space characters, so an ordinary `--flag=value` or
-  // `key=1` is untouched.
-  { name: 'assigned-secret', re: /((?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth)[A-Za-z0-9_-]*\s*[:=]\s*)(?:"|')?[^\s"';,]{8,}/gi, keepPrefix: true },
+  // disk byte-for-byte.
+  //
+  // Two patterns rather than one, because the separator decides how much
+  // ambiguity is safe. With an explicit `=` or `:`, ANY secret-ish name is
+  // enough. With only whitespace, it is not -- `token required-immediately` is
+  // ordinary prose -- so that form additionally demands a leading `-`/`--`,
+  // making it a command-line flag rather than a sentence.
+  //
+  // The value alternation carries quoted forms FIRST so that a quoted secret
+  // containing spaces (`password="my secret pw"`) is taken whole; the bare form
+  // would otherwise stop at the first space and leave most of it on disk.
+  { name: 'assigned-secret', re: /((?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth)[A-Za-z0-9_-]*["']?\s*[:=]\s*)(?:"[^"\n]{8,}"|'[^'\n]{8,}'|[^\s"';,]{8,})/gi, keepPrefix: true },
+  // The third form: a bare keyword and whitespace, no `=` and no leading dash --
+  // `aws configure set aws_secret_access_key wJalrXUt...`. Whitespace alone
+  // cannot separate a secret from a sentence, so this one gates on the VALUE
+  // instead: an unbroken 16+ character run containing at least one digit. That
+  // is what a generated credential looks like and what prose does not --
+  // `token required-immediately` has no digit and is left alone.
+  //
+  // Note NOT case: an earlier draft also demanded an upper-case letter, which
+  // the /i flag silently made a no-op, so the comment described a gate that was
+  // not running. Length-and-digit is what is actually enforced.
+  { name: 'adjacent-secret', re: /((?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key)[A-Za-z0-9_-]*\s+)(?=[^\s"';,]{16,}(?:\s|$))(?=[^\s"';,]*[0-9])[^\s"';,]+/gi, keepPrefix: true },
+  { name: 'flag-secret', re: /(--?[A-Za-z0-9-]*(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth)[A-Za-z0-9_-]*\s+)(?:"[^"\n]{8,}"|'[^'\n]{8,}'|[^\s"';,-][^\s"';,]{7,})/gi, keepPrefix: true },
 
   { name: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
   { name: 'home-path', re: /\/(?:Users|home)\/[^/\s"']+/g },

@@ -433,6 +433,21 @@ test('an entry of an unrecognised kind is counted in Coverage, not silently drop
     'the entry was dropped without a word in the honesty control');
 });
 
+// The count must NOT be filtered by disclosure. It reports what the digest is
+// not showing you, and an entry hidden for being `private` is the case where a
+// reader most needs to know something is there. Filtering it would make the
+// count agree with the display list and report nothing the display list does
+// not already say.
+test('an unrecognised kind is counted even when disclosure hides it', () => {
+  const out = render([
+    ev('kept', { question: 'the known one', chosen: 'x' }),
+    evKind('odd', 'hypothesis', {}, 'private'),
+  ], 'published');
+  assert.ok(!out.includes('odd'), 'a private entry leaked into a published digest');
+  assert.match(out, /- entries of an unrecognised kind, kept but not displayed: 1$/m,
+    'a private unrecognised entry went unmentioned in the published digest');
+});
+
 // An observation is NOT an unrecognised kind -- it is a recognised one that
 // belongs to the other plane. Counting it here would make the line useless the
 // moment a hook is installed.
