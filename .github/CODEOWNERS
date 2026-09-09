@@ -1,7 +1,7 @@
-# Replace @cueplusplus/maintainers with the repository's actual maintainer team.
-* @cueplusplus/maintainers
+# Cristian Moldovan is the repository maintainer and release owner.
+* @crissmoldovan
 
-/docs/ @cueplusplus/maintainers
-/.github/ @cueplusplus/maintainers
-/scripts/ @cueplusplus/maintainers
-/skills/ @cueplusplus/maintainers
+/docs/ @crissmoldovan
+/.github/ @crissmoldovan
+/scripts/ @crissmoldovan
+/skills/ @crissmoldovan

@@ -273,8 +273,9 @@ a load-time helper for routing plus lifecycle. It does not install skills.
 npm run verify
 ```
 
-The command runs catalogue tests, skill validation, the lifecycle runtime suite,
-workspace-governance suite, TypeScript builds, and isolated package-consumer verification.
+The command runs catalogue and digest tests, skill validation, the lifecycle and
+journal runtime suites, the workspace-governance suite, TypeScript builds, and
+isolated package-consumer verification.
 
 ## License
 

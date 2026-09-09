@@ -27,7 +27,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/*.test.ts",
+    "test": "node scripts/test.mjs",
     "check:types": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "verify:package": "node scripts/verify-package.mjs",

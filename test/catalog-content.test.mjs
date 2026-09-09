@@ -6,6 +6,10 @@ const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 const readme = await read('README.md');
+const releases = await read('docs/releases.md');
+const codeowners = await read('.github/CODEOWNERS');
+const rootPackage = JSON.parse(await read('package.json'));
+const rootLock = JSON.parse(await read('package-lock.json'));
 const routing = await read('skills/model-routing/SKILL.md');
 const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
 const blocks = await read('skills/blocks/SKILL.md');
@@ -49,6 +53,20 @@ test('package README lists every discovered skill with description and detail li
     assert.match(readme, new RegExp(`skills/${entry.name}/SKILL\\.md`));
     assert.ok(readme.includes(description), `${entry.name} README description differs from frontmatter`);
   }
+});
+
+test('v0.11.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.11.0');
+  assert.equal(rootLock.version, '0.11.0');
+  assert.equal(rootLock.packages[''].version, '0.11.0');
+
+  const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
+  const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  assert.equal(skillNames.length, 21);
+  for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
+
+  assert.match(codeowners, /@crissmoldovan/);
+  assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
 });
 
 test('README carries the pack header and public-author footer, and no CUE++ branding', () => {
