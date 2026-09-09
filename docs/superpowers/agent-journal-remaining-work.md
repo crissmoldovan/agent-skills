@@ -23,7 +23,27 @@ for the mechanics — what a tombstone costs, why `compact` defaults to a dry ru
 refuses on a damaged journal, and the pinning interaction between an entry's own TTL
 and what it anchors.
 
-## 1. The `runtime` anchor class has no producer
+## 1. A tombstone's `purged` flag can be permanently, wrongly `false`
+
+**§13.2, and a consequence of the `compact` skip path rather than of the spec.**
+
+If a target's segment is purged but the segment holding its *tombstone* is skipped
+(a session was appending to it), the bytes are gone while the tombstone reads
+`purged: false` — and no later run corrects it, because the target has left the
+journal so nothing plans a purge for it. Verified by running: the flag persists
+through repeated runs while the content is erased.
+
+The error is in the safe direction and suppression is unaffected, so this is not
+urgent. It is recorded because the obvious fix is wrong: a later run sees only that
+the target is absent, and absent has two causes it cannot distinguish — purged here,
+or never present on this replica. Flipping on absence alone would claim an erasure
+that may never have happened.
+
+Closing it properly needs a record of the purge itself — a receipt a later run could
+read — which is a design question, not a patch. Documented as permanent in
+`references/retention-and-deletion.md` in the meantime.
+
+## 2. The `runtime` anchor class has no producer
 
 **§16's v1 set names it beside `environment`.**
 
@@ -35,7 +55,7 @@ carve-out — it reads as something that should be captured.
 
 Decide which it is, and either capture it or say in the spec that it is a schema.
 
-## 2. §11's authoring floors are not wired
+## 3. §11's authoring floors are not wired
 
 **§11.1–11.3.**
 
@@ -55,7 +75,7 @@ journal records what an agent felt like recording.
 
 `SKILL.md` mentions compaction once. That is the extent of it.
 
-## 3. Digest cadence — the open question with teeth
+## 4. Digest cadence — the open question with teeth
 
 **§17.4.**
 
