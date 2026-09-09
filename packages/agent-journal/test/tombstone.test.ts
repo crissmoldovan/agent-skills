@@ -89,3 +89,25 @@ test('nothing removed means nothing marked purged', () => {
   const planned = tombstonesIn([stone('t1', 'a'), stone('t2', 'b')]);
   assert.deepEqual(tombstonesActuallyPurged(planned, new Set()), []);
 });
+
+// A removal is not enough on its own. Ids are unique per workspace in practice
+// — `record` refuses a duplicate — but `mergeEvents` dedupes defensively
+// because copies do happen: replicas, restores, a concurrent write. If one
+// segment holding the target is rewritten and another is skipped, the id lands
+// in `removedIds` while its bytes are still on disk, and the flag would say
+// erased about a credential that is still there.
+test('a target surviving in a skipped segment blocks the flip, even though a copy was removed', () => {
+  const planned = tombstonesIn([stone('t1', 'two-copies')]);
+  const got = tombstonesActuallyPurged(
+    planned,
+    new Set(['two-copies']),   // one copy really was deleted
+    new Set(['two-copies']),   // another copy sat in a segment that was skipped
+  );
+  assert.deepEqual(got, [], 'purged was cleared while a copy of the target remained');
+});
+
+test('with nothing surviving, a removed target still flips', () => {
+  const planned = tombstonesIn([stone('t1', 'gone')]);
+  const got = tombstonesActuallyPurged(planned, new Set(['gone']), new Set());
+  assert.deepEqual(got.map((t) => t.id), ['t1']);
+});

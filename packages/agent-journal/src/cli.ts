@@ -368,13 +368,24 @@ async function purgeOneSegment(
   full: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
-): Promise<{ outcome: 'unchanged' | 'rewritten' | 'skipped'; removed: string[] }> {
+): Promise<{
+  outcome: 'unchanged' | 'rewritten' | 'skipped';
+  /** Ids whose bytes this call actually deleted. */
+  removed: string[];
+  /** Ids this file HELD and was asked to act on, but did not, because it was
+   *  skipped. Reporting these is what stops `purged` running ahead of the bytes
+   *  when the same id lives in two segments and only one is rewritten. */
+  unapplied: string[];
+}> {
+  let lastSeen: string[] = [];
   for (let attempt = 0; attempt < MAX_PURGE_ATTEMPTS; attempt += 1) {
     const before = await stat(full);
     const text = await readFile(full, 'utf8');
 
     let changed = false;
     const removed: string[] = [];
+    const seen: string[] = [];
+    lastSeen = seen;
     const lines: string[] = [];
     for (const raw of text.split('\n')) {
       if (!raw.trim()) continue;
@@ -388,16 +399,17 @@ async function purgeOneSegment(
         continue;
       }
       const id = typeof parsed.id === 'string' ? parsed.id : undefined;
-      if (id !== undefined && purgeIds.has(id)) { changed = true; removed.push(id); continue; }
+      if (id !== undefined && purgeIds.has(id)) { changed = true; removed.push(id); seen.push(id); continue; }
       if (id !== undefined && parsed.kind === TOMBSTONE_KIND && flipTombstoneIds.has(id)) {
         const data = (parsed.data ?? {}) as Record<string, unknown>;
         lines.push(JSON.stringify({ ...parsed, data: { ...data, purged: true } }));
         changed = true;
+        seen.push(id);
         continue;
       }
       lines.push(raw); // original bytes, unknown fields and all
     }
-    if (!changed) return { outcome: 'unchanged', removed: [] };
+    if (!changed) return { outcome: 'unchanged', removed: [], unapplied: [] };
 
     const after = await stat(full);
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) continue;
@@ -416,9 +428,11 @@ async function purgeOneSegment(
     } finally {
       if (!renamed) await rm(tmp, { force: true });
     }
-    return { outcome: 'rewritten', removed };
+    return { outcome: 'rewritten', removed, unapplied: [] };
   }
-  return { outcome: 'skipped', removed: [] };
+  // Skipped: report what this file HELD, so a caller cannot conclude an id was
+  // dealt with because some other segment happened to hold a copy of it.
+  return { outcome: 'skipped', removed: [], unapplied: lastSeen };
 }
 
 /**
@@ -447,9 +461,10 @@ async function purgeSegments(
   workspace: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
-): Promise<{ skipped: string[]; removed: Set<string> }> {
+): Promise<{ skipped: string[]; removed: Set<string>; unapplied: Set<string> }> {
   const skipped: string[] = [];
   const removed = new Set<string>();
+  const unapplied = new Set<string>();
   const base = join(root, 'workspaces', workspace, 'segments');
 
   async function walk(dir: string): Promise<void> {
@@ -468,11 +483,12 @@ async function purgeSegments(
       const r = await purgeOneSegment(full, purgeIds, flipTombstoneIds);
       if (r.outcome === 'skipped') skipped.push(full);
       for (const id of r.removed) removed.add(id);
+      for (const id of r.unapplied) unapplied.add(id);
     }
   }
 
   await walk(base);
-  return { skipped, removed };
+  return { skipped, removed, unapplied };
 }
 
 export async function runCli(
@@ -1487,14 +1503,24 @@ async function dispatch(
       // and is flipped by the next run, which is the truthful answer.
       const purgePass = await purgeSegments(root, workspace, purgeIds, new Set());
       const skippedPaths = purgePass.skipped;
-      const actuallyFlipped = tombstonesActuallyPurged(tombstonesToFlip, purgePass.removed);
+      const actuallyFlipped = tombstonesActuallyPurged(
+        tombstonesToFlip, purgePass.removed, purgePass.unapplied,
+      );
+      // Phase two flips. What it was ASKED to flip is not what it DID: its own
+      // segments can be skipped too, and reporting the request as the result
+      // was the same lie one level up — the report claimed a flip that never
+      // happened, while the bytes were already gone.
+      let flipped = actuallyFlipped;
       if (actuallyFlipped.length > 0) {
         const flipPass = await purgeSegments(
           root, workspace, new Set(), new Set(actuallyFlipped.map((t) => t.id)),
         );
         skippedPaths.push(...flipPass.skipped);
+        if (flipPass.unapplied.size > 0) {
+          flipped = actuallyFlipped.filter((t) => !flipPass.unapplied.has(t.id));
+        }
       }
-      const truthfulReport = { ...report, tombstonesMarkedPurged: actuallyFlipped.map((t) => t.id) };
+      const truthfulReport = { ...report, tombstonesMarkedPurged: flipped.map((t) => t.id) };
       if (skippedPaths.length > 0) {
         // Not a failure: nothing was lost, the purge simply did not happen for
         // these files because a session kept appending to them. Saying so is

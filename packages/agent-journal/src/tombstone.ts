@@ -107,10 +107,18 @@ export function suppressedIds(events: readonly JournalEvent[]): ReadonlySet<stri
  *
  * `purged` is the field somebody reads to answer "was it actually erased?", so
  * it must never run ahead of the bytes.
+ *
+ * `survivingIds` is why a removal is not enough on its own. Ids are unique per
+ * workspace in practice — `record` refuses a duplicate — but `mergeEvents`
+ * dedupes defensively because copies DO happen: replicas, restores, a concurrent
+ * write. If one segment holding the target is rewritten and another is skipped,
+ * the id is in `removedIds` while its bytes are still on disk. Anything a
+ * skipped segment held blocks the flip, and the next run settles it.
  */
 export function tombstonesActuallyPurged(
   planned: readonly Tombstone[],
   removedIds: ReadonlySet<string>,
+  survivingIds: ReadonlySet<string> = new Set(),
 ): Tombstone[] {
-  return planned.filter((t) => removedIds.has(t.target));
+  return planned.filter((t) => removedIds.has(t.target) && !survivingIds.has(t.target));
 }
