@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir, hostname } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { runCli } from '../src/cli.ts';
 import { normalizeEvent, type JournalEvent } from '../src/envelope.ts';
 import { project } from '../src/retract.ts';
@@ -2779,4 +2779,82 @@ test('a tombstone marks purged only when bytes were really removed', async () =>
   assert.equal(flipped.data.purged, true, 'a genuine purge did not flip the flag');
   assert.notEqual(unflipped.data.purged, true,
     'a tombstone claimed purged for content it never removed');
+});
+
+// The two-phase wiring in `compact`, tested at the call site rather than only
+// through its pure helper. Rewiring it back to one pass left all 474 tests
+// green while `purged: true` was written for bytes still on disk — the pure
+// function was guarded, the call site was not.
+//
+// AGENT_JOURNAL_FORCE_SKIP is a test-only seam: the skip path exists for a race
+// (a session appending during compaction), and a race cannot be staged.
+test('a target left in a skipped segment does not get its tombstone marked purged', async () => {
+  const dir = await root();
+  // Target in session s2's segment, tombstone in s1's, so they are separate files.
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}s2${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.skipped.length, 1, `expected exactly the s2 segment skipped: ${r.stdout}`);
+  assert.deepEqual(out.tombstonesMarkedPurged, [],
+    'a tombstone was reported purged while its target sat in a skipped segment');
+
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(after.some((e) => e.id === 'leaky'), 'the skipped target should still be present');
+  const tomb = after.find((e) => e.kind === 'tombstone')!;
+  assert.notEqual(tomb.data.purged, true, 'purged ran ahead of the bytes');
+});
+
+// The other half: with nothing skipped the same journal purges and flips, so
+// the test above is not passing merely because compact did nothing.
+test('...and the same journal completes once nothing is skipped', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).tombstonesMarkedPurged.length, 1);
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(!after.some((e) => e.id === 'leaky'));
+  assert.equal(after.find((e) => e.kind === 'tombstone')!.data.purged, true);
+});
+
+// The mirror case, and the one that made the report lie in the other
+// direction: the TARGET's segment is fine and gets purged, but the segment
+// holding its TOMBSTONE is skipped, so the flip never lands. The report
+// previously named that tombstone as flipped anyway — claiming a flip that
+// never happened, for content that really was gone.
+test('a flip that could not be written is not reported as written', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  // Skip the TOMBSTONE's segment, leaving the target's segment purgeable. A
+  // tombstone carries no session — §13.2 makes it a human governance act, so
+  // `tombstone` writes session `-` like `invalidate` — which is what puts it in
+  // its own segment directory and makes this case stageable at all.
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}-${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual(out.tombstonesMarkedPurged, [],
+    'a flip the run could not write was reported as written');
+
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(!after.some((e) => e.id === 'leaky'), 'the target should have been purged');
+  const tomb = after.find((e) => e.kind === 'tombstone')!;
+  assert.notEqual(tomb.data.purged, true, 'the flag was set in a segment that was skipped');
 });

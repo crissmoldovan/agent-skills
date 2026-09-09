@@ -368,6 +368,7 @@ async function purgeOneSegment(
   full: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
+  forceSkip: string | undefined,
 ): Promise<{
   outcome: 'unchanged' | 'rewritten' | 'skipped';
   /** Ids whose bytes this call actually deleted. */
@@ -379,6 +380,23 @@ async function purgeOneSegment(
 }> {
   let lastSeen: string[] = [];
   for (let attempt = 0; attempt < MAX_PURGE_ATTEMPTS; attempt += 1) {
+    // Test-only seam. The skip path exists for a race — a session appending
+    // while compaction runs — and a race cannot be staged deterministically, so
+    // without this the two-phase wiring in the `compact` branch has no test at
+    // all: rewiring it back to a single pass left the whole suite green while
+    // `purged: true` was written for bytes still on disk. Three separate
+    // defects have come out of this call site; an env var nothing in normal
+    // operation sets is a cheap price for being able to test it.
+    if (forceSkip && full.includes(forceSkip)) {
+      const { events: held } = parseSegment(await readFile(full, 'utf8'));
+      return {
+        outcome: 'skipped',
+        removed: [],
+        unapplied: held
+          .filter((e) => purgeIds.has(e.id) || flipTombstoneIds.has(e.id))
+          .map((e) => e.id),
+      };
+    }
     const before = await stat(full);
     const text = await readFile(full, 'utf8');
 
@@ -461,6 +479,7 @@ async function purgeSegments(
   workspace: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
+  forceSkip: string | undefined,
 ): Promise<{ skipped: string[]; removed: Set<string>; unapplied: Set<string> }> {
   const skipped: string[] = [];
   const removed = new Set<string>();
@@ -480,7 +499,7 @@ async function purgeSegments(
       if (e.isDirectory()) { await walk(full); continue; }
       if (!e.name.endsWith('.jsonl')) continue;
 
-      const r = await purgeOneSegment(full, purgeIds, flipTombstoneIds);
+      const r = await purgeOneSegment(full, purgeIds, flipTombstoneIds, forceSkip);
       if (r.outcome === 'skipped') skipped.push(full);
       for (const id of r.removed) removed.add(id);
       for (const id of r.unapplied) unapplied.add(id);
@@ -1501,7 +1520,8 @@ async function dispatch(
       // Phase 1 removes and reports what it really removed. Phase 2 flips only
       // those. A tombstone whose target survived a skip keeps `purged: false`
       // and is flipped by the next run, which is the truthful answer.
-      const purgePass = await purgeSegments(root, workspace, purgeIds, new Set());
+      const forceSkip = env.AGENT_JOURNAL_FORCE_SKIP;
+      const purgePass = await purgeSegments(root, workspace, purgeIds, new Set(), forceSkip);
       const skippedPaths = purgePass.skipped;
       const actuallyFlipped = tombstonesActuallyPurged(
         tombstonesToFlip, purgePass.removed, purgePass.unapplied,
@@ -1513,7 +1533,7 @@ async function dispatch(
       let flipped = actuallyFlipped;
       if (actuallyFlipped.length > 0) {
         const flipPass = await purgeSegments(
-          root, workspace, new Set(), new Set(actuallyFlipped.map((t) => t.id)),
+          root, workspace, new Set(), new Set(actuallyFlipped.map((t) => t.id)), forceSkip,
         );
         skippedPaths.push(...flipPass.skipped);
         if (flipPass.unapplied.size > 0) {
