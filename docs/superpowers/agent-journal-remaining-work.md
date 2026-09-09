@@ -13,6 +13,15 @@ would close it.
 
 ## Closed since the last audit
 
+**Digest cadence (§17.4)** — decided 2026-09-09: **per pull request**, rendered
+locally and committed with the change. CI cannot render one — §6.2 keeps the journal
+outside the repo, so a runner has nothing to render from and a workflow calling
+`digest` would emit an empty document, which reads as "no decisions were made". CI
+validates the committed digest's shape instead (`scripts/verify-digests.mjs`, in
+`npm run verify`): not empty, not truncated, coverage block present and singular,
+nothing appended by hand. **It cannot check freshness and does not claim to** — a
+three-week-old digest passes. See `references/digest-and-disclosure.md`.
+
 **Tombstones (§13.2) and entry TTL (§13.2, same paragraph)** — both shipped: the
 `tombstone` event kind, `agent-journal tombstone <id> --reason …`, `tombstoned`
 derived from the journal itself via `suppressedIds`, purge-on-compaction through
@@ -114,17 +123,6 @@ Code 2.1.258, or something else — before anyone designs around it further. Ful
 verification, including the exact payloads and logs, is in
 `adapters/HOOK-OUTPUT-NOTES.md`'s 2026-09-09 addendum.
 
-## 4. Digest cadence — the open question with teeth
-
-**§17.4.**
-
-No CI job anywhere produces a digest. The spec's own note is that an undecided cadence
-means no digest reaches anyone, and §6.4 makes the committed digest the artefact a
-reviewer actually reads. Everything upstream of it works; nothing runs it on a
-schedule.
-
-Deciding this is cheap (per PR, per release, or on demand) and wiring it is small.
-
 ## Deferred, already documented, not gaps
 
 Named with reasons in `skills/decision-journal/references/decay.md` and `adapters.md`:
@@ -138,7 +136,7 @@ source, and a dropped hook leaves no trace because `sequenceGaps` cannot see one
 
 ## Open questions still unanswered
 
-§17's seven. Beyond cadence (above), the two that now bite hardest:
+§17's seven. Cadence (§17.4) is now decided — see "Closed since the last audit". The two that bite hardest of the rest:
 
 - **Retention windows (§17.2)** — still no numbers, on either axis. `compact
   --entry-ttl-days` and `--observation-ttl-days` both work now and are genuinely
