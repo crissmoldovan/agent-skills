@@ -56,11 +56,11 @@ interface MutationPattern {
  * to judge each row's precision are visible right here without reading the
  * matcher.
  *
- * A known, accepted gap: a command whose mutating verb also accepts its own
- * `--dry-run`-style flag (`kubectl set env ... --dry-run=client`,
- * `terraform apply` prompting for confirmation) still matches — this table
- * recognises the verb, not the tool's own preview convention, which differs
- * CLI to CLI and isn't parsed here.
+ * Two things this table deliberately does NOT handle itself, because they are
+ * cross-cutting and belong in the matcher: a preview flag turning a mutating
+ * verb into a no-op (`PREVIEW_FLAGS`), and a pattern appearing inside quoted
+ * text rather than as the command being run (`withoutQuotedText`). Both are
+ * applied to every row, so a new row inherits them without having to remember.
  */
 export const MUTATION_PATTERNS: readonly MutationPattern[] = [
   // Cloudflare Workers/Pages secrets.
@@ -114,9 +114,46 @@ export const MUTATION_PATTERNS: readonly MutationPattern[] = [
     detail: 'terraform apply/destroy changes provisioned infrastructure' },
 ];
 
+/**
+ * Flags that turn a mutating verb into a preview. A command carrying one of
+ * these changes nothing, so matching it is a pure false positive — and a floor
+ * that fires on `kubectl set env … --dry-run=client` is a floor somebody turns
+ * off, after which nothing is captured at all.
+ *
+ * This was inconsistent before: the same "the preview is a same-verb flag"
+ * reasoning was used to EXCLUDE `wrangler deploy` and `kubectl apply`, while
+ * `kubectl set env` was included and fired on its own dry run. The rule now
+ * applies to every pattern rather than to the ones somebody remembered.
+ */
+const PREVIEW_FLAGS = /(?:^|\s)(?:--dry-run(?:[=\s]\S+)?|--diff|--plan|--what-if|--no-execute)(?=\s|$)/i;
+
+/**
+ * Text that is being QUOTED rather than run. The matcher sees one flat string,
+ * so without this it cannot tell the command from its arguments — and fired on
+ * `grep -rn "gh variable set" .`, `git commit -m "wrangler secret put reminder"`,
+ * `echo "wrangler secret put X" >> notes.md`, and any heredoc whose body
+ * mentions a mutation while the actual command is `cat`.
+ *
+ * Stripping quoted spans and heredoc bodies before matching removes that whole
+ * class. It costs false NEGATIVES — `sh -c "wrangler secret put X"` no longer
+ * matches — and that is the right trade here: a missed prompt is a gap, a
+ * spurious one is an uninstalled adapter.
+ */
+function withoutQuotedText(input: string): string {
+  return input
+    // Heredoc bodies: <<EOF … EOF, <<'EOF' … EOF, <<-EOF … EOF.
+    .replace(/<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[\s\S]*?^\s*\2\s*$/gm, ' ')
+    // Any remaining heredoc with no closing delimiter in view.
+    .replace(/<<-?\s*(['"]?)[A-Za-z_][A-Za-z0-9_]*\1[\s\S]*/, ' ')
+    .replace(/'[^']*'/g, ' ')
+    .replace(/"[^"]*"/g, ' ');
+}
+
 function matchMutation(input: string): string | undefined {
+  if (PREVIEW_FLAGS.test(input)) return undefined;
+  const runnable = withoutQuotedText(input);
   for (const { pattern, detail } of MUTATION_PATTERNS) {
-    if (pattern.test(input)) return detail;
+    if (pattern.test(runnable)) return detail;
   }
   return undefined;
 }

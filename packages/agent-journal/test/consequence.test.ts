@@ -111,3 +111,60 @@ test('since narrows to what happened after a point, exclusive of it', () => {
 test('an observation with nothing to match on produces nothing, not a guess', () => {
   assert.deepEqual(consequencesIn([obs('o1', 'tool_call', { tool: 'Bash' })]), []);
 });
+
+// A preview flag turns a mutating verb into a no-op, so matching it is a pure
+// false positive. This was inconsistent before: the same "the preview is a
+// same-verb flag" reasoning was used to EXCLUDE `wrangler deploy` and
+// `kubectl apply`, while `kubectl set env` was included and fired on its own
+// dry run. The rule now applies to every pattern rather than to the ones
+// somebody remembered.
+test('a preview flag is not a mutation, whichever pattern would have matched', () => {
+  const previews = [
+    'kubectl set env deployment/api FEATURE_X=on --dry-run=client',
+    'kubectl set env deployment/api FEATURE_X=on --dry-run=server',
+    'kubectl delete secret my-secret --dry-run=client',
+    'aws ssm put-parameter --name /prod/flag --value on --dry-run',
+  ];
+  for (const input of previews) {
+    assert.deepEqual(consequencesIn([bash('o1', input)]).filter((c) => c.rule === 'mutation'), [],
+      `a dry run was reported as a mutation: ${input}`);
+  }
+});
+
+// The matcher sees one flat string, so without stripping quoted spans it cannot
+// tell the command from its arguments. Every one of these fired before: the
+// actual commands are grep, git, echo and cat.
+test('a mutation quoted inside another command is not a mutation', () => {
+  const quoted = [
+    'grep -rn "gh variable set" .',
+    "grep -r 'kubectl set env' docs/",
+    'git commit -m "wrangler secret put reminder"',
+    'echo "wrangler secret put X" >> notes.md',
+    'git log --grep "secret put"',
+    "cat <<'EOF' > notes.md\nwrangler secret put API_KEY\nEOF",
+  ];
+  for (const input of quoted) {
+    assert.deepEqual(consequencesIn([bash('o1', input)]).filter((c) => c.rule === 'mutation'), [],
+      `quoted text was read as a command: ${JSON.stringify(input)}`);
+  }
+});
+
+// ...and the stripping must not eat the real cases, which is the failure mode
+// the fix above could plausibly introduce.
+test('a real mutation with a quoted argument still matches', () => {
+  const real = [
+    'wrangler secret put "API_KEY"',
+    "gh variable set ENFORCE_AUTH --body 'true'",
+    'aws ssm put-parameter --name "/prod/flag" --value "on"',
+    // The pattern AFTER a quoted span, which is the only shape that can catch
+    // stripping that runs on past the closing quote. In every case above the
+    // pattern precedes the quote, so a greedy strip leaves them matching and
+    // they cannot detect it.
+    'cd "/my project" && wrangler secret put API_KEY',
+    "cd '/my project' && gh variable set ENFORCE_AUTH --body true",
+  ];
+  for (const input of real) {
+    assert.equal(consequencesIn([bash('o1', input)]).filter((c) => c.rule === 'mutation').length, 1,
+      `a real mutation was lost to quote-stripping: ${input}`);
+  }
+});
