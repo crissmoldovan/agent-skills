@@ -328,3 +328,104 @@ All probe directories (the scratchpad project, its hook scripts, and every
 session transcript directory `claude` created for it under
 `~/.claude/projects/...`) were deleted after this file was written.
 `git status --short` in this repo shows only this file.
+
+---
+
+## Addendum, dated 2026-09-09 (Task 3, Plan 7): PostToolUse and a failed Bash call
+
+Found while running Task 3's own required Step 5 end-to-end check (opt a
+throwaway project into the shipped Floor 2/Floor 1 adapter code, trigger a
+real mutation-shaped Bash call, confirm the agent receives the prompt) —
+same method as the rest of this file: a real `claude -p` headless run,
+`--setting-sources project`, `--dangerously-skip-permissions`, cwd in a
+scratchpad project, `~/.claude/settings.json` read but never written,
+Claude Code 2.1.258.
+
+**OBSERVED — `PostToolUse` does not fire for a `Bash` call whose underlying
+command exits non-zero, cleanly or otherwise.** Three separate commands were
+tried, each isolated in its own session so nothing upstream could mask the
+result, each confirmed by a debug wrapper that tees every hook's raw stdin
+to a per-invocation logfile before handing it to the real adapter script
+unmodified:
+
+- `wrangler secret put TEST_KEY placeholder_value123` (binary absent —
+  `command not found`, exit 127)
+- `npm config set e2e-floors-test-flag placeholder-value --location=project`
+  (a real, ran-to-completion npm error — `is not a valid npm option`, npm's
+  own nonzero exit)
+- `false` (the simplest possible clean nonzero exit, no stderr at all)
+
+In all three, the debug log shows exactly one hook invocation for the
+whole tool call: `PreToolUse`. No `PostToolUse` invocation of any kind
+appears in the log — not "fired but the adapter script produced no
+output," but never invoked at all. Confirmed by contrast: the identical
+setup, the identical debug wrapper, with `echo hello-from-floors-e2e`
+(exit 0) produces both `PreToolUse` and `PostToolUse` log entries every
+time, and a full end-to-end run with a command that both matches
+`MUTATION_PATTERNS` and genuinely succeeds (`npm config set
+init-author-name floors-e2e-probe --location=project`) produced a
+`PostToolUse` invocation whose stdout, captured directly from the logfile,
+is:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Plane A saw something here that nobody necessarily decided on purpose. ...\n\n- mutation: npm/pnpm config set changes registry configuration, including auth tokens (observation 6dc03ffd-71d8-4262-8aee-6eaf6de6995d — cite it as `--anchor runtime:6dc03ffd-71d8-4262-8aee-6eaf6de6995d`)\n\nIf this genuinely has a consequence, ..."}}
+```
+
+and the agent's own reply, in the same turn, quoted that text back
+verbatim unprompted (asked only to report any injected text, not fed the
+expected content).
+
+**Why this matters more than a footnote:** the whole point of Floor 2
+(§11.3's "config/flag/env-var/deploy mutations" trigger) is to catch a
+mutation nobody necessarily meant to flag as consequential. A mutation
+attempt that FAILS — wrong auth, wrong syntax, a typo'd flag, the tool not
+installed — is at least as worth a moment's thought as one that succeeds,
+and is arguably the MORE common real-world case for exactly the commands
+`MUTATION_PATTERNS` targets (`wrangler secret put`, `gh secret set`, `aws
+secretsmanager` and the rest — all commands that fail constantly on a
+misremembered flag or an expired token). If `PostToolUse` never fires for
+those, Floor 2 structurally cannot prompt about them, independent of
+anything `consequence.ts` or `floors.ts` gets right. This was not
+previously tested anywhere in this repo: `NOTES.md`'s own "important
+negative case" is specifically about a PERMISSION denial (`PreToolUse`
+fires, no matching `PostToolUse` — a different mechanism, the harness
+refusing the call before it runs), not a call that ran to completion and
+merely returned a nonzero exit.
+
+**Not bisected further** — out of scope for Task 3's own end-to-end check,
+which this addendum grew out of rather than a dedicated probe of its own.
+Not established here: whether this is `is_error`-driven (Claude Code
+treating any nonzero Bash exit as an error state that skips `PostToolUse`
+the same way a permission denial does), version-specific to 2.1.258, or
+something else. Worth a dedicated follow-up probe before anyone designs
+against it further.
+
+**OBSERVED — the `PreCompact` flush prompt reaches the model, but not as a
+distinct "act now, before compaction proceeds" turn.** Confirmed live here
+too, not merely re-asserted from the original probe above: the shipped
+adapter's exact `{"reason":..., "systemMessage":...}` output (Floor 1,
+verbatim, not a probe token this time) appears in the transcript as
+`PreCompact [...] completed successfully: {...}`, validating cleanly — same
+shape the original probe found. A same-session follow-up prompt
+("What special instructions, if any, did you receive around the
+compaction step? Quote any exact phrases verbatim, or say none") got the
+full flush/assumption-sweep text back verbatim, confirming it survived —
+consistent with the original finding above that these fields feed the
+compaction/summarisation step rather than a separate delivery channel.
+**The nuance the original probe's own token-based method did not surface:**
+the agent's own unprompted commentary on receiving that follow-up was that
+the `PreCompact` text "reached me as `local-command-stdout` *after*
+compaction had completed, carrying the caveat 'DO NOT respond to these
+messages… unless the user explicitly asks' — so as an actual pre-compaction
+flush prompt it arrived too late to act on." The text durably reaches
+context (the design goal — see floors.ts's own header comment on why a
+*prompt* rather than a forced write is the right shape here), but "flush
+before it's destroyed" should be read as "this content is folded into what
+survives compaction," not as the agent getting a distinct turn to write
+journal entries before compaction proceeds. This matches, rather than
+contradicts, what the original probe already documented (`reason`/
+`systemMessage` "get folded into the compaction/summarization request
+itself") — this addendum just makes the causal shape explicit, since the
+plan's own §11.2 language ("PreCompact forces a flush **before** context is
+destroyed") could otherwise be read as promising more agency in the moment
+than the mechanism actually provides.

@@ -604,3 +604,404 @@ test('an event with nothing worth naming carries no subject at all', async () =>
   const [e] = await readAllEvents(dir, 'ws');
   assert.ok(!('subject' in e!), 'a placeholder subject is worse than none');
 });
+
+// ---------------------------------------------------------------------------
+// The authoring floors (Task 3). Two independent, opt-in output streams:
+// Floor 2 on PostToolUse (hookSpecificOutput.additionalContext), Floor 1 on
+// PreCompact (top-level reason/systemMessage, NO hookSpecificOutput -- see
+// adapters/HOOK-OUTPUT-NOTES.md). "Test the OFF case first" per the brief:
+// the OFF-by-default section comes before the ON section below.
+// ---------------------------------------------------------------------------
+
+const MUTATION_COMMAND = 'wrangler secret put API_KEY';
+
+function preToolUseMutationPayload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: { command: MUTATION_COMMAND }, tool_use_id: 'toolu_mut',
+    ...overrides,
+  });
+}
+
+function postToolUseMutationPayload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash',
+    tool_input: { command: MUTATION_COMMAND },
+    tool_response: { stdout: 'ok', stderr: '', interrupted: false },
+    tool_use_id: 'toolu_mut', duration_ms: 5,
+    ...overrides,
+  });
+}
+
+function postToolUseBenignPayload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash',
+    tool_input: { command: 'git log --oneline -5' },
+    tool_response: { stdout: 'ok', stderr: '', interrupted: false },
+    tool_use_id: 'toolu_benign', duration_ms: 5,
+    ...overrides,
+  });
+}
+
+function preCompactPayload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    session_id: 's', hook_event_name: 'PreCompact', trigger: 'manual', custom_instructions: null,
+    ...overrides,
+  });
+}
+
+// A stub AGENT_JOURNAL_CMD that stands in for the real `agent-journal`
+// binary, dedicated to the `floor` subcommand only -- `observe` calls hit it
+// too (journal-hook.mjs always calls both) but this stub does nothing for
+// that subcommand, deliberately: these tests are about what THIS ADAPTER
+// does with whatever `floor` printed, not about real journal classification
+// (which the REAL_CMD-based tests below already cover end to end). Behaviour
+// is switched by STUB_FLOOR_MODE: 'hang' blocks past FLOOR_TIMEOUT_MS,
+// 'huge' prints 300KB, 'text' prints STUB_FLOOR_TEXT verbatim (so the OUTER
+// test file can hand it arbitrary content -- quotes, newlines, backslashes,
+// unicode -- without needing to double-escape any of it into a second
+// script's source), anything else (including unset) prints nothing. When
+// STUB_ARGV_LOG is set, every `floor` invocation's argv is appended to it as
+// one JSON line, which is how the --since/--subject computation itself is
+// checked below.
+async function writeStubFloor(dir: string): Promise<string> {
+  const stubPath = join(dir, 'stub-floor.mjs');
+  await writeFile(
+    stubPath,
+    [
+      "import { appendFileSync } from 'node:fs';",
+      "import { execFileSync } from 'node:child_process';",
+      'const args = process.argv.slice(2);',
+      'const sub = args[0];',
+      "if (sub === 'floor' && process.env.STUB_ARGV_LOG) {",
+      "  appendFileSync(process.env.STUB_ARGV_LOG, JSON.stringify(args) + '\\n');",
+      '}',
+      "if (sub === 'floor') {",
+      "  const mode = process.env.STUB_FLOOR_MODE || 'empty';",
+      "  if (mode === 'hang') execFileSync('sleep', ['5']);",
+      "  else if (mode === 'huge') process.stdout.write('X'.repeat(300000));",
+      "  else if (mode === 'text') process.stdout.write(process.env.STUB_FLOOR_TEXT || '');",
+      '}',
+      'process.exit(0);',
+      '',
+    ].join('\n'),
+  );
+  return stubPath;
+}
+
+// --------------------------- OFF case, tested first ------------------------
+
+test('floors off by default: a mutation-shaped PostToolUse prints nothing on stdout', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  runHook(preToolUseMutationPayload(), env);
+  const r = runHook(postToolUseMutationPayload(), env); // AGENT_JOURNAL_FLOORS unset
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '', 'a real consequence exists but floors are off -- must stay silent');
+});
+
+test('floors stay off when AGENT_JOURNAL_FLOORS is blank', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  runHook(preToolUseMutationPayload(), env);
+  const r = runHook(postToolUseMutationPayload(), { ...env, AGENT_JOURNAL_FLOORS: '' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '');
+});
+
+test('floors stay off for any value other than the exact string "1"', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  for (const value of ['0', 'true', 'yes', 'on', ' 1', '1 ']) {
+    runHook(preToolUseMutationPayload(), env);
+    const r = runHook(postToolUseMutationPayload(), { ...env, AGENT_JOURNAL_FLOORS: value });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal((r.stdout ?? '').trim(), '', `AGENT_JOURNAL_FLOORS=${JSON.stringify(value)} was treated as ON`);
+  }
+});
+
+test('floors stay off when the workspace is unconfigured, even with AGENT_JOURNAL_FLOORS=1', async () => {
+  const dir = await root();
+  const r = runHook(postToolUseMutationPayload(), {
+    AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD, AGENT_JOURNAL_FLOORS: '1',
+    AGENT_JOURNAL_WORKSPACE: '',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '');
+});
+
+// ------------------------- ON: silence stays the common case ---------------
+
+test('floors on, but the event is neither PostToolUse nor PreCompact: never emits', async () => {
+  const dir = await root();
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_FLOORS: '1',
+  };
+  // PreToolUse itself carries the same mutating command -- if the event-name
+  // gate were dropped or widened, this is the case that would catch it.
+  const r = runHook(preToolUseMutationPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '');
+});
+
+test('floors on, PostToolUse for a benign call with no matching constraint: prints nothing', async () => {
+  const dir = await root();
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_FLOORS: '1',
+  };
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: { command: 'git log --oneline -5' }, tool_use_id: 'toolu_benign',
+  }), env);
+  const r = runHook(postToolUseBenignPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '', 'most tool calls are not consequence-bearing -- this must stay silent');
+});
+
+test('floors on, PreCompact on a workspace with no activity: prints nothing', async () => {
+  const dir = await root();
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_FLOORS: '1',
+  };
+  const r = runHook(preCompactPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '');
+});
+
+// ----------------------- ON: the real content, end to end ------------------
+
+test('floors on, a mutating PostToolUse: prints valid PostToolUse hookSpecificOutput naming the observation', async () => {
+  const dir = await root();
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_FLOORS: '1',
+  };
+  runHook(preToolUseMutationPayload(), env);
+  const r = runHook(postToolUseMutationPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.notEqual((r.stdout ?? '').trim(), '');
+
+  const parsed = JSON.parse(r.stdout!.trim());
+  assert.equal(parsed.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.match(parsed.hookSpecificOutput.additionalContext, /anchor/i);
+  assert.match(parsed.hookSpecificOutput.additionalContext, /mutation/i);
+  // Never a pre-written entry -- the same property floors.ts's own tests pin,
+  // re-checked here because this is what actually leaves the adapter.
+  assert.doesNotMatch(parsed.hookSpecificOutput.additionalContext, /agent-journal record/);
+  // Exactly one top-level key: no stray reason/systemMessage/hookSpecificOutput sibling.
+  assert.deepEqual(Object.keys(parsed).sort(), ['hookSpecificOutput']);
+});
+
+test('floors on, PreCompact with pending activity: prints reason/systemMessage, never hookSpecificOutput', async () => {
+  const dir = await root();
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_FLOORS: '1',
+  };
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: { command: 'ls' }, tool_use_id: 'toolu_1',
+  }), env);
+  const r = runHook(preCompactPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.notEqual((r.stdout ?? '').trim(), '');
+
+  const parsed = JSON.parse(r.stdout!.trim());
+  assert.match(parsed.reason, /assumption sweep/i);
+  assert.match(parsed.reason, /checked: no/);
+  assert.equal(parsed.systemMessage, parsed.reason, 'both generic fields must carry the same text');
+  // This is the rule the whole two-mechanism design rests on: PreCompact's
+  // own schema REJECTS hookSpecificOutput outright (HOOK-OUTPUT-NOTES.md).
+  // If this key ever appears here, Claude Code will show a validation-error
+  // banner instead of delivering the prompt.
+  assert.ok(!('hookSpecificOutput' in parsed), 'PreCompact output must never carry hookSpecificOutput');
+  assert.deepEqual(Object.keys(parsed).sort(), ['reason', 'systemMessage']);
+});
+
+test('PreCompact firing the floor still records no compact observation -- the two streams stay independent', async () => {
+  const dir = await root();
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD,
+    AGENT_JOURNAL_FLOORS: '1',
+  };
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: { command: 'ls' }, tool_use_id: 'toolu_1',
+  }), env);
+  const before = await readAllEvents(dir, 'ws');
+  const r = runHook(preCompactPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.notEqual((r.stdout ?? '').trim(), '', 'the floor itself must still have fired');
+  const after = await readAllEvents(dir, 'ws');
+  assert.deepEqual(after, before, 'PreCompact must not have written any observation, floor or not');
+  assert.ok(after.every((e) => e.kind !== 'compact'));
+});
+
+// --------------------------- --since / --subject shape ---------------------
+
+test('a PostToolUse floor check passes --since bounded by duration_ms and --subject as the command text', async () => {
+  const dir = await root();
+  const stubPath = await writeStubFloor(dir);
+  const argvLog = join(dir, 'argv.log');
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: `${process.execPath} ${stubPath}`,
+    AGENT_JOURNAL_FLOORS: '1', STUB_ARGV_LOG: argvLog,
+  };
+  const before = Date.now();
+  const durationMs = 1234;
+  const r = runHook(postToolUseMutationPayload({ duration_ms: durationMs }), env);
+  assert.equal(r.status, 0, r.stderr);
+
+  const logged = (await readFile(argvLog, 'utf8')).trim().split('\n');
+  assert.equal(logged.length, 1, `expected exactly one floor invocation, got ${logged.length}`);
+  const args = JSON.parse(logged[0]!) as string[];
+  assert.equal(args[0], 'floor');
+  assert.ok(args.includes('--kind=consequence'), JSON.stringify(args));
+  assert.ok(args.includes('--workspace=ws'), JSON.stringify(args));
+
+  const subjectArg = args.find((a) => a.startsWith('--subject='));
+  assert.equal(subjectArg, `--subject=${JSON.stringify({ command: MUTATION_COMMAND })}`);
+
+  const sinceArg = args.find((a) => a.startsWith('--since='));
+  assert.ok(sinceArg, 'no --since flag was passed');
+  const sinceMs = Date.parse(sinceArg!.slice('--since='.length));
+  // Expected: T - durationMs - 10_000 (the default lookback), where T is
+  // whatever `Date.now()` read inside the hook, some point between `before`
+  // (captured just before the call) and `after` (just after it returns).
+  // durationMs and the lookback are both constants subtracted from T either
+  // way, so the same [before, after] window bounds `since` directly, with
+  // no extra slack needed.
+  const after = Date.now();
+  assert.ok(sinceMs >= before - durationMs - 10_000, `since too early: ${sinceArg}`);
+  assert.ok(sinceMs <= after - durationMs - 10_000, `since too late: ${sinceArg}`);
+});
+
+test('a PreCompact floor check passes neither --since nor --subject', async () => {
+  const dir = await root();
+  const stubPath = await writeStubFloor(dir);
+  const argvLog = join(dir, 'argv.log');
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: `${process.execPath} ${stubPath}`,
+    AGENT_JOURNAL_FLOORS: '1', STUB_ARGV_LOG: argvLog,
+  };
+  const r = runHook(preCompactPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+
+  const logged = (await readFile(argvLog, 'utf8')).trim().split('\n');
+  assert.equal(logged.length, 1);
+  const args = JSON.parse(logged[0]!) as string[];
+  assert.deepEqual(args, ['floor', '--kind=compaction', '--workspace=ws']);
+});
+
+// ------------------------------- dedup heuristic ----------------------------
+
+test('an old mutation falls outside a short lookback window and does not resurface on a later, unrelated call', async () => {
+  const dir = await root();
+  const seedEnv = { AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_CMD: REAL_CMD };
+  // Seed the old mutation with floors off -- only its own timing matters here.
+  const seeded = runHook(preToolUseMutationPayload({ tool_use_id: 'toolu_old' }), seedEnv);
+  assert.equal(seeded.status, 0, seeded.stderr);
+
+  await new Promise((resolve) => { setTimeout(resolve, 300); });
+
+  const checkEnv = {
+    ...seedEnv, AGENT_JOURNAL_FLOORS: '1', AGENT_JOURNAL_FLOOR_LOOKBACK_MS: '50',
+  };
+  runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: { command: 'ls' }, tool_use_id: 'toolu_new',
+  }), checkEnv);
+  const r = runHook(JSON.stringify({
+    session_id: 's', hook_event_name: 'PostToolUse', tool_name: 'Bash',
+    tool_input: { command: 'ls' },
+    tool_response: { stdout: 'ok' }, tool_use_id: 'toolu_new', duration_ms: 1,
+  }), checkEnv);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(
+    (r.stdout ?? '').trim(), '',
+    'the mutation from 300ms ago should have fallen outside a 50ms(+1ms) lookback window',
+  );
+});
+
+// --------------------------- Rule 1, extended to the new stream ------------
+
+test('a floor check that hangs still exits 0, bounded by FLOOR_TIMEOUT_MS, not by the stdin timeout', async () => {
+  const dir = await root();
+  const stubPath = await writeStubFloor(dir);
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: `${process.execPath} ${stubPath}`,
+    AGENT_JOURNAL_FLOORS: '1', STUB_FLOOR_MODE: 'hang',
+  };
+  const started = Date.now();
+  const r = runHook(preCompactPayload(), env);
+  const elapsedMs = Date.now() - started;
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '', 'a hung floor check must not deliver partial or garbage output');
+  assert.ok(elapsedMs < 9_000, `took ${elapsedMs}ms -- FLOOR_TIMEOUT_MS did not bound this`);
+});
+
+test('agent-journal being unavailable for the floor call still exits 0 and prints nothing', async () => {
+  const dir = await root();
+  const r = runHook(postToolUseMutationPayload(), {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FLOORS: '1',
+    AGENT_JOURNAL_CMD: '/no/such/agent-journal-binary',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout ?? '').trim(), '');
+});
+
+test('a 300KB floor render is truncated by this adapter, not handed to the harness whole', async () => {
+  const dir = await root();
+  const stubPath = await writeStubFloor(dir);
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: `${process.execPath} ${stubPath}`,
+    AGENT_JOURNAL_FLOORS: '1', STUB_FLOOR_MODE: 'huge',
+  };
+  const r = runHook(postToolUseMutationPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  const parsed = JSON.parse(r.stdout!.trim());
+  const text = parsed.hookSpecificOutput.additionalContext as string;
+  assert.ok(text.length < 10_000, `expected this adapter to truncate; got ${text.length} chars`);
+  assert.match(text, /truncated/);
+});
+
+test('floor output containing quotes, backslashes, newlines and unicode still round-trips as valid JSON', async () => {
+  const dir = await root();
+  const stubPath = await writeStubFloor(dir);
+  const tricky = 'line one\nline "two" has quotes\\and a backslash\ncafé — em dash too';
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: `${process.execPath} ${stubPath}`,
+    AGENT_JOURNAL_FLOORS: '1', STUB_FLOOR_MODE: 'text', STUB_FLOOR_TEXT: tricky,
+  };
+  const r = runHook(postToolUseMutationPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  const parsed = JSON.parse(r.stdout!.trim()); // throws if this adapter emitted invalid JSON
+  assert.equal(parsed.hookSpecificOutput.additionalContext, tricky);
+});
+
+test('a malformed (non-JSON) floor render is never forwarded -- the adapter only ever emits its own JSON', async () => {
+  // journal-hook.mjs never passes the raw `floor` stdout through verbatim --
+  // it always re-wraps it via JSON.stringify. This pins that even stdout
+  // that LOOKS like broken JSON on its own (an unterminated brace) still
+  // comes out the other side as ONE well-formed JSON object, because it was
+  // never treated as JSON to begin with, only as a plain string value.
+  const dir = await root();
+  const stubPath = await writeStubFloor(dir);
+  const env = {
+    AGENT_JOURNAL_WORKSPACE: 'ws', AGENT_JOURNAL_ROOT: dir,
+    AGENT_JOURNAL_CMD: `${process.execPath} ${stubPath}`,
+    AGENT_JOURNAL_FLOORS: '1', STUB_FLOOR_MODE: 'text', STUB_FLOOR_TEXT: '{"broken": [1, 2,',
+  };
+  const r = runHook(postToolUseMutationPayload(), env);
+  assert.equal(r.status, 0, r.stderr);
+  const parsed = JSON.parse(r.stdout!.trim());
+  assert.equal(parsed.hookSpecificOutput.additionalContext, '{"broken": [1, 2,');
+});

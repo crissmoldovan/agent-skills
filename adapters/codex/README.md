@@ -14,6 +14,65 @@ was not is worse than one honestly labelled untested — this project has
 already shipped one false "verified" claim and paid for it. This one does
 not repeat that.
 
+## Authoring floors (Plan 7) — deliberately NOT wired here
+
+The Claude Code adapter gained two opt-in "authoring floors" in a later task
+(Plan 7 / spec §11.2–11.3): on a real, observed harness, a hook can now print
+JSON back to stdout and have text delivered into the same session —
+`PostToolUse` prompts about a consequence-bearing tool call, `PreCompact`
+prompts for a flush before context is destroyed. **This adapter does not do
+either, on purpose, not as an oversight left for later.**
+
+Reasons, plainly, in order of how much each one alone would already be
+disqualifying:
+
+1. **The whole basis for the Claude Code floors is a probe that actually ran
+   against a real harness** — [`../HOOK-OUTPUT-NOTES.md`](../HOOK-OUTPUT-NOTES.md),
+   which planted tokens in real hook output and read the real transcript to
+   confirm what reached the model, for which event, in which shape, and
+   found that `PreCompact` *rejects* the shape that works for `PostToolUse`
+   (`hookSpecificOutput` fails that event's own schema validation outright —
+   the probe captured the literal error). Nothing equivalent exists for
+   Codex. There is no probe, because there is no Codex install to probe with
+   (see the top of this file, and `../NOTES.md` Step 4). Building the same
+   two-mechanism split here would mean guessing at a THIRD thing — Codex's
+   actual output-side behaviour per event — on top of the two guesses this
+   file already discloses (field names, and the wildcard matcher).
+
+2. **This is the one place in this adapter where "unverified" stops being a
+   merely academic caveat.** Everything else this file documents (event
+   names, field guesses) degrades safely if wrong — a wrong guess means a
+   field silently comes out empty, per `journal-hook.mjs`'s own `str()`
+   helper, never a crash and never a change in what the observed tool call
+   does. Hook *output* is different in kind, and this file already says so
+   under "The three rules" below: Codex's own documentation states plainly
+   that exit code 2 (with stderr) on `PreToolUse` blocks the tool call, the
+   same on `PermissionRequest` denies it, and `decision:"block"` on `Stop`/
+   `SubagentStop` forces continuation. An untested guess at Codex's
+   `PostToolUse`/`PreCompact` output shape is not "the floor doesn't
+   arrive" the way a wrong field name is "the field is absent" — it is
+   guessing at the boundary of a channel this same documentation says can
+   change whether code runs. Rule 1 ("never fail the call it observes") is
+   this adapter's cardinal rule, ranked above every feature in the task that
+   added it — guessing here is exactly the kind of guess rule 1 forbids.
+
+3. **`journal-hook.sh` already made a deliberate, load-bearing decision that
+   floors would directly reverse.** It redirects the Node subprocess's
+   stdout to `/dev/null` specifically so nothing this adapter does could
+   ever be read by Codex as hook output of any kind — see "The three rules"
+   below, "a sharper version of this rule applies to Codex specifically".
+   Wiring floors here means reversing that decision on the one harness where
+   getting it wrong was judged too risky to attempt even for the
+   *observation* side's output. Nothing about that risk assessment has
+   changed; if anything, floors make the case for it stronger, not weaker.
+
+**What would actually close this gap:** the same thing that closed it for
+Claude Code — a real Codex install, a probe script that plants tokens in
+`PostToolUse`/`PreCompact` output and reads back what the model actually
+received, written up the way `HOOK-OUTPUT-NOTES.md` was. Until that exists,
+this adapter's Codex support stays exactly where Task 1 left it: observations
+only, one direction, never speaking back into a session.
+
 ## What is documented, and where it came from
 
 Read 2026-09-08 from OpenAI's own Codex documentation:

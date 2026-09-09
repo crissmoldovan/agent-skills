@@ -87,6 +87,17 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_JOURNAL_WORKSPACE=REPLACE_ME_WORKSPACE AGENT_JOURNAL_HARNESS=claude-code sh /absolute/path/to/agent-skills/adapters/claude-code/journal-hook.sh"
+          }
+        ]
+      }
     ]
   }
 }

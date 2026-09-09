@@ -40,6 +40,16 @@
 #                            session_id) and, for SubagentStart/Stop,
 #                            AGENT_JOURNAL_AGENT (from agent_id) on the
 #                            child process it spawns -- see that file.
+#   AGENT_JOURNAL_FLOORS     opt-in for the authoring floors (Plan 7).
+#                            Unset, blank, or anything other than the exact
+#                            string "1" means off -- the floors stay
+#                            entirely inert, and this script's stdout
+#                            forwarding below never carries anything.
+#                            Read only by journal-hook.mjs; see
+#                            ../HOOK-OUTPUT-NOTES.md and ../README.md's own
+#                            "Authoring floors" section for what "1" turns
+#                            on and how each floor's output actually reaches
+#                            Claude Code.
 #
 # A note on a pattern that looks like it belongs here and does not:
 # `: "${AGENT_JOURNAL_WORKSPACE:?}" 2>/dev/null || exit 0` was the sketch
@@ -69,6 +79,17 @@ dir=$(dirname "$0")
 # unwritable journal, agent-journal itself refusing the write -- is handled
 # there and ends in that script's own exit 0; this line's exit status is
 # deliberately ignored regardless.
-"$node_bin" "$dir/journal-hook.mjs" >/dev/null 2>&1
+#
+# stdout is now forwarded, not discarded -- the one behaviour change this
+# task makes. journal-hook.mjs's own contract (see its header comment) is
+# that it NEVER writes anything to its own stdout except, at most, one line
+# of JSON, and only when AGENT_JOURNAL_FLOORS=1 and one of the two floors
+# has something to say (adapters/HOOK-OUTPUT-NOTES.md is what this JSON
+# shape is built against). With floors off -- the default -- that script
+# writes nothing here, ever, so this line is a no-op change of behaviour for
+# every workspace that has not opted in. stderr stays discarded: it carries
+# only diagnostics no part of Claude Code's hook contract reads, and letting
+# it through would risk interleaving with the one line of JSON that matters.
+"$node_bin" "$dir/journal-hook.mjs" 2>/dev/null
 
 exit 0
