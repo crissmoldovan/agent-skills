@@ -210,3 +210,81 @@ test('an env prefix or sudo does not hide the command', () => {
       `the head was misread: ${input}`);
   }
 });
+
+// The shape the adapter actually produces. Every test above feeds a bare
+// command string; production never does. The classifier read `input` for EVERY
+// tool, and the adapter stored a JSON rendering of `tool_input` there — so a
+// Grep for the literal text "gh secret set" fired as a config mutation, and any
+// Write whose content mentioned a URL fired as an unfamiliar API. Writing a
+// README with links prompted for a journal entry.
+//
+// Worse, `commandHead` saw `{"pattern":"gh` rather than `grep`, so TEXT_HEADED
+// matched nothing real and every false-positive guard here was inert in
+// production while its tests all passed. Deleting TEXT_HEADED, withoutComment
+// and unquote left the whole suite green.
+test('a non-shell tool whose DATA contains a mutation phrase is not a mutation', () => {
+  const cases: [string, Record<string, unknown>][] = [
+    ['Grep', { pattern: 'gh secret set', path: '.' }],
+    ['Write', { file_path: 'README.md', content: 'Run terraform apply to ship.' }],
+    ['Edit', { file_path: 'a.ts', new_string: 'wrangler secret put API_KEY' }],
+    ['Read', { file_path: 'docs/wrangler secret put.md' }],
+  ];
+  for (const [tool, toolInput] of cases) {
+    const e = obs('o1', 'tool_call', { tool, input: JSON.stringify(toolInput) });
+    assert.deepEqual(consequencesIn([e]), [],
+      `a ${tool} payload was classified: ${JSON.stringify(toolInput)}`);
+  }
+});
+
+// The same for the host rule: any Write introducing a not-yet-seen URL fired.
+test('a URL in a non-shell tool payload is not an unfamiliar API call', () => {
+  const e = obs('o1', 'tool_call', {
+    tool: 'Write',
+    input: JSON.stringify({ file_path: 'README.md', content: 'See https://example.com/docs' }),
+  });
+  assert.deepEqual(consequencesIn([e]).filter((c) => c.rule === 'unfamiliar-api'), []);
+});
+
+// ...and a Bash call must still be classified when the adapter hands over a
+// JSON envelope rather than the bare command, since an older adapter or a
+// foreign one may do exactly that.
+test('a Bash command inside a JSON envelope is still read as a command', () => {
+  const real = obs('o1', 'tool_call', {
+    tool: 'Bash', input: JSON.stringify({ command: 'wrangler secret put API_KEY' }),
+  });
+  assert.equal(consequencesIn([real]).filter((c) => c.rule === 'mutation').length, 1);
+
+  const quoted = obs('o2', 'tool_call', {
+    tool: 'Bash', input: JSON.stringify({ command: 'grep -rn "gh variable set" .' }),
+  });
+  assert.deepEqual(consequencesIn([quoted]).filter((c) => c.rule === 'mutation'), [],
+    'the envelope was matched instead of the command inside it');
+});
+
+// Isolates the shell-tool gate, which the JSON cases above cannot reach: they
+// are all JSON envelopes, so the envelope parser rejects them first and the
+// gate never runs. An adapter that stores a non-shell tool's input as a PLAIN
+// STRING — which this repo's Codex adapter or any foreign one may well do — is
+// the case only the gate stops.
+test('a non-shell tool whose input is a bare string is not classified', () => {
+  const cases: [string, string][] = [
+    ['Write', 'wrangler secret put API_KEY'],
+    ['Edit', 'terraform apply'],
+    ['Grep', 'gh variable set'],
+    ['WebFetch', 'https://brand-new.example.com/v1/thing'],
+  ];
+  for (const [tool, input] of cases) {
+    assert.deepEqual(consequencesIn([obs('o1', 'tool_call', { tool, input })]), [],
+      `a bare-string ${tool} input was classified: ${input}`);
+  }
+});
+
+// ...and the gate must not shut out the shells that do carry commands.
+test('every shell tool name the gate accepts is still classified', () => {
+  for (const tool of ['Bash', 'bash', 'sh', 'shell', 'zsh', 'run_command', 'terminal']) {
+    assert.equal(
+      consequencesIn([obs('o1', 'tool_call', { tool, input: 'wrangler secret put X' })])
+        .filter((c) => c.rule === 'mutation').length,
+      1, `${tool} was gated out`);
+  }
+});

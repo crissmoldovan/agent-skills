@@ -284,9 +284,48 @@ function tryPermission(event: JournalEvent): Consequence | undefined {
  *  ever matching an entry: an entry's fields are named differently, and a
  *  `decision` merely *mentioning* a mutating command in its `chosen` text has
  *  no `input` field for this rule to read. */
+/**
+ * Only a shell tool's observation carries a command line, and only a command
+ * line is what every guard in this file is written against.
+ *
+ * Without this gate the classifier read `input` for EVERY tool — and the
+ * adapter stores a JSON rendering of `tool_input` there, not a command. The
+ * consequences were not subtle: a `Grep` for the literal text "gh secret set"
+ * fired as a config mutation, and any `Write` whose content mentioned a URL
+ * fired as an unfamiliar API, so writing a README with links prompted for a
+ * journal entry. Worse, `commandHead` saw `{"pattern":"gh` rather than `grep`,
+ * so TEXT_HEADED matched nothing a real session produces and every
+ * false-positive guard below was inert in production while its tests — which
+ * fed bare command strings the adapter never emits — all passed.
+ *
+ * The gate is the fix, not more regex: classify a command line only where one
+ * actually exists.
+ */
+const SHELL_TOOLS = new Set(['bash', 'sh', 'shell', 'zsh', 'run_command', 'terminal']);
+
+function commandLineOf(event: JournalEvent): string | undefined {
+  const tool = stringField(event, 'tool');
+  if (tool === undefined || !SHELL_TOOLS.has(tool.toLowerCase())) return undefined;
+  const input = stringField(event, 'input');
+  if (input === undefined) return undefined;
+  // A faithful adapter stores the command itself. One that stores a JSON
+  // envelope is still readable — take `command` out of it rather than matching
+  // the envelope's own punctuation and keys.
+  if (input.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(input) as { command?: unknown };
+      return typeof parsed.command === 'string' && parsed.command.trim()
+        ? parsed.command.trim() : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return input;
+}
+
 function tryMutation(event: JournalEvent): Consequence | undefined {
   if (event.kind !== 'tool_call') return undefined;
-  const input = stringField(event, 'input');
+  const input = commandLineOf(event);
   if (input === undefined) return undefined;
   const detail = matchMutation(input);
   if (detail === undefined) return undefined;
@@ -305,7 +344,7 @@ function tryMutation(event: JournalEvent): Consequence | undefined {
  */
 function tryUnfamiliarApi(event: JournalEvent, seen: Set<string>): Consequence | undefined {
   if (event.kind !== 'tool_call') return undefined;
-  const input = stringField(event, 'input');
+  const input = commandLineOf(event);
   if (input === undefined) return undefined;
   const host = hostNamedIn(input);
   if (host === undefined) return undefined;

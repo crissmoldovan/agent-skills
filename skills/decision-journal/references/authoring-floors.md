@@ -190,6 +190,14 @@ CLI needs coverage, add a row there, following the same shape every existing row
 the surrounding matcher (quote handling, comment stripping, preview-flag detection,
 command splitting) already applies to whatever you add.
 
+**One thing that matcher only sees for a shell tool.** Every guard above is written
+against a command line, so classification runs only for `Bash` and its siblings. That
+is not a limitation to work around — it is what stops a `Grep` for the literal text
+`gh secret set`, or a `Write` whose content mentions a URL, from being read as a config
+change. It was a real bug: before the gate existed, writing a README with links in it
+prompted for a journal entry. A pattern you add here will never be tried against a
+non-shell tool's payload, and should not be written as though it might.
+
 Two things are deliberately **not** in the table, and adding them would trade a real
 problem for a worse one: a bare `curl -X POST` against an arbitrary URL, and bare
 `wrangler deploy` / `kubectl apply`. All three share the same defect — their read-only

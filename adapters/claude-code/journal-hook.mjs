@@ -126,6 +126,18 @@ function summarize(value) {
   }
 }
 
+
+/** A shell tool's `command` verbatim where there is one; otherwise the generic
+ *  JSON rendering. `tool_input.command` is the field NOTES.md records Bash
+ *  carrying, and it is what a reader of `show` actually wants to see. */
+function commandOrSummary(toolInput) {
+  if (toolInput && typeof toolInput === 'object' && typeof toolInput.command === 'string'
+      && toolInput.command.trim()) {
+    return toolInput.command;
+  }
+  return summarize(toolInput);
+}
+
 /**
  * Map one Claude Code hook payload to an agent-journal observation, or
  * `null` if this event has nothing to record. `null` is the expected
@@ -181,7 +193,12 @@ export function mapPayload(payload) {
         subject: str(payload.tool_name),
         fields: {
           tool: str(payload.tool_name),
-          input: truncate(summarize(payload.tool_input), MAX_FIELD_CHARS),
+          // A Bash call's command verbatim, not a JSON rendering of the
+          // envelope around it. Storing the envelope made `input` unreadable
+          // as what it is, and the consequence classifier — which is written
+          // against a command line — matched the JSON's own keys and
+          // punctuation instead, firing on a Grep for "gh secret set".
+          input: truncate(commandOrSummary(payload.tool_input), MAX_FIELD_CHARS),
           callId: str(payload.tool_use_id),
         },
       };
