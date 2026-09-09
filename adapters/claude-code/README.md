@@ -1,20 +1,30 @@
 # Claude Code adapter
 
-Translates Claude Code's own hook payloads into `agent-journal observe` calls.
-This is the thing that actually feeds the observation plane — Tasks 2–4 built
-`observe`; this is the only piece that calls it from a real Claude Code
-session.
+Translates Claude Code's own hook payloads into `agent-journal observe` calls,
+and — opt-in only, see "Authoring floors" below — into `agent-journal floor`
+prompts injected back into the same session. This is the thing that actually
+feeds the observation plane — Tasks 2–4 built `observe`; this is the only
+piece that calls it from a real Claude Code session. Task 3 (Plan 7) is what
+makes it also *speak* into a session: until then, every hook here only
+observed and wrote.
 
 **Everything this file claims about payload shapes and event names comes from
 [`../NOTES.md`](../NOTES.md)**, produced by capturing real hook payloads from
 a throwaway project rather than assuming how Claude Code hooks behave. If
 this README and NOTES.md ever disagree, NOTES.md wins — it's the primary
-record.
+record. **Everything this file claims about hook OUTPUT — what a hook can
+print back and have Claude Code actually act on — comes from
+[`../HOOK-OUTPUT-NOTES.md`](../HOOK-OUTPUT-NOTES.md)**, the follow-up probe
+that closes the gap NOTES.md itself left open ("I did not test any of this
+output side"). Same rule: it outranks this file if they ever disagree.
 
 ## Files
 
 - `journal-hook.sh` — the script Claude Code's `command` hook actually
-  invokes. POSIX `sh`, no bash-isms.
+  invokes. POSIX `sh`, no bash-isms. Forwards `journal-hook.mjs`'s stdout
+  through to Claude Code (stderr stays discarded) — this is how the floors
+  below actually reach a session; see that file's own comment on why this is
+  safe with floors off.
 - `journal-hook.mjs` — the mapping logic (event → observation kind and
   fields), run by `journal-hook.sh` as a Node subprocess. Not a new runtime
   dependency: Node is already required for `agent-journal` itself to run at
@@ -22,10 +32,12 @@ record.
   because reliably parsing the arbitrarily-nested JSON in `tool_input` /
   `tool_response` needs a real JSON parser, and depending on `jq` or
   `python3` (neither guaranteed present) is a worse trade than the one
-  already-required interpreter.
+  already-required interpreter. Also where the two authoring floors (below)
+  are built and emitted.
 - `settings-fragment.json` — copy the `"hooks"` object into
   `~/.claude/settings.json` (merge with any existing `"hooks"` key rather
-  than replacing it).
+  than replacing it). Now includes a `PreCompact` block (Floor 1 needs it;
+  nothing before this task ever wired that event at all).
 
 ## Installing it
 
@@ -41,7 +53,11 @@ record.
 4. Make sure `agent-journal` is resolvable — either put it on `PATH` (after
    `npm install -g` or equivalent), or set `AGENT_JOURNAL_CMD` (below) inside
    the same `command` string.
-5. Run a real Claude Code session, then check:
+5. **Optional:** to turn on the authoring floors, add `AGENT_JOURNAL_FLOORS=1`
+   to the `PostToolUse` and `PreCompact` blocks' `command` strings specifically
+   (harmless, but pointless, on the others — see "Authoring floors" below).
+   Off by default, deliberately: see that section for why.
+6. Run a real Claude Code session, then check:
    ```
    AGENT_JOURNAL_ROOT=<your root> agent-journal coverage --workspace <id>
    ```
@@ -66,6 +82,124 @@ nothing injected as `argv`). So every variable below is set as a prefix
 | `AGENT_JOURNAL_NODE` | `journal-hook.sh` | Overrides the `node` used to run `journal-hook.mjs` itself. Defaults to `node`. Mainly useful for tests. |
 | `AGENT_JOURNAL_ROOT`, `AGENT_JOURNAL_HARNESS` | `agent-journal` (the CLI) | Passed straight through the environment; this adapter never sets them itself. Set `AGENT_JOURNAL_HARNESS=claude-code` so the envelope's own `harness` field (not the `session_start` observation's `data.harness`, which this adapter always sets to `"claude-code"` regardless) matches too. |
 | `AGENT_JOURNAL_SESSION`, `AGENT_JOURNAL_AGENT` | `agent-journal` (the CLI) | **Set by `journal-hook.mjs` itself** on the child process it spawns, from the payload's own `session_id` (every mapped event) and, for `SubagentStart`/`SubagentStop` only, `agent_id`. Anything already in your own environment is overridden for that call — the payload's own identifiers are more authoritative than whatever a shell happened to export. |
+| `AGENT_JOURNAL_FLOORS` | `journal-hook.mjs` | Opt-in for the authoring floors — see below. Must be the exact string `1`. Unset, blank, `0`, `true`, or anything else means off. |
+
+## Authoring floors
+
+New in Task 3 (Plan 7, spec §11.2–11.3). Until this task, every hook here
+only observed and wrote; these two are the first that speak back into the
+session. **Off by default.** Set `AGENT_JOURNAL_FLOORS=1` in the `PostToolUse`
+and `PreCompact` blocks' `command` strings to turn them on for a workspace —
+every other value, including unset, leaves both floors completely inert,
+which is also the state every workspace that predates this task is already
+in (adding `PreCompact` to `settings-fragment.json` and forwarding stdout in
+`journal-hook.sh` are both no-ops for a workspace that has not opted in — see
+the mutation-check note in this task's report for direct proof neither
+change is a silent behaviour shift on its own).
+
+Why opt-in, not on by default: a floor that starts talking into a session
+nobody asked it to talk into is a floor that gets the whole adapter
+uninstalled within a day — and an uninstalled adapter records nothing at
+all, which is strictly worse than the gap these floors close. See the plan's
+own "opt-in per workspace" decision.
+
+**The two floors use genuinely different mechanisms — this is not an
+implementation detail, it is the one finding `HOOK-OUTPUT-NOTES.md` exists
+to establish:**
+
+| | Floor 2 (consequence) | Floor 1 (compaction) |
+| --- | --- | --- |
+| Fires on | `PostToolUse` | `PreCompact` |
+| Text from | `agent-journal floor --kind consequence` | `agent-journal floor --kind compaction` |
+| Wire shape | `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"}}` | `{"reason":"…","systemMessage":"…"}` — **no `hookSpecificOutput` key, ever** |
+| Why | Confirmed delivered mid-turn, right after the tool call (`HOOK-OUTPUT-NOTES.md`, "PostToolUse delivers additionalContext") | `hookSpecificOutput.hookEventName:"PreCompact"` is **rejected outright** by the harness's own schema validation — the probe captured the literal error banner. The generic top-level fields are what the harness actually folds into the compaction summary instead. |
+
+Putting `hookSpecificOutput` on the `PreCompact` path — even by accident, even
+alongside the correct generic fields — reproduces that rejection and shows
+the human a validation-error banner instead of delivering the prompt. There
+is a test for exactly this (`adapter-claude-code.test.ts`, "prints
+reason/systemMessage, never hookSpecificOutput"), and it is written to fail
+if that key ever appears there again.
+
+**`--subject` and `--since`.** Floor 2 passes `--subject` as the tool's
+`tool_input`, stringified and truncated — not the bare tool name — because
+`constraintsMatching` (constraints.ts) checks a constraint's `scope` word
+against this text, and a scope word like `redis` or `prod-db` shows up in a
+command far more often than in a tool name like `Bash`. Floor 2 also passes
+`--since`, bounded to just before *this* call's own `tool_call` observation
+was written, computed from the PostToolUse payload's own `duration_ms` plus a
+10-second buffer for hook dispatch overhead and clock slack (overridable via
+`AGENT_JOURNAL_FLOOR_LOOKBACK_MS`, mainly for tests). This is a heuristic,
+stated as one: `agent-journal floor` has no way to be told "only the
+observation this exact call produced," only a timestamp cutoff, and this
+script keeps no state across invocations to remember "the last time this
+session checked" (the same reason `--seq` is left unwired below). Without
+this bound, a single old mutation would resurface on every unrelated tool
+call for the rest of the workspace's history — exactly the every-call noise
+the opt-in decision above exists to prevent. A burst of several genuinely
+consequence-bearing calls within the buffer window can legitimately appear
+together; that is a real limitation of the heuristic, not a bug. Floor 1
+passes neither flag: `PreCompact` fires rarely enough (only when the harness
+is actually about to compact) that the same noise concern does not apply —
+every compaction moment is a legitimate point to ask "did you flush, and did
+you sweep for assumptions."
+
+**Size.** `HOOK-OUTPUT-NOTES.md`'s probe hit a harness-side cap around 215KB,
+past which content is swapped for a 2KB preview plus a file pointer.
+`journal-hook.mjs` truncates its own floor text to 8,000 characters *before*
+building the JSON — far below that cap, and never relying on the harness to
+cope. Verified directly: feed the adapter a stubbed 300KB floor render and
+what reaches stdout is truncated, not the whole thing (`adapter-claude-code.test.ts`,
+"a 300KB floor render is truncated by this adapter").
+
+**Never authors.** The floor TEXT is always exactly what `agent-journal
+floor` printed — truncated if oversized, otherwise byte-for-byte, always
+passed through `JSON.stringify`, never hand-built with string interpolation.
+That last point matters more than it looks: a floor prompt can legitimately
+contain quotes, backslashes, newlines, or text that merely *looks* like
+broken JSON (a bulleted consequence line quoting a shell command), and none
+of that is this adapter's problem to parse — it is a plain string value
+being embedded, never re-interpreted. Verified directly with adversarial
+content (`adapter-claude-code.test.ts`, "floor output containing quotes,
+backslashes, newlines and unicode still round-trips as valid JSON", "a
+malformed (non-JSON) floor render is never forwarded").
+
+**A real limitation, found while verifying this end to end, not a footnote:**
+`PostToolUse` does not fire for a `Bash` call whose underlying command exits
+non-zero — confirmed live (Claude Code 2.1.258) for a missing binary, a real
+program erroring out, and a bare `false`; contrast-confirmed with a
+succeeding call, which fires it every time. This was never previously
+tested here — `../NOTES.md`'s own negative case is about a permission
+*denial*, a different mechanism, not a call that ran and merely returned
+nonzero. Practically: Floor 2 cannot prompt about a mutation attempt that
+*failed* — expired auth, a typo'd flag, the tool not installed — which is
+at least as common as one that succeeds for exactly the commands
+`MUTATION_PATTERNS` targets. See `../HOOK-OUTPUT-NOTES.md`'s addendum
+(dated 2026-09-09, Task 3) for the full verification, including the exact
+payloads and logs.
+
+**Silence stays the common case.** `agent-journal floor` prints nothing and
+exits 0 when there is nothing to say — most tool calls are not
+consequence-bearing, and most `PreCompact` events fire on a workspace that
+has already flushed. This adapter treats empty stdout from `floor` the same
+way: nothing is written to its own stdout, so Claude Code never sees a hook
+output at all for that call, exactly as if floors were off. It does **not**
+inspect `floor`'s exit code — `floor` can exit 1 on a partially unreadable
+journal while still printing a valid partial prompt on stdout (cli.ts's own
+documented behaviour), and using stdout regardless of status is what lets
+that partial-read case still reach the agent instead of being silently
+dropped, mirroring how `recordObservation` already ignores `observe`'s own
+exit code.
+
+**PreCompact's two independent purposes.** `PreCompact` was never wired to
+an *observation* before this task, and still is not — see "Events NOT
+wired" below for why. It is now wired to *Floor 1*, which is a different
+question entirely ("should I prompt for a flush before this destroys
+context", asked *before* compaction, never *whether compaction happened*,
+which only `PostCompact` can answer). `main()` keeps these as two genuinely
+independent streams: `mapPayload(payload)` returning `null` for `PreCompact`
+must not — and, per the mutation-check in this task's report, once briefly
+did — short-circuit the function before the floor stream ever runs.
 
 ## What this costs, honestly
 
@@ -100,6 +234,14 @@ full payload and closing stdin immediately), and the `agent-journal observe`
 subprocess itself is killed after 3s if still running. Neither should
 normally fire.
 
+**With floors on**, `PostToolUse` and `PreCompact` calls each spawn a
+**third** subprocess (`agent-journal floor`), bounded by its own 3s timeout,
+on top of the two above — not measured separately here (no reason to expect
+it differs meaningfully from `observe`'s own number; it is the same kind of
+call, one more journal read instead of a write), and only ever paid on those
+two event names, only when `AGENT_JOURNAL_FLOORS=1`. Every other event, and
+every workspace that has not opted in, pays nothing extra.
+
 ## Why it shells out instead of writing JSONL directly
 
 `agent-journal observe` redacts (`src/redact.ts`) before anything reaches
@@ -115,6 +257,12 @@ tool input does not reach disk").
 
 ## The three rules, and how each is actually enforced
 
+**These predate the authoring floors and still hold with them on — the
+floors are additive, not an exception.** The one genuinely new risk they
+introduce is covered directly in "Authoring floors" above (the JSON-safety
+and size-cap paragraphs); this section is about the rules as they applied
+before this task and continue to apply now.
+
 1. **It never fails the tool call it observes.** Every exit from
    `journal-hook.sh` is `exit 0`, unconditionally, and `journal-hook.mjs`
    never sets `process.exitCode` and always calls `process.exit(0)` in a
@@ -122,7 +270,11 @@ tool input does not reach disk").
    exit code, stdout, stderr, even a spawn error for a missing binary — is
    never inspected. A redaction refusal (`agent-journal`'s own exit 1) is
    treated exactly the same as success: nothing was recorded, and the hook
-   still exits 0.
+   still exits 0. The same now holds for `agent-journal floor`: its exit
+   code is never inspected either, a hang is bounded by its own timeout, and
+   a missing binary degrades to "print nothing" — verified directly
+   (`adapter-claude-code.test.ts`, "a floor check that hangs still exits 0",
+   "agent-journal being unavailable for the floor call still exits 0").
 
    **A pattern that looks like it belongs here and doesn't:** the original
    sketch for this script used
@@ -158,6 +310,10 @@ tool input does not reach disk").
 | `SubagentStart` | `subagent_start` | `agentId` = `agent_id`, `purpose` = `agent_type` (the only descriptive field this event carries — the richer free-text description lives on the *parent's* `PreToolUse` for the `Agent` tool call, a different hook event with no shared key exposed here to join the two) |
 | `SubagentStop` | `subagent_stop` | `agentId` = `agent_id`, `status` = the **fixed literal `"stopped"`**, not a guess at success/failure. NOTES.md's captured `SubagentStop` payload carries no field distinguishing the two — the nearest candidate, `tool_response.status` (`"completed"` in the one sample captured), lives on the *parent's* `PostToolUse` for the `Agent` tool call, a different event with no shared correlation key exposed here. |
 | `PostCompact` | `compact` | `reason` = `trigger` (`"manual"`/`"auto"`) |
+
+`PreCompact` is deliberately absent from this table — see "Events NOT wired"
+below for the observation side. With floors on, it is separately wired to
+*Floor 1* (a hook output, not an observation) — see "Authoring floors" above.
 
 `AGENT_JOURNAL_SESSION` is set on every mapped call from the payload's own
 `session_id`; `AGENT_JOURNAL_AGENT` is additionally set, only for
@@ -209,7 +365,11 @@ practice.
   conversation to compact still fires `PreCompact`, with no `PostCompact`
   following. Only `PostCompact` confirms compaction actually completed, and
   the spec has one `compact` kind, not a start/end pair — so only
-  `PostCompact` is mapped.
+  `PostCompact` is mapped **to an observation**. That is unchanged by this
+  task. `PreCompact` is, however, now wired to *Floor 1* — a hook output, a
+  different question ("should I prompt for a flush now") answered
+  independently of whether an observation is ever written for this event.
+  See "Authoring floors" above.
 
 - **`Notification`, `PostToolBatch`** — named only in the installed binary's
   own embedded strings; never observed to fire, never attempted (NOTES.md
@@ -217,6 +377,13 @@ practice.
 
 ## Known gaps, stated rather than hidden
 
+- **Floor 2's `--since` bound is a heuristic, not a precise correlation.**
+  See "Authoring floors" above for the full reasoning — the short version is
+  that this adapter has no persisted state across invocations, so it bounds
+  "recent" by the current call's own `duration_ms` plus a fixed buffer
+  rather than by "since the last time this session actually checked". A
+  burst of genuinely consequence-bearing calls close together can appear
+  together in one prompt; that is accepted, not fixed.
 - **Tool calls made from *inside* a running subagent** may not be
   attributable to that subagent through this adapter. NOTES.md never
   captured a `PreToolUse`/`PostToolUse` payload fired from inside a
