@@ -103,8 +103,16 @@ become wrong because a link broke.
 entry declares what must be true for it to hold, and an environment anchor exists, a
 re-check can ask whether that premise still reproduces.
 
+**Only half of that ships.** `agent-journal decay` compares the environment an entry was
+anchored to against the environment now; nothing reads `premise[]` at all. A `finding`
+whose premises are plainly false today, on an unchanged interpreter, reports clean. The
+design intent above is the spec's; what runs is narrower, and
+[references/decay.md](decay.md) says exactly where the line falls.
+
 A source may be marked as *living* — a design file changes on every save, and flagging it
-daily trains people to ignore rot flags entirely.
+daily trains people to ignore rot flags entirely. **This is also design intent, not
+shipped behaviour**: `living` suppresses content-hash rot, and no hash-based check exists
+yet, so the marker would have nothing to suppress.
 
 ## What good anchoring looks like
 
