@@ -252,6 +252,45 @@ line. Treat a stale digest as evidence of anything beyond what the journal looke
 when it was rendered, and you have reintroduced the exact problem coverage exists to
 name: an artifact that looks authoritative and is quietly out of date.
 
+## When to render one: with the pull request that caused it
+
+§17.4 left the cadence undecided, and noted what that costs — *"an undecided cadence
+means no digest reaches anyone."* Everything upstream of §6.4's committed digest works
+and lands nowhere. Decided 2026-09-09: **per pull request.**
+
+Before opening a PR that changed something worth reconstructing later, render the
+digest into the repo and commit it with the change:
+
+```bash
+agent-journal digest --workspace api --level published --out docs/decisions/api.md
+```
+
+It lands where a reviewer already is, while the entries are still fresh enough to
+argue with. Per release batches too much into one document to be read; on demand
+means nobody runs it.
+
+### Why CI cannot do this for you
+
+It is worth knowing why this step is yours rather than a job's. §6.2 keeps the journal
+at `~/.agents/journal/` — on the machine that wrote it, deliberately outside the repo,
+because segments carry hostnames and home paths. A CI runner has no journal to render
+from. A workflow calling `digest` would produce an empty document, which is worse than
+none: it reads as *"no decisions were made"*.
+
+What CI does instead is validate what was committed. The
+[source repository](https://github.com/crissmoldovan/agent-skills) carries a digest
+checker in its own verify chain — it is not part of this skill's installed files — and
+it confirms that every digest under `docs/decisions/` is **intact**: not empty, not
+truncated mid-write, still carrying its `## Coverage` block, with nothing appended by
+hand and no second forged coverage block above the real one. Any repository adopting
+this cadence wants the same check; the shape above is what it looks for.
+
+**It cannot check freshness, and does not claim to.** A passing run means "this digest
+is intact", never "this digest is current" — the runner has no journal to compare
+against. A digest that is three weeks stale passes every check. That is a real limit
+of this arrangement, and the reason the rendering step above is a habit rather than a
+gate.
+
 ## Tracing from a symptom: `trace <key> --workspace <id>`
 
 Spec §10.2 is explicit that support and debugging questions do not start with an entry
