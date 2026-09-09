@@ -2740,3 +2740,43 @@ test('compact keeps a line it cannot parse rather than dropping it', async () =>
   assert.match(r.stderr, /refusing to compact/);
   assert.match(await readFile(target, 'utf8'), /not json at all/);
 });
+
+// `purged: true` is the field somebody reads to answer "was the leaked
+// credential actually erased?", so it must never be set for bytes that are
+// still there. It was: the flag was flipped per-segment from the PLANNED purge
+// set, so a target sitting in a segment that got skipped left its tombstone
+// stamped purged while the content stayed on disk.
+//
+// This is the end-to-end shape, NOT a test of the two-phase guard — worth being
+// exact about, since the first version of this comment claimed otherwise.
+// Reverting the guard to the planned set leaves this green: an absent target
+// never enters `purgeIds` in the first place, so the planned set already
+// excluded it and the filter never ran. The guard itself only bites on a
+// SKIPPED segment, which is a race; it is isolated in tombstone.test.ts
+// ('only a tombstone whose target was actually removed may be marked purged').
+test('a tombstone marks purged only when bytes were really removed', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  // Present target: gets purged, so its tombstone flips.
+  await runCli(['record', '--kind', 'finding', '--id', 'here', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'here', '--reason=present', '--workspace', 'ws'], env);
+  // Absent target: nothing to remove, so its tombstone must NOT flip.
+  await runCli(['tombstone', 'never-existed', '--reason=absent', '--workspace', 'ws'], env);
+
+  const before = await readAllEvents(dir, 'ws');
+  const forPresent = before.find((e) => e.kind === 'tombstone' && e.data.target === 'here')!;
+  const forAbsent = before.find((e) => e.kind === 'tombstone' && e.data.target === 'never-existed')!;
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).tombstonesMarkedPurged, [forPresent.id],
+    'a tombstone that removed nothing was reported as having purged something');
+
+  const after = await readAllEvents(dir, 'ws');
+  const flipped = after.find((e) => e.id === forPresent.id)!;
+  const unflipped = after.find((e) => e.id === forAbsent.id)!;
+  assert.equal(flipped.data.purged, true, 'a genuine purge did not flip the flag');
+  assert.notEqual(unflipped.data.purged, true,
+    'a tombstone claimed purged for content it never removed');
+});

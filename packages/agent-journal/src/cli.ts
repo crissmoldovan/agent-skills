@@ -16,7 +16,7 @@ import { SegmentJournal } from './journal.ts';
 import { parseSegment, mergeEvents } from './read.ts';
 import { coverage, voidEvent } from './coverage.ts';
 import { project } from './retract.ts';
-import { TOMBSTONE_KIND, tombstonesIn, suppressedIds } from './tombstone.ts';
+import { TOMBSTONE_KIND, tombstonesIn, suppressedIds, tombstonesActuallyPurged } from './tombstone.ts';
 import { applyRetention } from './retention.ts';
 import { liveConstraints, constraintsBearingOn } from './constraints.ts';
 import { liveClaims } from './claims.ts';
@@ -368,12 +368,13 @@ async function purgeOneSegment(
   full: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
-): Promise<'unchanged' | 'rewritten' | 'skipped'> {
+): Promise<{ outcome: 'unchanged' | 'rewritten' | 'skipped'; removed: string[] }> {
   for (let attempt = 0; attempt < MAX_PURGE_ATTEMPTS; attempt += 1) {
     const before = await stat(full);
     const text = await readFile(full, 'utf8');
 
     let changed = false;
+    const removed: string[] = [];
     const lines: string[] = [];
     for (const raw of text.split('\n')) {
       if (!raw.trim()) continue;
@@ -387,7 +388,7 @@ async function purgeOneSegment(
         continue;
       }
       const id = typeof parsed.id === 'string' ? parsed.id : undefined;
-      if (id !== undefined && purgeIds.has(id)) { changed = true; continue; }
+      if (id !== undefined && purgeIds.has(id)) { changed = true; removed.push(id); continue; }
       if (id !== undefined && parsed.kind === TOMBSTONE_KIND && flipTombstoneIds.has(id)) {
         const data = (parsed.data ?? {}) as Record<string, unknown>;
         lines.push(JSON.stringify({ ...parsed, data: { ...data, purged: true } }));
@@ -396,22 +397,28 @@ async function purgeOneSegment(
       }
       lines.push(raw); // original bytes, unknown fields and all
     }
-    if (!changed) return 'unchanged';
+    if (!changed) return { outcome: 'unchanged', removed: [] };
 
     const after = await stat(full);
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) continue;
 
     const tmp = `${full}.compact-${process.pid}-${Date.now()}.tmp`;
-    await writeFile(tmp, lines.length > 0 ? `${lines.join('\n')}\n` : '', 'utf8');
-    const finalCheck = await stat(full);
-    if (finalCheck.size !== before.size || finalCheck.mtimeMs !== before.mtimeMs) {
-      await rm(tmp, { force: true });
-      continue;
+    // finally, not just the growth branch: a failing `rename` (an immutable
+    // file, a full disk) left a full-size orphan copy beside every segment,
+    // and nothing in this package ever reaps them.
+    let renamed = false;
+    try {
+      await writeFile(tmp, lines.length > 0 ? `${lines.join('\n')}\n` : '', 'utf8');
+      const finalCheck = await stat(full);
+      if (finalCheck.size !== before.size || finalCheck.mtimeMs !== before.mtimeMs) continue;
+      await rename(tmp, full);
+      renamed = true;
+    } finally {
+      if (!renamed) await rm(tmp, { force: true });
     }
-    await rename(tmp, full);
-    return 'rewritten';
+    return { outcome: 'rewritten', removed };
   }
-  return 'skipped';
+  return { outcome: 'skipped', removed: [] };
 }
 
 /**
@@ -440,8 +447,9 @@ async function purgeSegments(
   workspace: string,
   purgeIds: ReadonlySet<string>,
   flipTombstoneIds: ReadonlySet<string>,
-): Promise<string[]> {
+): Promise<{ skipped: string[]; removed: Set<string> }> {
   const skipped: string[] = [];
+  const removed = new Set<string>();
   const base = join(root, 'workspaces', workspace, 'segments');
 
   async function walk(dir: string): Promise<void> {
@@ -457,13 +465,14 @@ async function purgeSegments(
       if (e.isDirectory()) { await walk(full); continue; }
       if (!e.name.endsWith('.jsonl')) continue;
 
-      const outcome = await purgeOneSegment(full, purgeIds, flipTombstoneIds);
-      if (outcome === 'skipped') skipped.push(full);
+      const r = await purgeOneSegment(full, purgeIds, flipTombstoneIds);
+      if (r.outcome === 'skipped') skipped.push(full);
+      for (const id of r.removed) removed.add(id);
     }
   }
 
   await walk(base);
-  return skipped;
+  return { skipped, removed };
 }
 
 export async function runCli(
@@ -1457,13 +1466,35 @@ async function dispatch(
       unclassified: result.unclassified,
       // The ids of the TOMBSTONE EVENTS whose `purged` flag is (--apply) or
       // would be (dry run) flipped true -- not the ids of their targets.
+      // Dry run: what WOULD be flipped. --apply: replaced below with what
+      // actually was, since a skipped segment can leave a planned flip undone.
       tombstonesMarkedPurged: tombstonesToFlip.map((t) => t.id),
     };
 
     if (apply) {
-      const skippedPaths = await purgeSegments(
-        root, workspace, purgeIds, new Set(tombstonesToFlip.map((t) => t.id)),
-      );
+      // Two phases, because `purged` is the field somebody reads to answer
+      // "was the leaked credential actually erased?" — and a one-pass flip
+      // wrote `purged: true` for a target that had NOT been erased.
+      //
+      // The flag was set per-segment from the PLANNED purge set, so when the
+      // target lived in a busy segment that got skipped and its tombstone lived
+      // in a quiet one, the tombstone was stamped purged while the bytes stayed
+      // on disk — contradicting this package's own documented guarantee that
+      // compact flips it "only once it has actually removed the bytes".
+      //
+      // Phase 1 removes and reports what it really removed. Phase 2 flips only
+      // those. A tombstone whose target survived a skip keeps `purged: false`
+      // and is flipped by the next run, which is the truthful answer.
+      const purgePass = await purgeSegments(root, workspace, purgeIds, new Set());
+      const skippedPaths = purgePass.skipped;
+      const actuallyFlipped = tombstonesActuallyPurged(tombstonesToFlip, purgePass.removed);
+      if (actuallyFlipped.length > 0) {
+        const flipPass = await purgeSegments(
+          root, workspace, new Set(), new Set(actuallyFlipped.map((t) => t.id)),
+        );
+        skippedPaths.push(...flipPass.skipped);
+      }
+      const truthfulReport = { ...report, tombstonesMarkedPurged: actuallyFlipped.map((t) => t.id) };
       if (skippedPaths.length > 0) {
         // Not a failure: nothing was lost, the purge simply did not happen for
         // these files because a session kept appending to them. Saying so is
@@ -1471,11 +1502,14 @@ async function dispatch(
         // would leave them believing content is gone when it is not.
         return {
           code: 1,
-          stdout: `${JSON.stringify({ ...report, skipped: skippedPaths }, null, 2)}\n`,
+          stdout: `${JSON.stringify({ ...truthfulReport, skipped: skippedPaths }, null, 2)}\n`,
           stderr: `${skippedPaths.length} segment(s) were being written during compaction `
             + `and were left untouched; re-run when writers are idle\n`,
         };
       }
+      // Nothing skipped: planned and actual coincide. Returned from the
+      // truthful object anyway, so the two can never drift apart silently.
+      return { code: 0, stdout: `${JSON.stringify(truthfulReport, null, 2)}\n`, stderr: '' };
     }
 
     return { code: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };

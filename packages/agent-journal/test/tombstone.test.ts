@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tombstonesIn, suppressedIds, TOMBSTONE_KIND } from '../src/tombstone.ts';
+import { tombstonesIn, suppressedIds, TOMBSTONE_KIND, tombstonesActuallyPurged } from '../src/tombstone.ts';
 import { normalizeEvent } from '../src/envelope.ts';
 
 function ev(id: string, kind: string, data: Record<string, unknown>, time = '2026-09-09T10:00:00.000Z') {
@@ -66,4 +66,26 @@ test('tombstones are returned in time order, oldest first', () => {
 test('a non-tombstone event is ignored however tombstone-shaped its data', () => {
   const decoy = ev('d1', 'decision', { target: 'e1', reason: 'r', question: 'q', chosen: 'x' });
   assert.deepEqual([...suppressedIds([decoy])], []);
+});
+
+// The two-phase guard, isolated. It only matters when a PLANNED purge does not
+// happen — a segment skipped because a session kept appending to it — and that
+// is a race, not something a test can stage. Inline in the CLI it was
+// untestable, and reverting it to the planned set left every test green while
+// `purged: true` was written for a credential still on disk.
+test('only a tombstone whose target was actually removed may be marked purged', () => {
+  const planned = tombstonesIn([
+    stone('t-done', 'removed-target'),
+    stone('t-skipped', 'survived-target'),
+  ]);
+  assert.equal(planned.length, 2, 'fixture did not produce two tombstones');
+
+  const got = tombstonesActuallyPurged(planned, new Set(['removed-target']));
+  assert.deepEqual(got.map((t) => t.id), ['t-done'],
+    'a tombstone whose target survived was cleared to claim it was purged');
+});
+
+test('nothing removed means nothing marked purged', () => {
+  const planned = tombstonesIn([stone('t1', 'a'), stone('t2', 'b')]);
+  assert.deepEqual(tombstonesActuallyPurged(planned, new Set()), []);
 });

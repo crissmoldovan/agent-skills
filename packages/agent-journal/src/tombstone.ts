@@ -94,3 +94,23 @@ export function suppressedIds(events: readonly JournalEvent[]): ReadonlySet<stri
   for (const t of tombstonesIn(events)) out.add(t.target);
   return out;
 }
+
+/**
+ * Which tombstones may have `purged` flipped true: exactly those whose target
+ * was ACTUALLY removed, not those a run planned to remove.
+ *
+ * Extracted so it can be tested at all. The distinction only shows up when a
+ * planned purge does not happen — a segment skipped because a session kept
+ * appending to it — and that is a race, not something a test can stage. Inline
+ * in the CLI, reverting this filter to the planned set left every test green
+ * while `purged: true` was written for a credential still sitting on disk.
+ *
+ * `purged` is the field somebody reads to answer "was it actually erased?", so
+ * it must never run ahead of the bytes.
+ */
+export function tombstonesActuallyPurged(
+  planned: readonly Tombstone[],
+  removedIds: ReadonlySet<string>,
+): Tombstone[] {
+  return planned.filter((t) => removedIds.has(t.target));
+}
