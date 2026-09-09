@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty public, portable Agent Skills for agent operations, reviews, releases,
+  Twenty-one public, portable Agent Skills for agent operations, reviews, releases,
   codebase context, secure setup, change delivery, and evidence-backed
   investigation of what a change would touch.
 </p>
@@ -34,6 +34,7 @@ harnesses, and tested as part of one release catalogue.
 | `land-complex-change` | Land a complex change with reduced side effects and regressions: declare a touch-set budget from its blast map, arm a regression gate per affected surface, and stop when work strays outside the budget. Use when a change is too risky to build without contained side effects. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
 | `resolve-problem-report` | Resolve a problem report end to end: reproduce the claim, dig to root cause or implications, offer candidate fixes with trade-offs, spec the chosen one, and land it through gated review. Use when a bug or feature report needs investigating and resolving rather than a quick patch. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
 | `new-ux-discovery` | Discover UX improvements a codebase can already support — across UI, API, CLI, MCP and notifications — and gate every candidate through a not-already-implemented sweep and a no-confusion check before proposing it. Use when you want evidence-backed UX opportunities, riding a change or from pure analysis. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
+| `workspace-governance` | Audit repository placement and explain inherited policy. | [Skill](skills/workspace-governance/SKILL.md) · [Guide](docs/workspace-governance/index.md) |
 
 The pack contains distinct procedures, not one monolithic workflow. Compose only
 what the task needs. `model-routing` and `agent-lifecycle` cover economical,
@@ -95,6 +96,9 @@ npx skills add crissmoldovan/agent-skills --skill investigate-codebase blast-are
 # Contained change delivery and end-to-end report resolution
 npx skills add crissmoldovan/agent-skills --skill land-complex-change resolve-problem-report
 
+# Read-only repository governance (CLI installed separately)
+npx skills add crissmoldovan/agent-skills --skill workspace-governance
+
 # UX opportunities a codebase can already support
 npx skills add crissmoldovan/agent-skills --skill new-ux-discovery
 ```
@@ -106,7 +110,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the seventeen public skills from crissmoldovan/agent-skills.
+Install or update the twenty-one public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -237,6 +241,16 @@ through the not-already-implemented sweep and the no-confusion check, and show m
 dropped candidates with the reason each was dropped.
 ```
 
+```text
+Use workspace-governance to validate this declared catalog, explain inherited
+policy and audit local checkout placement. Treat previews as read-only and local
+principal selection as advisory, never approval to move repositories.
+```
+
+The workspace-governance CLI is installed separately from a built local tarball;
+see [build/install guidance](packages/workspace-governance/README.md). Installing
+the skill does not install the CLI; the v0.1 candidate is unpublished.
+
 ## Composition and references
 
 - [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership.
@@ -260,7 +274,7 @@ npm run verify
 ```
 
 The command runs catalogue tests, skill validation, the lifecycle runtime suite,
-TypeScript build, and package-consumer verification.
+workspace-governance suite, TypeScript builds, and isolated package-consumer verification.
 
 ## License
 
