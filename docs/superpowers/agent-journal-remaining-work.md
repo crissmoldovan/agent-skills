@@ -43,39 +43,60 @@ Closing it properly needs a record of the purge itself — a receipt a later run
 read — which is a design question, not a patch. Documented as permanent in
 `references/retention-and-deletion.md` in the meantime.
 
-## 2. The `runtime` anchor class has no producer
+## 2. §11's authoring floors are not wired
 
-**§16's v1 set names it beside `environment`.**
-
-`runtime` is in `ANCHOR_CLASSES` and nothing ever writes one. `environment`, its
-sibling in that list, is captured by `observe --kind environment`. The distinction that
-makes this a gap rather than a deferral: `visual` is *explicitly* schema-only in v1
-("populated manually or by a human-authored entry"), and `runtime` carries no such
-carve-out — it reads as something that should be captured.
-
-Decide which it is, and either capture it or say in the spec that it is a schema.
-
-## 3. §11's authoring floors are not wired
-
-**§11.1–11.3.**
+**§11.1–11.3.** *(This entry absorbed the former "`runtime` anchor class has no
+producer" item — see the correction at the end of this section.)*
 
 Authoring is self-triggered, with two floors that stop it being purely voluntary:
 
-- **Floor 1 — compaction (§11.2).** The adapters record `compact` as an observation,
-  but nothing prompts the agent to *author* at that moment. The observation is the
-  evidence that context was about to be destroyed; the floor is the writing that
-  should happen before it is.
+- **Floor 1 — compaction (§11.2).** Force a flush before context is destroyed:
+  pending entries, plus an assumption sweep — what was taken on trust, written as
+  `assumption` entries with `checked: no`.
 - **Floor 2 — consequence, not judgement (§11.3).** A narrow set of
-  consequence-bearing observations (config/flag/deploy mutations, permission grants)
-  should also force an authoring prompt. Nothing reads observations for this.
+  consequence-bearing observations — permission grants and denials, config/flag/
+  env-var/deploy mutations, first use of an unfamiliar external API, a `constraint`
+  matching the current subject — prompts an entry regardless of judgement.
 
-§11.3's finding was that self-trigger alone captured roughly the complement of the set
-that causes incidents — which is the whole reason the floors exist. Without them the
-journal records what an agent felt like recording.
+§11.3's finding is the sharpest line in the spec: the set an agent self-triggers on is
+roughly *the complement* of the set that causes incidents. Nobody decides to flip an
+enforcement flag. Without the floors, the journal records what an agent felt like
+recording.
 
-`SKILL.md` mentions compaction once. That is the extent of it.
+**Both are now buildable, on evidence rather than documentation.**
+`adapters/HOOK-OUTPUT-NOTES.md` (2026-09-09) converted the hook output channel from
+the binary's own strings into observed behaviour:
 
-## 4. Digest cadence — the open question with teeth
+- Floor 2 → `PostToolUse` with `hookSpecificOutput.additionalContext`. **Observed
+  working**, delivered mid-turn immediately after the tool call.
+- Floor 1 → `PreCompact` with top-level `reason`/`systemMessage`. **Observed
+  working**, folded into the compaction summary and surviving it. `PreCompact`
+  rejects `hookSpecificOutput` outright — the probe captured the harness's own
+  schema error — so Floor 1 needs the generic-field path, not Floor 2's.
+
+Decided 2026-09-09: build it, **opt-in per workspace**. Injecting text into a live
+session is not something an installed adapter should start doing unannounced.
+
+### Correction: `runtime` was never missing a producer
+
+An earlier revision of this file listed the `runtime` anchor class as having no
+producer. That was wrong, and checking took one command:
+`record --anchor runtime:<observation-id>` already works, writes
+`{"type":"runtime","ref":"…"}`, and correctly marks `capabilities.runtime: "known"`
+while every other class stays `unknown`.
+
+`runtime` is not like `visual` (a schema nothing can populate). It is like
+`tool_use`: the hook produces the observation, and the anchor is the agent's claim
+about which observation mattered. That division already holds. What is missing is
+anything that helps an agent *notice* a config mutation happened so it thinks to cite
+one — which is Floor 2. Building Floor 2 closes this as a side effect.
+
+Rejected while deciding: letting the agent call `observe --kind runtime` itself. That
+would put agent-asserted content into Plane A, whose whole purpose is to be *not*
+agent-asserted — either lying about `provenance: "hook"` or needing a new provenance
+to admit it was not one.
+
+## 3. Digest cadence — the open question with teeth
 
 **§17.4.**
 
