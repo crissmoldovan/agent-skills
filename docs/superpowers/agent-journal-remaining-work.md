@@ -23,6 +23,20 @@ for the mechanics — what a tombstone costs, why `compact` defaults to a dry ru
 refuses on a damaged journal, and the pinning interaction between an entry's own TTL
 and what it anchors.
 
+**Authoring floors (§11.2–11.3)** — shipped, opt-in per workspace via
+`AGENT_JOURNAL_FLOORS=1`: Floor 2 (consequence) on `PostToolUse`, Floor 1 (compaction)
+on `PreCompact`. Both floors prompt, never author. See
+[`skills/decision-journal/references/authoring-floors.md`](../../skills/decision-journal/references/authoring-floors.md)
+for what each fires on, opting in and why it defaults off, and the classifier's named
+blind spots (`permission` matches nothing on this harness today, "unfamiliar" means
+absent from this journal rather than new to the world, and `MUTATION_PATTERNS` is a
+table meant to be extended). The `runtime` anchor class was never actually missing a
+producer — `record --anchor runtime:<id>` already worked, and an earlier revision of
+this file said otherwise in error. What was missing was anything that helps an agent
+*notice* a mutation happened so it thinks to cite one; that is Floor 2's job, closed as
+a side effect of shipping it. Two structural limits found while verifying this end to
+end are worth their own entries rather than a footnote here — see #2 and #3 below.
+
 ## 1. A tombstone's `purged` flag can be permanently, wrongly `false`
 
 **§13.2, and a consequence of the `compact` skip path rather than of the spec.**
@@ -43,60 +57,64 @@ Closing it properly needs a record of the purge itself — a receipt a later run
 read — which is a design question, not a patch. Documented as permanent in
 `references/retention-and-deletion.md` in the meantime.
 
-## 2. §11's authoring floors are not wired
+## 2. Floor 1 does not force a pre-compaction flush, despite what §11.2 says
 
-**§11.1–11.3.** *(This entry absorbed the former "`runtime` anchor class has no
-producer" item — see the correction at the end of this section.)*
+**§11.2, and a limit of the hook surface rather than of this implementation.**
 
-Authoring is self-triggered, with two floors that stop it being purely voluntary:
+§11.2's own words: `PreCompact` "forces a flush **before** context is destroyed." The
+shipped mechanism does not do that, and confirming so took a live check, not inference:
+a follow-up prompt in the same session, after compaction, asked what special
+instructions arrived around the compaction step and got the full flush/assumption-sweep
+text back verbatim — with the agent's own unprompted commentary that it "reached me as
+`local-command-stdout` *after* compaction had completed, carrying the caveat 'DO NOT
+respond to these messages… unless the user explicitly asks'." As a prompt meant to
+trigger action *before* the loss, it arrives too late to act on.
 
-- **Floor 1 — compaction (§11.2).** Force a flush before context is destroyed:
-  pending entries, plus an assumption sweep — what was taken on trust, written as
-  `assumption` entries with `checked: no`.
-- **Floor 2 — consequence, not judgement (§11.3).** A narrow set of
-  consequence-bearing observations — permission grants and denials, config/flag/
-  env-var/deploy mutations, first use of an unfamiliar external API, a `constraint`
-  matching the current subject — prompts an entry regardless of judgement.
+What it does achieve is real, and is not nothing: the flush/assumption-sweep
+instruction is folded into the compaction/summarization request itself, so it survives
+compaction and reminds the agent afterward to write those entries — with whatever
+detail compaction already discarded. Both halves need saying together; see
+[`skills/decision-journal/references/authoring-floors.md`](../../skills/decision-journal/references/authoring-floors.md)
+for the reader-facing version, and `adapters/HOOK-OUTPUT-NOTES.md`'s 2026-09-09
+addendum for the live verification this is drawn from.
 
-§11.3's finding is the sharpest line in the spec: the set an agent self-triggers on is
-roughly *the complement* of the set that causes incidents. Nobody decides to flip an
-enforcement flag. Without the floors, the journal records what an agent felt like
-recording.
+**What would close it:** nothing available on this harness today. `PreCompact` rejects
+`hookSpecificOutput` outright (the harness's own schema validation) — the only channel
+that could plausibly deliver text before compaction completes rather than folded into
+its own summary. Closing this needs either a harness capability that does not
+currently exist, or accepting that §11.2's wording promises more agency in the moment
+than the mechanism can provide and revising it to say what Floor 1 actually does.
 
-**Both are now buildable, on evidence rather than documentation.**
-`adapters/HOOK-OUTPUT-NOTES.md` (2026-09-09) converted the hook output channel from
-the binary's own strings into observed behaviour:
+## 3. Floor 2 cannot see a failed tool call
 
-- Floor 2 → `PostToolUse` with `hookSpecificOutput.additionalContext`. **Observed
-  working**, delivered mid-turn immediately after the tool call.
-- Floor 1 → `PreCompact` with top-level `reason`/`systemMessage`. **Observed
-  working**, folded into the compaction summary and surviving it. `PreCompact`
-  rejects `hookSpecificOutput` outright — the probe captured the harness's own
-  schema error — so Floor 1 needs the generic-field path, not Floor 2's.
+**§11.3, found running this task's own required end-to-end check, not a dedicated
+probe.**
 
-Decided 2026-09-09: build it, **opt-in per workspace**. Injecting text into a live
-session is not something an installed adapter should start doing unannounced.
+`PostToolUse` does not fire for a `Bash` call whose underlying command exits non-zero —
+confirmed three separate ways, each isolated in its own session behind a debug wrapper
+that logs every hook invocation verbatim: a missing binary (exit 127), a real program
+erroring out on its own terms, and a bare `false`. In all three, exactly one hook fired
+for the whole call (`PreToolUse`); no `PostToolUse` invocation appears anywhere in the
+log. Contrast-confirmed against an identical setup with a succeeding command, which
+fires both hooks every time.
 
-### Correction: `runtime` was never missing a producer
+A denied permission, a half-applied change, or a mutation attempt that failed —
+expired auth, a typo'd flag, the tool not installed — is invisible to Floor 2
+structurally, independent of anything `MUTATION_PATTERNS` gets right, and this is
+arguably the more common real case for exactly the commands that table targets. It also
+resolves an earlier open question: why `PostToolUseFailure` was never observed to fire
+on this harness — `adapters/NOTES.md`'s own negative case was a permission *denial*, a
+different mechanism (the harness refusing the call before it runs), not a call that ran
+to completion and merely returned nonzero.
 
-An earlier revision of this file listed the `runtime` anchor class as having no
-producer. That was wrong, and checking took one command:
-`record --anchor runtime:<observation-id>` already works, writes
-`{"type":"runtime","ref":"…"}`, and correctly marks `capabilities.runtime: "known"`
-while every other class stays `unknown`.
+**What would close it:** a dedicated probe, isolated from everything else this task
+needed to verify, bisecting whether this is `is_error`-state-driven (the harness
+treating any nonzero Bash exit the way it treats a denied call), specific to Claude
+Code 2.1.258, or something else — before anyone designs around it further. Full
+verification, including the exact payloads and logs, is in
+`adapters/HOOK-OUTPUT-NOTES.md`'s 2026-09-09 addendum.
 
-`runtime` is not like `visual` (a schema nothing can populate). It is like
-`tool_use`: the hook produces the observation, and the anchor is the agent's claim
-about which observation mattered. That division already holds. What is missing is
-anything that helps an agent *notice* a config mutation happened so it thinks to cite
-one — which is Floor 2. Building Floor 2 closes this as a side effect.
-
-Rejected while deciding: letting the agent call `observe --kind runtime` itself. That
-would put agent-asserted content into Plane A, whose whole purpose is to be *not*
-agent-asserted — either lying about `provenance: "hook"` or needing a new provenance
-to admit it was not one.
-
-## 3. Digest cadence — the open question with teeth
+## 4. Digest cadence — the open question with teeth
 
 **§17.4.**
 

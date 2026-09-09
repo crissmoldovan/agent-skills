@@ -354,6 +354,25 @@ full mechanics, including what an anchor citing purged content renders as afterw
 `tombstone` is the right tool — and, if it is `tombstone`, that you ran `compact`
 without `--apply` first and read what it would do before adding the flag.
 
+### 10. Let a floor catch what self-triggering misses
+
+Step 1's "notice" is voluntary; §11.3's finding is that what an agent notices on its own
+is roughly *the complement* of what causes incidents. Two **authoring floors** narrow
+that by prompting, never writing: one on a consequence-bearing observation (a mutating
+command, an unfamiliar host, a matching constraint), one before compaction.
+
+```bash
+agent-journal floor --kind consequence --workspace <id> [--since <ts>] [--subject <s>]
+agent-journal floor --kind compaction --workspace <id> [--since <ts>]
+```
+
+**Opt-in per workspace** (`AGENT_JOURNAL_FLOORS=1`) — an unasked floor gets the adapter
+uninstalled. See [references/authoring-floors.md](references/authoring-floors.md) for
+what the classifier misses, why Floor 1 can't force a flush, and Floor 2's blind spot.
+
+**Complete when:** you know whether floors are on here, and treat one as a question,
+never an entry to accept as written.
+
 ## Usage Examples
 
 **Recording a rejection, which is the entry nothing else captures:**
@@ -467,3 +486,7 @@ Before treating a journal as a record you can rely on:
   this skill), verifying arrival with `coverage`, the capture → find → cite loop for
   anchoring an entry to an observation, what still has to be hand-anchored, and the
   honest, unequal status of each adapter.
+- [references/authoring-floors.md](references/authoring-floors.md) — the two floors
+  that prompt regardless of judgement: what fires each, opting in, what the classifier
+  misses, and why Floor 1 doesn't force a pre-compaction flush and Floor 2 misses a
+  failed tool call.
