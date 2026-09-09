@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readdir, readFile, writeFile, chmod, mkdir, symlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { tmpdir, hostname } from 'node:os';
+import { join, dirname, sep } from 'node:path';
 import { runCli } from '../src/cli.ts';
-import type { JournalEvent } from '../src/envelope.ts';
+import { normalizeEvent, type JournalEvent } from '../src/envelope.ts';
 import { project } from '../src/retract.ts';
 
 async function root(): Promise<string> {
@@ -1654,7 +1654,7 @@ test('retention still classifies observations after the list moves to observe.ts
 
   const report = applyRetention(
     [make('o1', 'heartbeat'), make('u1', 'some_future_kind_nobody_wrote_yet')],
-    { now: NOW, observationTtlMs: 30 * 86400000 },
+    { now: NOW, observationTtlMs: 30 * 86400000, entryTtlMs: 30 * 86400000 },
   );
   // heartbeat is a known observation with nothing citing it: it ages out.
   assert.deepEqual(report.expired, ['o1']);
@@ -1671,7 +1671,7 @@ test('retention still classifies observations after the list moves to observe.ts
   // unclassified and this fails.
   const all = applyRetention(
     OBSERVATION_KINDS.map((k, i) => make(`k${i}`, k)),
-    { now: NOW, observationTtlMs: 30 * 86400000 },
+    { now: NOW, observationTtlMs: 30 * 86400000, entryTtlMs: 30 * 86400000 },
   );
   assert.deepEqual(all.unclassified, [],
     `retention does not recognise every kind observe.ts declares: ${all.unclassified}`);
@@ -2234,4 +2234,687 @@ test('decay redacts the live "now" environment before printing it, not just the 
     `decay printed an unredacted machine-identifying path in its own output: ${r.stdout}`);
   assert.match(r.stdout, /\/\[REDACTED\]\/bin\/node/,
     'the live "now" interpreter should have been redacted, not merely absent');
+});
+
+// A regression guard, and NOT a test of the TOCTOU fix it sits beside -- worth
+// being exact about, because the first version of this comment claimed
+// otherwise.
+//
+// The guards canonicalize `--out` and check the resolved path; the write now
+// uses that same resolved path rather than re-following `out`. Mutating it back
+// leaves this GREEN, and that is correct: `canonicalize` resolves the PARENT and
+// rejoins the basename, so both paths reach the same file. The fix buys a
+// narrower window between check and write, not a different destination -- and a
+// window is not something a deterministic test can observe.
+//
+// What this does prove is that a symlinked parent still works at all, which the
+// change could plausibly have broken.
+test('digest --out through a symlinked parent lands at the resolved location', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--claim=x', '--scope', 'machine',
+    '--disclosure', 'published', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const real = join(dir, 'real-dir');
+  await mkdir(real, { recursive: true });
+  await symlink(real, join(dir, 'link-dir'));
+  const r = await runCli(['digest', '--workspace', 'ws', '--out', join(dir, 'link-dir', 'd.md')],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const written = await readFile(join(real, 'd.md'), 'utf8');
+  assert.match(written, /## Coverage/);
+  assert.match(r.stdout, /link-dir/);
+});
+
+// --- Task 3: `tombstone` and `compact` ---
+
+/** Every `.jsonl` file under a segments tree, path (relative) -> content. Used
+ *  to assert a dry run touches not one byte, and to diff exactly what compact
+ *  --apply changed. */
+async function snapshotSegments(segDir: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const files = (await readdir(segDir, { recursive: true }).catch(() => [] as string[])) as string[];
+  for (const f of files.filter((x) => x.endsWith('.jsonl'))) {
+    out[f] = await readFile(join(segDir, f), 'utf8');
+  }
+  return out;
+}
+
+/** A well-formed event with a caller-chosen `time`, for injecting content old
+ *  enough to test TTL expiry — something no CLI command can do today, since
+ *  every write path stamps `nowStamp()` itself. Bypasses the CLI entirely. */
+function oldEvent(id: string, kind: string, time: string, data: Record<string, unknown> = {}) {
+  return normalizeEvent({
+    schemaVersion: 1, id, source: `raw/fixture/${id}`, sourceEpoch: 'e1', time,
+    workspace: 'ws', session: 's1', agent: 'primary', author: 'agent', provenance: 'hook',
+    harness: 'test', context: 'coding', kind, data,
+  });
+}
+
+/** Appends a raw event straight onto an existing segment file, bypassing
+ *  SegmentJournal (and its redaction) entirely — the fixture only needs a
+ *  well-formed line on disk, not a real write path. */
+async function appendRawEvent(dir: string, workspace: string, event: JournalEvent): Promise<void> {
+  const segDir = join(dir, 'workspaces', workspace, 'segments');
+  const files = (await readdir(segDir, { recursive: true }) as string[]).filter((f) => f.endsWith('.jsonl'));
+  const target = join(segDir, files[0]!);
+  const current = await readFile(target, 'utf8');
+  await writeFile(target, `${current}${JSON.stringify(event)}\n`);
+}
+
+test('tombstone requires a reason and exits 2 without one', async () => {
+  const dir = await root();
+  const r = await runCli(['tombstone', 'e1', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /reason/i);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0, 'nothing should be written');
+});
+
+test('tombstone refuses a blank (whitespace-only) reason, not just a missing one', async () => {
+  const dir = await root();
+  const r = await runCli(['tombstone', 'e1', '--reason', '   ', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /reason/i);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0,
+    'a blank reason must not land as an inert, unreadable "tombstone"');
+});
+
+test('tombstone requires a target id', async () => {
+  const dir = await root();
+  const r = await runCli(['tombstone', '--reason', 'leaked secret', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+});
+
+test('tombstone writes an appended event and leaves the target bytes on disk', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'finding', '--id', 'f1',
+    '--claim', 'leaked an api key in the log', '--scope', 'machine'], env);
+
+  const r = await runCli(['tombstone', 'f1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /tombstoned f1/);
+
+  const events = await readAllEvents(dir, 'ws');
+  const tomb = events.find((e) => e.kind === 'tombstone');
+  assert.ok(tomb, 'a tombstone event must be written');
+  assert.equal(tomb!.data.target, 'f1');
+  assert.equal(tomb!.data.reason, 'contained a live credential');
+  assert.equal(tomb!.data.purged, false, 'purging is a separate, later act');
+  assert.equal(tomb!.author, 'human', 'a human decided the content must not exist');
+
+  // Purges nothing: the target's bytes are still on disk.
+  const target = events.find((e) => e.id === 'f1');
+  assert.ok(target, 'tombstone must not remove the target from disk');
+  assert.equal(target!.data.claim, 'leaked an api key in the log');
+});
+
+test('tombstone warns, but still records, when the target matches nothing known', async () => {
+  const dir = await root();
+  const r = await runCli(['tombstone', 'ghost', '--reason', 'preemptive', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stderr, /WARNING.*ghost/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 1, 'the tombstone is still recorded');
+});
+
+test('an unknown flag on tombstone is refused, not silently dropped', async () => {
+  const dir = await root();
+  const r = await runCli(['tombstone', 'd1', '--reason', 'x', '--workspace', 'ws', '--targt', 'oops'],
+    { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown flag: --targt/);
+  assert.equal((await readAllEvents(dir, 'ws')).length, 0);
+});
+
+test('show stops rendering a tombstoned entry, while it is still physically on disk', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const out = JSON.parse((await runCli(['show', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir })).stdout);
+  assert.ok(!out.entries.some((e: any) => e.id === 'd1'), 'a tombstoned entry must not render in show');
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.ok(events.some((e) => e.id === 'd1'), 'tombstone alone must not remove the bytes');
+});
+
+test('digest stops rendering a tombstoned entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'a genuinely unique marker phrase', '--chosen', 'c', '--disclosure', 'published'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'named a real person', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const r = await runCli(['digest', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /a genuinely unique marker phrase/,
+    'a tombstoned entry must not appear in the digest');
+});
+
+test('trace stops matching a tombstoned entry', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c', '--subject', 'src/queue.ts'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const r = await runCli(['trace', 'src/queue.ts', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  const parsed = JSON.parse(r.stdout);
+  assert.deepEqual(parsed.matched, [], 'a tombstoned entry must not be found by trace');
+});
+
+test('an unknown flag on compact is refused, not silently dropped', async () => {
+  const dir = await root();
+  const r = await runCli(['compact', '--workspace', 'ws', '--aply', 'oops'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown flag: --aply/);
+});
+
+test('compact without --apply is a dry run: reports intent, changes not one byte on disk', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const before = await snapshotSegments(segDir);
+
+  const r = await runCli(['compact', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const report = JSON.parse(r.stdout);
+  assert.equal(report.apply, false);
+  assert.deepEqual(report.tombstoned, ['d1']);
+
+  const after = await snapshotSegments(segDir);
+  assert.deepEqual(after, before, 'a dry run must not touch a single byte on disk');
+});
+
+test('compact --apply removes the tombstoned payload and flips purged on the tombstone event', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const report = JSON.parse(r.stdout);
+  assert.equal(report.apply, true);
+  assert.deepEqual(report.tombstoned, ['d1']);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.ok(!events.some((e) => e.id === 'd1'), 'the target bytes must be gone after --apply');
+  const tomb = events.find((e) => e.kind === 'tombstone');
+  assert.ok(tomb, 'the tombstone event itself must survive compaction');
+  assert.equal(tomb!.data.purged, true, 'purged must flip to true once the target is actually gone');
+});
+
+test('compact --apply never removes a tombstone event itself, even under an aggressive entry TTL', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const r = await runCli(
+    ['compact', '--workspace', 'ws', '--entry-ttl-days', '0', '--observation-ttl-days', '0', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 0, r.stderr);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.ok(events.some((e) => e.kind === 'tombstone'),
+    'a tombstone event must survive compaction even under entryTtlDays 0');
+});
+
+test('compact refuses on a damaged journal without touching a byte — the most important guard in this task', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  // Corrupt the tombstone's own segment (session '-', agent '-') — it is
+  // exactly the segment that might hold the tombstone protecting something,
+  // or the content a tombstone names, so a partial read of it must never be
+  // trusted to compact anything.
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const victim = join(segDir, hostname(), '-', '-.e1.0.jsonl');
+  const original = await readFile(victim, 'utf8');
+  await writeFile(victim, `${original}not json at all\n`);
+
+  const before = await snapshotSegments(segDir);
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.notEqual(r.code, 0, 'a damaged journal must not report success');
+  assert.match(r.stderr, /malformed|unreadable/i);
+
+  const after = await snapshotSegments(segDir);
+  assert.deepEqual(after, before, 'compact must not touch a single byte when the read is incomplete');
+});
+
+test('compact refuses when a segment is unreadable, not just when one is malformed', async () => {
+  const dir = await root();
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await chmod(join(segDir, seg), 0o000);
+  try {
+    const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+    assert.notEqual(r.code, 0, 'an unreadable segment must not report success');
+    assert.match(r.stderr, /unreadable/i);
+  } finally {
+    await chmod(join(segDir, seg), 0o600);
+  }
+});
+
+test('--apply takes no value; a value passed to it is refused rather than guessed at', async () => {
+  const dir = await root();
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply', 'true'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--apply/);
+});
+
+test('a non-numeric --entry-ttl-days is refused', async () => {
+  const dir = await root();
+  const r = await runCli(['compact', '--workspace', 'ws', '--entry-ttl-days', 'soon'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /entry-ttl-days/);
+});
+
+test('compact --apply purges an entry past --entry-ttl-days — applyRetention actually wired, not decorative flags', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'fresh',
+    '--question', 'q', '--chosen', 'c'], env);
+  await appendRawEvent(dir, 'ws',
+    oldEvent('stale', 'decision', '2000-01-01T00:00:00.000Z', { question: 'ancient', chosen: 'x' }));
+
+  const r = await runCli(
+    ['compact', '--workspace', 'ws', '--entry-ttl-days', '1', '--observation-ttl-days', '1', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  const report = JSON.parse(r.stdout);
+  assert.deepEqual(report.expired, ['stale']);
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.deepEqual(events.map((e) => e.id).sort(), ['fresh']);
+});
+
+test('compact with no TTL flags at all never expires anything, however old', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'fresh',
+    '--question', 'q', '--chosen', 'c'], env);
+  await appendRawEvent(dir, 'ws', oldEvent('ancient', 'tool_call', '2000-01-01T00:00:00.000Z'));
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const report = JSON.parse(r.stdout);
+  assert.deepEqual(report.expired, [], 'omitted TTLs must mean "never expire", not "expire everything"');
+
+  const events = await readAllEvents(dir, 'ws');
+  assert.deepEqual(events.map((e) => e.id).sort(), ['ancient', 'fresh']);
+});
+
+test('compact --apply flips purged only on the tombstone whose target was actually purged this run', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'contained a live credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  // A second tombstone naming a target that never existed and never will —
+  // nothing on disk for it to purge, so it must not be marked purged either.
+  await runCli(['tombstone', 'ghost', '--reason', 'preemptive', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+
+  const events = await readAllEvents(dir, 'ws');
+  const tombs = events.filter((e) => e.kind === 'tombstone');
+  const forD1 = tombs.find((t) => t.data.target === 'd1');
+  const forGhost = tombs.find((t) => t.data.target === 'ghost');
+  assert.equal(forD1!.data.purged, true, 'd1 was actually purged this run');
+  assert.equal(forGhost!.data.purged, false,
+    'ghost was never present, so nothing was purged for it — flipping every tombstone unconditionally must not happen');
+});
+
+test('coverage still reads the journal after compact --apply', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--workspace', 'ws', '--kind', 'decision', '--id', 'd1',
+    '--question', 'q', '--chosen', 'c'], env);
+  await runCli(['tombstone', 'd1', '--reason', 'x', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+
+  const r = await runCli(['coverage', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+});
+
+// The un-delete. Reachable with two CLI calls, no file editing: tombstone T2
+// naming tombstone T1 put T1 into `tombstoned`, `compact --apply` erased T1,
+// and when T1's target later arrived from an unsynced segment it rendered as a
+// fully live entry -- credential and all -- because no tombstone naming it
+// existed any more. Deleting the record of a deletion undoes the deletion.
+test('a tombstone cannot be tombstoned away, which would resurrect its target', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=leaked a credential',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'leaky', '--reason=contained a live credential',
+    '--workspace', 'ws'], env);
+  const t1 = (await readAllEvents(dir, 'ws')).find((e) => e.kind === 'tombstone')!;
+
+  const r = await runCli(['tombstone', t1.id, '--reason=recorded in error',
+    '--workspace', 'ws'], env);
+  // Whether the second tombstone is refused at write time or simply cannot take
+  // effect, the invariant is the same and is asserted below: T1 survives.
+  assert.ok(r.code === 0 || r.code === 2, r.stderr);
+
+  await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(after.some((e) => e.id === t1.id),
+    'the tombstone protecting "leaky" was purged — its target can now come back');
+  assert.ok(!after.some((e) => e.id === 'leaky'), 'the target should still be gone');
+});
+
+// `--apply=$FLAG` with the variable unset collapses to `--apply=`, a single
+// token. It reached the boolean carve-out as "present" and enabled deletion --
+// the same shape as the `--workspace $UNSET` bug this CLI already guards, on
+// the one flag where the silent default destroys data.
+test('--apply= is refused, not read as apply', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'keep-me', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'keep-me', '--reason=test', '--workspace', 'ws'], env);
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply='], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2, 'an empty --apply= value enabled destruction');
+  assert.match(r.stderr, /given no value/);
+  assert.ok((await readAllEvents(dir, 'ws')).some((e) => e.id === 'keep-me'),
+    'bytes were purged by a flag that should have been refused');
+});
+
+test('a bare --apply still works, and --apply with a value is still refused', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'gone', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'gone', '--reason=test', '--workspace', 'ws'], env);
+  for (const bad of ['--apply=false', '--apply=true', '--apply=0']) {
+    const r = await runCli(['compact', '--workspace', 'ws', bad], { AGENT_JOURNAL_ROOT: dir });
+    assert.equal(r.code, 2, `${bad} was accepted`);
+  }
+  const ok = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.ok(!(await readAllEvents(dir, 'ws')).some((e) => e.id === 'gone'));
+});
+
+// The naive read -> filter -> writeFile destroyed anything appended while it
+// worked: with a writer appending during a compaction of a large segment, 23 of
+// 70 appended events were overwritten, exit 0, nothing warned. Appends are the
+// one thing §7.1 promises need no coordination, and the active segment is
+// exactly the file a purge must rewrite, because it holds the target.
+//
+// Made deterministic here by appending BEFORE compact runs but AFTER the events
+// it was told about — the same shape without a race: the purge must not remove
+// a line it never read.
+test('compact leaves an event appended after its read intact', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'doomed', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'doomed', '--reason=test', '--workspace', 'ws'], env);
+  await runCli(['record', '--kind', 'finding', '--id', 'late-arrival', '--claim=y',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(after.some((e) => e.id === 'late-arrival'), 'a later append was destroyed');
+  assert.ok(!after.some((e) => e.id === 'doomed'));
+});
+
+// Re-serialising from the parsed event dropped unknown top-level fields on
+// lines that were never targeted. A newer or foreign replica's field simply
+// vanished from a segment this version rewrote.
+test('compact preserves fields it does not understand on lines it keeps', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'doomed', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'doomed', '--reason=test', '--workspace', 'ws'], env);
+
+  // A line from a replica that knows a field this version does not.
+  const seg = join(dir, 'workspaces', 'ws', 'segments', 'foreign', 's9', 'primary.e1.0.jsonl');
+  await mkdir(dirname(seg), { recursive: true });
+  await writeFile(seg, `${JSON.stringify({
+    schemaVersion: 1, id: 'from-the-future', source: 'cli/foreign/s9/primary', sourceEpoch: 'e1',
+    time: '2026-09-09T10:00:00.000Z', workspace: 'ws', session: 's9', agent: 'primary',
+    author: 'agent', provenance: 'cli', harness: 'other', context: 'coding',
+    kind: 'finding', data: { claim: 'c', scope: 'machine' },
+    signature: 'sig-v2', futureField: { nested: true },
+  })}\n`, 'utf8');
+
+  await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  const raw = await readFile(seg, 'utf8');
+  assert.match(raw, /"signature":"sig-v2"/, 'an unknown field was stripped from an untargeted line');
+  assert.match(raw, /"futureField"/);
+});
+
+// On the one path that destroys data, a line we cannot parse is kept. Unreadable
+// to us is not the same as unwanted.
+test('compact keeps a line it cannot parse rather than dropping it', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['record', '--kind', 'finding', '--id', 'doomed', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'doomed', '--reason=test', '--workspace', 'ws'], env);
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const [host] = await readdir(segDir);
+  const sessionDir = join(segDir, host!, 's1');
+  const [file] = await readdir(sessionDir);
+  const target = join(sessionDir, file!);
+  await writeFile(target, `${await readFile(target, 'utf8')}{ not json at all\n`, 'utf8');
+
+  // The journal is now damaged, so compact must refuse outright — which is the
+  // stronger guarantee, and the reason the keep-unparseable rule is a backstop
+  // rather than the primary defence.
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /refusing to compact/);
+  assert.match(await readFile(target, 'utf8'), /not json at all/);
+});
+
+// `purged: true` is the field somebody reads to answer "was the leaked
+// credential actually erased?", so it must never be set for bytes that are
+// still there. It was: the flag was flipped per-segment from the PLANNED purge
+// set, so a target sitting in a segment that got skipped left its tombstone
+// stamped purged while the content stayed on disk.
+//
+// This is the end-to-end shape, NOT a test of the two-phase guard — worth being
+// exact about, since the first version of this comment claimed otherwise.
+// Reverting the guard to the planned set leaves this green: an absent target
+// never enters `purgeIds` in the first place, so the planned set already
+// excluded it and the filter never ran. The guard itself only bites on a
+// SKIPPED segment, which is a race; it is isolated in tombstone.test.ts
+// ('only a tombstone whose target was actually removed may be marked purged').
+test('a tombstone marks purged only when bytes were really removed', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  // Present target: gets purged, so its tombstone flips.
+  await runCli(['record', '--kind', 'finding', '--id', 'here', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'], env);
+  await runCli(['tombstone', 'here', '--reason=present', '--workspace', 'ws'], env);
+  // Absent target: nothing to remove, so its tombstone must NOT flip.
+  await runCli(['tombstone', 'never-existed', '--reason=absent', '--workspace', 'ws'], env);
+
+  const before = await readAllEvents(dir, 'ws');
+  const forPresent = before.find((e) => e.kind === 'tombstone' && e.data.target === 'here')!;
+  const forAbsent = before.find((e) => e.kind === 'tombstone' && e.data.target === 'never-existed')!;
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).tombstonesMarkedPurged, [forPresent.id],
+    'a tombstone that removed nothing was reported as having purged something');
+
+  const after = await readAllEvents(dir, 'ws');
+  const flipped = after.find((e) => e.id === forPresent.id)!;
+  const unflipped = after.find((e) => e.id === forAbsent.id)!;
+  assert.equal(flipped.data.purged, true, 'a genuine purge did not flip the flag');
+  assert.notEqual(unflipped.data.purged, true,
+    'a tombstone claimed purged for content it never removed');
+});
+
+// The two-phase wiring in `compact`, tested at the call site rather than only
+// through its pure helper. Rewiring it back to one pass left all 474 tests
+// green while `purged: true` was written for bytes still on disk — the pure
+// function was guarded, the call site was not.
+//
+// AGENT_JOURNAL_FORCE_SKIP is a test-only seam: the skip path exists for a race
+// (a session appending during compaction), and a race cannot be staged.
+test('a target left in a skipped segment does not get its tombstone marked purged', async () => {
+  const dir = await root();
+  // Target in session s2's segment, tombstone in s1's, so they are separate files.
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}s2${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.skipped.length, 1, `expected exactly the s2 segment skipped: ${r.stdout}`);
+  assert.deepEqual(out.tombstonesMarkedPurged, [],
+    'a tombstone was reported purged while its target sat in a skipped segment');
+
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(after.some((e) => e.id === 'leaky'), 'the skipped target should still be present');
+  const tomb = after.find((e) => e.kind === 'tombstone')!;
+  assert.notEqual(tomb.data.purged, true, 'purged ran ahead of the bytes');
+});
+
+// The other half: with nothing skipped the same journal purges and flips, so
+// the test above is not passing merely because compact did nothing.
+test('...and the same journal completes once nothing is skipped', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).tombstonesMarkedPurged.length, 1);
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(!after.some((e) => e.id === 'leaky'));
+  assert.equal(after.find((e) => e.kind === 'tombstone')!.data.purged, true);
+});
+
+// The mirror case, and the one that made the report lie in the other
+// direction: the TARGET's segment is fine and gets purged, but the segment
+// holding its TOMBSTONE is skipped, so the flip never lands. The report
+// previously named that tombstone as flipped anyway — claiming a flip that
+// never happened, for content that really was gone.
+test('a flip that could not be written is not reported as written', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  // Skip the TOMBSTONE's segment, leaving the target's segment purgeable. A
+  // tombstone carries no session — §13.2 makes it a human governance act, so
+  // `tombstone` writes session `-` like `invalidate` — which is what puts it in
+  // its own segment directory and makes this case stageable at all.
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}-${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual(out.tombstonesMarkedPurged, [],
+    'a flip the run could not write was reported as written');
+
+  const after = await readAllEvents(dir, 'ws');
+  assert.ok(!after.some((e) => e.id === 'leaky'), 'the target should have been purged');
+  const tomb = after.find((e) => e.kind === 'tombstone')!;
+  assert.notEqual(tomb.data.purged, true, 'the flag was set in a segment that was skipped');
+});
+
+// Finding 1 at the CLI level, and the reason the test above does not cover it:
+// there, the target's ONLY copy sits in the skipped segment, so it never enters
+// `removed` and the surviving-set is never consulted. Passing `new Set()` for it
+// left all 477 tests green while `purged: true` was written for a credential
+// still on disk — defect three, in the guard added for defect three.
+//
+// This stages the real shape: the SAME id in two segments, one rewritten and
+// one skipped. The removal is genuine; the bytes are still there.
+test('a target removed from one segment but surviving in a skipped one does not flip', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  // A second copy of the same id, in its own segment — a replica or a restore.
+  const segRoot = join(dir, 'workspaces', 'ws', 'segments');
+  const [host] = await readdir(segRoot);
+  const copyDir = join(segRoot, host!, 's9');
+  await mkdir(copyDir, { recursive: true });
+  const original = (await readAllEvents(dir, 'ws')).find((e) => e.id === 'leaky')!;
+  await writeFile(join(copyDir, 'primary.e1.0.jsonl'), `${JSON.stringify(original)}\n`, 'utf8');
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}s9${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).tombstonesMarkedPurged, [],
+    'purged was claimed while a copy of the target sat in a skipped segment');
+
+  const raw = await readFile(join(copyDir, 'primary.e1.0.jsonl'), 'utf8');
+  assert.match(raw, /"id":"leaky"/, 'the skipped copy should still be on disk');
+  const tomb = (await readAllEvents(dir, 'ws')).find((e) => e.kind === 'tombstone')!;
+  assert.notEqual(tomb.data.purged, true, 'purged ran ahead of a surviving copy');
+});
+
+// Phase two walks the same tree, so a segment skipped in phase one is skipped
+// again — and was listed twice, with stderr reporting "2 segment(s)" for one
+// file. The docs tell a reader to act on that count.
+test('a segment skipped by both passes is reported once', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'a', '--claim=x', '--scope', 'machine',
+    '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['record', '--kind', 'finding', '--id', 'b', '--claim=y', '--scope', 'machine',
+    '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's3' });
+  await runCli(['tombstone', 'a', '--reason=one', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  await runCli(['tombstone', 'b', '--reason=two', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  // Skip the tombstone segment: phase one skips it, then phase two skips it too.
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}-${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  const { skipped } = JSON.parse(r.stdout);
+  assert.equal(skipped.length, new Set(skipped).size, `duplicated paths: ${JSON.stringify(skipped)}`);
+  assert.ok(r.stderr.startsWith(`${skipped.length} segment(s)`),
+    `count disagrees with the list: ${JSON.stringify(r.stderr)}`);
 });

@@ -8,6 +8,7 @@ export * from './identity.ts';
 export * from './journal.ts';
 export * from './read.ts';
 export * from './retract.ts';
+export * from './tombstone.ts';
 export * from './retention.ts';
 export * from './coverage.ts';
 export * from './constraints.ts';

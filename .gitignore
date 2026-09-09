@@ -4,9 +4,15 @@ dist/
 pnpm-lock.yaml
 .superpowers/
 
-# A journal written by running the CLI without AGENT_JOURNAL_ROOT set: it
-# defaults to the working directory, so any dev invocation from inside the
-# package writes a real journal here. One reached a commit this way, carrying
-# the machine hostname in its segment path — and scripts/verify-skills.mjs did
-# not catch it, because .jsonl is not among the extensions it scans.
+# A journal written by running the CLI without AGENT_JOURNAL_ROOT set. It has
+# TWO fallbacks and the first rule here only covered one of them, so this
+# happened twice: `$HOME/.agents/journal`, which becomes `./.agents/journal`
+# when HOME is unset, and a bare `workspaces/` under the cwd. Both carry the
+# machine hostname in their segment paths, and scripts/verify-skills.mjs cannot
+# catch either — it walks skills/ only, and does not scan .jsonl.
+#
+# Ignore them wherever they land, not just under the package, since the cwd of
+# a dev invocation is not fixed.
+**/.agents/journal/
 packages/agent-journal/workspaces/
+workspaces/
