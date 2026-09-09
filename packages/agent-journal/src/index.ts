@@ -12,6 +12,7 @@ export * from './tombstone.ts';
 export * from './retention.ts';
 export * from './coverage.ts';
 export * from './constraints.ts';
+export * from './consequence.ts';
 export * from './claims.ts';
 export * from './digest.ts';
 export * from './trace.ts';
