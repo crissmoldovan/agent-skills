@@ -1,5 +1,5 @@
 import type { JournalEvent } from './envelope.ts';
-import { consequencesIn, type Consequence } from './consequence.ts';
+import { consequencesIn, type Consequence, type ConsequenceRule } from './consequence.ts';
 import { liveConstraints, constraintsMatching } from './constraints.ts';
 
 /**
@@ -108,6 +108,25 @@ export interface ConsequenceFloorOptions {
   readonly now: string;
 }
 
+/** Which anchor class each rule's observation should be cited under.
+ *
+ * `mutation` is why this mapping exists rather than a single class for
+ * everything. §4.3 defines `runtime` as covering exactly this case — "a
+ * deployed config or flag change that has no commit and no file, and is
+ * exactly what a support question is about" — and telling an agent to cite a
+ * secret rotation as `tool_use` loses that distinction at the only moment
+ * anybody is thinking about it. §11.3 lists these mutations as `runtime`
+ * anchors in so many words.
+ *
+ * The others genuinely are tool calls: what is being cited is that the call
+ * happened, which is what `tool_use` means. */
+const ANCHOR_FOR: Readonly<Record<ConsequenceRule, string>> = {
+  mutation: 'runtime',
+  permission: 'tool_use',
+  'unfamiliar-api': 'tool_use',
+  'constraint-match': 'tool_use',
+};
+
 /**
  * §11.3: a short, fixed list of Plane A observations prompts an entry
  * regardless of judgement, because "nobody chose to make a mutating call
@@ -152,7 +171,7 @@ export function renderConsequenceFloor(
   ];
 
   for (const c of consequences) {
-    lines.push(`- ${c.rule}: ${c.detail} (observation ${c.observationId} — cite it as a tool_use anchor)`);
+    lines.push(`- ${c.rule}: ${c.detail} (observation ${c.observationId} — cite it as \`--anchor ${ANCHOR_FOR[c.rule]}:${c.observationId}\`)`);
   }
   for (const c of matchedConstraints) {
     lines.push(

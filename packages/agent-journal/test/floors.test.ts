@@ -201,3 +201,29 @@ test('a blank --subject (whitespace only) is treated as absent, not a literal em
   ];
   assert.equal(renderConsequenceFloor(events, { subject: '   ', now: NOW }), null);
 });
+
+// §4.3 defines `runtime` as covering exactly the mutation case — "a deployed
+// config or flag change that has no commit and no file, and is exactly what a
+// support question is about" — and §11.3 lists these mutations as `runtime`
+// anchors in so many words. Telling an agent to cite a secret rotation as
+// `tool_use` loses that at the one moment anybody is thinking about it, which
+// is also the moment this whole floor exists to create.
+test('a mutation is offered as a runtime anchor, not a tool_use one', () => {
+  const out = renderConsequenceFloor(
+    [bash('obs-1', 'wrangler secret put API_KEY')],
+    { now: NOW },
+  )!;
+  assert.match(out, /--anchor runtime:obs-1/);
+  assert.doesNotMatch(out, /--anchor tool_use:obs-1/,
+    'a config mutation was offered under the wrong anchor class');
+});
+
+// ...and the others really are tool calls: what is cited is that the call
+// happened, which is what tool_use means.
+test('an unfamiliar API call is offered as a tool_use anchor', () => {
+  const out = renderConsequenceFloor(
+    [bash('obs-2', 'curl https://brand-new.example.com/v1/thing')],
+    { now: NOW },
+  )!;
+  assert.match(out, /--anchor tool_use:obs-2/);
+});
