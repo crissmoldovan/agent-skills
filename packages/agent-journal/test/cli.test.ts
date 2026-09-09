@@ -2918,3 +2918,196 @@ test('a segment skipped by both passes is reported once', async () => {
   assert.ok(r.stderr.startsWith(`${skipped.length} segment(s)`),
     `count disagrees with the list: ${JSON.stringify(r.stderr)}`);
 });
+
+// ---------------------------------------------------------------------------
+// `floor` — §11's two hard floors. Prompts, never authors: the CLI must
+// print nothing (never even a stray newline) at exit 0 when the renderer has
+// nothing to say, and must never hand back a copy-pasteable `agent-journal
+// record` invocation.
+// ---------------------------------------------------------------------------
+
+// `unknownFlags()` returns `[]` for any command with no `ALLOWED_FLAGS` entry
+// at all, so without this registration no flag on `floor` would be checked —
+// this is what proves the registration is actually there.
+test('a typo\'d flag on floor is rejected, not silently accepted', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['floor', '--kind', 'compaction', '--workspace', 'ws', '--subjct', 'x'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 2, 'a typo\'d flag on floor was accepted');
+  assert.match(r.stderr, /unknown flag: --subjct/);
+});
+
+test('floor requires --kind', async () => {
+  const dir = await root();
+  const r = await runCli(['floor', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--kind is required/);
+});
+
+test('floor refuses a --kind that is neither compaction nor consequence', async () => {
+  const dir = await root();
+  const r = await runCli(['floor', '--kind', 'weekly', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--kind must be 'compaction' or 'consequence'/);
+});
+
+test('floor refuses an unparseable --since', async () => {
+  const dir = await root();
+  const r = await runCli(
+    ['floor', '--kind', 'compaction', '--workspace', 'ws', '--since', 'not-a-timestamp'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--since must be a parseable timestamp/);
+});
+
+test('floor --kind compaction prints exactly nothing and exits 0 on a workspace with no activity', async () => {
+  const dir = await root();
+  const r = await runCli(['floor', '--kind', 'compaction', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0);
+  // Strict, not merely falsy: a renderer regression from `null` to `''`
+  // still passes through the CLI as a trailing newline, which this
+  // equality catches and a truthiness check would not.
+  assert.equal(r.stdout, '');
+  assert.equal(r.stderr, '');
+});
+
+test('floor --kind compaction prompts for both the flush and the assumption sweep once there is activity', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'ls',
+    '--workspace', 'ws'], env);
+
+  const r = await runCli(['floor', '--kind', 'compaction', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.notEqual(r.stdout, '');
+  assert.match(r.stdout, /assumption sweep/i);
+  assert.match(r.stdout, /checked: no/);
+  assert.doesNotMatch(r.stdout, /agent-journal record/);
+});
+
+test('floor --kind consequence prints exactly nothing and exits 0 for a benign call', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'git log --oneline -5',
+    '--workspace', 'ws'], env);
+
+  const r = await runCli(['floor', '--kind', 'consequence', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout, '');
+  assert.equal(r.stderr, '');
+});
+
+test('floor --kind consequence names the observation id for a mutating call, and never hands back a record command', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  const observed = await runCli(
+    ['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'wrangler secret put API_KEY',
+      '--workspace', 'ws', '--id', 'obs-1'],
+    env,
+  );
+  assert.equal(observed.code, 0, observed.stderr);
+
+  const r = await runCli(['floor', '--kind', 'consequence', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /obs-1/);
+  assert.match(r.stdout, /anchor/i);
+  assert.doesNotMatch(r.stdout, /agent-journal record/);
+});
+
+test('floor --kind consequence --subject wires a matching live constraint into the prompt', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(
+    ['record', '--kind', 'constraint', '--statement', 'no unmanaged brokers', '--scope', 'redis',
+      '--enforcement', 'blocking', '--workspace', 'ws', '--id', 'c1'],
+    env,
+  );
+  // A benign call alone: `consequencesIn` finds nothing, so any prompt below
+  // must have come from --subject wiring the constraint, not from this call.
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'ls', '--workspace', 'ws'], env);
+
+  const r = await runCli(
+    ['floor', '--kind', 'consequence', '--workspace', 'ws', '--subject', 'switching the cache to redis'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /c1/);
+  assert.match(r.stdout, /redis/i);
+});
+
+test('floor --kind consequence ignores --subject on --kind compaction (not registered as its own filter)', async () => {
+  // --subject is a legal flag on `floor` regardless of --kind (registered
+  // once for the command), but renderCompactionFloor's own options never
+  // read it — this pins that a compaction floor's content does not change
+  // depending on whether --subject was passed.
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'ls', '--workspace', 'ws'], env);
+
+  const withoutSubject = await runCli(['floor', '--kind', 'compaction', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir });
+  const withSubject = await runCli(
+    ['floor', '--kind', 'compaction', '--workspace', 'ws', '--subject', 'redis'],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(withoutSubject.stdout, withSubject.stdout);
+});
+
+test('floor warns and exits 1 when the journal could not be fully read, but still renders what it can', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'wrangler secret put X',
+    '--workspace', 'ws', '--id', 'obs-1'], env);
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await chmod(join(segDir, seg), 0o000);
+  try {
+    const r = await runCli(['floor', '--kind', 'consequence', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+    assert.notEqual(r.code, 0, 'a damaged journal reported success');
+    assert.match(r.stderr, /WARNING/i);
+  } finally {
+    await chmod(join(segDir, seg), 0o600);
+  }
+});
+
+// The damage guard is `unreadable.length > 0 || malformed.length > 0` — the
+// test above only exercises the `unreadable` half. This is the `malformed`
+// half, so a mutation dropping either term from the OR still fails a test.
+test('floor warns and exits 1 on a malformed (parseable-path, bad-content) segment too', async () => {
+  const dir = await root();
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'ls', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  const segDir = join(dir, 'workspaces', 'ws', 'segments');
+  const seg = (await readdir(segDir, { recursive: true }) as string[]).find((f) => f.endsWith('.jsonl'))!;
+  await writeFile(join(segDir, seg), 'this is not json\n');
+
+  const r = await runCli(['floor', '--kind', 'compaction', '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir });
+  assert.notEqual(r.code, 0, 'a malformed segment reported success');
+  assert.match(r.stderr, /WARNING/i);
+});
+
+// A valid --since must not be refused — only an unparseable one should be.
+test('floor accepts a valid --since and narrows what it considers', async () => {
+  const dir = await root();
+  const env = { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' };
+  await runCli(['observe', '--kind', 'tool_call', '--tool', 'Bash', '--input', 'ls',
+    '--workspace', 'ws', '--id', 'old'],
+    { ...env, AGENT_JOURNAL_HARNESS: 'test' });
+
+  // Force the observation's own `time` to be in the past by asserting the
+  // cutoff sits comfortably in the future relative to "now" — the CLI always
+  // stamps `time` from the real clock, so a --since a day ahead narrows the
+  // journal to nothing regardless of when the test runs.
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const r = await runCli(
+    ['floor', '--kind', 'compaction', '--workspace', 'ws', '--since', future],
+    { AGENT_JOURNAL_ROOT: dir },
+  );
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '', 'nothing happened after a cutoff a day in the future');
+});

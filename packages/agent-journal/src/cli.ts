@@ -26,6 +26,7 @@ import { canonicalize } from './paths.ts';
 import { computeDecay, codebaseRefs, type CurrentEnvironment } from './decay.ts';
 import { resolveCodebaseRefs } from './codebase.ts';
 import { redact } from './redact.ts';
+import { renderCompactionFloor, renderConsequenceFloor } from './floors.ts';
 
 export interface CliResult {
   readonly code: number;
@@ -99,6 +100,10 @@ const USAGE = [
   '  agent-journal decay --workspace <id> [--repo <path>]',
   '    (--repo is required before any codebase influence is resolved; omitted, those',
   '     findings are not-checkable rather than guessed at)',
+  '  agent-journal floor --kind compaction|consequence --workspace <id> [--since <ts>] [--subject <s>]',
+  '    (prints a prompt asking the agent to write an entry, or nothing if there is nothing to say;',
+  '     never a pre-written entry. --subject is only read by --kind consequence, to check it',
+  '     against live constraints)',
   '  agent-journal help',
   '',
 ].join('\n');
@@ -242,6 +247,7 @@ const ALLOWED_FLAGS: Readonly<Record<string, readonly string[]>> = {
   decay: ['workspace', 'repo'],
   tombstone: ['workspace', 'reason'],
   compact: ['workspace', 'apply', 'entry-ttl-days', 'observation-ttl-days'],
+  floor: ['workspace', 'kind', 'since', 'subject'],
 };
 
 function unknownFlags(command: string, opts: Map<string, string>): string[] {
@@ -1565,6 +1571,65 @@ async function dispatch(
     }
 
     return { code: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };
+  }
+
+  if (command === 'floor') {
+    const kind = opts.get('kind');
+    if (!kind) return { code: 2, stdout: '', stderr: `--kind is required\n${USAGE}` };
+    if (kind !== 'compaction' && kind !== 'consequence') {
+      return {
+        code: 2, stdout: '',
+        stderr: `--kind must be 'compaction' or 'consequence', got ${JSON.stringify(kind)}\n${USAGE}`,
+      };
+    }
+
+    // Refused here, precisely, rather than left to throw from inside
+    // floors.ts and fall through to runCli's generic catch: every other
+    // malformed-timestamp flag in this file (record's edges, observe's
+    // --seq) is validated at this same layer, with the same code 2 and the
+    // same "name exactly what was wrong" message, rather than a caller
+    // learning about it from a bare "could not complete" wrapper.
+    const since = opts.get('since');
+    if (since !== undefined && Number.isNaN(Date.parse(since))) {
+      return {
+        code: 2, stdout: '',
+        stderr: `--since must be a parseable timestamp, got ${JSON.stringify(since)}\n${USAGE}`,
+      };
+    }
+
+    // Blank is "not supplied" -- the same rule record's and observe's own
+    // --subject already follow: an unset shell variable expanding to '' must
+    // not read as a caller who deliberately named an empty subject.
+    const rawSubject = opts.get('subject');
+    const subject = rawSubject !== undefined && rawSubject.trim() ? rawSubject.trim() : undefined;
+
+    const { events, unreadable, malformed } = await readAll(root, workspace);
+    const damaged = unreadable.length > 0 || malformed.length > 0;
+
+    const rendered = kind === 'compaction'
+      ? renderCompactionFloor(events, since === undefined ? {} : { since })
+      : renderConsequenceFloor(events, {
+          now: nowStamp(),
+          ...(since === undefined ? {} : { since }),
+          ...(subject === undefined ? {} : { subject }),
+        });
+
+    // null and '' are never the same claim, here as everywhere else in this
+    // package: null means the floor has nothing to say, and this command
+    // must print NOTHING at exit 0 -- the common case, since most tool
+    // calls are not consequence-bearing and a floor that speaks on every
+    // call is the kind of noise that gets an adapter uninstalled. Checked
+    // with `=== null`, not a truthiness test, so an empty-string render (if
+    // this ever regressed to producing one) still reaches stdout as a
+    // trailing newline -- deliberately different bytes from the null case,
+    // so the two stay distinguishable all the way to the caller.
+    return {
+      code: damaged ? 1 : 0,
+      stdout: rendered === null ? '' : `${rendered}\n`,
+      stderr: damaged
+        ? 'WARNING: this journal could not be fully read -- any prompt above is based on a partial read.\n'
+        : '',
+    };
   }
 
   return { code: 2, stdout: '', stderr: `unknown command: ${command}\n${USAGE}` };

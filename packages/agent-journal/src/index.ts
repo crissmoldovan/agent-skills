@@ -18,3 +18,4 @@ export * from './digest.ts';
 export * from './trace.ts';
 export * from './decay.ts';
 export * from './codebase.ts';
+export * from './floors.ts';

@@ -105,26 +105,50 @@ export function liveConstraints(events: readonly JournalEvent[], now: string): C
 }
 
 /**
- * KEYWORD matching, not semantic. A constraint bears on an entry when its
- * `scope` appears as a whole word in the entry's own text. This is deliberately
+ * The keyword-match half of `constraintsBearingOn` — the part that has no
+ * intrinsic reason to require a `JournalEvent`, only the strings an event
+ * (or anything else) happens to carry. Extracted so a caller who has a bare
+ * subject string but no event can match one directly, without constructing
+ * a synthetic `JournalEvent` to satisfy a parameter that would then be lying
+ * about what it holds.
+ *
+ * `strings` are joined and lowercased here, once, so every caller shares the
+ * exact matching behaviour `constraintsBearingOn` always had — a second,
+ * drifted copy of the regex-escaping and whole-word logic is exactly the
+ * kind of fork that quietly stops agreeing with itself.
+ *
+ * KEYWORD matching, not semantic. A constraint bears on something when its
+ * `scope` appears as a whole word in the given text. This is deliberately
  * crude and is named so nobody reads a quiet result as "no constraint applies":
  * it means "no constraint's scope word appeared", which is a much weaker claim.
  * Nothing blocks and nothing auto-resolves; the output is for a human to read.
+ */
+export function constraintsMatching(
+  strings: readonly string[],
+  live: readonly Constraint[],
+): Constraint[] {
+  const haystack = strings.join(' ').toLowerCase();
+  return live.filter((c) => {
+    if (!c.scope) return false;
+    const word = c.scope.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9])${word}([^a-z0-9]|$)`).test(haystack);
+  });
+}
+
+/**
+ * Flattens an entry's OWN field values into the string list `constraintsMatching`
+ * checks. Kept separate from that function so the "what strings come from an
+ * event" question and the "does a string match a live constraint" question
+ * stay two questions — the second one is what a bare `--subject` needs
+ * answered without ever having the first.
  */
 export function constraintsBearingOn(
   entry: JournalEvent,
   live: readonly Constraint[],
 ): Constraint[] {
   if (entry.kind === 'constraint') return [];
-  const haystack = Object.values(entry.data)
+  const strings = Object.values(entry.data)
     .flatMap((v) => (Array.isArray(v) ? v : [v]))
-    .filter((v): v is string => typeof v === 'string')
-    .join(' ')
-    .toLowerCase();
-
-  return live.filter((c) => {
-    if (!c.scope) return false;
-    const word = c.scope.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(^|[^a-z0-9])${word}([^a-z0-9]|$)`).test(haystack);
-  });
+    .filter((v): v is string => typeof v === 'string');
+  return constraintsMatching(strings, live);
 }
