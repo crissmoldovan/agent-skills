@@ -116,44 +116,119 @@ export const MUTATION_PATTERNS: readonly MutationPattern[] = [
 
 /**
  * Flags that turn a mutating verb into a preview. A command carrying one of
- * these changes nothing, so matching it is a pure false positive — and a floor
- * that fires on `kubectl set env … --dry-run=client` is a floor somebody turns
- * off, after which nothing is captured at all.
+ * these changes nothing, so matching it is a pure false positive — a floor that
+ * fires on `kubectl set env … --dry-run=client` is one somebody turns off,
+ * after which nothing is captured at all.
  *
- * This was inconsistent before: the same "the preview is a same-verb flag"
- * reasoning was used to EXCLUDE `wrangler deploy` and `kubectl apply`, while
- * `kubectl set env` was included and fired on its own dry run. The rule now
- * applies to every pattern rather than to the ones somebody remembered.
+ * Tested PER COMMAND, never against the whole line. Testing the raw string was
+ * worse than the bug it fixed: `gh secret set TOKEN --body x; terraform plan
+ * --dry-run` was suppressed entirely, hiding a secret write that really ran
+ * because an unrelated preview appeared later in the line. Chaining a preview
+ * with a real change is ordinary shell usage, and a mutation nobody announced
+ * is exactly what §11.3 exists to catch.
  */
 const PREVIEW_FLAGS = /(?:^|\s)(?:--dry-run(?:[=\s]\S+)?|--diff|--plan|--what-if|--no-execute)(?=\s|$)/i;
 
 /**
- * Text that is being QUOTED rather than run. The matcher sees one flat string,
- * so without this it cannot tell the command from its arguments — and fired on
- * `grep -rn "gh variable set" .`, `git commit -m "wrangler secret put reminder"`,
- * `echo "wrangler secret put X" >> notes.md`, and any heredoc whose body
- * mentions a mutation while the actual command is `cat`.
+ * Commands whose ARGUMENTS are text rather than commands. Anything one of
+ * these heads is skipped outright: `grep -rn "gh variable set" .` is a search,
+ * `echo "wrangler secret put X" >> notes.md` is a write to a file, and a
+ * heredoc fed to `cat` is a document. All three fired before.
  *
- * Stripping quoted spans and heredoc bodies before matching removes that whole
- * class. It costs false NEGATIVES — `sh -c "wrangler secret put X"` no longer
- * matches — and that is the right trade here: a missed prompt is a gap, a
- * spurious one is an uninstalled adapter.
+ * Keyed on the command's HEAD, which is what actually decides whether the rest
+ * is data. An earlier attempt stripped every quoted span instead, and that
+ * deleted live mutations: `wrangler secret "put" API_KEY` runs identically to
+ * the unquoted form in bash, but stripping `"put"` made it invisible.
  */
-function withoutQuotedText(input: string): string {
+const TEXT_HEADED = new Set([
+  'grep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'less', 'more', 'head',
+  'tail', 'man', 'history', 'sed', 'awk', 'diff', 'comm', 'sort', 'uniq', 'wc',
+]);
+
+/** Two-word heads where the second word decides. `git commit -m "…"` carries a
+ *  message, not a command; `git log --grep "…"` carries a search. */
+const TEXT_HEADED_PAIRS = new Set(['git commit', 'git log', 'git tag', 'git stash']);
+
+/** Split a shell line into the commands it runs. Deliberately naive — it does
+ *  not parse the shell — but the separators it knows (`;`, `&&`, `||`, `|`,
+ *  newline) are the ones that put two real commands on one line, which is the
+ *  case that matters here. Separators inside quotes are left alone. */
+function splitCommands(input: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let quote: string | undefined;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i]!;
+    if (quote) {
+      if (ch === quote) quote = undefined;
+      current += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; current += ch; continue; }
+    if (ch === '\n' || ch === ';' || ch === '|'
+        || (ch === '&' && input[i + 1] === '&')) {
+      if (ch === '&') i += 1;
+      out.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  out.push(current);
+  return out.map((c) => c.trim()).filter(Boolean);
+}
+
+/** Everything after an unquoted `#`. A comment is not a command, and
+ *  `ls # reminder: wrangler secret put X later` reported a mutation. */
+function withoutComment(command: string): string {
+  let quote: string | undefined;
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]!;
+    if (quote) { if (ch === quote) quote = undefined; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === '#' && (i === 0 || /\s/.test(command[i - 1]!))) return command.slice(0, i);
+  }
+  return command;
+}
+
+/** Heredoc bodies, which are documents rather than commands. */
+function withoutHeredocBodies(input: string): string {
   return input
-    // Heredoc bodies: <<EOF … EOF, <<'EOF' … EOF, <<-EOF … EOF.
     .replace(/<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[\s\S]*?^\s*\2\s*$/gm, ' ')
-    // Any remaining heredoc with no closing delimiter in view.
-    .replace(/<<-?\s*(['"]?)[A-Za-z_][A-Za-z0-9_]*\1[\s\S]*/, ' ')
-    .replace(/'[^']*'/g, ' ')
-    .replace(/"[^"]*"/g, ' ');
+    .replace(/<<-?\s*(['"]?)[A-Za-z_][A-Za-z0-9_]*\1[\s\S]*/, ' ');
+}
+
+/** The head of a command, lower-cased, ignoring leading env assignments
+ *  (`FOO=bar cmd …`) and a `sudo` prefix. */
+function commandHead(command: string): { head: string; pair: string } {
+  const words = command.split(/\s+/).filter((w) => w && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+  const first = (words[0] === 'sudo' ? words[1] : words[0]) ?? '';
+  const second = (words[0] === 'sudo' ? words[2] : words[1]) ?? '';
+  const head = first.replace(/^.*\//, '').toLowerCase();
+  return { head, pair: `${head} ${second.toLowerCase()}`.trim() };
+}
+
+/**
+ * Drop quote CHARACTERS while keeping their contents. Only reached for a
+ * command whose head is not text-headed, so the contents are part of the
+ * command rather than data — and `wrangler secret "put" API_KEY` must still
+ * match, since bash runs it identically to the unquoted form.
+ */
+function unquote(command: string): string {
+  return command.replace(/['"]/g, '');
 }
 
 function matchMutation(input: string): string | undefined {
-  if (PREVIEW_FLAGS.test(input)) return undefined;
-  const runnable = withoutQuotedText(input);
-  for (const { pattern, detail } of MUTATION_PATTERNS) {
-    if (pattern.test(runnable)) return detail;
+  for (const raw of splitCommands(withoutHeredocBodies(input))) {
+    const command = withoutComment(raw);
+    if (!command.trim()) continue;
+    if (PREVIEW_FLAGS.test(command)) continue;
+    const { head, pair } = commandHead(command);
+    if (TEXT_HEADED.has(head) || TEXT_HEADED_PAIRS.has(pair)) continue;
+    const runnable = unquote(command);
+    for (const { pattern, detail } of MUTATION_PATTERNS) {
+      if (pattern.test(runnable)) return detail;
+    }
   }
   return undefined;
 }

@@ -168,3 +168,45 @@ test('a real mutation with a quoted argument still matches', () => {
       `a real mutation was lost to quote-stripping: ${input}`);
   }
 });
+
+// The first fix for false positives tested both guards against the WHOLE raw
+// input, which was worse than the bug it fixed: a preview flag or a quoted word
+// anywhere on the line suppressed everything, hiding mutations that really ran.
+// Both guards are now per-command, and quoting removes the quote characters
+// rather than their contents.
+test('a preview later in the line does not hide a mutation earlier in it', () => {
+  const chained = [
+    'gh secret set TOKEN --body x; terraform plan --dry-run',
+    'terraform plan --dry-run && wrangler secret put API_KEY',
+    'wrangler secret put X # see --dry-run notes',
+  ];
+  for (const input of chained) {
+    assert.equal(consequencesIn([bash('o1', input)]).filter((c) => c.rule === 'mutation').length, 1,
+      `a real mutation was suppressed by an unrelated preview: ${input}`);
+  }
+});
+
+// bash runs `wrangler secret "put" X` identically to the unquoted form, so
+// stripping quoted spans made a live mutation invisible.
+test('quoting a word of the command itself does not hide the mutation', () => {
+  for (const input of ['wrangler secret "put" API_KEY', "gh 'secret' set TOKEN"]) {
+    assert.equal(consequencesIn([bash('o1', input)]).filter((c) => c.rule === 'mutation').length, 1,
+      `a quoted command token hid a real mutation: ${input}`);
+  }
+});
+
+test('an unquoted comment is not a command', () => {
+  assert.deepEqual(
+    consequencesIn([bash('o1', 'ls # reminder: wrangler secret put X later')])
+      .filter((c) => c.rule === 'mutation'),
+    [], 'a comment was read as a command');
+});
+
+// The head decides whether the rest is data, so these must survive env-var
+// prefixes and sudo, which change the first word without changing the command.
+test('an env prefix or sudo does not hide the command', () => {
+  for (const input of ['FOO=bar wrangler secret put API_KEY', 'sudo kubectl set env deploy/a A=1']) {
+    assert.equal(consequencesIn([bash('o1', input)]).filter((c) => c.rule === 'mutation').length, 1,
+      `the head was misread: ${input}`);
+  }
+});
