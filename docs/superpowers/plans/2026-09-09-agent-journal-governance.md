@@ -10,7 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-07-agent-decision-journal-design.md` §13.2, with §6.3 for pinning and downgrade and §4.3 for the `unknown` vocabulary.
 
-**Backlog entry this closes:** items 1 and 2 of `docs/superpowers/agent-journal-remaining-work.md`.
+**Backlog entries this closes:** tombstones and entry TTL in
+`docs/superpowers/agent-journal-remaining-work.md` — named rather than numbered,
+since that file renumbers as items close.
 
 ## Why these two together
 
@@ -281,7 +283,7 @@ Cover at minimum: `tombstone` requires a reason and exits 2 without one; it writ
 
 Cover: what a tombstone is and what it costs (§13.2's forfeited convergence, stated plainly — a replica that never sees it keeps the bytes); that tombstoning is not retraction and when to reach for each; that `compact` is the only destructive command and is a dry run by default; why entries expire at all; and how an anchor citing purged content reads as `unknown` rather than intact.
 
-Then **strike items 1 and 2 from `agent-journal-remaining-work.md`**, leaving the rest. A backlog that only grows is one nobody trusts.
+Then **strike the tombstones and entry-TTL items from `agent-journal-remaining-work.md`**, leaving the rest. A backlog that only grows is one nobody trusts.
 
 - [ ] **Step 1: Write the reference**
 - [ ] **Step 2: Add a SKILL.md step** — capability and its limits, no marketing
