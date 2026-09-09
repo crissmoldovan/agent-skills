@@ -175,6 +175,34 @@ command's floor-not-total warning, there is no way to walk a purge back once the
 are gone. Refusing outright is the only version of this command that cannot destroy
 the wrong thing on a partial read.
 
+### The other exit 1: a segment somebody was writing to
+
+`compact --apply` also exits 1 when it left one or more segments alone because a
+session kept appending to them while it worked:
+
+```
+1 segment(s) were being written during compaction and were left untouched;
+re-run when writers are idle
+```
+
+**Nothing was lost and nothing was half-done.** The report is printed as usual, with
+an added `skipped` array naming the files, and the purge simply has not happened for
+those segments yet. Any tombstone whose target lived in one of them keeps
+`purged: false`, because it is still there. Re-run when the session finishes.
+
+Two exit codes for two different conditions, and they are worth telling apart in a
+CI job: the damaged-journal refusal above means **stop and investigate** — something
+is wrong with the journal. This one means **try again later** — everything is fine,
+the journal was simply busy. A job that treats every non-zero exit as a failure will
+alarm on the second, which is a normal outcome of running compaction against a
+journal that is actively in use — the exact thing the schedule above recommends.
+
+Why skip rather than push through: a segment only ever grows, so a change in its size
+mid-compaction means an append landed. Rewriting it from the copy read a moment
+earlier would erase those events. The earlier version of this command did exactly
+that, and a writer appending during a large compaction lost 27 of 73 events, silently
+and at exit 0.
+
 ### What gets purged, and what never does
 
 A run purges exactly two sets: entries and observations that fell past their TTL
