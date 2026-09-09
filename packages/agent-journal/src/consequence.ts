@@ -312,13 +312,25 @@ function commandLineOf(event: JournalEvent): string | undefined {
   // envelope is still readable — take `command` out of it rather than matching
   // the envelope's own punctuation and keys.
   if (input.startsWith('{')) {
+    let parsed: { command?: unknown } | undefined;
     try {
-      const parsed = JSON.parse(input) as { command?: unknown };
-      return typeof parsed.command === 'string' && parsed.command.trim()
-        ? parsed.command.trim() : undefined;
+      parsed = JSON.parse(input) as { command?: unknown };
     } catch {
-      return undefined;
+      // Not JSON at all — a bash brace group (`{ wrangler secret put X; }`)
+      // opens with the same character. Returning undefined here made that a
+      // false negative, so fall through and read it as the command it is.
+      return input;
     }
+    const command = parsed?.command;
+    if (typeof command === 'string') return command.trim() || undefined;
+    // Codex's shell tool passes argv as an ARRAY. Unhandled, that silently
+    // kills the mutation floor the moment Codex floors are wired — a dead
+    // check nobody would notice, since the floor simply never fires.
+    if (Array.isArray(command)) {
+      const joined = command.filter((w) => typeof w === 'string').join(' ').trim();
+      return joined || undefined;
+    }
+    return undefined;
   }
   return input;
 }

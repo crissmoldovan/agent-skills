@@ -288,3 +288,31 @@ test('every shell tool name the gate accepts is still classified', () => {
       1, `${tool} was gated out`);
   }
 });
+
+// A bash brace group opens with `{`, the same character a JSON envelope does.
+// Returning undefined on a parse failure made it a false negative — a real
+// mutation, invisible.
+test('a bash brace group is a command, not a malformed envelope', () => {
+  const e = obs('o1', 'tool_call', { tool: 'Bash', input: '{ wrangler secret put API_KEY; }' });
+  assert.equal(consequencesIn([e]).filter((c) => c.rule === 'mutation').length, 1);
+});
+
+// The `command` field's type was checked but never tested: replacing the check
+// with `String(...)` left all 552 tests green.
+test('a non-string command field is not coerced into one', () => {
+  for (const command of [123, '', null, {}, true]) {
+    const e = obs('o1', 'tool_call', { tool: 'Bash', input: JSON.stringify({ command }) });
+    assert.deepEqual(consequencesIn([e]), [],
+      `command ${JSON.stringify(command)} was coerced into a command line`);
+  }
+});
+
+// Codex's shell tool passes argv as an array. Unhandled, the mutation floor
+// silently never fires once Codex floors are wired — a dead check nobody would
+// notice, because a floor that never fires looks exactly like a quiet session.
+test('an argv array is read as a command line', () => {
+  const e = obs('o1', 'tool_call', {
+    tool: 'Bash', input: JSON.stringify({ command: ['wrangler', 'secret', 'put', 'API_KEY'] }),
+  });
+  assert.equal(consequencesIn([e]).filter((c) => c.rule === 'mutation').length, 1);
+});
