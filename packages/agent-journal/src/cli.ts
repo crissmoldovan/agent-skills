@@ -1535,7 +1535,13 @@ async function dispatch(
         const flipPass = await purgeSegments(
           root, workspace, new Set(), new Set(actuallyFlipped.map((t) => t.id)), forceSkip,
         );
-        skippedPaths.push(...flipPass.skipped);
+        // Deduped: phase two walks the same tree, so a segment skipped in
+        // phase one is skipped again and was being listed twice — with stderr
+        // then reporting "2 segment(s)" for one file, in a count the docs tell
+        // a reader to act on.
+        for (const path of flipPass.skipped) {
+          if (!skippedPaths.includes(path)) skippedPaths.push(path);
+        }
         if (flipPass.unapplied.size > 0) {
           flipped = actuallyFlipped.filter((t) => !flipPass.unapplied.has(t.id));
         }

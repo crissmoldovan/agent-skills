@@ -196,11 +196,24 @@ segments one at a time, so a skip partway through leaves earlier ones already pu
 `skipped` lists what it did not reach — read them together rather than assuming the
 run was all-or-nothing.
 
-One consequence worth knowing: if a target's own segment was purged but the segment
-holding its *tombstone* was skipped, the bytes are gone while that tombstone still
-reads `purged: false`. The suppression is unaffected — the entry stays invisible
-either way — but the flag stays conservative until a later run can update it, and it
-never claims more than has happened.
+One consequence worth knowing, and it is permanent: if a target's own segment was
+purged but the segment holding its *tombstone* was skipped, the bytes are gone while
+that tombstone reads `purged: false` — **and no later run will ever correct it.**
+Once the target's bytes are gone it is no longer in the journal, so nothing plans a
+purge for it, and nothing flips the flag. That tombstone reads `purged: false`
+forever, for content that really was erased.
+
+The suppression is unaffected — the entry stays invisible either way — and the error
+is in the safe direction: `purged` never claims more than happened, only ever less.
+But `false` on this flag means "not known to be purged", not "still on disk", and
+this is the one case where those differ. To settle it, check the target's absence
+with `agent-journal show` rather than trusting the flag.
+
+Why it cannot simply be fixed: a later run sees only that the target is absent, and
+absent has two causes it cannot tell apart — purged here, or never present on this
+replica at all. Flipping the flag on absence alone would make it claim an erasure
+that may never have happened, which is the failure this whole design is built to
+avoid. A permanently conservative flag is the lesser of the two.
 
 Two exit codes for two different conditions, and they are worth telling apart in a
 CI job: the damaged-journal refusal above means **stop and investigate** — something

@@ -2858,3 +2858,63 @@ test('a flip that could not be written is not reported as written', async () => 
   const tomb = after.find((e) => e.kind === 'tombstone')!;
   assert.notEqual(tomb.data.purged, true, 'the flag was set in a segment that was skipped');
 });
+
+// Finding 1 at the CLI level, and the reason the test above does not cover it:
+// there, the target's ONLY copy sits in the skipped segment, so it never enters
+// `removed` and the surviving-set is never consulted. Passing `new Set()` for it
+// left all 477 tests green while `purged: true` was written for a credential
+// still on disk — defect three, in the guard added for defect three.
+//
+// This stages the real shape: the SAME id in two segments, one rewritten and
+// one skipped. The removal is genuine; the bytes are still there.
+test('a target removed from one segment but surviving in a skipped one does not flip', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'leaky', '--claim=x',
+    '--scope', 'machine', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['tombstone', 'leaky', '--reason=held a credential', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  // A second copy of the same id, in its own segment — a replica or a restore.
+  const segRoot = join(dir, 'workspaces', 'ws', 'segments');
+  const [host] = await readdir(segRoot);
+  const copyDir = join(segRoot, host!, 's9');
+  await mkdir(copyDir, { recursive: true });
+  const original = (await readAllEvents(dir, 'ws')).find((e) => e.id === 'leaky')!;
+  await writeFile(join(copyDir, 'primary.e1.0.jsonl'), `${JSON.stringify(original)}\n`, 'utf8');
+
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}s9${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).tombstonesMarkedPurged, [],
+    'purged was claimed while a copy of the target sat in a skipped segment');
+
+  const raw = await readFile(join(copyDir, 'primary.e1.0.jsonl'), 'utf8');
+  assert.match(raw, /"id":"leaky"/, 'the skipped copy should still be on disk');
+  const tomb = (await readAllEvents(dir, 'ws')).find((e) => e.kind === 'tombstone')!;
+  assert.notEqual(tomb.data.purged, true, 'purged ran ahead of a surviving copy');
+});
+
+// Phase two walks the same tree, so a segment skipped in phase one is skipped
+// again — and was listed twice, with stderr reporting "2 segment(s)" for one
+// file. The docs tell a reader to act on that count.
+test('a segment skipped by both passes is reported once', async () => {
+  const dir = await root();
+  await runCli(['record', '--kind', 'finding', '--id', 'a', '--claim=x', '--scope', 'machine',
+    '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's2' });
+  await runCli(['record', '--kind', 'finding', '--id', 'b', '--claim=y', '--scope', 'machine',
+    '--workspace', 'ws'], { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's3' });
+  await runCli(['tombstone', 'a', '--reason=one', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+  await runCli(['tombstone', 'b', '--reason=two', '--workspace', 'ws'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_SESSION: 's1' });
+
+  // Skip the tombstone segment: phase one skips it, then phase two skips it too.
+  const r = await runCli(['compact', '--workspace', 'ws', '--apply'],
+    { AGENT_JOURNAL_ROOT: dir, AGENT_JOURNAL_FORCE_SKIP: `${sep}-${sep}` });
+  assert.equal(r.code, 1, r.stderr);
+  const { skipped } = JSON.parse(r.stdout);
+  assert.equal(skipped.length, new Set(skipped).size, `duplicated paths: ${JSON.stringify(skipped)}`);
+  assert.ok(r.stderr.startsWith(`${skipped.length} segment(s)`),
+    `count disagrees with the list: ${JSON.stringify(r.stderr)}`);
+});
