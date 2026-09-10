@@ -97,6 +97,12 @@ npx skills add crissmoldovan/agent-skills --skill land-complex-change resolve-pr
 
 # UX opportunities a codebase can already support
 npx skills add crissmoldovan/agent-skills --skill new-ux-discovery
+
+# Decision records with checkable evidence
+npx skills add crissmoldovan/agent-skills --skill decision-journal
+
+# Grounded, evidence-first reviews of an artefact
+npx skills add crissmoldovan/agent-skills --skill delphi-ground delphi-imagine
 ```
 
 `--agent '*'` means every agent the installed CLI supports, not every agent that
@@ -106,7 +112,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the seventeen public skills from crissmoldovan/agent-skills.
+Install or update the twenty public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
