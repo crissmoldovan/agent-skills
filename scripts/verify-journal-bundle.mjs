@@ -11,7 +11,7 @@
  * records, in its header, a hash of the source it was built from and a hash of its
  * own body, and this check recomputes both.
  *
- * "Source" means every input that decides what the bundle contains: the .ts files,
+ * "Source" means every input that decides what the bundle contains: every file in src/,
  * the script that bundles them, and the esbuild version that script runs. A change
  * to any of them without regenerating is the same stale copy.
  *
@@ -23,8 +23,8 @@
  *   npm --prefix packages/agent-journal run bundle:skill
  */
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -41,12 +41,13 @@ const SOURCE_LINE = '// source-sha256: ';
 const BODY_LINE = '// body-sha256: ';
 
 /**
- * One hash over every input to the bundle. The .ts files in the source directory,
- * sorted, each framed by its own name and a separator: the name is what makes a
- * rename register, the separator what stops "ab"+"cd" and "abc"+"d" — or content
- * that happens to spell another file's name — hashing alike. Only .ts: nothing
- * else in src/ is compiled. Then the bundler script and the esbuild version it
- * pins, because either one changes the bundle while every .ts file stays the same.
+ * One hash over every input to the bundle. Every file under the source directory,
+ * at any depth, sorted, each framed by its own path and a separator: the path is what
+ * makes a rename register, the separator what stops "ab"+"cd" and "abc"+"d" — or
+ * content that happens to spell another file's name — hashing alike. Every file, not
+ * only .ts: esbuild inlines whatever the source imports, a .json included. Then the
+ * bundler script and the esbuild version it pins, because either one changes the
+ * bundle while every source file stays the same.
  */
 export function sourceHash(dir = SOURCE_DIR, { bundler = BUNDLER_PATH, packageJson = PACKAGE_JSON_PATH } = {}) {
   const hash = createHash('sha256');
@@ -56,9 +57,11 @@ export function sourceHash(dir = SOURCE_DIR, { bundler = BUNDLER_PATH, packageJs
     hash.update(content);
     hash.update('\0');
   };
-  for (const file of readdirSync(dir).filter((name) => name.endsWith('.ts')).sort()) {
-    frame(`src/${file}`, readFileSync(join(dir, file)));
-  }
+  const files = readdirSync(dir, { recursive: true })
+    .filter((name) => statSync(join(dir, name)).isFile())
+    .map((name) => name.split(sep).join('/'))
+    .sort();
+  for (const file of files) frame(`src/${file}`, readFileSync(join(dir, file)));
   frame('bundler', readFileSync(bundler));
   frame('esbuild', JSON.parse(readFileSync(packageJson, 'utf8')).devDependencies?.esbuild ?? '');
   return hash.digest('hex');

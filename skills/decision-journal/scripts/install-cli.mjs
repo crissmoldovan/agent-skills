@@ -27,6 +27,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export const COMMAND = 'agent-journal';
 /** In every wrapper this script writes; how it knows a file is its own. */
 export const MARKER = '# installed-by: decision-journal install-cli.mjs';
+/** The CLI's own floor, from packages/agent-journal's engines; the bundle is built for it. */
+export const MIN_NODE_MAJOR = 24;
 
 const USAGE = `Usage: install-cli.mjs [--bin-dir <dir>]
        install-cli.mjs --remove [--bin-dir <dir>]
@@ -56,7 +58,14 @@ export function buildWrapper({ bundlePath }) {
     '#!/bin/sh',
     MARKER,
     '# Runs the agent-journal CLI carried by the decision-journal skill. Remove with: install-cli.mjs --remove',
-    `exec node ${shellQuote(bundlePath)} "$@"`,
+    `bundle=${shellQuote(bundlePath)}`,
+    // A skill installed as a plugin lives in a versioned folder, and an update moves it.
+    // Say so, rather than let node fail with a bare "Cannot find module".
+    'if [ ! -f "$bundle" ]; then',
+    '  echo "agent-journal: $bundle is gone; the decision-journal skill was updated or removed. Re-run its scripts/install-cli.mjs." >&2',
+    '  exit 127',
+    'fi',
+    'exec node "$bundle" "$@"',
     '',
   ].join('\n');
 }
@@ -101,6 +110,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stdout = process.stdout,
     stderr = process.stderr,
     bundlePath = resolveBundlePath(),
+    platform = process.platform,
+    nodeVersion = process.versions.node,
   } = context;
 
   let options;
@@ -114,7 +125,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stdout.write(`${USAGE}\n`);
     return 0;
   }
-  if (process.platform === 'win32') {
+  if (platform === 'win32') {
     stderr.write(`This installer writes a POSIX shell wrapper and does not support Windows.\nRun the CLI directly instead: node ${bundlePath} help\n`);
     return 1;
   }
@@ -144,6 +155,15 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       return 1;
     }
 
+    // The wrapper runs whichever `node` is on PATH, which is usually the one running
+    // this. Refuse here rather than install a command that fails on its first use.
+    // Only installing needs it: --remove works with any Node that can run this file.
+    const major = Number.parseInt(nodeVersion, 10);
+    if (!(major >= MIN_NODE_MAJOR)) {
+      stderr.write(`refusing to install: the agent-journal CLI needs Node.js ${MIN_NODE_MAJOR} or newer, and this is ${nodeVersion}.\n`);
+      return 1;
+    }
+
     // Fail here, where the message can say why, rather than leave a command that
     // points at nothing and fails later with a bare "not found".
     try {
@@ -160,6 +180,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     await rename(temporary, target);
 
     stdout.write(`${existing === undefined ? 'Installed' : 'Updated'} ${target}\n  runs ${bundlePath}\n`);
+    stdout.write('If the skill moves (a plugin update installs it to a new folder), re-run this from there.\n');
     if (!onPath(binDir, env.PATH)) {
       stdout.write([
         '',

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -100,10 +100,13 @@ test('an intact bundle from current source passes', () => {
 
 // A hash of contents alone would miss a rename, and would read "ab"+"cd" and
 // "abc"+"d" as the same source. Each file is framed by its name to catch both.
-test('the source hash moves with content, a rename, and bytes moving between files — and only then', async () => {
+test('the source hash moves with content, a rename, bytes moving between files, and any file esbuild could inline', async () => {
   async function hashOf(files) {
     const dir = await scratch('journal-src-');
-    for (const [name, content] of Object.entries(files)) await writeFile(path.join(dir, name), content);
+    for (const [name, content] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(dir, name)), { recursive: true });
+      await writeFile(path.join(dir, name), content);
+    }
     return sourceHash(dir);
   }
   const base = await hashOf({ 'a.ts': 'ab', 'b.ts': 'cd' });
@@ -115,7 +118,8 @@ test('the source hash moves with content, a rename, and bytes moving between fil
   assert.notEqual(await hashOf({ 'a.ts': 'x', 'b.ts': 'y' }), await hashOf({ 'a.ts': 'xsrc/b.tsy' }),
     'a file whose content spells out another file was confused with it');
   assert.equal(await hashOf({ 'b.ts': 'cd', 'a.ts': 'ab' }), base, 'the order files were written in changed the hash');
-  assert.equal(await hashOf({ 'a.ts': 'ab', 'b.ts': 'cd', 'notes.md': 'x' }), base, 'a non-.ts file changed the hash');
+  assert.notEqual(await hashOf({ 'a.ts': 'ab', 'b.ts': 'cd', 'data.json': '{}' }), base, 'a .json the source could import went unnoticed');
+  assert.notEqual(await hashOf({ 'a.ts': 'ab', 'b.ts': 'cd', 'lib/c.ts': 'x' }), base, 'a file in a subdirectory went unnoticed');
 });
 
 // Every .ts file unchanged is not the same bundle if what bundles them changed.
@@ -145,10 +149,10 @@ async function carriedBundleAt(dir) {
   return file;
 }
 
-async function install(argv, { home, bundlePath, PATH = '' }) {
+async function install(argv, { home, bundlePath, PATH = '', ...context }) {
   const out = sink();
   const err = sink();
-  const code = await installMain(argv, { env: { HOME: home, PATH }, stdout: out, stderr: err, bundlePath });
+  const code = await installMain(argv, { env: { HOME: home, PATH }, stdout: out, stderr: err, bundlePath, ...context });
   return { code, out: out.text, err: err.text };
 }
 
@@ -164,6 +168,19 @@ test('installing writes a working command, even from a path with a space and a q
   const ran = spawnSync(command, ['help'], { encoding: 'utf8' });
   assert.equal(ran.status, 0, ran.stderr);
   assert.match(ran.stdout, /agent-journal record/);
+});
+
+// A plugin update installs the skill to a new versioned folder and may delete the old one.
+test('a command whose skill copy has moved says so, instead of a bare module-not-found', async () => {
+  const home = await scratch('journal-install-');
+  const bundlePath = await carriedBundleAt(path.join(home, 'skill-1.0.0'));
+  const binDir = path.join(home, 'bin');
+  assert.equal((await install(['--bin-dir', binDir], { home, bundlePath })).code, 0);
+  await rm(bundlePath);
+  const ran = spawnSync(path.join(binDir, COMMAND), ['help'], { encoding: 'utf8' });
+  assert.equal(ran.status, 127, ran.stderr);
+  assert.match(ran.stderr, /is gone/);
+  assert.match(ran.stderr, /install-cli\.mjs/);
 });
 
 test('by default the command goes to ~/.local/bin', async () => {
@@ -243,6 +260,29 @@ test('a bin directory missing from PATH is reported, and one on it is not', asyn
 test('PATH entries are compared as resolved paths', () => {
   assert.equal(onPath('/a/b', `/x${path.delimiter}/a/b/`), true);
   assert.equal(onPath('/a/b', `/x${path.delimiter}/a/bc`), false);
+});
+
+test('an older Node.js is refused at install time, not discovered at first use — and removal still works on one', async () => {
+  const home = await scratch('journal-install-');
+  const bundlePath = await carriedBundleAt(path.join(home, 'skill'));
+  const binDir = path.join(home, 'bin');
+  const old = await install(['--bin-dir', binDir], { home, bundlePath, nodeVersion: '22.11.0' });
+  assert.equal(old.code, 1);
+  assert.match(old.err, /Node\.js 24 or newer, and this is 22\.11\.0/);
+  await assert.rejects(stat(path.join(binDir, COMMAND)), { code: 'ENOENT' });
+
+  assert.equal((await install(['--bin-dir', binDir], { home, bundlePath, nodeVersion: '24.0.0' })).code, 0);
+  const removed = await install(['--remove', '--bin-dir', binDir], { home, bundlePath, nodeVersion: '22.11.0' });
+  assert.equal(removed.code, 0, removed.err);
+});
+
+test('Windows is refused, with the way to run the CLI directly instead', async () => {
+  const home = await scratch('journal-install-');
+  const binDir = path.join(home, 'bin');
+  const result = await install(['--bin-dir', binDir], { home, bundlePath: '/skill/scripts/agent-journal.mjs', platform: 'win32' });
+  assert.equal(result.code, 1);
+  assert.match(result.err, /node \/skill\/scripts\/agent-journal\.mjs help/);
+  await assert.rejects(stat(binDir), { code: 'ENOENT' });
 });
 
 test('an unknown argument, or --bin-dir with no value, is a usage error', async () => {

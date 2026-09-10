@@ -60,9 +60,10 @@ hook-trust step that Claude Code does not).
 In outline, for either adapter:
 
 1. Put `agent-journal` on PATH: `node scripts/install-cli.mjs`, from this skill's folder,
-   writes a small wrapper to `~/.local/bin` that runs the CLI this skill carries. A
-   person runs it; an agent asks them to. In a checkout you can instead build
-   `packages/agent-journal`, or point `AGENT_JOURNAL_CMD` at the source.
+   writes a small wrapper to `~/.local/bin` that runs the CLI this skill carries; re-run
+   it if the skill moves, as a plugin update does. A person runs it; an agent asks them
+   to. In a checkout you can instead build `packages/agent-journal`, or point
+   `AGENT_JOURNAL_CMD` at the source.
 2. Copy the adapter's settings/hooks fragment into the harness's own hook
    configuration, merging rather than replacing any hooks already configured.
 3. Replace the placeholder workspace id and the placeholder absolute path to the
