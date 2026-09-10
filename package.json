@@ -15,7 +15,7 @@
     "verify:journal": "npm run prepare:journal && npm --prefix packages/agent-journal run verify",
     "prepare:governance": "npm ci --prefix packages/workspace-governance --ignore-scripts --no-audit --no-fund",
     "verify:governance": "npm run prepare:governance && npm --prefix packages/workspace-governance run verify",
-    "verify": "npm test && node scripts/verify-skills.mjs && node scripts/verify-digests.mjs && npm run verify:lifecycle && npm run verify:journal && npm run verify:governance"
+    "verify": "npm test && node scripts/verify-skills.mjs && node scripts/verify-digests.mjs && node scripts/verify-journal-bundle.mjs && npm run verify:lifecycle && npm run verify:journal && npm run verify:governance"
   },
   "license": "MIT"
 }

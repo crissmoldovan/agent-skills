@@ -2,7 +2,7 @@
 name: land-complex-change
 description: "Land a complex change with reduced side effects and regressions: declare a touch-set budget from its blast map, arm a regression gate per affected surface, and stop when work strays outside the budget. Use when a change is too risky to build without contained side effects."
 license: MIT
-compatibility: "Any repository the agent can change, with git and a way to run the project's own checks. A blast map from the companion mapping skill is the preferred input; without one the budget is declared rather than derived and the skill says so. Guards are whatever the repository already has — tests, typecheck, lint, CI jobs, a written manual step — and the skill arms and runs them, it does not install a framework. Subagents and model choice are optional; without them the bands control depth only. Output is the change itself plus its budget, its gate ladder and its residual risks."
+compatibility: "Any repository the agent can change, with git and a way to run the project's own checks. A blast map from the companion mapping skill is the preferred input; without one the budget is declared rather than derived and the skill says so. Guards are whatever the repository already has; the skill arms and runs them and installs no framework. Subagents and model choice are optional; without them the bands control depth only. Output is the change plus its budget, gate ladder and residual risks."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---

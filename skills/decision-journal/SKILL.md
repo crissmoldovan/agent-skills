@@ -2,7 +2,7 @@
 name: decision-journal
 description: "Record why a decision was made, anchored to evidence a reader can check, so months later the question 'why is this like this, and what did we already rule out' has an answer. Use when work is worth being able to reconstruct."
 license: MIT
-compatibility: "Any harness that can run a shell command, plus the agent-journal CLI. Hooks capture actions automatically where the harness exposes them — Claude Code, Codex, Cursor and Gemini do; Cowork and ChatGPT Work do not, and there the agent records entries itself and the journal says so. Without a filesystem it degrades to structured blocks in the transcript. Git raises what a claim can point at but is not required: a design or ops journal anchors to tool calls, in a weaker voice."
+compatibility: "Any harness that can run a shell command, plus Node.js 24+ for the CLI it carries. Hooks capture actions automatically where the harness exposes them — Claude Code, Codex, Cursor and Gemini do; Cowork and ChatGPT Work do not, and there the agent records entries itself and the journal says so. Without a filesystem it degrades to structured blocks in the transcript. Git raises what a claim can point at but is not required: a design or ops journal anchors to tool calls, in a weaker voice."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
@@ -24,7 +24,9 @@ they do not work.
 
 ## Quickstart
 
-Record one decision. This is the whole loop:
+The CLI ships in this skill: `node scripts/agent-journal.mjs` works wherever
+`agent-journal` appears below. To put it on PATH for hooks and a bare shell, a person
+runs `node scripts/install-cli.mjs` once; an agent asks them to. Record one decision:
 
 ```bash
 agent-journal record \
@@ -76,9 +78,8 @@ help you make them.
 
 ## Prerequisites
 
-1. **The CLI is installed and on PATH.** `agent-journal help` prints usage and exits 0.
-   **Complete when:** it does. Without it, fall back to the transcript form in
-   [references/degraded-modes.md](references/degraded-modes.md) and say you did.
+1. **The CLI runs.** `agent-journal help`, or `node scripts/agent-journal.mjs help`, exits 0.
+   **Complete when:** one does. If neither can, use [references/degraded-modes.md](references/degraded-modes.md) and say so.
 2. **A workspace id.** Everything is scoped to one. Pass `--workspace` explicitly; the
    library can derive one from the git common directory, but the CLI does not guess.
    **Complete when:** you have a stable string that will be the same next session.
@@ -444,10 +445,9 @@ Before treating a journal as a record you can rely on:
   written; a payload the redactor cannot scan at all — oversized, or too deeply nested —
   is refused outright, and that refusal is recorded as a void. If refusals vanish
   silently, the gap they leave is invisible and the coverage report is lying by omission.
-- **The journal could be read at all.** `coverage` exits non-zero and lists
-  `unreadable` paths and `malformed` lines when the record is damaged. Zeroes from a
-  damaged journal mean "we could not look", not "nothing happened" — treat its counts as
-  a floor.
+- **The journal could be read at all.** `coverage` exits non-zero and lists `unreadable`
+  paths and `malformed` lines when the record is damaged. Zeroes from a damaged journal
+  mean "we could not look", not "nothing happened" — treat its counts as a floor.
 - **Retractions took effect.** `agent-journal show --workspace <ws>` reports `outcome`
   and `live` per entry. An invalidated entry and everything that declared a dependence on
   it both read `live: false`.

@@ -7,6 +7,8 @@ const read = (path) => readFile(new URL(path, root), 'utf8');
 
 const readme = await read('README.md');
 const releases = await read('docs/releases.md');
+const architecture = await read('docs/architecture.md');
+const composition = await read('docs/composition.md');
 const codeowners = await read('.github/CODEOWNERS');
 const rootPackage = JSON.parse(await read('package.json'));
 const rootLock = JSON.parse(await read('package-lock.json'));
@@ -64,6 +66,8 @@ test('v0.11.0 release metadata, catalog, and review ownership cover the complete
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   assert.equal(skillNames.length, 21);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
+  assert.match(architecture, /now ships twenty-one skills/i);
+  assert.match(composition, /catalog ships twenty-one skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);

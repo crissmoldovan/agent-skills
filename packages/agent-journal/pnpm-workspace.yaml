@@ -1,0 +1,5 @@
+# esbuild is a devDependency used only by scripts/bundle-skill.mjs. Its install
+# script only verifies the platform binary, which pnpm and npm already install
+# as an optional dependency, so it does not need to run.
+allowBuilds:
+  esbuild: false

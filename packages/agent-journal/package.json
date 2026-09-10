@@ -22,10 +22,12 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "node --experimental-strip-types --test test/*.ts",
     "check:types": "tsc --noEmit -p tsconfig.json",
-    "verify": "npm run check:types && npm test && npm run build"
+    "verify": "npm run check:types && npm test && npm run build",
+    "bundle:skill": "node scripts/bundle-skill.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.2",
     "typescript": "^5.9.0"
   }
 }
