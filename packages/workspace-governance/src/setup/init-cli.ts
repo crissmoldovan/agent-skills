@@ -10,7 +10,7 @@ import {deriveInitPreview,previewPath} from './init-preview.ts';
 const sha=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
 async function ancestry(path:string):Promise<void>{
  for(let p=path;;p=dirname(p)){
-  const s=await lstat(p);requireThat(s.isDirectory() && !s.isSymbolicLink() && (s.mode&0o022)===0 && (s.uid===0 || s.uid===process.getuid!()));
+  const s=await lstat(p);requireThat(s.isDirectory() && !s.isSymbolicLink() && (s.mode&0o022)===0 && (s.uid===0 || s.uid===process.geteuid!()));
   if(p==='/')break;
  }
 }
@@ -18,7 +18,7 @@ async function capture(path:string,max:number,absent=false):Promise<Buffer|null>
  previewPath(path);await ancestry(dirname(path));
  let f;try{f=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}catch(e){if(absent && (e as NodeJS.ErrnoException).code==='ENOENT')return null;throw e;}
  try{
-  const before=await f.stat({bigint:true});requireThat(before.isFile() && before.nlink===1n && before.uid===BigInt(process.getuid!()) && (before.mode&0o022n)===0n && before.size<=BigInt(max));
+  const before=await f.stat({bigint:true});requireThat(before.isFile() && before.nlink===1n && before.uid===BigInt(process.geteuid!()) && (before.mode&0o022n)===0n && before.size<=BigInt(max));
   const bytes=Buffer.alloc(max+1);let count=0;
   while(count<bytes.length){const {bytesRead}=await f.read(bytes,count,bytes.length-count,null);if(!bytesRead)break;count+=bytesRead;}
   requireThat(count<=max,'LIMIT');const after=await f.stat({bigint:true}),named=await lstat(path,{bigint:true});
@@ -56,7 +56,7 @@ export async function manifestInitTrialPlan(flags:Record<string,string>){
  const anchorBytes=(await capture(anchorPath,262144))!;
  const anchor=parseJson(new TextDecoder('utf-8',{fatal:true}).decode(anchorBytes));
  strict(anchor,['apiVersion','issuerUid','controller','registryRoot','fixtureParent','candidateManifestSha256']);
- requireThat(anchor.apiVersion==='workspace-governance/init-trial-trust-v1' && anchor.issuerUid===process.getuid!());
+ requireThat(anchor.apiVersion==='workspace-governance/init-trial-trust-v1' && anchor.issuerUid===process.geteuid!());
  strict(anchor.controller,['path','sha256']);previewPath(anchor.controller.path);
  requireThat(typeof anchor.controller.sha256==='string' && /^[a-f0-9]{64}$/.test(anchor.controller.sha256));
  const controller=(await capture(anchor.controller.path,16777216))!;

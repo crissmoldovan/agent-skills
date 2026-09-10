@@ -17,7 +17,7 @@ function capture(name) {
  catch(e) {if(e.code==='ENOENT')return null; throw e;}
  try {
   const m=fs.fstatSync(fd,{bigint:true});
-  if(!m.isFile()||(m.mode&4095n)!==384n||m.nlink!==1n||m.uid!==BigInt(process.getuid())||m.size>262144n)throw Error('INVALID');
+  if(!m.isFile()||(m.mode&4095n)!==384n||m.nlink!==1n||m.uid!==BigInt(process.geteuid())||m.size>262144n)throw Error('INVALID');
   const bytes=fs.readFileSync(fd);
   if(bytes.length>262144)throw Error('LIMIT');
   return {bytes,fact:`${m.dev}:${m.ino}:${m.mode&4095n}:${m.uid}:${m.size}:${hash(bytes)}`};
@@ -26,7 +26,7 @@ function capture(name) {
 function plan() {
  if(!root||path.dirname(root)!==process.env.WG_NATIVE_TEST_ROOT||!path.basename(root).startsWith('init-boundary-')||!helper||!candidate||hash(fs.readFileSync(helper))!==candidate)throw Error('INVALID_CONTROLLER');
  const m=fs.lstatSync(root,{bigint:true});
- if(!m.isDirectory()||(m.mode&4095n)!==448n||m.uid!==BigInt(process.getuid()))throw Error('INVALID');
+ if(!m.isDirectory()||(m.mode&4095n)!==448n||m.uid!==BigInt(process.geteuid()))throw Error('INVALID');
  const request=capture('request.json'); if(!request)throw Error('INVALID');
  const manifest=capture('manifest.json');
  return canonicalJson({apiVersion:'workspace-governance/development-init-plan-v1',candidateSha256:candidate,
