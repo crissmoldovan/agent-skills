@@ -22,7 +22,7 @@ The public product started with exactly two planned skills:
 - `agent-lifecycle`: automatic delegated-work visibility.
 
 No further skill belongs in the catalog without a deliberate product decision. The catalog
-now ships seventeen skills, each admitted by such a decision and each recorded in the
+now ships twenty skills, each admitted by such a decision and each recorded in the
 repository README and in [releases](releases.md).
 
 ## Verification boundary

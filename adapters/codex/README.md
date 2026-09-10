@@ -156,8 +156,12 @@ strong lead, not a spec.
 
 ## Installing it — UNVERIFIED, follow at your own risk and re-check each step
 
-1. Build the package once (`pnpm build` from `packages/agent-journal`), or
-   plan to use `AGENT_JOURNAL_CMD` below to run it straight from source.
+1. Put `agent-journal` on your `PATH`. The `decision-journal` skill carries the
+   CLI, and its installer writes a small wrapper to `~/.local/bin`: from this
+   repo, `node skills/decision-journal/scripts/install-cli.mjs`; from an installed
+   copy of the skill, `node <skill-folder>/scripts/install-cli.mjs`. Or build the
+   package (`pnpm build` from `packages/agent-journal`), or plan to use
+   `AGENT_JOURNAL_CMD` below to run it straight from source.
 2. Copy `hooks-fragment.json`'s `"hooks"` object into `~/.codex/hooks.json`
    (create the file if it does not exist), or into a project-scoped
    `<repo>/.codex/hooks.json`, or the equivalent `[hooks]` table in either
@@ -167,8 +171,9 @@ strong lead, not a spec.
    - `REPLACE_ME_WORKSPACE` with your `agent-journal` workspace id.
    - `/absolute/path/to/agent-skills` with this repo's actual absolute path
      on the machine running Codex.
-4. Make sure `agent-journal` is resolvable — either put it on `PATH`, or set
-   `AGENT_JOURNAL_CMD` inside the same `command` string.
+4. Make sure `agent-journal` is resolvable from where Codex runs hooks — on its
+   `PATH` (step 1), or via `AGENT_JOURNAL_CMD` inside the same `command` string,
+   set to the absolute path the installer printed.
 5. **A step Claude Code's adapter does not need: trust the hooks.** Codex's
    own documentation describes a trust model where non-managed hooks (this
    one) require explicit review before they run at all — via the `/hooks`

@@ -6,7 +6,8 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
 `describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
-`land-complex-change`, `resolve-problem-report`, and `new-ux-discovery`, plus the
+`land-complex-change`, `resolve-problem-report`, `new-ux-discovery`, `decision-journal`,
+`delphi-ground`, and `delphi-imagine`, plus the
 canonical lifecycle runtime package under `packages/agent-lifecycle`.
 
 Routing and lifecycle compose as documented in [the composition guide](composition.md).
@@ -16,6 +17,13 @@ while each remains usable alone. `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`, and
 `new-ux-discovery` compose the same way over evidence, change mapping and contained
 delivery, each naming the sibling that owns the adjacent job and each usable alone.
+
+`decision-journal` records why a decision was made, anchored to evidence a reader can
+check, and stands alone. It carries its own CLI as `scripts/agent-journal.mjs`, bundled
+from `packages/agent-journal` by `npm --prefix packages/agent-journal run bundle:skill`
+and checked against that source by `npm run verify`; `scripts/install-cli.mjs` puts it
+on PATH. `delphi-ground` builds a verified-facts briefing, and
+`delphi-imagine` reviews an artefact against it from named perspectives.
 
 ## Release checklist
 
