@@ -19,7 +19,10 @@ while each remains usable alone. `investigate-codebase`, `blast-area`,
 delivery, each naming the sibling that owns the adjacent job and each usable alone.
 
 `decision-journal` records why a decision was made, anchored to evidence a reader can
-check, and stands alone. `delphi-ground` builds a verified-facts briefing, and
+check, and stands alone. It carries its own CLI as `scripts/agent-journal.mjs`, bundled
+from `packages/agent-journal` by `npm --prefix packages/agent-journal run bundle:skill`
+and checked against that source by `npm run verify`; `scripts/install-cli.mjs` puts it
+on PATH. `delphi-ground` builds a verified-facts briefing, and
 `delphi-imagine` reviews an artefact against it from named perspectives.
 
 ## Release checklist

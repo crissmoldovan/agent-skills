@@ -34,11 +34,11 @@ the agent acted without narrating why; a decision entry with no matching observa
 
 **The adapters are not part of this skill's installed files.** `npx skills add
 crissmoldovan/agent-skills --skill decision-journal` delivers `skills/decision-journal/`
-and nothing else; the adapters, the `agent-journal` package they call, and their
-harness-configuration fragments all live elsewhere in the same repository. Earlier
-revisions of this page and of [the main skill file](../SKILL.md) sent readers to
-`adapters/claude-code/` as though it were alongside them. It is not, and nothing
-installed by the skill leads anywhere useful. Get them from the repository:
+— which carries the `agent-journal` CLI itself, as `scripts/agent-journal.mjs` — and
+nothing else; the adapters and their harness-configuration fragments live elsewhere in
+the same repository. Earlier revisions of this page and of [the main skill file](../SKILL.md)
+sent readers to `adapters/claude-code/` as though it were alongside them. It is not, and
+nothing installed by the skill leads anywhere useful. Get them from the repository:
 
 ```bash
 git clone https://github.com/crissmoldovan/agent-skills.git
@@ -49,7 +49,7 @@ The two adapters are then at `adapters/claude-code/` and `adapters/codex/`, each
 self-contained POSIX `sh` script plus a Node mapping script plus a fragment of harness
 configuration, and browsable without cloning at
 <https://github.com/crissmoldovan/agent-skills/tree/main/adapters>. The CLI they call
-is `packages/agent-journal` in the same checkout.
+is the one this skill carries; its source is `packages/agent-journal` in the same checkout.
 
 Each adapter's own README (`adapters/claude-code/README.md`,
 `adapters/codex/README.md`) is the install guide — read it before wiring anything,
@@ -59,7 +59,10 @@ hook-trust step that Claude Code does not).
 
 In outline, for either adapter:
 
-1. Build `packages/agent-journal` once, or point `AGENT_JOURNAL_CMD` at the source.
+1. Put `agent-journal` on PATH: `node scripts/install-cli.mjs`, from this skill's folder,
+   writes a small wrapper to `~/.local/bin` that runs the CLI this skill carries. A
+   person runs it; an agent asks them to. In a checkout you can instead build
+   `packages/agent-journal`, or point `AGENT_JOURNAL_CMD` at the source.
 2. Copy the adapter's settings/hooks fragment into the harness's own hook
    configuration, merging rather than replacing any hooks already configured.
 3. Replace the placeholder workspace id and the placeholder absolute path to the
@@ -103,7 +106,9 @@ order, cheapest first:
    it match the `--workspace` you're querying?
 2. **Is `agent-journal` resolvable** from wherever the harness invokes the hook —
    `PATH`, or `AGENT_JOURNAL_CMD`? A hook that can't find the binary exits 0 and writes
-   nothing, per the adapters' own first rule (below) — silently, by design.
+   nothing, per the adapters' own first rule (below) — silently, by design. A harness
+   launched from a desktop app may not inherit your shell's `PATH`; if `~/.local/bin`
+   is not on it, set `AGENT_JOURNAL_CMD` to the absolute path `install-cli.mjs` printed.
 3. **Codex only: is the hook trusted?** Codex's documented trust model means an
    unreviewed hook simply does not run at all — see the "Installing it" section of
    `adapters/codex/README.md` (in the repository root, outside this skill's own

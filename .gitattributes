@@ -1,0 +1,9 @@
+# Generated from packages/agent-journal/src by `npm --prefix packages/agent-journal run bundle:skill`.
+# Collapsed in diffs and kept out of language statistics: review the source, not this.
+skills/decision-journal/scripts/agent-journal.mjs linguist-generated=true
+
+# scripts/verify-journal-bundle.mjs hashes these bytes. A checkout that rewrote line
+# endings would report a current bundle as stale, or an unedited one as edited.
+skills/decision-journal/scripts/agent-journal.mjs text eol=lf
+packages/agent-journal/src/*.ts text eol=lf
+packages/agent-journal/scripts/bundle-skill.mjs text eol=lf

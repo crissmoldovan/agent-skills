@@ -41,8 +41,12 @@ output side"). Same rule: it outranks this file if they ever disagree.
 
 ## Installing it
 
-1. Build the package once (`pnpm build` from `packages/agent-journal`), or
-   plan to use `AGENT_JOURNAL_CMD` below to run it straight from source.
+1. Put `agent-journal` on your `PATH`. The `decision-journal` skill carries the
+   CLI, and its installer writes a small wrapper to `~/.local/bin`: from this
+   repo, `node skills/decision-journal/scripts/install-cli.mjs`; from an installed
+   copy of the skill, `node <skill-folder>/scripts/install-cli.mjs`. Or build the
+   package (`pnpm build` from `packages/agent-journal`), or plan to use
+   `AGENT_JOURNAL_CMD` below to run it straight from source.
 2. Copy `settings-fragment.json`'s `"hooks"` object into
    `~/.claude/settings.json` (or a project-scoped `.claude/settings.json`).
 3. In every `command` string, replace:
@@ -50,9 +54,10 @@ output side"). Same rule: it outranks this file if they ever disagree.
    - `/absolute/path/to/agent-skills` with this repo's actual absolute path
      on the machine running Claude Code. `settings.json` commands run
      wherever Claude Code invokes them from, not relative to this repo.
-4. Make sure `agent-journal` is resolvable — either put it on `PATH` (after
-   `npm install -g` or equivalent), or set `AGENT_JOURNAL_CMD` (below) inside
-   the same `command` string.
+4. Make sure `agent-journal` is resolvable from where Claude Code runs hooks —
+   on its `PATH` (step 1), or via `AGENT_JOURNAL_CMD` (below) inside the same
+   `command` string. Claude Code launched from a desktop app may not inherit your
+   shell's `PATH`; the absolute path the installer printed always works.
 5. **Optional:** to turn on the authoring floors, add `AGENT_JOURNAL_FLOORS=1`
    to the `PostToolUse` and `PreCompact` blocks' `command` strings specifically
    (harmless, but pointless, on the others — see "Authoring floors" below).

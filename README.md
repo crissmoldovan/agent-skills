@@ -28,7 +28,7 @@ harnesses, and tested as part of one release catalogue.
 | `investigate-codebase` | Answer a question about a codebase with evidence that can prove it — score complexity before spending, fan out searches with controls, reconcile contradictions, and say what was not searched. Use when a code question needs a defensible answer, not a guess. | [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md) |
 | `blast-area` | Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) |
 | `visualise-blast-area` | Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into. | [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md) |
-| `decision-journal` | Record why a decision was made, anchored to evidence a reader can check, so months later the question 'why is this like this, and what did we already rule out' has an answer. Use when work is worth being able to reconstruct. | [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) |
+| `decision-journal` | Record why a decision was made, anchored to evidence a reader can check, so months later the question 'why is this like this, and what did we already rule out' has an answer. Use when work is worth being able to reconstruct. | [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) · [CLI installer](skills/decision-journal/scripts/install-cli.mjs) |
 | `delphi-ground` | Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention. | [Skill](skills/delphi-ground/SKILL.md) · [Briefing format](skills/delphi-ground/references/briefing-format.md) |
 | `delphi-imagine` | Review an artefact from a named perspective without inventing the world it lives in: grounded scenarios, a mandatory case where the thing is useless, and every request traced to a moment and costed. Use when you want a critique that can be checked rather than one that reads well. | [Skill](skills/delphi-imagine/SKILL.md) · [Output contract](skills/delphi-imagine/references/output-contract.md) |
 | `land-complex-change` | Land a complex change with reduced side effects and regressions: declare a touch-set budget from its blast map, arm a regression gate per affected surface, and stop when work strays outside the budget. Use when a change is too risky to build without contained side effects. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
@@ -98,8 +98,10 @@ npx skills add crissmoldovan/agent-skills --skill land-complex-change resolve-pr
 # UX opportunities a codebase can already support
 npx skills add crissmoldovan/agent-skills --skill new-ux-discovery
 
-# Decision records with checkable evidence
+# Decision records with checkable evidence. The skill carries its own CLI; put it on
+# PATH once, from the folder the skill was installed to, so hooks and your shell find it
 npx skills add crissmoldovan/agent-skills --skill decision-journal
+node <skill-folder>/scripts/install-cli.mjs
 
 # Grounded, evidence-first reviews of an artefact
 npx skills add crissmoldovan/agent-skills --skill delphi-ground delphi-imagine
@@ -118,6 +120,8 @@ managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
 clients separately, then verify each installed path and source. Do not treat one
 successful agent or scope as proof that all local libraries are current.
+decision-journal carries its own CLI: ask before running its
+scripts/install-cli.mjs, which puts agent-journal on PATH; never run it unasked.
 ```
 
 Preview destructive replacement when a stale directory has no managed
