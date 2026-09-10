@@ -149,10 +149,12 @@ async function carriedBundleAt(dir) {
   return file;
 }
 
-async function install(argv, { home, bundlePath, PATH = '', ...context }) {
+// nodeVersion is pinned so these tests do not inherit the runner's Node: on Node 22 the
+// installer's own floor would refuse every install and fail tests about something else.
+async function install(argv, { home, bundlePath, PATH = '', nodeVersion = '24.0.0', ...context }) {
   const out = sink();
   const err = sink();
-  const code = await installMain(argv, { env: { HOME: home, PATH }, stdout: out, stderr: err, bundlePath, ...context });
+  const code = await installMain(argv, { env: { HOME: home, PATH }, stdout: out, stderr: err, bundlePath, nodeVersion, ...context });
   return { code, out: out.text, err: err.text };
 }
 
