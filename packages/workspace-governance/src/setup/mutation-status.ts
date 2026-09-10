@@ -15,7 +15,7 @@ async function kernel(path:string,max:number):Promise<Buffer>{
  * Retain every ancestor and negative witness through one bounded snapshot.
  * /proc/self/fd is the Linux kernel's handle namespace, never caller input.
  */
-class Snapshot {
+export class Snapshot {
  handles=new Map<string,{file:FileHandle,stat:BigIntStats,named:string}>();
  missing=new Map<string,string>(); total=0;
  async bytes(path:string,max:number):Promise<Buffer>{
@@ -56,7 +56,12 @@ class Snapshot {
   for(const named of this.missing.values())try{await lstat(named);return false;}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')return false;}
   return true;
  }
- async close(){for(const h of [...this.handles.values()].reverse())await h.file.close();}
+ async close(){
+  const failures:unknown[]=[];
+  for(const h of [...this.handles.values()].reverse())try{await h.file.close();}catch(error){failures.push(error);}
+  if(failures.length===1)throw failures[0];
+  if(failures.length>1)throw new AggregateError(failures,'snapshot handle close failures');
+ }
 }
 const fixed=['proposal.json','context.json','owner.json','result.json','captures/request.json','captures/manifest-before.json','captures/trial-intent.json','captures/trial-record.json','captures/candidate-manifest.json','captures/trial-anchor.json','captures/approved-plan.json','payloads/manifest-after.json','payloads/state.json'];
 function fileFact(v:any,sha256:string,mode='0600'){

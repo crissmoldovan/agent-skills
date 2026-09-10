@@ -5,7 +5,25 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {decodePayload} from '../src/setup/codec.ts';
 import {createHash} from 'node:crypto';
-import {hash,resource} from '../src/setup/trial-saved.ts';
+import {hash,resource,trialCheckIds} from '../src/setup/trial-saved.ts';
+import {Snapshot} from '../src/setup/mutation-status.ts';
+test('historical pending check IDs match the native issuer contract',async()=>{
+ const rust=await (await import('node:fs/promises')).readFile(new URL('../native/setup-helper/src/init_trial_issuer.rs',import.meta.url),'utf8');
+ const body=rust.match(/const CHECKS: \[&str; \d+\] = \[([\s\S]*?)\n\];/)?.[1];
+ assert.ok(body,'native CHECKS constant must remain parseable');
+ const native=[...body.matchAll(/"([a-z0-9-]+)"/g)].map(match=>match[1]);
+ assert.deepEqual(trialCheckIds,native);
+});
+test('snapshot close attempts every retained handle after a close failure',async()=>{
+ const closed:string[]=[];
+ const handle=(name:string,fail=false)=>({file:{close:async()=>{closed.push(name);if(fail)throw new Error(name);}},stat:{},named:name} as any);
+ const snapshot=new Snapshot();
+ snapshot.handles.set('first',handle('first'));
+ snapshot.handles.set('second',handle('second',true));
+ snapshot.handles.set('third',handle('third'));
+ await assert.rejects(()=>snapshot.close(),/second/);
+ assert.deepEqual(closed,['third','second','first']);
+});
 test('historical resource scalars consume the full string and retain native bounds',()=>{
  const base={path:'/historical/file',kind:'file',identity:{dev:'0',ino:'1'},sha256:'a'.repeat(64),treeDigest:null,filesystem:{uid:'0',gid:'4294967295',mode:'0600',nlink:'1',mountId:'1'}};
  assert.doesNotThrow(()=>resource(base));

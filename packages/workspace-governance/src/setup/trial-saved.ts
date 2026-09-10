@@ -31,7 +31,7 @@ export function resource(v:any):void{
  if(v.kind==='file'){hash(v.sha256);eq(v.filesystem.nlink,'1');eq(v.treeDigest,null);}else {eq(v.sha256,null);if(v.treeDigest!==null)hash(v.treeDigest);}
 }
 export function parse(bytes:Buffer,canonical=false):any{const v=parseJson(new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes));if(canonical)requireThat(lf(v).equals(bytes));return v;}
-const checks=['artifact-consumer','capability-isolation','disconnect-orphan','filesystem-crash','flock-contention','gate-subreaper','init-approval','init-integration','init-terminal-recovery','native-audit','rename-fsync','runtime-closure'];
+export const trialCheckIds=['artifact-consumer','capability-isolation','disconnect-orphan','filesystem-crash','flock-contention','gate-subreaper','init-approval','init-integration','init-terminal-recovery','native-audit','rename-fsync','runtime-closure'];
 const sort=(a:string[])=>a.sort((a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b)));
 const within=(p:string,q:string)=>p.startsWith(q+'/');
 const overlaps=(p:string,q:string)=>p===q||within(p,q)||within(q,p);
@@ -81,7 +81,7 @@ export function saved(files:Map<string,Buffer>,stateDir:string,operationId:strin
  requireThat(typeof env.bootId==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(env.bootId));ascii(env.kernelRelease);ascii(env.glibcVersion);dec(env.mountNamespaceIno,true);hash(env.mountinfoSha256);
  const mounts=new Map<string,string>();for(const d of [a.registryRoot,a.fixtureParent,f.root,f.manifestParent,f.stateParent,f.evidenceRoot]){requireThat(!mounts.has(d.mountId)||mounts.get(d.mountId)===d.dev);mounts.set(d.mountId,d.dev);}
  requireThat(Array.isArray(env.mounts));eq(env.mounts.map((m:any)=>m.mountId),[...mounts.keys()].sort((a,b)=>BigInt(a)<BigInt(b)?-1:1));for(const m of env.mounts){obj(m,'mountId dev filesystem optionsSha256');eq(m.dev,mounts.get(m.mountId));requireThat(['ext4','xfs'].includes(m.filesystem));hash(m.optionsSha256);}
- obj(t,'apiVersion classification trialId issuerUid trustAnchorSha256 candidateManifestSha256 environment lifetime fixture invocation limits pendingCheckIds');eq(t.apiVersion,'workspace-governance/init-candidate-trial-v1');eq(t.classification,c.classification);hash(t.trialId);eq(t.issuerUid,a.issuerUid);eq(t.trustAnchorSha256,sha(ab));for(const k of ['candidateManifestSha256','environment','fixture','limits'])eq(t[k],i[k]);eq(t.pendingCheckIds,checks);
+ obj(t,'apiVersion classification trialId issuerUid trustAnchorSha256 candidateManifestSha256 environment lifetime fixture invocation limits pendingCheckIds');eq(t.apiVersion,'workspace-governance/init-candidate-trial-v1');eq(t.classification,c.classification);hash(t.trialId);eq(t.issuerUid,a.issuerUid);eq(t.trustAnchorSha256,sha(ab));for(const k of ['candidateManifestSha256','environment','fixture','limits'])eq(t[k],i[k]);eq(t.pendingCheckIds,trialCheckIds);
  obj(t.lifetime,'issuedBoottimeNs deadlineBoottimeNs');dec(t.lifetime.issuedBoottimeNs);dec(t.lifetime.deadlineBoottimeNs,true);const duration=BigInt(t.lifetime.deadlineBoottimeNs)-BigInt(t.lifetime.issuedBoottimeNs);requireThat(duration>0n&&duration<=600000000000n);
  obj(t.invocation,'mode operationId planSha256 approvalDigest priorTrialId');eq(t.invocation,{mode:'apply',operationId,planSha256:sha(pb),approvalDigest:p.digest,priorTrialId:null});
  const manifest=lf(buildInitialManifest(parse(request))),state=lf({apiVersion:'workspace-governance/setup-state-v1',authorityId:parse(request).authorityId,rootRegistration:null});
