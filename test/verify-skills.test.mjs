@@ -97,6 +97,37 @@ test('verifier accepts a carried-file token when the skill carries that exact fi
   assert.equal(result.status, 0, result.stderr);
 });
 
+// The catalogue's build enforces the portable spec's frontmatter limits; a skill that passed
+// here once went there with a 523-character compatibility and broke its build.
+test('verifier holds frontmatter to the portable spec limits, in characters, after folding', async () => {
+  const root = await fixture();
+  const skill = path.join(root, 'skills', 'valid-skill', 'SKILL.md');
+  const withFields = (fields) => writeFile(skill, `---\nname: valid-skill\n${fields}\n---\n`);
+  const x = (n) => 'x'.repeat(n);
+
+  await withFields(`description: Valid fixture\ncompatibility: "${x(500)}"`);
+  assert.equal((await verify(root)).status, 0, 'exactly 500 characters is allowed');
+
+  await withFields(`description: Valid fixture\ncompatibility: "${'—'.repeat(500)}"`);
+  assert.equal((await verify(root)).status, 0, '500 em dashes are 500 characters, not 1500 bytes');
+
+  await withFields(`description: Valid fixture\ncompatibility: "${x(501)}"`);
+  let result = await verify(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /compatibility is 501 characters; the portable spec allows 500/);
+
+  // A folded block: two 251-character lines join with one space into 503.
+  await withFields(`description: Valid fixture\ncompatibility: >-\n  ${x(251)}\n  ${x(251)}`);
+  result = await verify(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /compatibility is 503 characters/);
+
+  await withFields(`description: ${x(1025)}`);
+  result = await verify(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /description is 1025 characters; the portable spec allows 1024/);
+});
+
 test('verifier caps the SKILL.md body at 484 lines and admits a body of exactly 484', async () => {
   const frontmatter = '---\nname: valid-skill\ndescription: Valid fixture\n---\n';
   const body = (lines) => `${'body line\n'.repeat(lines)}`;

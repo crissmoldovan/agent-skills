@@ -2,7 +2,7 @@
 name: resolve-problem-report
 description: "Resolve a problem report end to end: reproduce the claim, dig to root cause or implications, offer candidate fixes with trade-offs, spec the chosen one, and land it through gated review. Use when a bug or feature report needs investigating and resolving rather than a quick patch."
 license: MIT
-compatibility: "Any repository the agent can read and change, with git, plus the report itself in whatever form it arrived — ticket, issue, chat message, mail, a sentence from a colleague. Reproduction needs whatever the claim is about: a runnable checkout for a code claim, a queryable datastore or logs for a claim about production, and where that reach is missing the skill says so instead of substituting a lower evidence class. Companion skills do the searching, the mapping, the landing, the description and the review; without them the gates still hold but each says what degraded. Subagents and model choice are optional. Output is the resolution and its artifacts — claim, reproduction, candidates, contract, gates — or a documented refutation with no change at all."
+compatibility: "Any repository the agent can read and change, with git, plus the report in any form. Reproduction needs what the claim is about — a runnable checkout, or a datastore or logs for production; lacking that, the skill says so rather than use weaker evidence. Companion skills search, map, land, describe and review; without them the gates hold and each says what degraded. Subagents and model choice are optional. Output is the resolution and its artifacts, or a documented refutation with no change."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
