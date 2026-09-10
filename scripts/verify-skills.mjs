@@ -13,6 +13,10 @@ const textExtensions = new Set(['.md', '.mdx', '.txt', '.json', '.yml', '.yaml',
 // A SKILL.md body — everything after the frontmatter — is capped so that detail lives in
 // carried reference files instead of the always-loaded instruction file.
 const MAX_BODY_LINES = 484;
+// The portable Agent Skills contract's own frontmatter limits, in characters. Other channels
+// enforce them — the private catalogue's build refused a 523-character compatibility — so a
+// skill that passes here has to pass there too.
+const FIELD_LIMITS = { name: 64, description: 1024, compatibility: 500 };
 // Any bare references/, scripts/, or assets/ token in a skill's prose is read as a promise
 // that the skill carries that exact file. Prose that means "reference files, or scripts"
 // must not be written as a path.
@@ -53,12 +57,29 @@ function parseFrontmatter(source, file) {
   const frontmatter = source.slice(4, close);
   const result = Object.create(null);
   // The catalog deliberately accepts YAML maps, lists, and folded scalars.
-  // The two required scalar keys are extracted without introducing a YAML dependency.
-  for (const key of ['name', 'description']) {
-    const match = frontmatter.match(new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm'));
-    if (match) result[key] = match[1].replace(/^(['"])(.*)\1$/, '$2');
+  // The scalar keys checked here are extracted without introducing a YAML dependency.
+  for (const key of Object.keys(FIELD_LIMITS)) {
+    const value = scalar(frontmatter, key);
+    if (value !== undefined) result[key] = value;
   }
   return result;
+}
+
+/** A top-level scalar: inline (quotes stripped), or a block scalar (`>`, `|`) read from its
+ *  indented lines — folded with spaces, or kept with newlines — so its length is the length
+ *  of the value a reader gets, not of the marker. */
+function scalar(frontmatter, key) {
+  const lines = frontmatter.split('\n');
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`));
+  if (index < 0) return undefined;
+  const inline = lines[index].slice(key.length + 1).trim();
+  if (!/^[>|][+-]?$/.test(inline)) return inline.replace(/^(['"])(.*)\1$/, '$2') || undefined;
+  const block = [];
+  for (const line of lines.slice(index + 1)) {
+    if (line.trim() !== '' && !/^\s/.test(line)) break;
+    block.push(line.trim());
+  }
+  return block.join(inline.startsWith('>') ? ' ' : '\n').trim();
 }
 
 function bodyLineCount(source) {
@@ -121,6 +142,10 @@ for (const file of skillFiles) {
     else if (frontmatter.name !== name) fail(`${relative(root, file)}: frontmatter name must match directory (${name})`);
     if (!frontmatter.description) fail(`${relative(root, file)}: missing frontmatter description`);
     else if (readme !== null && !readme.includes(frontmatter.description)) fail(`${relative(root, file)}: README must list the exact frontmatter description`);
+    for (const [key, limit] of Object.entries(FIELD_LIMITS)) {
+      const length = [...(frontmatter[key] ?? '')].length;
+      if (length > limit) fail(`${relative(root, file)}: ${key} is ${length} characters; the portable spec allows ${limit}`);
+    }
   }
   const bodyLines = bodyLineCount(source);
   if (bodyLines > MAX_BODY_LINES) {

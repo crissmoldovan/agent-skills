@@ -2,7 +2,7 @@
 name: new-ux-discovery
 description: "Discover UX improvements a codebase can already support — across UI, API, CLI, MCP and notifications — and gate every candidate through a not-already-implemented sweep and a no-confusion check before proposing it. Use when you want evidence-backed UX opportunities, riding a change or from pure analysis."
 license: MIT
-compatibility: "Any repository the agent can read, with git and a text search tool. Generated registries — a route index, a tool catalogue, a job list — are consumed where they exist and built by hand where they do not. Forge access to open branches and pull requests raises both gates sharply, and losing it is the degradation that costs the most. Checking who can read what needs a queryable datastore; without one, two signal classes lose their access half and say so. Output is a capped, ranked list with its sweep coverage attached; nothing is designed, nothing is built, and nothing is committed unless a run record is asked for."
+compatibility: "Any repository the agent can read, with git and a text search tool. Generated registries (routes, tools, jobs) are used where present, built by hand where not. Forge access to open branches and PRs raises both gates sharply; losing it costs the most. Checking who can read what needs a queryable datastore; without one, two signal classes lose their access half and say so. Output is a capped, ranked list with sweep coverage; nothing is designed, built or committed unless a run record is asked for."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---

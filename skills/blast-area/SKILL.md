@@ -2,7 +2,7 @@
 name: blast-area
 description: "Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break."
 license: MIT
-compatibility: "Any repository the agent can read, with git and a text search tool. A language server or compiler-resolved symbol index raises the map's precision and is used when present; without one, resolution is name-based and the map says so. Data-resident references need a queryable datastore — where there is none, the surface is reported unchecked rather than empty. Output is a written map plus a JSON envelope that renders directly as a diagram; nothing is changed and nothing is committed unless a run record is asked for."
+compatibility: "Any repository the agent can read, with git and a text search tool. A language server or compiler-resolved symbol index raises precision and is used when present; without one, resolution is name-based and the map says so. Data-resident references need a queryable datastore — without one, the surface is reported unchecked rather than empty. Output is a written map plus a JSON envelope that renders as a diagram; nothing is changed and nothing is committed unless a run record is asked for."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
