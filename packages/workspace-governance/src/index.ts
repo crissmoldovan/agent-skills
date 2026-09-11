@@ -41,4 +41,11 @@ export type {
 } from "./discovery.ts";
 export { createPlan, verifyPlan } from "./planner.ts";
 export type { Plan, PlanEntry } from "./planner.ts";
+export { createReport } from "./report.ts";
+export type {
+  Report,
+  ReportNode,
+  ReportRepository,
+  ReportSummary,
+} from "./report.ts";
 export { readMutationStatus } from "./setup/mutation-status.ts";

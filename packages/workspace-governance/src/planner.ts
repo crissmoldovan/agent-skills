@@ -141,7 +141,7 @@ export function createPlan(
   const scopeResolution = resolvePolicy(s, nodeId, principal, options);
   const scope = s.manifest.nodes.find((n) => n.id === nodeId)!;
   requireThat(
-    ["organization", "area", "project", "repository"].includes(scope.kind),
+    ["user", "organization", "area", "project", "repository"].includes(scope.kind),
     "UNSUPPORTED",
   );
   const byId = new Map(s.manifest.nodes.map((n) => [n.id, n]));

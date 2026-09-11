@@ -24,6 +24,8 @@ workspacectl explain --manifest manifest.json --node repo --principal reader
 workspacectl workflow --manifest manifest.json --node repo --principal reader --workflow feature
 workspacectl discover --root "$SCAN_ROOT" --depth 8
 workspacectl discover-github --owner example
+workspacectl report --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature
+workspacectl report --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature --format html > workspace-report.html
 workspacectl plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT"
 workspacectl audit --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT"
 workspacectl verify-plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --plan preview.json
@@ -32,13 +34,22 @@ workspacectl verify-plan --manifest manifest.json --node org --principal reader 
 Do not run the example remote command blindly: choose an explicitly approved
 organization. Validate/discover are local administrative views, not filtered by a
 principal. Catalog is a fixed readable projection. Explain/workflow resolve rules;
-workflow requires `--workflow ID`. Explain/plan/audit/verify-plan optionally accept
-it. Plan/audit/verify-plan discover locally with `--depth N` (default8, range0–32).
+workflow requires `--workflow ID`. Explain/report/plan/audit/verify-plan optionally
+accept it. Report/plan/audit/verify-plan discover locally with `--depth N` (default8,
+range0–32). Report accepts user, organization, area, project and repository scopes;
+the selected node and its complete descendant subtree must be readable or the whole
+report refuses with `UNAVAILABLE`; ancestors shown are readable. Its default JSON
+combines hierarchy, placement summary, effective policy provenance and the selected
+inert workflow. `--format html` emits a self-contained visual rendering of key report
+fields—including identity/authorization context, hierarchy, status, dirty state,
+policy provenance, constraints and inert workflow details—not a lossless or
+data-equivalent JSON serialization. Redirect report files outside the scan root.
 Never trust a saved plan to choose root/principal/scope/workflow.
 
 Save preview JSON outside the scan root so the output does not change its own
 inventory. All commands are read-only. Unknown/duplicate flags fail; no `--human`,
-apply, execution or editing flags exist. Help/version are text, other output JSON.
+apply, execution or editing flags exist. Help/version and explicit report HTML are
+text; other output is JSON.
 Exit0 success, exit2 invalid/unavailable/unsupported/tool failure, exit3 incomplete,
 audit drift or stale plan. Plans can validly show drift with exit0; audit adds a
 drift boolean and exits3. Errors have static code/message JSON on stderr, no raw

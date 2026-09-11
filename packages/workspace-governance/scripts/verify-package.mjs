@@ -48,6 +48,9 @@ try {
     "dist/index.js",
     "dist/index.d.ts",
     "dist/cli.js",
+    "dist/report.js",
+    "dist/report.d.ts",
+    "dist/report-html.js",
     "schemas/manifest.schema.json",
     "examples/example.json",
     "README.md",
@@ -110,6 +113,12 @@ try {
   ];
   const plan = run(bin, ["plan", ...flags], consumer);
   assert.equal(JSON.parse(plan).entries[0].status, "missing-checkout");
+  const report = JSON.parse(run(bin, ["report", ...flags], consumer));
+  assert.equal(report.summary.missingCheckout, 1);
+  assert.equal(report.repositories[0].resolution.workflow.executable, false);
+  const reportHtml = run(bin, ["report", ...flags, "--format", "html"], consumer);
+  assert.match(reportHtml, /^<!doctype html>/i);
+  assert.match(reportHtml, /Missing checkout/);
   await writeFile(join(temp, "plan.json"), plan);
   assert.equal(
     JSON.parse(
@@ -149,15 +158,15 @@ import * as G from '@crissmoldovan/workspace-governance';
 const m=G.parseJson(await readFile(${JSON.stringify(manifest)},'utf8'));
 const s=await G.loadSnapshot(new G.MemorySnapshotStore(m));
 assert.equal(G.resolvePolicy(s,'repo','reader').values['git.pullRequest'],true);
-const inv=await G.discoverLocal(${JSON.stringify(scan)});const p=G.createPlan(s,inv,'org','reader');G.verifyPlan(p,s,inv,'org','reader');
-console.log('isolated library resolution/discovery/plan OK');
+const inv=await G.discoverLocal(${JSON.stringify(scan)});const p=G.createPlan(s,inv,'org','reader');G.verifyPlan(p,s,inv,'org','reader');const report=G.createReport(s,inv,'org','reader',{workflowId:'feature'});assert.equal(report.summary.missingCheckout,1);
+console.log('isolated library resolution/discovery/plan/report OK');
 `,
   );
   console.log(run(process.execPath, ["check.mjs"], consumer).trim());
   await writeFile(
     join(consumer, "check.ts"),
-    `import {MemorySnapshotStore,loadSnapshot,resolvePolicy,createPlan,type Manifest,type Inventory,type SnapshotStore} from '@crissmoldovan/workspace-governance';
-declare const m:Manifest;declare const i:Inventory;const store:SnapshotStore=new MemorySnapshotStore(m);const s=await loadSnapshot(store);const r=resolvePolicy(s,'repo','reader',{defaults:[{key:'x',merge:'replace',value:true}]});createPlan(s,i,'org','reader');console.log(r.values);
+    `import {MemorySnapshotStore,loadSnapshot,resolvePolicy,createPlan,createReport,type Manifest,type Inventory,type SnapshotStore,type Report} from '@crissmoldovan/workspace-governance';
+declare const m:Manifest;declare const i:Inventory;const store:SnapshotStore=new MemorySnapshotStore(m);const s=await loadSnapshot(store);const r=resolvePolicy(s,'repo','reader',{defaults:[{key:'x',merge:'replace',value:true}]});createPlan(s,i,'org','reader');const report:Report=createReport(s,i,'org','reader');console.log(r.values,report.summary);
 `,
   );
   run(

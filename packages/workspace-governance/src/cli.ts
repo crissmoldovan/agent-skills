@@ -8,9 +8,11 @@ import {
 import { FileSnapshotStore, loadSnapshot, readJsonFile } from "./stores.ts";
 import { discoverLocal, discoverGithub } from "./discovery.ts";
 import { createPlan, verifyPlan } from "./planner.ts";
+import { createReport } from "./report.ts";
+import { renderReportHtml } from "./report-html.ts";
 import { manifestInitPlan, manifestInitTrialPlan } from "./setup/init-cli.ts";
 import { readMutationStatus } from "./setup/mutation-status.ts";
-const help = `workspacectl 0.1.0 — read-only JSON previews
+const help = `workspacectl 0.1.0 — read-only workspace views
 Local --principal is advisory simulation, NOT authentication.
 validate --manifest FILE
 manifest-init-plan --manifest FILE --request FILE --state-dir DIR --executor-profile FILE
@@ -25,6 +27,7 @@ explain --manifest FILE --node ID --principal SUBJECT [--workflow ID]
 workflow --manifest FILE --node ID --principal SUBJECT --workflow ID
 discover --root DIR [--depth N]
 discover-github --owner OWNER
+report --manifest FILE --node ID --principal SUBJECT --root DIR [--depth N] [--workflow ID] [--format json|html]
 plan|audit --manifest FILE --node ID --principal SUBJECT --root DIR [--depth N] [--workflow ID]
 verify-plan --manifest FILE --node ID --principal SUBJECT --root DIR --plan FILE [--depth N] [--workflow ID]
 --help | --version
@@ -42,6 +45,11 @@ const contracts: Record<string, { required: string[]; optional: string[] }> =
       ["workflow", ["manifest", "node", "principal", "workflow"], []],
       ["discover", ["root"], ["depth"]],
       ["discover-github", ["owner"], []],
+      [
+        "report",
+        ["manifest", "node", "principal", "root"],
+        ["depth", "workflow", "format"],
+      ],
       [
         "plan",
         ["manifest", "node", "principal", "root"],
@@ -98,6 +106,8 @@ async function main(args: string[]): Promise<void> {
     requireThat(
       /^(0|[1-9]\d?)$/.test(flags.depth) && Number(flags.depth) <= 32,
     );
+  if (command === "report")
+    requireThat(flags.format === undefined || ["json", "html"].includes(flags.format));
   const scanOptions =
     flags.depth === undefined ? {} : { depth: Number(flags.depth) };
   const options =
@@ -156,6 +166,19 @@ async function main(args: string[]): Promise<void> {
             options,
           );
           result = { valid: true, executable: false };
+        } else if (command === "report") {
+          const report = createReport(
+            snapshot,
+            inventory,
+            flags.node,
+            flags.principal,
+            options,
+          );
+          if (flags.format === "html") {
+            process.stdout.write(renderReportHtml(report));
+            return;
+          }
+          result = report;
         } else {
           const plan = createPlan(
             snapshot,

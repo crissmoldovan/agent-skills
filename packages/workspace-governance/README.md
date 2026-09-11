@@ -1,5 +1,28 @@
 # Workspace Governance 0.1.0
 
+## Working workspace report
+
+The first useful path is one command that combines the declared hierarchy,
+observed local checkouts, placement drift, inherited policy provenance and the
+selected inert workflow:
+
+```sh
+workspacectl report --manifest example.json --node org --principal reader \
+  --root "$SCAN_ROOT" --workflow feature
+
+# Optional self-contained visual report; write it outside the scan root.
+workspacectl report --manifest example.json --node org --principal reader \
+  --root "$SCAN_ROOT" --workflow feature --format html > workspace-report.html
+```
+
+JSON is the default (`--format json` is equivalent). The report accepts a user,
+organization, area, project or repository scope. The selected node and its complete
+descendant subtree must be readable or the whole report refuses with `UNAVAILABLE`;
+ancestors included in the report are readable. HTML is a self-contained visual
+rendering of key report fields, not a lossless JSON serialization. Report output is
+deterministic and read-only: it does not classify unknown repositories, clone or
+move checkouts, enforce policy, or execute workflow action strings.
+
 ## Observational strict-trial status
 
 ```sh
@@ -86,7 +109,8 @@ this CLI. No global install, lifecycle install scripts, or automatic configurati
 
 ## Commands
 
-All successful data is JSON on stdout, except help/version. Errors are static
+All successful data is JSON on stdout, except help/version and
+`report --format html`. Errors are static
 `{"error":{"code":"INVALID","message":"Invalid input."}}`-shaped JSON on
 stderr; no input excerpts or tool stderr. Unknown/duplicate flags are rejected.
 
@@ -99,6 +123,7 @@ workspacectl explain --manifest example.json --node repo --principal reader
 workspacectl workflow --manifest example.json --node repo --principal reader --workflow feature
 workspacectl discover --root "$SCAN_ROOT" --depth 8
 workspacectl discover-github --owner example
+workspacectl report --manifest example.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature
 workspacectl plan --manifest example.json --node org --principal reader --root "$SCAN_ROOT"
 workspacectl audit --manifest example.json --node org --principal reader --root "$SCAN_ROOT"
 workspacectl verify-plan --manifest example.json --node org --principal reader --root "$SCAN_ROOT" --plan preview.json
@@ -106,9 +131,10 @@ workspacectl verify-plan --manifest example.json --node org --principal reader -
 
 The packaged [example](examples/example.json) is synthetic. Do not issue its remote
 discovery command unless you deliberately choose that public organization.
-`--workflow ID` is supported by explain, workflow, plan, audit, verify-plan; only
+`--workflow ID` is supported by explain, workflow, report, plan, audit and verify-plan; only
 workflow requires it. Plan/audit/verify-plan also accept `--depth N` (default 8,
-range 0–32). They perform fresh **local** discovery internally, never GitHub calls.
+range 0–32); report accepts the same bound. They perform fresh **local** discovery
+internally, never GitHub calls.
 Save a plan using explicit shell redirection outside the scan root, then verify it
 with the **same explicit** scope/principal/root/workflow. The saved plan cannot
 choose these resources. No `--human`, apply, execution, clone, move or override CLI.
@@ -205,7 +231,7 @@ production/trial families are not admitted. No policy amendment is activated.
 ```js
 import {
   FileSnapshotStore, loadSnapshot, resolvePolicy, discoverLocal,
-  createPlan, verifyPlan,
+  createPlan, verifyPlan, createReport,
 } from '@crissmoldovan/workspace-governance';
 const snapshot = await loadSnapshot(new FileSnapshotStore(manifestPath));
 const options = { workflowId: 'feature' };
@@ -213,6 +239,7 @@ const resolution = resolvePolicy(snapshot, 'repo', 'reader', options);
 const inventory = await discoverLocal(scanRoot, { depth: 8 });
 const plan = createPlan(snapshot, inventory, 'org', 'reader', options);
 verifyPlan(plan, snapshot, inventory, 'org', 'reader', options);
+const report = createReport(snapshot, inventory, 'org', 'reader', options);
 ```
 
 Public declarations ship with the package. `validateManifest(unknown)` returns a
@@ -276,9 +303,10 @@ Malformed, repeated, truncated or failed responses never return partial success.
 Unmapped remotes remain unmanaged; no ownership guesses from names. Remote
 inventory is an administrative adoption aid, not an authoritative plan input.
 
-Plans include only selected readable repository facts. An unreadable descendant
-refuses the whole scope generically. Targets are root plus ancestry slugs (excluding
-user/workspace), never collapsed by repeated basename. Statuses: present,
+Plans and reports require the selected node and its complete descendant subtree to
+be readable. An unreadable selected node or descendant refuses the whole scope
+generically; ancestors shown in a report are readable. Targets are root plus
+ancestry slugs (excluding user/workspace), never collapsed by repeated basename. Statuses: present,
 missing-checkout, misplaced, duplicate, blocked. Dirty singleton sources, occupied
 wrong targets, unsafe ancestors and case-fold collisions block; duplicates retain
 the dirty flag. No remote removal is inferred. Occupied targets report no other

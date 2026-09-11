@@ -16,7 +16,11 @@ for exact installation, signatures, flags and limitations.
   paginated GitHub observation. No remote calls in plan/audit/verify-plan.
 - `planner.ts`: pure deterministic preview and whole-plan comparison over supplied
   snapshots/inventory; Node path/hash operations only, no filesystem or subprocesses.
-- `cli.ts`: file-store composition, strict command/flag parsing, JSON and exit codes.
+- `report.ts`: one deterministic hierarchy/placement/policy/workflow view over a
+  supplied snapshot and inventory; `report-html.ts` renders key fields from that
+  validated view rather than a lossless serialization.
+- `cli.ts`: file-store composition, strict command/flag parsing, JSON, optional
+  self-contained report HTML and exit codes.
 - `skills/workspace-governance`: independently copyable procedure with its own
   references. Installing it does not install the CLI. No host-specific agent state.
 
@@ -47,7 +51,7 @@ part of the public fixtures.
 | A5 coherent defensive stores | `test/stores.test.ts` |
 | A6 contained read-only Git discovery | `test/discovery.test.ts`, `test/boundaries.test.ts`, `test/connector-limits.test.ts` (real Git, worktrees, index, sentinel, fixed argv/env, metadata and core.worktree escapes) |
 | A7 bounded fixed-host pagination | `test/github.test.ts`, `test/connector-limits.test.ts` (offline runner, continuation/error/repetition/100-page bound) |
-| A8 deterministic scoped previews/CLI | `test/planner.test.ts`, `test/cli.test.ts` |
+| A8 deterministic scoped previews/reports/CLI | `test/planner.test.ts`, `test/report.test.ts`, `test/report-cli.test.ts`, `test/cli.test.ts` |
 | A9 isolated tarball CLI/library/types | `scripts/verify-package.mjs`, run by package verify |
 | A10 portable skill/root integration | root `test/workspace-governance-skill.test.mjs`, catalog tests and skill validator |
 

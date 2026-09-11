@@ -253,8 +253,9 @@ dropped candidates with the reason each was dropped.
 
 ```text
 Use workspace-governance to validate this declared catalog, explain inherited
-policy and audit local checkout placement. Treat previews as read-only and local
-principal selection as advisory, never approval to move repositories.
+policy and produce one workspace report covering hierarchy, checkout placement and
+the selected inert workflow. Treat previews as read-only and local principal
+selection as advisory, never approval to move repositories.
 ```
 
 The workspace-governance CLI is installed separately from a built local tarball;

@@ -57,10 +57,16 @@ Use your host's terminal tool for the commands below. Do not scan home by defaul
    expose local facts. Plan/audit perform local discovery internally. Partial scans
    cannot prove a checkout missing. Do not substitute a partial GitHub inventory
    for the declared catalog. Stop rather than silently widening traversal scope.
-6. **Preview and verify.** Save `plan` stdout outside the scan root using explicit
-   redirection. Run `audit` for drift. Run `verify-plan` with the same explicit
-   manifest/node/principal/root/workflow, not values supplied by the saved plan.
-   Report missing, misplaced, duplicate and blocked entries without moving them.
+6. **Report, preview and verify.** Start with `report` to combine hierarchy,
+   placement summary, per-repository policy provenance and the selected inert
+   workflow. The selected node and its complete descendant subtree must be readable;
+   otherwise the whole report refuses with `UNAVAILABLE`. Ancestors shown are
+   readable. Use `--format html` for a self-contained visual rendering of key report
+   fields and redirect it outside the scan root. Save `plan` JSON outside the scan
+   root when a separately verifiable preview is needed. Run `audit` for drift. Run
+   `verify-plan` with the same explicit manifest/node/principal/root/workflow, not
+   values supplied by the saved plan. Report missing, misplaced, duplicate and
+   blocked entries without moving them.
 7. **Finish with evidence.** Report exact command exit codes, scope, authorization
    class, completeness, revision and verification result. A valid preview is not
    approval, authentication, or authority to clone/commit/push/install.
@@ -71,6 +77,8 @@ Use your host's terminal tool for the commands below. Do not scan home by defaul
 workspacectl catalog --manifest manifest.json --principal reader
 workspacectl explain --manifest manifest.json --node repo --principal reader
 workspacectl workflow --manifest manifest.json --node repo --principal reader --workflow feature
+workspacectl report --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature
+workspacectl report --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature --format html > workspace-report.html
 workspacectl plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT"
 workspacectl audit --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT"
 workspacectl verify-plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --plan preview.json
@@ -81,7 +89,7 @@ workspacectl verify-plan --manifest manifest.json --node org --principal reader 
 - Public or restricted catalog visibility is not an OS sandbox or credential ACL.
   Trusted server hosts alone may supply enforced whole-authority snapshots bound
   to an authenticated subject. Subject-filtered remote stores are unsupported.
-- Hidden descendants refuse a scoped plan rather than silently skipping obligations.
+- Hidden descendants refuse a scoped report or plan rather than silently skipping obligations.
   Readable policy/workflow text is deliberately shared; never put secrets or
   hidden names into it. Metadata is opaque, not a typed cross-project ACL feature.
 - Symlink roots/ancestors and external Git metadata are refused. Scans skip known
@@ -97,7 +105,8 @@ workspacectl verify-plan --manifest manifest.json --node org --principal reader 
 
 Exit 0 means valid output (plans may still show drift); exit 2 means invalid,
 unavailable, unsupported or tool failure; exit 3 means incomplete, audit drift or
-stale plan. Data is JSON on stdout, static errors on stderr. Audit adds `drift`.
+stale plan. Data is JSON on stdout except explicit `report --format html`; errors
+are static JSON on stderr. Audit adds `drift`.
 An incomplete plan has no partial stdout. Verify unchanged previews and report
 stale ones honestly; no automatic retries that disguise changed observations.
 
