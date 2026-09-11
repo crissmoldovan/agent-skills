@@ -1,0 +1,65 @@
+{
+  "apiVersion": "workspace-governance/v1",
+  "authorityId": "example-authority",
+  "nodes": [
+    {
+      "id": "org",
+      "kind": "organization",
+      "slug": "example",
+      "parentId": null,
+      "visibility": {
+        "mode": "public",
+        "readers": []
+      }
+    },
+    {
+      "id": "project",
+      "kind": "project",
+      "slug": "service",
+      "parentId": "org"
+    },
+    {
+      "id": "repo",
+      "kind": "repository",
+      "slug": "api",
+      "parentId": "project",
+      "remote": "https://github.com/example/api"
+    }
+  ],
+  "policies": [
+    {
+      "nodeId": "org",
+      "settings": [
+        {
+          "key": "git.pullRequest",
+          "merge": "replace",
+          "value": true
+        }
+      ],
+      "constraints": [
+        {
+          "id": "require-pr",
+          "key": "git.pullRequest",
+          "operator": "equals",
+          "value": true
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "nodeId": "org",
+      "id": "feature",
+      "settings": [],
+      "constraints": [],
+      "steps": [
+        {
+          "id": "test",
+          "action": "repository.test",
+          "inputs": {}
+        }
+      ]
+    }
+  ],
+  "metadata": {}
+}

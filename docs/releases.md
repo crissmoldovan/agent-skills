@@ -6,9 +6,11 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
 `describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
-`land-complex-change`, `resolve-problem-report`, `new-ux-discovery`, `decision-journal`,
-`delphi-ground`, and `delphi-imagine`, plus the
-canonical lifecycle runtime package under `packages/agent-lifecycle`.
+`decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
+`resolve-problem-report`, `new-ux-discovery`, and `workspace-governance`, plus the
+canonical lifecycle runtime package under `packages/agent-lifecycle`, the journal
+runtime package under `packages/agent-journal`, and the separately installable
+workspace-governance CLI package under `packages/workspace-governance`.
 
 Routing and lifecycle compose as documented in [the composition guide](composition.md).
 `blocks` is independent review tooling. `release-ledger`, `github-webhooks`, and
