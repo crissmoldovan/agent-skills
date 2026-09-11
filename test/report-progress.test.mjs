@@ -194,3 +194,19 @@ test('the skill promises no carried file it does not ship, and no local path', (
   assert.doesNotMatch(skill, /(?:\/Users\/|\/home\/|C:\\Users\\)/);
   assert.doesNotMatch(skill, /\bCUE\b|\bRGC\b/);
 });
+
+// The composition doc restates the same sentence in prose. It is the copy a reader of
+// docs/ meets first, and until this assertion existed nothing tied it to the source: a
+// reword in agent-lifecycle would leave the skill corrected by the test above and the
+// doc quietly wrong, which is the drift this pair of files exists to prevent.
+test('the composition doc quotes the same lifecycle sentence, verbatim', async () => {
+  const composition = await readOrEmpty('docs/composition.md');
+  assert.ok(composition, 'docs/composition.md does not exist');
+  const fallback = lifecycle.match(/state exactly:\s*\n`([^`]+)`/);
+  assert.ok(fallback, 'agent-lifecycle no longer publishes an exact no-evidence sentence');
+  assert.ok(
+    composition.includes(fallback[1]),
+    `docs/composition.md must carry the lifecycle sentence verbatim: ${fallback[1]}`,
+  );
+  assert.ok(composition.includes('report-progress'), 'the composition doc does not place report-progress');
+});
