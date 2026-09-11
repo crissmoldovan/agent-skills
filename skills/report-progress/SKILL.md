@@ -3,7 +3,7 @@ name: report-progress
 description: "Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn."
 license: MIT
 compatibility: "Any agent that writes prose to a user; nothing to install. A count is verified only where the agent can run the command that produces it — elsewhere it is labelled as someone else's claim. The running section is sourced from agent-lifecycle evidence where that exists, and carries the lifecycle skill's no-evidence sentence where it does not. Output is the report itself plus the checklist run over it before sending."
-metadata: "group=workflow; lifecycle=delivery; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 

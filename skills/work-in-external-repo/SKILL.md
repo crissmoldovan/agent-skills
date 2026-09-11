@@ -3,7 +3,7 @@ name: work-in-external-repo
 description: "Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository."
 license: MIT
 compatibility: "Any machine with git and a shell the agent can run commands in; nothing to install. Locating a checkout needs read access to the roots repositories live under. Refreshing the base ref needs the network: where the fetch fails the skill reports the ahead/behind as unknown rather than branching blind. A GitHub CLI is optional and used only where a pull request is asked for. Output is the change plus the repository, branch, worktree path and commits it landed in."
-metadata: "group=workflow; lifecycle=delivery; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -115,6 +115,12 @@ right, `land-complex-change` takes over and this skill is finished until the res
    fails, say the ahead/behind is unknown; do not branch blind and call it current.
    **Complete when:** the fetch ran in this session and both counts are stated, or the failure is
    reported in place of them.
+
+   The number is not what makes the branch correct — step 5 branches from the fetched
+   `origin/<base>` regardless, so a stale local ref cannot contaminate it. It is what tells you
+   the shared checkout's *working files* are old, which matters the moment you read one to
+   decide what to write, and it predicts whether the eventual pull request opens clean or
+   arrives hundreds of commits behind its target.
 
 5. **Create a dedicated worktree on a new branch, never in the shared checkout.** The form is
    `git worktree add -b <branch> <path> <base>`, run as
