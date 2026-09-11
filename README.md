@@ -1,9 +1,9 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty public, portable Agent Skills for agent operations, reviews, releases,
-  codebase context, secure setup, change delivery, and evidence-backed
-  investigation of what a change would touch.
+  Twenty-two public, portable Agent Skills for agent operations, reviews, releases,
+  codebase context, secure setup, change delivery, progress reporting, work in other
+  repositories, and evidence-backed investigation of what a change would touch.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -34,6 +34,8 @@ harnesses, and tested as part of one release catalogue.
 | `land-complex-change` | Land a complex change with reduced side effects and regressions: declare a touch-set budget from its blast map, arm a regression gate per affected surface, and stop when work strays outside the budget. Use when a change is too risky to build without contained side effects. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
 | `resolve-problem-report` | Resolve a problem report end to end: reproduce the claim, dig to root cause or implications, offer candidate fixes with trade-offs, spec the chosen one, and land it through gated review. Use when a bug or feature report needs investigating and resolving rather than a quick patch. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
 | `new-ux-discovery` | Discover UX improvements a codebase can already support — across UI, API, CLI, MCP and notifications — and gate every candidate through a not-already-implemented sweep and a no-confusion check before proposing it. Use when you want evidence-backed UX opportunities, riding a change or from pure analysis. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
+| `report-progress` | Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn. | [Skill](skills/report-progress/SKILL.md) |
+| `work-in-external-repo` | Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository. | [Skill](skills/work-in-external-repo/SKILL.md) |
 
 The pack contains distinct procedures, not one monolithic workflow. Compose only
 what the task needs. `model-routing` and `agent-lifecycle` cover economical,
@@ -52,6 +54,14 @@ from a report and hands its build half to `land-complex-change`; and
 `new-ux-discovery` reads a blast map to find what a change newly makes possible.
 Each is usable alone, and each names the sibling that owns the adjacent job instead
 of restating it.
+
+`report-progress` and `work-in-external-repo` stand beside that family rather than
+inside it, because neither one does the work. `report-progress` fixes the shape of what
+the reader is told while the others run: it sources "what is running" from
+`agent-lifecycle` evidence and hands a landed diff to `describe-changes` instead of
+paraphrasing either. `work-in-external-repo` settles which repository a change belongs
+in and proves the checkout before anything is written, then hands a clean worktree to
+`land-complex-change` and the destination line to `report-progress`.
 
 ## Install — for humans
 
@@ -98,6 +108,9 @@ npx skills add crissmoldovan/agent-skills --skill land-complex-change resolve-pr
 # UX opportunities a codebase can already support
 npx skills add crissmoldovan/agent-skills --skill new-ux-discovery
 
+# Progress reports over long work, and changes that belong in another repository
+npx skills add crissmoldovan/agent-skills --skill report-progress work-in-external-repo
+
 # Decision records with checkable evidence. The skill carries its own CLI; put it on
 # PATH once, from the folder the skill was installed to, so hooks and your shell find it
 npx skills add crissmoldovan/agent-skills --skill decision-journal
@@ -114,7 +127,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty public skills from crissmoldovan/agent-skills.
+Install or update the twenty-two public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -247,9 +260,23 @@ through the not-already-implemented sweep and the no-confusion check, and show m
 dropped candidates with the reason each was dropped.
 ```
 
+```text
+Use report-progress at each phase boundary and before you end a turn with background work
+running. What is done, what is running, what is next — each with a count or an artefact.
+Keep numbers you verified by running something apart from numbers a subagent claimed, and
+say you cannot see the children rather than guessing what they are doing.
+```
+
+```text
+Use work-in-external-repo: this change belongs in another repository, not in this working
+directory. Prove the checkout by its origin remote before writing anything, fetch the base
+and tell me how far behind it is, work in a worktree of your own, and name the repository,
+branch, worktree path and commits in the result.
+```
+
 ## Composition and references
 
-- [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership.
+- [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership, where progress reports draw their evidence, and where external-repository work sits.
 - [`docs/blocks.md`](docs/blocks.md) — Blocks REST/GitHub separation.
 - [`skills/release-ledger/references/system-model.md`](skills/release-ledger/references/system-model.md) — release-ledger system model.
 - [`skills/github-webhooks/references/event-types.md`](skills/github-webhooks/references/event-types.md) — webhook event reference.
