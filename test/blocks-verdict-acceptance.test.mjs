@@ -16,7 +16,27 @@ test('pulls the commit out of the shapes this bot actually writes', () => {
   assert.equal(reviewedSha('Reviewed PR #29 at `a0eef8b`.\n\nNo new severity >=7 findings.'), 'a0eef8b');
   assert.equal(reviewedSha('Reviewed `67b6d36` and its documentation-only diff.'), '67b6d36');
   assert.equal(reviewedSha('Review complete for `b41f0aa`. Zero findings.'), 'b41f0aa');
+  // The verb-first phrasing from cue-ui PR #89 — "Review completed", not "review
+  // complete" — must be recognized on the same footing as the others.
+  assert.equal(reviewedSha('Review completed for PR #89 on `feat/authored-presets` (`b863bf72`).'), 'b863bf72');
   assert.equal(reviewedSha('Reviewed the pull request end to end. No findings.'), null);
+});
+
+test('the cue-ui PR #89 verdict names a head that acceptance recognizes as this one', () => {
+  // End to end: the classifier must call it clean, the sha extractor must read the
+  // commit it names, and acceptance must accept it once CI is green on that head —
+  // the exact chain that returned `requested` and refused acceptance on the real PR.
+  const body = 'Review completed for PR #89 on `feat/authored-presets` (`b863bf72`).\n\nNo actionable issues (severity ≥7) found, so I left no PR comments. I also found no existing review feedback to duplicate.\n\n**[View on dashboard](https://blocks.team/app/…/sessions/…)**';
+  const state = classifyBlocksEvidence(
+    { comments: [{ id: 1, author: 'blocksorg', createdAt: '2026-01-01T00:00:10Z', body }], reviews: [], inline: [], checks: [], prState: 'OPEN' },
+    { requestedAt: '2026-01-01T00:00:00Z', baselineIds: {} },
+  ).state;
+  assert.equal(state, 'clean');
+  const sha = reviewedSha(body);
+  assert.equal(sha, 'b863bf72');
+  assert.equal(coversHead(body, 'b863bf723c6c'), true);
+  const acceptance = verdictAcceptance({ state, verdictSha: sha, headSha: 'b863bf723c6c', ciConclusion: 'success' });
+  assert.equal(acceptance.acceptable, true, acceptance.reasons.join('; '));
 });
 
 test('accepts only a clean verdict for this head with CI green on the same commit', () => {

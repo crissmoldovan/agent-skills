@@ -593,5 +593,12 @@
     "body": "Reviewed PR #29 at `0eefe942`.\n\nThe documentation correction is accurate; upstream PR #15 is still open, and the remaining wording consistently treats its fix as unmerged. No new severity \u22657 issues found, so I left no additional PR comments. CI for this head is successful.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d/sessions/8eb593e7)**",
     "source": "observed on cueplusplus/skills#29, round 6",
     "why": "A clean verdict that says a PULL REQUEST is 'still open'. An unscoped still-open test reads that as an outstanding finding; the standing-predicate check must stay bound to a findings noun."
+  },
+  {
+    "id": "real-I",
+    "expected": "clean",
+    "body": "Review completed for PR #89 on `feat/authored-presets` (`b863bf72`).\n\nNo actionable issues (severity \u22657) found, so I left no PR comments. I also found no existing review feedback to duplicate.\n\nNote: targeted tests could not run locally because the clone has no `node_modules` (`vitest` unavailable); static diff checks otherwise passed aside from a trailing blank line in a planning document.\n\n**[View on dashboard](https://blocks.team/app/\u2026/sessions/\u2026)**",
+    "source": "observed on cueplusplus/cue-ui#89",
+    "why": "The completion claim is verb-first past tense \u2014 \"Review completed for PR\" \u2014 which the old claims regex missed because it only matched \"review complete\"/\"review is complete\" or the literal word \"reviewed\". A clean, terminal verdict classified as `requested`, and acceptance was refused for a head the review had, in fact, already covered."
   }
 ]
