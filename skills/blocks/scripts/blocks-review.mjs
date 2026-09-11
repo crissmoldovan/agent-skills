@@ -186,8 +186,13 @@ function isClean(body = '') {
 // `packages/guards/` … I need another pass over the rest."
 function isVerdict(body = '') {
   const text = String(body);
+  // "Review completed for PR #89" is the same past-tense claim as "review complete"
+  // or "review is complete" — just the verb instead of the adjective. The adjective
+  // form alone missed it, so a clean, terminal verdict classified as `requested`
+  // forever (observed on cueplusplus/cue-ui#89): `completed?` covers both spellings
+  // without hardcoding either one as a fixed phrase.
   const claims = /\b(?:re-?)?reviewed\b/i.test(text)
-    || /\b(?:re-?)?review\s+(?:is\s+)?complete\b/i.test(text)
+    || /\b(?:re-?)?review\s+(?:is\s+|has\s+)?completed?\b/i.test(text)
     || /\bfinished\s+reviewing\b/i.test(text)
     || /\blgtm\b/i.test(text)
     || /\blooks good\b/i.test(text);
@@ -349,7 +354,10 @@ export function coversHead(body = '', headSha = '') {
  * current one, and nothing else in the payload says which head it read.
  */
 export function reviewedSha(body = '') {
-  const match = String(body).match(/\b(?:reviewed|re-?reviewed|review complete[^\n]{0,20}?)\b[^\n]{0,60}?`([0-9a-f]{7,40})`/i)
+  // Kept in sync with the completion claim in `isVerdict`: "review completed" is the
+  // same past-tense claim as "review complete", just the verb instead of the
+  // adjective, and the commit it names is read the same way either way.
+  const match = String(body).match(/\b(?:reviewed|re-?reviewed|review\s+(?:is\s+|has\s+)?completed?)\b[^\n]{0,60}?`([0-9a-f]{7,40})`/i)
     ?? String(body).match(/\b(?:at|for|on)\s+`([0-9a-f]{7,40})`/i);
   return match?.[1] ?? null;
 }

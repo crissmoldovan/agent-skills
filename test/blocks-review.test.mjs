@@ -84,6 +84,49 @@ test('a "Reviewed PR" verdict comment without a summary review is terminal and c
   assert.equal(result.terminal, true);
 });
 
+// Observed on cueplusplus/cue-ui#89: a verb-first completion claim the old regex
+// missed entirely. It only matched the adjective "review complete" (or "review is
+// complete") and the literal word "reviewed" — "Review completed for PR" satisfies
+// neither, so the verdict never registered as a verdict at all, and a caller polling
+// `status`/`wait` saw `requested` forever for a review that had already finished
+// clean in four seconds.
+test('a verb-first "Review completed" comment stating its own emptiness is clean — cue-ui PR #89', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 22,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Review completed for PR #89 on `feat/authored-presets` (`b863bf72`).\n\nNo actionable issues (severity ≥7) found, so I left no PR comments. I also found no existing review feedback to duplicate.\n\nNote: targeted tests could not run locally because the clone has no `node_modules` (`vitest` unavailable); static diff checks otherwise passed aside from a trailing blank line in a planning document.\n\n**[View on dashboard](https://blocks.team/app/…/sessions/…)**',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('"Review completed" counting actionable issues is terminal findings, not clean', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 23,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Review completed for PR #90 on `feat/y` (`abcdef1`).\n\n2 actionable issues (severity ≥7) found; see the inline comments below.',
+  }] }), { requestedAt });
+
+  assert.equal(result.state, 'findings');
+  assert.equal(result.terminal, true);
+});
+
+// The completion claim still has to survive the same partial-pass veto as every
+// other phrasing: making the claim and then withdrawing it stays nonterminal.
+test('"Review completed ... I need another pass" is a partial pass, not a finished verdict', () => {
+  const result = classifyBlocksEvidence(snapshot({ comments: [{
+    id: 24,
+    author: 'blocksorg',
+    createdAt: '2026-08-24T23:50:00Z',
+    body: 'Review completed for PR #91 on `feat/z` (`fedcba9`). I need another pass over the retry path before I can call this done.',
+  }] }), { requestedAt });
+
+  assert.equal(result.terminal, false);
+});
+
 test('a verdict comment counting inline findings is terminal findings', () => {
   const result = classifyBlocksEvidence(snapshot({ comments: [{
     id: 12,
