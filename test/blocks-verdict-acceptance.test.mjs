@@ -39,6 +39,23 @@ test('the cue-ui PR #89 verdict names a head that acceptance recognizes as this 
   assert.equal(acceptance.acceptable, true, acceptance.reasons.join('; '));
 });
 
+test('the cue-ui PR #94 verdict is clean and acceptable for the head it names', () => {
+  // The same chain for the verdict that disclaimed its sandbox as "not a test
+  // failure": classified findings on the real PR, so acceptance was refused for a head
+  // the review had covered and called clean.
+  const body = 'Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity ≥7) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/…/sessions/…)**';
+  const state = classifyBlocksEvidence(
+    { comments: [{ id: 1, author: 'blocksorg', createdAt: '2026-01-01T00:00:10Z', body }], reviews: [], inline: [], checks: [], prState: 'OPEN' },
+    { requestedAt: '2026-01-01T00:00:00Z', baselineIds: {} },
+  ).state;
+  assert.equal(state, 'clean');
+  const sha = reviewedSha(body);
+  assert.equal(sha, '8b08c61');
+  assert.equal(coversHead(body, '8b08c61f00d'), true);
+  const acceptance = verdictAcceptance({ state, verdictSha: sha, headSha: '8b08c61f00d', ciConclusion: 'success' });
+  assert.equal(acceptance.acceptable, true, acceptance.reasons.join('; '));
+});
+
 test('accepts only a clean verdict for this head with CI green on the same commit', () => {
   const ok = verdictAcceptance({ state: 'clean', verdictSha: 'a0eef8b', headSha: 'a0eef8b2ee12', ciConclusion: 'success' });
   assert.equal(ok.acceptable, true);

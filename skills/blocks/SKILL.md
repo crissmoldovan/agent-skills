@@ -117,6 +117,10 @@ mention — negated, resolved, quoted, or outstanding — instead of testing whe
 noun appears. Watch for the inversion too: “zero of these findings have been
 addressed” is the strongest possible findings statement and reads, to a naive
 stripper, like the weakest.
+A corrective negation scopes over its second half only. In “this was an environment
+setup issue, not a test failure” the `not` clears “a test failure”; “an environment
+setup issue” is set aside only because it also names the reviewer's own sandbox —
+“this is not a test failure but a real bug” still reports the bug.
 
 ```bash
 node skills/blocks/scripts/blocks-review-cli.mjs status \

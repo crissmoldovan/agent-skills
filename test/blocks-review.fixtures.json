@@ -600,5 +600,54 @@
     "body": "Review completed for PR #89 on `feat/authored-presets` (`b863bf72`).\n\nNo actionable issues (severity \u22657) found, so I left no PR comments. I also found no existing review feedback to duplicate.\n\nNote: targeted tests could not run locally because the clone has no `node_modules` (`vitest` unavailable); static diff checks otherwise passed aside from a trailing blank line in a planning document.\n\n**[View on dashboard](https://blocks.team/app/\u2026/sessions/\u2026)**",
     "source": "observed on cueplusplus/cue-ui#89",
     "why": "The completion claim is verb-first past tense \u2014 \"Review completed for PR\" \u2014 which the old claims regex missed because it only matched \"review complete\"/\"review is complete\" or the literal word \"reviewed\". A clean, terminal verdict classified as `requested`, and acceptance was refused for a head the review had, in fact, already covered."
+  },
+  {
+    "id": "real-J",
+    "expected": "clean",
+    "body": "Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/932dc84b-a003-4cc1-b471-1a1840487cbd)**",
+    "source": "observed on cueplusplus/cue-ui#94",
+    "why": "A clean verdict whose closing note disclaims a defect: \"this was an environment setup issue, not a test failure\". The negation covers only \"a test failure\"; the counted-mention check read \"an environment setup issue\" as one issue outstanding, so a review that had just said \"No actionable issues (severity \u22657) found\" was reported as findings."
+  },
+  {
+    "id": "gen-78",
+    "expected": "findings",
+    "body": "Reviewed PR #95 at head `1a2b3c4`.\n\nNo actionable issues (severity \u22657) found in the diff, so I left no inline comments. One test failure remains on this head: the retry suite times out after the backoff change.\n\nThe snapshot mismatch in the fresh clone was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/pr/95/round-1)**",
+    "source": "generated",
+    "why": "A genuine test failure stands beside the same disclaimer that makes real-J clean. Setting the disclaimed sandbox issue aside must not take the real failure with it, and before failures counted as outstanding work nothing else in this body would have caught it."
+  },
+  {
+    "id": "gen-79",
+    "expected": "findings",
+    "body": "Reviewed PR #96 at head `2b3c4d5`.\n\nNo other actionable issues (severity \u22657) found. The red retry check is not a test failure but a real bug: the backoff helper resets its counter on every attempt, so the retry budget is never spent.\n\n**[View on dashboard](https://blocks.team/pr/96/round-1)**",
+    "source": "generated",
+    "why": "The negation clears \"a test failure\" and nothing else; the half after \"but\" is asserted. A strip that treats the whole corrective clause as negated reports clean for a review naming a real bug."
+  },
+  {
+    "id": "gen-80",
+    "expected": "clean",
+    "body": "Reviewed PR #98 at head `3c4d5e6`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The red check on the previous head was not a failure \u2014 the push cancelled that run \u2014 and CI on this head reports no failures.\n\n**[View on dashboard](https://blocks.team/pr/98/round-1)**",
+    "source": "generated",
+    "why": "Clean, with \"failure\" mentioned twice and both times negated. Once failures count as outstanding work, \"not a failure\" and \"no failures\" must be scoped as negations or a clean review turns into findings."
+  },
+  {
+    "id": "gen-81",
+    "expected": "findings",
+    "body": "Reviewed PR #99 at head `4d5e6f7`.\n\nNo actionable issues (severity \u22657) found. `scripts/bootstrap.sh` in this PR drops the PATH export, so the suite could not start; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/pr/99/round-1)**",
+    "source": "generated",
+    "why": "Shaped like real-J's disclaimer, but the sentence ties the sandbox problem to a file this PR changes. A disclaimer is only a disclaimer when nothing in its sentence points back at the change \u2014 the semicolon must not hide the first half from the second."
+  },
+  {
+    "id": "gen-82",
+    "expected": "findings",
+    "body": "Reviewed PR #100 at head `5e6f7a8`.\n\nNo actionable issues (severity \u22657) found in the documentation. The flaky suite is an environment variable parsing bug, not a test failure.\n\n**[View on dashboard](https://blocks.team/pr/100/round-1)**",
+    "source": "generated",
+    "why": "\"Environment\" here modifies code the PR can break \u2014 an environment-variable parser \u2014 not the reviewer's sandbox. The sandbox word must sit directly on the noun, or any \"environment ...\" phrase becomes a way to disclaim a real bug."
+  },
+  {
+    "id": "gen-83",
+    "expected": "clean",
+    "body": "Reviewed PR #101 at head `6f7a8b9`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The timeout in the snapshot suite was not a test failure but a sandbox issue: the fresh clone had no network access.\n\n**[View on dashboard](https://blocks.team/pr/101/round-1)**",
+    "source": "generated",
+    "why": "real-J's disclaimer with its halves reversed: \"not Y but X\", where X names the reviewer's sandbox. Same meaning, same clean \u2014 and the mirror of gen-79, where X is a real bug."
   }
 ]

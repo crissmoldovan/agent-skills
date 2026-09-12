@@ -127,6 +127,62 @@ test('"Review completed ... I need another pass" is a partial pass, not a finish
   assert.equal(result.terminal, false);
 });
 
+// Observed on cueplusplus/cue-ui#94: a clean verdict whose closing note disclaimed a
+// defect — "this was an environment setup issue, not a test failure". The negation
+// covers only "a test failure"; the counted-mention check read "an environment setup
+// issue" as one issue outstanding, and a review that had just said "No actionable
+// issues" was reported as findings. The disclaimed half is set aside only when its
+// clause denies a defect AND it names the reviewer's own sandbox, so each case below
+// pins one side of that.
+const PR94_VERDICT = 'Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity ≥7) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/932dc84b-a003-4cc1-b471-1a1840487cbd)**';
+
+function verdictState(id, body) {
+  return classifyBlocksEvidence(snapshot({ comments: [{ id, author: 'blocksorg', createdAt: '2026-08-24T23:50:00Z', body }] }), { requestedAt });
+}
+
+test('a clean verdict disclaiming its own sandbox as "not a test failure" is clean — cue-ui PR #94', () => {
+  const result = verdictState(25, PR94_VERDICT);
+  assert.equal(result.state, 'clean');
+  assert.equal(result.terminal, true);
+});
+
+test('a genuine test failure beside the same disclaimer is still findings', () => {
+  const result = verdictState(26, 'Reviewed PR #95 at head `1a2b3c4`.\n\nNo actionable issues (severity ≥7) found in the diff, so I left no inline comments. One test failure remains on this head: the retry suite times out after the backoff change.\n\nThe snapshot mismatch in the fresh clone was an environment setup issue, not a test failure.');
+  assert.equal(result.state, 'findings');
+});
+
+test('"not a test failure but a real bug" negates the failure and reports the bug', () => {
+  const result = verdictState(27, 'Reviewed PR #96 at head `2b3c4d5`.\n\nNo other actionable issues (severity ≥7) found. The red retry check is not a test failure but a real bug: the backoff helper resets its counter on every attempt, so the retry budget is never spent.');
+  assert.equal(result.state, 'findings');
+});
+
+test('a clean verdict whose only failures are negated stays clean', () => {
+  for (const [id, body] of [
+    [28, 'Reviewed PR #98 at head `3c4d5e6`.\n\nNo actionable issues (severity ≥7) found, so I left no inline comments. The red check on the previous head was not a failure — the push cancelled that run — and CI on this head reports no failures.'],
+    [29, 'Reviewed PR #101 at head `6f7a8b9`.\n\nNo actionable issues (severity ≥7) found, so I left no inline comments. The timeout in the snapshot suite was not a test failure but a sandbox issue: the fresh clone had no network access.'],
+  ]) assert.equal(verdictState(id, body).state, 'clean', body);
+});
+
+test('a disclaimer is not a disclaimer when its sentence ties the problem to the change', () => {
+  const tied = verdictState(30, 'Reviewed PR #99 at head `4d5e6f7`.\n\nNo actionable issues (severity ≥7) found. `scripts/bootstrap.sh` in this PR drops the PATH export, so the suite could not start; this was an environment setup issue, not a test failure.');
+  assert.equal(tied.state, 'findings');
+  // "Environment" modifying code the PR can break is not the reviewer's sandbox.
+  const code = verdictState(31, 'Reviewed PR #100 at head `5e6f7a8`.\n\nNo actionable issues (severity ≥7) found in the documentation. The flaky suite is an environment variable parsing bug, not a test failure.');
+  assert.equal(code.state, 'findings');
+});
+
+test('"no test failures" is not a clean verdict on its own — clean is still earned', () => {
+  // Failures now count as outstanding work, but their negation is a statement about
+  // CI, not about what the review found, so it must not satisfy the emptiness test.
+  const result = verdictState(32, 'Reviewed PR #102 at head `7a8b9c0`. CI reports no test failures.');
+  assert.equal(result.state, 'findings');
+});
+
+test('the inversion still reads as findings: "zero of these findings have been addressed"', () => {
+  const result = verdictState(33, 'Reviewed PR #58 at `4f0aa11`.\n\nZero of these findings have been addressed, and this was not a test failure.');
+  assert.equal(result.state, 'findings');
+});
+
 test('a verdict comment counting inline findings is terminal findings', () => {
   const result = classifyBlocksEvidence(snapshot({ comments: [{
     id: 12,
