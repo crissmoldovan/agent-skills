@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { scratchRoot } from "./fixtures.ts";
 
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const run = (...args: string[]) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
@@ -28,7 +28,7 @@ async function withFixture(
   runTest: (manifestPath: string, scan: string) => void | Promise<void>,
   source: unknown = manifest,
 ) {
-  const root = await mkdtemp(join(tmpdir(), "governance-report-cli-"));
+  const root = await scratchRoot("governance-report-cli-");
   try {
     const manifestPath = join(root, "manifest.json");
     const scan = join(root, "scan");

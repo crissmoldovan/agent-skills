@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  mkdtemp,
   mkdir,
   writeFile,
   readFile,
@@ -9,10 +8,10 @@ import {
   symlink,
   access,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import * as discovery from "../src/discovery.ts";
+import { scratchRoot } from "./fixtures.ts";
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     "git",
@@ -26,7 +25,7 @@ const git = (cwd: string, ...args: string[]) =>
     { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
 test("A6 real Git read-only discovery includes dirty unborn nested and linked worktrees", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-"));
+  const root = await scratchRoot("governance-");
   try {
     const repo = join(root, "repo");
     await mkdir(repo);
@@ -94,7 +93,7 @@ for (const source of ["local", "include", "worktree"] as const) {
   for (const driver of ["clean", "process"] as const) {
     for (const name of ["sentinel", "sentinel\u2028driver", "sentinel\u2029driver"]) {
       test(`A6 ${source} ${driver} ${JSON.stringify(name)} filter fails closed without execution`, async () => {
-        const root = await mkdtemp(join(tmpdir(), "governance-filter-"));
+        const root = await scratchRoot("governance-filter-");
         try {
           const repo = join(root, "repo");
           await mkdir(repo);
@@ -141,8 +140,8 @@ for (const source of ["local", "include", "worktree"] as const) {
 }
 
 test("A6 external and symlink Git metadata fail closed without target diagnostics", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-"));
-  const outside = await mkdtemp(join(tmpdir(), "governance-out-"));
+  const root = await scratchRoot("governance-");
+  const outside = await scratchRoot("governance-out-");
   try {
     git(outside, "init");
     const repo = join(root, "repo");

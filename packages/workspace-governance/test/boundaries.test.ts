@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { resolvePolicy } from "../src/core.ts";
 import { FileSnapshotStore, loadSnapshot } from "../src/stores.ts";
 import { discoverLocal } from "../src/discovery.ts";
-import { envelope, example } from "./fixtures.ts";
+import { envelope, example, scratchRoot } from "./fixtures.ts";
 test("A2 constraints themselves cannot introduce prefix-overlap logical fields", () => {
   const m: any = example();
   m.policies = [
@@ -33,8 +33,8 @@ test("A5 UTF8 BOM is not silently removed before exact file parsing/revision", a
   }
 });
 test("A6 local core.worktree cannot redirect status outside the explicit checkout", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-worktree-"));
-  const outside = await mkdtemp(join(tmpdir(), "governance-external-"));
+  const root = await scratchRoot("governance-worktree-");
+  const outside = await scratchRoot("governance-external-");
   try {
     execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
     execFileSync(
@@ -55,7 +55,7 @@ test("A6 local core.worktree cannot redirect status outside the explicit checkou
 });
 
 test("A6 configured remote whitespace is not repaired by output trimming", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-remote-"));
+  const root = await scratchRoot("governance-remote-");
   try {
     execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
     execFileSync(

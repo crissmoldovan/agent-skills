@@ -50,7 +50,10 @@ test('status: installed-route grammar maps unknown operation without bookkeeping
  const root=await mkdtemp(base+'/status-unit-');await mkdir(root+'/state',{mode:0o700});
  const before=await lstat(root+'/state',{bigint:true});
  const r=spawnSync(process.execPath,[cli,'mutation-status','--state-dir',root+'/state','--operation-id','unknown'],{encoding:'utf8'});
- assert.equal(r.status,2);assert.deepEqual(JSON.parse(r.stderr),{error:{code:'UNAVAILABLE',message:'Resource unavailable.'}});
+ // readMutationStatus is Linux-only by construction; off Linux the installed route
+ // still has to refuse and leave no bookkeeping behind, it just refuses UNSUPPORTED.
+ const refusal=process.platform==='linux'?{code:'UNAVAILABLE',message:'Resource unavailable.'}:{code:'UNSUPPORTED',message:'Operation unsupported.'};
+ assert.equal(r.status,2);assert.deepEqual(JSON.parse(r.stderr),{error:refusal});
  assert.equal(r.stdout,'');assert.deepEqual(await readdir(root+'/state'),[]);
  assert.equal((await lstat(root+'/state',{bigint:true})).ino,before.ino);
 });

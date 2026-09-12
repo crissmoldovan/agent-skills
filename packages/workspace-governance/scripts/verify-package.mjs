@@ -8,12 +8,15 @@ import {
   rm,
   copyFile,
   stat,
+  realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
-const temp = await mkdtemp(join(tmpdir(), "governance-consumer-"));
+// Resolved: the consumer scan root is handed to discoverLocal, which refuses a
+// root with symlink ancestors, and macOS `tmpdir()` sits under /var -> /private/var.
+const temp = await realpath(await mkdtemp(join(tmpdir(), "governance-consumer-")));
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     ([k]) => !k.toLowerCase().startsWith("npm_"),

@@ -1,23 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  mkdtemp,
   writeFile,
   mkdir,
   rm,
   readFile,
   readdir,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { example } from "./fixtures.ts";
+import { example, scratchRoot } from "./fixtures.ts";
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const run = (...args: string[]) =>
   spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
 test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no writes", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-cli-"));
+  const root = await scratchRoot("governance-cli-");
   try {
     const manifest = join(root, "manifest.json");
     await writeFile(manifest, JSON.stringify(example()));
