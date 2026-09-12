@@ -68,12 +68,14 @@ test("report command emits one combined JSON view for a user scope", async () =>
   });
 });
 
-test("report command emits a self-contained HTML view and escapes policy text", async () => {
+test("report command emits a self-contained HTML view and escapes untrusted text", async () => {
   const source = structuredClone(manifest) as any;
   const policyText = "</script><img src=x onerror=alert(1)>";
   const workflowInput = "</code><script>alert(2)</script>";
+  const nodeLabel = "</strong><script>alert(3)</script>";
   const constraintSource = 'project<&"';
   const principal = 'cristian<&"';
+  source.nodes[0].label = nodeLabel;
   source.nodes[2].id = constraintSource;
   source.nodes[3].parentId = constraintSource;
   source.policies[0].settings.push({
@@ -141,6 +143,8 @@ test("report command emits a self-contained HTML view and escapes policy text", 
     assert.match(result.stdout, /&lt;\/script&gt;&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.equal(result.stdout.includes(workflowInput), false);
     assert.match(result.stdout, /&lt;\/code&gt;&lt;script&gt;alert\(2\)&lt;\/script&gt;/);
+    assert.equal(result.stdout.includes(nodeLabel), false);
+    assert.match(result.stdout, /&lt;\/strong&gt;&lt;script&gt;alert\(3\)&lt;\/script&gt;/);
     assert.doesNotMatch(result.stdout, /<script\b/i);
     assert.equal(result.stdout.includes("innerHTML"), false);
   }, source);

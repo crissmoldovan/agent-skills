@@ -14,7 +14,20 @@ test("A1 packaged JSON Schema and runtime agree on representative structural cas
   const validate = new Ajv({ strict: false }).compile(schema);
   const largeMetadata: any = example();
   largeMetadata.metadata.list = Array(20001).fill(null);
-  const good: any[] = [example(), largeMetadata];
+  const taxonomy = {
+    apiVersion: "workspace-governance/v1",
+    authorityId: "taxonomy-example",
+    nodes: [
+      { id: "person", kind: "user", slug: "criss", parentId: null, visibility: { mode: "public", readers: [] } },
+      { id: "rgc", kind: "domain", slug: "rgc", label: "RGC", parentId: "person" },
+      { id: "rgc-labs", kind: "namespace", slug: "rgc-labs", label: "RGC-LABS", parentId: "rgc" },
+      { id: "public-assets", kind: "repository", slug: "public-assets", label: "Public Assets", parentId: "rgc-labs", remote: "https://github.com/rgc-labs/public-assets" },
+    ],
+    policies: [],
+    workflows: [],
+    metadata: {},
+  };
+  const good: any[] = [example(), largeMetadata, taxonomy];
   const withPolicy: any = example();
   withPolicy.policies = [
     {
@@ -41,6 +54,7 @@ test("A1 packaged JSON Schema and runtime agree on representative structural cas
     (m: any) => (m.nodes[2].remote = "git@github.com:example/api"),
     (m: any) => (m.nodes[1].kind = "session"),
     (m: any) => (m.nodes[1].slug = ".."),
+    (m: any) => (m.nodes[1].label = " Demo\n"),
     (m: any) =>
       (m.policies = [
         {

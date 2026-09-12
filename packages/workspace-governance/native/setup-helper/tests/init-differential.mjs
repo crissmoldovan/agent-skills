@@ -9,6 +9,15 @@ const fixtures = [];
 const add = (name, input) => fixtures.push([name, typeof input === 'string' ? input : JSON.stringify(input)]);
 const change = (name, fn) => { const r = structuredClone(request); fn(r); add(name, r); };
 add('organization', request);
+change('exact-human-label', r => { r.rootNode.label = 'CUE++'; });
+change('valid-label-256-astral-code-points', r => { r.rootNode.label = '😀'.repeat(256); });
+change('valid-label-lone-surrogate', r => { r.rootNode.label = '\ud800'; });
+change('invalid-label-empty', r => { r.rootNode.label = ''; });
+change('invalid-label-257-code-points', r => { r.rootNode.label = '😀'.repeat(257); });
+change('invalid-label-leading-ecmascript-whitespace', r => { r.rootNode.label = '\ufeffBrand Assets'; });
+change('invalid-label-trailing-ecmascript-whitespace', r => { r.rootNode.label = 'Brand Assets\u3000'; });
+change('invalid-label-c0-control', r => { r.rootNode.label = 'Brand\u001fAssets'; });
+change('invalid-label-del-control', r => { r.rootNode.label = 'Brand\u007fAssets'; });
 change('user', r => { r.rootNode.kind = 'user'; r.rootNode.visibility = {mode:'public',readers:[]}; });
 change('unicode-and-number-canonicalization', r => { r.rootNode.metadata = {
   '\ue000': 'private-use', '😀': 'astral', '\ud800': 'lone high', '\udc00': 'lone low',

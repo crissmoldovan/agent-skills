@@ -74,7 +74,8 @@ test("report combines a user-level hierarchy, placement summary, policy provenan
     "person", "cue", "cue-product", "cue-repo", "rgc", "rgc-product", "rgc-repo",
   ]);
   for (const node of report.nodes) {
-    assert.deepEqual(Object.keys(node), ["id", "kind", "slug", "parentId"]);
+    assert.deepEqual(Object.keys(node), ["id", "kind", "slug", "label", "parentId"]);
+    assert.equal(node.label, node.slug);
   }
   const cue = report.repositories.find((repository) => repository.repositoryId === "cue-repo")!;
   assert.equal(cue.status, "present");
@@ -116,6 +117,33 @@ test("HTML renders paths relative to a filesystem-root scan", () => {
     /<strong>Target<\/strong> <code>\.\/cueplusplus\/product\/app<\/code>/,
   );
   assert.doesNotMatch(html, /<code>\.cueplusplus\/product\/app<\/code>/);
+});
+
+test("HTML labels domain and source namespace nodes for taxonomy review", () => {
+  const taxonomyManifest = structuredClone(manifest) as any;
+  taxonomyManifest.nodes.find((node: { id: string }) => node.id === "cue").kind = "domain";
+  taxonomyManifest.nodes.find((node: { id: string }) => node.id === "cue").slug = "cue";
+  taxonomyManifest.nodes.find((node: { id: string }) => node.id === "cue").label = "CUE++";
+  taxonomyManifest.nodes.splice(2, 0, {
+    id: "cue-namespace",
+    kind: "namespace",
+    slug: "cueplusplus",
+    label: "cueplusplus",
+    parentId: "cue",
+  });
+  taxonomyManifest.nodes.find((node: { id: string }) => node.id === "cue-product").parentId = "cue-namespace";
+
+  const report = createReport(
+    { ...snapshot, manifest: taxonomyManifest },
+    inventory,
+    "cue",
+    "cristian",
+  );
+  const html = renderReportHtml(report);
+
+  assert.equal(report.nodes.find((node) => node.id === "cue")?.label, "CUE++");
+  assert.match(html, /<span class="kind">Domain<\/span><strong>CUE\+\+<\/strong><code class="node-slug">cue<\/code>/);
+  assert.match(html, /<span class="kind">Source namespace<\/span><strong>cueplusplus<\/strong>/);
 });
 
 test("report creation remains responsive for 600 repositories", () => {
