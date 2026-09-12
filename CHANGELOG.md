@@ -5,6 +5,37 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.13.1
+
+**What.** Every runnable script in the pack ran nothing and exited 0 when it was reached through a
+symlink. Seven sites; four now share one `isEntrypoint` helper per shippable unit.
+
+**Why.** The Skills CLI installs this pack by symlink — `~/.claude/skills/<name>` points into
+`~/.agents/skills/` — and every script gated `main()` on
+`pathToFileURL(process.argv[1]).href === import.meta.url`. Through a symlink those differ:
+`process.argv[1]` keeps the path as typed, `import.meta.url` is the file Node resolved it to. So the
+guard was false, `main()` never ran, and the process exited **0 with no output**. A user who followed
+the documented install command had no hook installed and no way to tell.
+
+That is the failure class v0.13.0 closed in the freshness checker — *"where silence is the healthy
+signal, a failure that renders as silence reads as health"* — left standing in the script that
+installs it. Two sites were worse than the installer: `check-pack-freshness.mjs` is the file the
+`SessionStart` hook runs, and this pack defines its silence as "your pack is current", so a checker
+that never ran reported every pack as fresh forever; and `verify-effective-uid.mjs` is the
+privilege-boundary verifier behind `npm run verify:governance`, which used a form that also breaks for
+any path containing a space.
+
+Resolving only `process.argv[1]` would have been half a fix: under `--preserve-symlinks-main` the
+situation inverts, and `fs.realpathSync` returns a mis-cased path as typed, so on macOS
+`~/.claude/Skills/...` would still have no-opped. Both sides are resolved, with
+`fs.realpathSync.native`.
+
+**Impact.** Additive fix, no interface change, no migration. **Anyone who ran an install command
+through a `~/.claude/skills/...` path has no hook installed** and must re-run it; confirm with
+`grep -c check-pack-freshness ~/.claude/settings.json`, because the exit code was 0 throughout and
+proves nothing. A new `test/entrypoint-guard.test.mjs` invokes through a real symlink and carries a
+pack-wide sweep so the per-unit copies cannot drift.
+
 ## 0.13.0
 
 **What.** Two hooks that run outside the conversation. A new, user-installable Claude Code
