@@ -5,10 +5,10 @@
 This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
-`describe-changes`, `investigate-codebase`, `blast-area`, `decision-journal`,
-`delphi-imagine`, `land-complex-change`, `resolve-problem-report`, `new-ux-discovery`,
-`workspace-governance`, `report-progress`, and `work-in-external-repo`, plus the
-canonical lifecycle runtime package under
+`describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
+`decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
+`resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
+and `work-in-external-repo`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -17,19 +17,16 @@ Routing and lifecycle compose as documented in [the composition guide](compositi
 `blocks` is independent review tooling. `release-ledger`, `github-webhooks`, and
 `describe-changes` compose as release orchestration, capture, and entry authoring,
 while each remains usable alone. `investigate-codebase`, `blast-area`,
-`land-complex-change`, `resolve-problem-report`, and `new-ux-discovery` compose the
-same way over evidence, change mapping and contained delivery, each naming the sibling
-that owns the adjacent job and each usable alone. `blast-area` renders its own map as its
-last step, so a map and its diagram are one skill; the rendering contract and its worked
-example are carried in `skills/blast-area/references/`.
+`visualise-blast-area`, `land-complex-change`, `resolve-problem-report`, and
+`new-ux-discovery` compose the same way over evidence, change mapping and contained
+delivery, each naming the sibling that owns the adjacent job and each usable alone.
 
 `decision-journal` records why a decision was made, anchored to evidence a reader can
 check, and stands alone. It carries its own CLI as `scripts/agent-journal.mjs`, bundled
 from `packages/agent-journal` by `npm --prefix packages/agent-journal run bundle:skill`
 and checked against that source by `npm run verify`; `scripts/install-cli.mjs` puts it
-on PATH. `delphi-imagine` builds a verified-facts briefing and then reviews an artefact
-against it from named perspectives; grounding is its first phase rather than a separate
-skill, and it refuses the review outright when the briefing comes back insufficient.
+on PATH. `delphi-ground` builds a verified-facts briefing, and
+`delphi-imagine` reviews an artefact against it from named perspectives.
 
 `report-progress` and `work-in-external-repo` are workflow skills that sit beside the
 delivery family rather than inside it. `report-progress` owns the shape of what the reader

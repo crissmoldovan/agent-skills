@@ -44,8 +44,8 @@ said at G1 than discovered at G5, with a change landed and somebody waiting for 
 
 `investigate-codebase` owns G1's searching, and this skill **inherits its complexity rubric,
 control rule and contradiction table rather than restating them**. `blast-area` is called **once
-per candidate** at G2 and again on every budget breach, and draws its own map when candidates
-must be compared by someone who will not read a table. `land-complex-change` receives
+per candidate** at G2 and again on every budget breach; `visualise-blast-area` draws its map when
+candidates must be compared by someone who will not read a table. `land-complex-change` receives
 the contract and the paths at G4 and returns the budget, the ladder and the change band — this
 skill runs none of its own. `describe-changes` writes the resolution note from the landed diff at
 G5; `request-blocks-review` and `blocks` run the review loop, given the contract, the budget, the

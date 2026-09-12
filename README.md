@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-one public, portable Agent Skills for agent operations, reviews, releases,
+  Twenty-three public, portable Agent Skills for agent operations, reviews, releases,
   codebase context, secure setup, change delivery, repository governance, progress
   reporting, work in other repositories, and evidence-backed investigation of what a
   change would touch.
@@ -27,9 +27,11 @@ harnesses, and tested as part of one release catalogue.
 | `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) |
 | `describe-changes` | Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) |
 | `investigate-codebase` | Answer a question about a codebase with evidence a reader can re-run: path and line, command output, and searched negatives reported as searched rather than as absence. Symptoms: how does X actually work, does anything still call this, is this dead code, where does this value come from, two sources disagree (a doc against the code, a registry against the runtime), I need to be sure before I delete it. For a failing test or a live bug use systematic debugging; this answers questions rather than repairing behaviour. | [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md) |
-| `blast-area` | Map what a set of changes would affect before making it — callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering and second-order readers, with searched negatives and a list of what the map cannot see — then draw it: mermaid first, optionally one self-contained interactive HTML file, changed styled against affected, and the blind spots rendered as nodes on the diagram rather than dropped into a caption. Use when you need to know what a change would break, and when that answer has to be seen, shared or dug into. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) · [Mermaid contract](skills/blast-area/references/mermaid-contract.md) |
+| `blast-area` | Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) |
+| `visualise-blast-area` | Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into. | [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md) |
 | `decision-journal` | Record a decision and the alternatives it rejected, anchored to evidence, so the reasoning survives the session — append-only, retractable, with show/trace/digest to read it back. Symptoms: we considered X and rejected it, why is this like this, what did we already rule out, I'm assuming Y without checking, that turned out to be wrong, write this down before you compact. Records the choice, not the diff — for what a change did, use describe-changes. | [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) · [CLI installer](skills/decision-journal/scripts/install-cli.mjs) |
-| `delphi-imagine` | Critique a plan, spec, design or document from one or more named perspectives — a compliance reviewer, an SRE, a first-time user — after first building the verified-facts briefing the critique stands on, and refusing to review at all when too little can be checked. Phase one anchors every fact to a reference and rates what it supports; phase two returns three concrete moments each labelled observed, inferred or constructed, a mandatory case where the thing is useless, and every gap traced to a moment and costed. Symptoms: review this as a security person, what would a CTO say, poke holes in this plan, get me a second opinion, red-team this design, fan this out across several reviewers, the last review was agreeable rather than useful. | [Skill](skills/delphi-imagine/SKILL.md) · [Briefing format](skills/delphi-imagine/references/briefing-format.md) · [Output contract](skills/delphi-imagine/references/output-contract.md) |
+| `delphi-ground` | Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention. | [Skill](skills/delphi-ground/SKILL.md) · [Briefing format](skills/delphi-ground/references/briefing-format.md) |
+| `delphi-imagine` | Critique a plan, spec, design or document from one or more named perspectives — a compliance reviewer, an SRE, a first-time user — grounded in checkable facts instead of an invented company: three concrete moments each labelled observed, inferred or constructed, a mandatory case where the thing is useless, and every gap traced to a moment and costed. Symptoms: review this as a security person, what would a CTO say, poke holes in this plan, get me a second opinion, red-team this design, the last review was agreeable rather than useful. Ground it with delphi-ground first; a critique that reads well but cannot be checked is the failure mode this exists to avoid. | [Skill](skills/delphi-imagine/SKILL.md) · [Output contract](skills/delphi-imagine/references/output-contract.md) |
 | `land-complex-change` | Land a change whose side effects are the risk rather than the code: derive a touch-set budget from its blast map, arm one regression gate per affected surface and watch each fail first, land in steps that revert one at a time, and stop rather than absorb anything that appears outside the budget. Symptoms: this refactor touches code every user depends on, this migration cannot be taken back, prove the deletion is safe before I merge it, the last attempt grew until review was an argument about scope, land it in stages, this runs unattended overnight. For a routine merge-and-deploy use a ship or land-and-deploy skill; this is for the change you are nervous about. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
 | `resolve-problem-report` | Take a reported problem end to end: reproduce the claim, find the root cause, offer candidate fixes with trade-offs, spec the chosen one, and land it through review. Symptoms: a user reported X, this is broken in production, a flaky test is hiding something real, someone filed a bug or feature request, this keeps coming back. Use it when the report deserves more than a quick patch; for a one-line fix, just fix it. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
 | `new-ux-discovery` | Find UX improvements a codebase can already support, evidence-backed and ranked — across the CLI, the API, MCP tools, notifications and error text as much as the UI. Symptoms: what should we improve next, where does this feel rough, what's low-hanging UX we could ship this week, turn this diff into a follow-up list, roadmap candidates from the code we already have. Not a visual design pass — for look and feel use a design skill. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
@@ -44,10 +46,10 @@ can compose with `github-webhooks` for capture and `describe-changes` for entrie
 a target-specific private publisher/updater may fully override the generic public
 workflow.
 
-The five change-and-evidence skills compose the way the release trio does — by name,
+The six change-and-evidence skills compose the way the release trio does — by name,
 at the point of use, with no coordinator between them. `investigate-codebase`
 answers a question about a codebase; `blast-area` uses that searching to map what a
-proposed change would touch and then draws the resulting map;
+proposed change would touch; `visualise-blast-area` draws the resulting map;
 `land-complex-change` builds against it inside a declared touch-set budget with a
 regression gate per affected surface; `resolve-problem-report` runs the whole arc
 from a report and hands its build half to `land-complex-change`; and
@@ -99,8 +101,8 @@ npx skills add crissmoldovan/agent-skills --skill publish-agent-skill update-age
 # Release-ledger capture and change descriptions
 npx skills add crissmoldovan/agent-skills --skill release-ledger github-webhooks describe-changes
 
-# Evidence-backed code answers, change mapping and the diagram of it
-npx skills add crissmoldovan/agent-skills --skill investigate-codebase blast-area
+# Evidence-backed code answers and change mapping
+npx skills add crissmoldovan/agent-skills --skill investigate-codebase blast-area visualise-blast-area
 
 # Contained change delivery and end-to-end report resolution
 npx skills add crissmoldovan/agent-skills --skill land-complex-change resolve-problem-report
@@ -120,7 +122,7 @@ npx skills add crissmoldovan/agent-skills --skill decision-journal
 node <skill-folder>/scripts/install-cli.mjs
 
 # Grounded, evidence-first reviews of an artefact
-npx skills add crissmoldovan/agent-skills --skill delphi-imagine
+npx skills add crissmoldovan/agent-skills --skill delphi-ground delphi-imagine
 ```
 
 `--agent '*'` means every agent the installed CLI supports, not every agent that
@@ -130,7 +132,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-one public skills from crissmoldovan/agent-skills.
+Install or update the twenty-three public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -202,8 +204,8 @@ choices, cite what you actually read, and say plainly where you consulted nothin
 ```
 
 ```text
-Use delphi-imagine on this spec from three perspectives that would disagree. Ground it
-first, withhold prior findings, and stop if the briefing comes back insufficient.
+Use delphi-ground on this spec, then delphi-imagine from three perspectives that
+would disagree. Withhold prior findings, and stop if the briefing comes back thin.
 ```
 
 ```text
@@ -246,7 +248,7 @@ and tell me plainly what was not searched.
 ```
 
 ```text
-Use blast-area for this proposed change, and draw the map when you are done. I want
+Use blast-area for this proposed change, then visualise-blast-area on the result. I want
 the surfaces it hits, when each break would surface, the deploy ordering with its reason,
 and the blind spots drawn on the diagram rather than written underneath it.
 ```

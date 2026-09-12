@@ -1,6 +1,6 @@
 # The output contract
 
-One envelope. It is the map's deliverable, and it is also the render step's input, so it
+One envelope. It is the map's deliverable, and it is also `visualise-blast-area`'s input, so it
 is built to be **decided on** first and rendered second. Everything a renderer needs is here;
 nothing here exists because it renders well.
 

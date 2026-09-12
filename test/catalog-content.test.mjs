@@ -25,6 +25,7 @@ const githubWebhooks = await read('skills/github-webhooks/SKILL.md');
 const describeChanges = await read('skills/describe-changes/SKILL.md');
 const investigateCodebase = await read('skills/investigate-codebase/SKILL.md');
 const blastArea = await read('skills/blast-area/SKILL.md');
+const visualiseBlastArea = await read('skills/visualise-blast-area/SKILL.md');
 const landComplexChange = await read('skills/land-complex-change/SKILL.md');
 const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
 const newUxDiscovery = await read('skills/new-ux-discovery/SKILL.md');
@@ -63,10 +64,10 @@ test('v0.13.1 release metadata, catalog, and review ownership cover the complete
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 21);
+  assert.equal(skillNames.length, 23);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-one skills/i);
-  assert.match(composition, /catalog ships twenty-one skills/i);
+  assert.match(architecture, /now ships twenty-three skills/i);
+  assert.match(composition, /catalog ships twenty-three skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -83,7 +84,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-one public, portable Agent Skills/i);
+  assert.match(readme, /twenty-three public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -100,7 +101,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -194,7 +195,7 @@ test('update-agent-skills maintains communication and every local plane', () => 
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['visualise-blast-area', visualiseBlastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = descriptionOf(source);
     assert.ok(description.length > 0 && description.length <= 1024);
@@ -250,37 +251,14 @@ test('blast-area states when each break surfaces and what the map cannot see', (
   assert.doesNotMatch(blastArea, /\bCUE\b|\bRGC\b/);
 });
 
-// The renderer was its own skill, reachable only by an agent that had already run this one.
-// It is now this skill's last step, so its contract is asserted here or nowhere.
-test('blast-area draws the map it made and puts blind spots on the page', () => {
-  assert.match(blastArea, /flowchart LR/);
-  assert.match(blastArea, /Always `flowchart`, never/);
-  assert.match(blastArea, /blind spots occupy space on the page/i);
-  assert.match(blastArea, /const BLAST/);
-  assert.match(blastArea, /Collapse, never truncate/);
-  assert.match(blastArea, /references\/mermaid-contract\.md/);
-  assert.match(blastArea, /references\/smart-html\.md/);
-  assert.match(blastArea, /references\/tool-tiering\.md/);
-  assert.match(blastArea, /references\/comparison-mode\.md/);
-  assert.match(blastArea, /references\/worked-render\.md/);
-});
-
-// delphi-ground was likewise unreachable on its own, and only delphi-imagine consumed it.
-// Grounding is now phase one, and the refusal it owned has to survive the merge.
-test('delphi-imagine grounds the review before it takes a perspective', async () => {
-  const delphiImagine = await read('skills/delphi-imagine/SKILL.md');
-  assert.match(delphiImagine, /^---\nname: delphi-imagine\n/);
-  assert.match(delphiImagine, /Phase one — ground it/);
-  assert.match(delphiImagine, /Phase two — take the perspective/);
-  assert.match(delphiImagine, /Briefing strength: adequate/);
-  assert.match(delphiImagine, /Insufficient/);
-  assert.match(delphiImagine, /\*\*Refuse\.\*\* Say so and stop/);
-  assert.match(delphiImagine, /Anti-scenario/);
-  assert.match(delphiImagine, /references\/briefing-format\.md/);
-  assert.match(delphiImagine, /references\/why-briefings-fail\.md/);
-  assert.match(delphiImagine, /references\/output-contract\.md/);
-  assert.match(delphiImagine, /references\/choosing-perspectives\.md/);
-  assert.doesNotMatch(delphiImagine, /\bdelphi-ground\b/);
+test('visualise-blast-area draws flowcharts and puts blind spots on the page', () => {
+  assert.match(visualiseBlastArea, /flowchart LR/);
+  assert.match(visualiseBlastArea, /Always `flowchart`, never/);
+  assert.match(visualiseBlastArea, /blind spots occupy space on the page/i);
+  assert.match(visualiseBlastArea, /blast-area/);
+  assert.match(visualiseBlastArea, /references\/mermaid-contract\.md/);
+  assert.match(visualiseBlastArea, /references\/documenting-the-run\.md/);
+  assert.doesNotMatch(visualiseBlastArea, /\bCUE\b|\bRGC\b/);
 });
 
 test('land-complex-change budgets the touch-set and arms a gate per surface', () => {
@@ -317,7 +295,7 @@ test('new-ux-discovery gates every candidate and keeps the dropped ones on recor
   assert.doesNotMatch(newUxDiscovery, /\bCUE\b|\bRGC\b/);
 });
 
-const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
+const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
 
 async function assertRunRecordCopiesIdentical(directory) {
   const { createHash } = await import('node:crypto');
@@ -382,6 +360,7 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
   const sources = new Map([
     ['investigate-codebase', investigateCodebase],
     ['blast-area', blastArea],
+    ['visualise-blast-area', visualiseBlastArea],
     ['land-complex-change', landComplexChange],
     ['resolve-problem-report', resolveProblemReport],
     ['new-ux-discovery', newUxDiscovery],
