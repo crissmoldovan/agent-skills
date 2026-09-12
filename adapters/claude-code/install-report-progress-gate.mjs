@@ -301,7 +301,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stdout.write([
       '',
       'It is armed only on turns that dispatched a subagent through the Agent tool.',
-      'Every other turn ends exactly as it would with the gate absent.',
+      'Every other turn ends exactly as it would with the gate absent — with one exception:',
+      'the marker is per session and is cleared by the Stop that ends the turn, so a turn that',
+      'dispatched a subagent and then died without one (a crash, a kill) leaves it behind, and',
+      'the next turn in that session pays a single block for a dispatch it did not make.',
       '',
       'It checks the SHAPE of the final message: that a "what is done", a "what is',
       'running" and a "what is next" section are present, and that a running row carries',

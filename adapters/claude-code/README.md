@@ -280,11 +280,17 @@ the hook that walks a session into that. `SubagentStop` is deliberately not
 wired: it has no 8-block backstop at all, so a bug there would hang a child agent
 instead of costing one continuation.
 
-**What it is careful not to do.** It never fires on a turn that dispatched no
+**What it is careful not to do.** It does not fire on a turn that dispatched no
 subagent, which is the whole reason it is survivable — a guard that blocks "yes,
 that file is in `src/`" gets uninstalled within a day, and an uninstalled guard
-enforces nothing. It never prints `hookSpecificOutput.additionalContext` on
-`Stop`: that channel was observed to force continuations exactly like a block
+enforces nothing. One hole in that, because it is a cost a user should hear about
+rather than discover: the marker is keyed by session and cleared by the `Stop`
+that ends the turn, so a turn that dispatched a subagent and then died without a
+`Stop` — a crash, a kill — leaves one behind, and the next turn in that session
+pays one block for a dispatch it did not make. That is why the reason says "a
+subagent was dispatched" and not "this turn dispatched a subagent": the marker
+cannot support the second. It never prints `hookSpecificOutput.additionalContext`
+on `Stop`: that channel was observed to force continuations exactly like a block
 does, so its stand-down notice goes to stderr, which Claude Code does not deliver
 to the model at exit 0. Every path exits 0.
 

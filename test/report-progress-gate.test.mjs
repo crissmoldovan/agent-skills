@@ -200,6 +200,26 @@ test('a good report carrying versions, ports and PR numbers still passes', () =>
   assert.deepEqual(findReportFailures(report), []);
 });
 
+test('the section vocabulary is fixed, and where it ends is recorded rather than guessed', () => {
+  // Accepted, because reports are really written all of these ways. "Up next" is here after
+  // it was observed blocking a report that carried all three sections and a good running row:
+  // the pattern took "next up" and not the same two words in the other order.
+  for (const line of ['Next: merge', 'Next steps: merge', 'Up next: merge', 'Next up — merge', 'What is next: merge']) {
+    assert.equal(hasSectionLabel(line, 'next'), true, `not recognised as a next section: ${line}`);
+  }
+  // NOT accepted, and pinned so that widening it is a decision somebody makes on purpose.
+  // This is the gate's live false-positive surface: a well-shaped report headed "Still to do"
+  // is blocked once, told there is no "what is next" section, and then the gate stands down.
+  for (const line of ['Still to do: merge', 'Remaining: merge', 'What is left: merge']) {
+    assert.equal(hasSectionLabel(line, 'next'), false, `the vocabulary widened without a decision: ${line}`);
+  }
+});
+
+test('a report whose next section is headed "Up next" passes, sections and all', () => {
+  const report = 'Done: 2 commits (abc1234).\nRunning: child-7f2, state running, last observed 40s ago.\nUp next: merge after review.';
+  assert.deepEqual(findReportFailures(report), []);
+});
+
 test('a one-line answer to a one-line question is never even checked for shape', async () => {
   // The gate is not armed on a turn that dispatched nothing, so this is the real guard
   // against "yes, that file is in src/" being blocked: there is no marker to read.
@@ -282,6 +302,13 @@ test('the reason names what is missing, and says the gate cannot check truth', (
   assert.match(reason, /blocks once per turn/);
   assert.match(reason, /--remove/);
   assert.ok(reason.includes(NO_EVIDENCE_SENTENCE), 'the reason must quote the no-evidence sentence exactly');
+  // It may not claim the dispatch happened on THIS turn. All the marker records is that a
+  // dispatch happened and no Stop has cleared it since, and a marker outlives its turn
+  // whenever that turn ended without a Stop — see MARKER_MAX_AGE_MS. It also says "the shape
+  // of one" rather than "one": absent shape is all this gate can see.
+  assert.match(reason, /a subagent was dispatched through the Agent tool/);
+  assert.doesNotMatch(reason, /this turn dispatched/);
+  assert.match(reason, /does not carry the shape of one/);
   // No claim of verification anywhere: this gate proves nothing about the report's content.
   assert.doesNotMatch(reason, /\b(?:verified|confirms|proves|guarantees)\b/i);
 });
@@ -399,10 +426,12 @@ test('every malformed input ends in exit 0 and silence, never a crash', async ()
     assert.equal(result.status, 0, `non-zero exit for ${raw.slice(0, 40)}`);
     assert.equal(result.stdout, '', `output for ${raw.slice(0, 40)}`);
   }
-  // A session id that tried to walk out of the marker directory did not.
-  for (const entry of await readdir(directory)) {
-    assert.match(entry, /^[A-Za-z0-9_-]+\.json(?:\.\d+\.tmp)?$/);
-  }
+  // A session id that tried to walk out of the marker directory did not. The name is
+  // asserted, not scanned: an escaped marker is a file this readdir CANNOT see, so a bare
+  // loop over the entries passes by iterating nothing. Observed — deleting the sanitiser in
+  // `markerFile` wrote the marker to `<dir>/../../escape/attempt.json` and left every test
+  // in this file green, so the loop this replaces was guarding nothing.
+  assert.deepEqual(await readdir(directory), ['escapeattempt.json'], 'the session id walked out of the marker directory');
 });
 
 test('a marker directory it cannot write, and a marker it cannot parse, both end in silence', async () => {
@@ -423,6 +452,35 @@ test('a marker directory it cannot write, and a marker it cannot parse, both end
   const result = await runGate(stopPayload(BAD_REPORT), { env });
   assert.equal(result.status, 0);
   assert.equal(result.stdout, '', 'a corrupt marker must not arm the gate');
+});
+
+test('a gate that cannot record a spent block does not spend one', async () => {
+  // Every Stop is a fresh process, so the marker file is this gate's only memory of having
+  // blocked. Observed before this guard existed: with the directory made unwritable after
+  // arming, the gate returned `decision: "block"` on three consecutive Stops — which walks
+  // toward the shared 8-block cap, whose failure mode is an empty answer reported as success.
+  const directory = await scratch('gate-nomemory');
+  const env = { AGENT_SKILLS_PROGRESS_GATE_DIR: directory };
+  await runGate(agentDispatch(), { env });
+
+  await chmod(directory, 0o500);
+  try {
+    for (const attempt of [1, 2, 3]) {
+      const result = await runGate(stopPayload(BAD_REPORT), { env });
+      assert.equal(result.status, 0);
+      assert.equal(result.stdout, '', `blocked on attempt ${attempt} without being able to record it`);
+      assert.match(result.stderr, /could not record a spent block/);
+    }
+  } finally {
+    await chmod(directory, 0o700);
+  }
+
+  // With the directory writable again the gate blocks — once — and records that it did.
+  const blocked = await runGate(stopPayload(BAD_REPORT), { env });
+  assert.equal(parsedBlock(blocked.stdout).decision, 'block');
+  assert.equal(JSON.parse(await readFile(markerFile(env, 'sess-abc123'), 'utf8')).blocked, true);
+  const second = await runGate(stopPayload(BAD_REPORT), { env });
+  assert.equal(second.stdout, '', 'a recorded block must not be spent twice');
 });
 
 test('importing the gate does not end the importing process', async () => {
@@ -474,7 +532,7 @@ test('the describe says what it enforces and never claims to check whether it is
     assert.match(entries.stop.describe, /cannot verify anything in it/);
     assert.doesNotMatch(entries.stop.describe, /\b(?:verifies|proves|guarantees)\b/i);
   }
-  assert.match(build('block').describe ?? build('block').stop.describe, /once, never twice/);
+  assert.match(build('block').stop.describe, /once, never twice/);
   assert.match(build('observe').stop.describe, /never holds the turn/);
 });
 

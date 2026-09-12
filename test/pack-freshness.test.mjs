@@ -19,6 +19,7 @@ import {
   formatHookEnvelope,
   formatNotice,
   formatUnknownNotice,
+  main,
   reportFor,
   resolveCachePath,
   resolveLockPath,
@@ -462,6 +463,32 @@ test('an undetermined check formats a notice of its own rather than nothing', ()
   assert.match(unknown, /not an all-clear/i);
   assert.equal(formatUnknownNotice({ state: 'current', source: SOURCE }), '');
   assert.equal(formatUnknownNotice({ state: 'untracked', source: SOURCE }), '');
+});
+
+test('a check that crashed outright still reports unknown, on stdout, and exits 0', async () => {
+  // The one limb no other test here reaches. Every other failure — an unreachable source,
+  // an unreadable lockfile, an entry with no comparable hash — fails INSIDE
+  // checkPackFreshness, which RETURNS an unknown result. This is the case where the check
+  // throws out of it entirely, and its handler is the code that used to write to stderr and
+  // return 0: verified by putting that back, at which point this file's other 30 tests all
+  // still passed. `env: null` is the crash — the first lockfile read cannot even be located.
+  let stdout = ''; let stderr = '';
+  const sink = { stdout: { write: (chunk) => { stdout += chunk; } }, stderr: { write: (chunk) => { stderr += chunk; } } };
+
+  const status = await main(['--source', SOURCE], { env: null, ...sink });
+
+  assert.equal(status, EXIT_CURRENT, 'a crashed check must not break the start of a session');
+  assert.match(stdout, /^PACK_FRESHNESS_UNKNOWN/);
+  assert.match(stdout, /not an all-clear/);
+  // Not a second channel: on the hook path stderr REPLACES stdout, so a verdict written
+  // there is a verdict any stray line from anything else can erase.
+  assert.equal(stderr, '', 'the verdict for a crashed check must not live on stderr');
+
+  stdout = ''; stderr = '';
+  await main(['--source', SOURCE, '--hook'], { env: null, ...sink });
+  const envelope = JSON.parse(stdout);
+  assert.match(envelope.hookSpecificOutput.additionalContext, /PACK_FRESHNESS_UNKNOWN/);
+  assert.equal(stderr, '');
 });
 
 test('the report is the drift notice or the unknown notice, and silence only means current', async () => {

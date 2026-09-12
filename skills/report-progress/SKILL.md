@@ -49,12 +49,15 @@ off until a user installs it, and gone when they run that installer with `--remo
 paragraphs above are unchanged by it: this file still executes nothing, and nothing in this
 skill can install the gate or arm it on a user's behalf.
 
-**What it does.** On a turn that dispatched a subagent through the `Agent` tool — and only
-such a turn — it reads that turn's final message and returns `{"decision":"block"}` when the
-shape is absent, which holds the turn for one more round so the report can be written. It has
-an `observe` mode that reports what it would have blocked and never holds anything. In either
-mode it acts at most once per turn and then stands down, because Claude Code ends a turn after
-8 consecutive blocks and that budget is shared with every other `Stop` hook on the machine.
+**What it does.** On a turn that dispatched a subagent through the `Agent` tool it reads that
+turn's final message and returns `{"decision":"block"}` when the shape is absent, which holds
+the turn for one more round so the report can be written. Nearly, but not exactly, only such a
+turn: its marker is keyed by session and cleared by the `Stop` that ends the turn, so a turn
+that dispatched and then died without one leaves the marker behind, and the next turn in that
+session pays a single block for a dispatch it did not make. It has an `observe` mode that
+reports what it would have blocked and never holds anything. In either mode it acts at most
+once per turn and then stands down, because Claude Code ends a turn after 8 consecutive blocks
+and that budget is shared with every other `Stop` hook on the machine.
 
 **What it can check.** That a "what is done", a "what is running" and a "what is next" section
 label are present; that a running row carries a literal state and a freshness token, or that

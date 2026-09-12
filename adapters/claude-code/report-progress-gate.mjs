@@ -31,6 +31,11 @@
  *     ends exactly as it would with this file absent. That silence is the whole
  *     design. A gate that fires on "yes, that file is in src/" gets uninstalled
  *     within a day, and an uninstalled gate enforces nothing at all.
+ *     The marker is keyed by SESSION, not by turn, and the `Stop` that ends a turn
+ *     is what clears it — so a turn that dispatched a subagent and then died
+ *     without a `Stop` leaves one behind, and the next turn in that session pays
+ *     one block for a dispatch it did not make (MARKER_MAX_AGE_MS bounds how long
+ *     that can happen). One block, then cleared; it is a cost, not a loop.
  *
  * IT CHECKS SHAPE, NOT TRUTH, and every string it prints says so. It can see
  * that three section labels are present and that a running row carries a state
@@ -46,7 +51,10 @@
  * `is_error: false`, `result: ""` — an empty answer reported as a clean run
  * (../HOOK-OUTPUT-NOTES.md, "the cap is 8 continuations per turn, shared").
  * Spending one block and standing down is what keeps this gate out of that
- * failure, and is why `stop_hook_active` is honoured rather than counted on.
+ * failure, and is why `stop_hook_active` is honoured rather than counted on:
+ * the block is emitted only after the marker on disk records it, so a gate that
+ * has lost its memory declines to block rather than trusting the harness to
+ * stop it.
  *
  * `SubagentStop` is deliberately NOT wired. It has no 8-block backstop at all
  * (DOCUMENTED, same file), so a bug here would hang a child agent indefinitely
@@ -90,8 +98,19 @@ export const GATE_DIR_ENV = 'AGENT_SKILLS_PROGRESS_GATE_DIR';
  */
 export const NO_EVIDENCE_SENTENCE = 'Background work visibility unavailable; state unknown.';
 
-/** How long a marker stays armed. A session that crashed between dispatch and Stop
- *  must not gate a turn hours later, in which the user asked something else entirely. */
+/**
+ * How long a marker stays armed. A session that crashed between dispatch and Stop must not
+ * gate a turn hours later, in which the user asked something else entirely.
+ *
+ * THE LIMIT THIS LEAVES, stated because the reason string is written to respect it: a marker
+ * is cleared by the next `Stop`, so its scope is one turn ONLY for turns that reach a `Stop`
+ * at all. A turn that dispatches a subagent and then dies — a crash, a kill, and possibly an
+ * interrupt, which `../HOOK-OUTPUT-NOTES.md` does not record either way — leaves the marker
+ * behind, and the next turn in that session, within this window, is gated on a dispatch it
+ * did not make. It costs one block and then clears, so the ceiling holds; what it must not do
+ * is let the gate tell the model "this turn dispatched a subagent", which the marker cannot
+ * support. `buildBlockReason` says "a subagent was dispatched" for exactly this reason.
+ */
 export const MARKER_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 /** Bounded, per rule 2: a harness that never closes stdin must not hold the turn. */
@@ -115,7 +134,7 @@ const SECTION_IDS = Object.freeze(['done', 'running', 'next']);
 const LABEL_PATTERNS = Object.freeze({
   done: /^(?:what(?:'s|s| is| has been| was)?\s+)?(?:been\s+)?(?:done|completed|complete|landed|shipped|finished)\b/i,
   running: /^(?:what(?:'s|s| is)?\s+)?(?:running|in[ -]flight|in progress|ongoing|still running|background(?: work| agents?)?|children|child agents?)\b/i,
-  next: /^(?:what(?:'s|s| is)?\s+)?next(?:\s+(?:up|steps?|actions?))?\b/i,
+  next: /^(?:(?:what(?:'s|s| is)?|up)\s+)?next(?:\s+(?:up|steps?|actions?))?\b/i,
 });
 
 /** Human names for the three sections, used only in the reason. */
@@ -276,7 +295,7 @@ export function findReportFailures(message) {
 export function buildBlockReason(failures) {
   const missing = failures.map((failure) => `- ${failure.detail}`).join('\n');
   return truncate([
-    'Progress-report gate: this turn dispatched a subagent through the Agent tool, so a progress report is owed before the turn ends, and this message does not carry one.',
+    'Progress-report gate: a subagent was dispatched through the Agent tool, so a progress report is owed before the turn ends, and this message does not carry the shape of one.',
     '',
     'Missing:',
     missing,
@@ -319,6 +338,8 @@ export function readMarker(file) {
   }
 }
 
+/** True when the marker is on disk. The Stop half acts on that answer: a gate that cannot
+ *  record a block must not spend one. */
 export function writeMarker(file, marker) {
   try {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -327,8 +348,10 @@ export function writeMarker(file, marker) {
     // Rename rather than write in place: a Stop hook reading a half-written marker
     // would see no `armedAt` and treat an armed turn as unarmed.
     renameSync(temporary, file);
+    return true;
   } catch {
     // A marker that could not be written means this turn is simply not gated (rule 1).
+    return false;
   }
 }
 
@@ -432,7 +455,21 @@ async function main() {
   const decision = decideStop({ payload, marker });
 
   if (decision.block && mode === 'block') {
-    writeMarker(file, { ...marker, blocked: true, blockedAt: Date.now() });
+    // Record the spent block FIRST, and stand down if that record cannot be made. Every
+    // Stop is a fresh process, so this file on disk is the gate's only memory: without it
+    // the next Stop of the same turn blocks again, and again, until the shared 8-block
+    // budget is gone — whose failure mode is `result: ""` reported as a clean run.
+    // Observed: with the marker directory made unwritable after arming, the gate returned
+    // a block on three consecutive Stops. `stop_hook_active` does stop that, but it is the
+    // harness's backstop, and a gate that cannot count its own blocks must not spend them.
+    if (!writeMarker(file, { ...marker, blocked: true, blockedAt: Date.now() })) {
+      try {
+        process.stderr.write('report-progress gate: could not record a spent block, so not spending one\n');
+      } catch {
+        // Not worth a failed turn (rule 1).
+      }
+      return;
+    }
     // `decision: "block"` at exit 0 is the channel verified on this harness: the turn
     // continues and the reason arrives as a user-role message (../HOOK-OUTPUT-NOTES.md).
     writeStdout(JSON.stringify({ decision: 'block', reason: decision.reason }));
