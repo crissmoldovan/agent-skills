@@ -1,0 +1,42 @@
+{
+  "name": "@crissmoldovan/workspace-governance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only workspace hierarchy, policy, discovery, reports and deterministic previews.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "workspacectl": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "check:types": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:effective-uid": "node scripts/verify-effective-uid.mjs dist/cli.js",
+    "verify": "npm run check:types && npm test && npm run build && npm run verify:package && npm run verify:effective-uid"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "ajv": "^8.17.1"
+  }
+}

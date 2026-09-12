@@ -6,6 +6,12 @@ const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 const readme = await read('README.md');
+const releases = await read('docs/releases.md');
+const architecture = await read('docs/architecture.md');
+const composition = await read('docs/composition.md');
+const codeowners = await read('.github/CODEOWNERS');
+const rootPackage = JSON.parse(await read('package.json'));
+const rootLock = JSON.parse(await read('package-lock.json'));
 const routing = await read('skills/model-routing/SKILL.md');
 const lifecycle = await read('skills/agent-lifecycle/SKILL.md');
 const blocks = await read('skills/blocks/SKILL.md');
@@ -51,6 +57,22 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
+test('v0.11.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.11.0');
+  assert.equal(rootLock.version, '0.11.0');
+  assert.equal(rootLock.packages[''].version, '0.11.0');
+
+  const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
+  const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  assert.equal(skillNames.length, 23);
+  for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
+  assert.match(architecture, /now ships twenty-three skills/i);
+  assert.match(composition, /catalog ships twenty-three skills/i);
+
+  assert.match(codeowners, /@crissmoldovan/);
+  assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
+});
+
 test('README carries the pack header and public-author footer, and no CUE++ branding', () => {
   // The pack is published under the maintainer's own name; the CUE++ marks
   // were removed deliberately and must not drift back in.
@@ -62,7 +84,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-two public, portable Agent Skills/i);
+  assert.match(readme, /twenty-three public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -79,7 +101,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'report-progress', 'work-in-external-repo']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });

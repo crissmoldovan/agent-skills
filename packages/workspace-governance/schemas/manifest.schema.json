@@ -1,0 +1,523 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/workspace-governance/manifest.schema.json",
+  "title": "Workspace Governance manifest v1",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "workspace-governance/v1"
+    },
+    "authorityId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+      "not": {
+        "enum": ["__proto__", "prototype", "constructor"]
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/node"
+      },
+      "maxItems": 10000,
+      "minItems": 1
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/policy"
+      },
+      "maxItems": 20000
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/workflow"
+      },
+      "maxItems": 20000
+    },
+    "metadata": {
+      "$ref": "#/definitions/object"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "authorityId",
+    "nodes",
+    "policies",
+    "workflows",
+    "metadata"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "json": {
+      "anyOf": [
+        {
+          "type": ["null", "boolean", "number"]
+        },
+        {
+          "type": "string",
+          "maxLength": 16384
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/json"
+          },
+          "maxItems": 200000
+        },
+        {
+          "$ref": "#/definitions/object"
+        }
+      ]
+    },
+    "object": {
+      "type": "object",
+      "propertyNames": {
+        "maxLength": 16384,
+        "not": {
+          "enum": ["__proto__", "prototype", "constructor"]
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/json"
+      }
+    },
+    "setting": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^(?!(?:.*\\.)?(?:__proto__|prototype|constructor)(?:\\.|$))[^.\\x00-\\x1f/\\\\]+(?:\\.[^.\\x00-\\x1f/\\\\]+)*$"
+            },
+            "merge": {
+              "const": "remove"
+            }
+          },
+          "required": ["key", "merge"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^(?!(?:.*\\.)?(?:__proto__|prototype|constructor)(?:\\.|$))[^.\\x00-\\x1f/\\\\]+(?:\\.[^.\\x00-\\x1f/\\\\]+)*$"
+            },
+            "merge": {
+              "const": "replace"
+            },
+            "value": {
+              "$ref": "#/definitions/json"
+            }
+          },
+          "required": ["key", "merge", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^(?!(?:.*\\.)?(?:__proto__|prototype|constructor)(?:\\.|$))[^.\\x00-\\x1f/\\\\]+(?:\\.[^.\\x00-\\x1f/\\\\]+)*$"
+            },
+            "merge": {
+              "const": "deep-merge"
+            },
+            "value": {
+              "$ref": "#/definitions/object"
+            }
+          },
+          "required": ["key", "merge", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^(?!(?:.*\\.)?(?:__proto__|prototype|constructor)(?:\\.|$))[^.\\x00-\\x1f/\\\\]+(?:\\.[^.\\x00-\\x1f/\\\\]+)*$"
+            },
+            "merge": {
+              "enum": ["append", "set-union"]
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/json"
+              },
+              "maxItems": 200000
+            }
+          },
+          "required": ["key", "merge", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^(?!(?:.*\\.)?(?:__proto__|prototype|constructor)(?:\\.|$))[^.\\x00-\\x1f/\\\\]+(?:\\.[^.\\x00-\\x1f/\\\\]+)*$"
+            },
+            "merge": {
+              "const": "keyed-merge"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/object"
+                  },
+                  {
+                    "required": ["id"],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384,
+                        "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+                        "not": {
+                          "enum": ["__proto__", "prototype", "constructor"]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "maxItems": 200000
+            }
+          },
+          "required": ["key", "merge", "value"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "constraint": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+          "not": {
+            "enum": ["__proto__", "prototype", "constructor"]
+          }
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^(?!(?:.*\\.)?(?:__proto__|prototype|constructor)(?:\\.|$))[^.\\x00-\\x1f/\\\\]+(?:\\.[^.\\x00-\\x1f/\\\\]+)*$"
+        },
+        "operator": {
+          "enum": ["equals", "forbidden-values", "required-members"]
+        },
+        "value": {
+          "$ref": "#/definitions/json"
+        }
+      },
+      "required": ["id", "key", "operator", "value"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": ["forbidden-values", "required-members"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/json"
+                },
+                "maxItems": 200000
+              }
+            }
+          }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+          "not": {
+            "enum": ["__proto__", "prototype", "constructor"]
+          }
+        },
+        "settings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/setting"
+          },
+          "maxItems": 20000
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/constraint"
+          },
+          "maxItems": 20000
+        }
+      },
+      "required": ["nodeId", "settings", "constraints"],
+      "additionalProperties": false
+    },
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+          "not": {
+            "enum": ["__proto__", "prototype", "constructor"]
+          }
+        },
+        "settings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/setting"
+          },
+          "maxItems": 20000
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/constraint"
+          },
+          "maxItems": 20000
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+          "not": {
+            "enum": ["__proto__", "prototype", "constructor"]
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384,
+                    "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+                    "not": {
+                      "enum": ["__proto__", "prototype", "constructor"]
+                    }
+                  },
+                  "remove": {
+                    "const": true
+                  }
+                },
+                "required": ["id", "remove"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384,
+                    "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+                    "not": {
+                      "enum": ["__proto__", "prototype", "constructor"]
+                    }
+                  },
+                  "action": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16384,
+                    "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+                    "not": {
+                      "enum": ["__proto__", "prototype", "constructor"]
+                    }
+                  },
+                  "inputs": {
+                    "$ref": "#/definitions/object"
+                  }
+                },
+                "required": ["id", "action", "inputs"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "maxItems": 20000
+        }
+      },
+      "required": ["nodeId", "settings", "constraints", "id", "steps"],
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+          "not": {
+            "enum": [
+              "__proto__",
+              "prototype",
+              "constructor",
+              "$defaults",
+              "$invocation"
+            ]
+          }
+        },
+        "kind": {
+          "enum": [
+            "user",
+            "organization",
+            "area",
+            "project",
+            "repository",
+            "workspace"
+          ]
+        },
+        "slug": {
+          "type": "string",
+          "pattern": "^(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|[cC][oO][mM][1-9]|[lL][pP][tT][1-9])(?:\\.|$))[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9_-])?$",
+          "maxLength": 100
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+              "not": {
+                "enum": ["__proto__", "prototype", "constructor"]
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remote": {
+          "type": "string",
+          "pattern": "^https://github\\.com/(?=[^/]{1,39}/)[a-z0-9]+(?:-[a-z0-9]+)*/(?!\\.{1,2}$)(?!.*\\.git$)(?=[^/]{1,100}$)[a-z0-9_.-]*[a-z0-9_-]$"
+        },
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "enum": ["public", "restricted"]
+            },
+            "readers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384,
+                "pattern": "^[^\\x00-\\x1f/\\\\]+$",
+                "not": {
+                  "enum": ["__proto__", "prototype", "constructor"]
+                }
+              },
+              "maxItems": 200000,
+              "uniqueItems": true
+            }
+          },
+          "required": ["mode", "readers"],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "restricted"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "readers": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "$ref": "#/definitions/object"
+        }
+      },
+      "required": ["id", "kind", "slug", "parentId"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "repository"
+              }
+            }
+          },
+          "then": {
+            "required": ["remote"]
+          },
+          "else": {
+            "not": {
+              "required": ["remote"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "parentId": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "required": ["visibility"],
+            "properties": {
+              "kind": {
+                "enum": ["user", "organization"]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

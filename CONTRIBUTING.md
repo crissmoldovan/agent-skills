@@ -50,7 +50,19 @@ Use Node.js 24 or newer, then run:
 npm run verify
 ```
 
-The command is dependency-free and must pass before opening a pull request. CI runs the same command.
+The command installs locked development dependencies for the independent lifecycle
+and workspace-governance packages, then runs their type checks, tests, builds and
+isolated tarball consumers. It must pass before opening a pull request; CI runs
+the same command. The workspace-governance runtime has no runtime dependencies.
+
+Workspace governance owns declared catalog/policy, read-only discovery and
+non-executable placement previews, not routing, lifecycle or repository mutation.
+Its library, CLI and schemas live in `packages/workspace-governance`; its skill
+carries only portable instructions and internal relative references. Do not put
+machine inventories in the public tree. See its
+[architecture and acceptance map](docs/workspace-governance/index.md). The package
+is private/unpublished; packaging tests do not authorize a release, global install
+or live agent update.
 
 ## Pull requests
 

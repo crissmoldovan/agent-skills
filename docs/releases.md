@@ -6,9 +6,12 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
 `describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
-`land-complex-change`, `resolve-problem-report`, `new-ux-discovery`, `decision-journal`,
-`delphi-ground`, `delphi-imagine`, `report-progress`, and `work-in-external-repo`, plus
-the canonical lifecycle runtime package under `packages/agent-lifecycle`.
+`decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
+`resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
+and `work-in-external-repo`, plus the canonical lifecycle runtime package under
+`packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
+and the separately installable workspace-governance CLI package under
+`packages/workspace-governance`.
 
 Routing and lifecycle compose as documented in [the composition guide](composition.md).
 `blocks` is independent review tooling. `release-ledger`, `github-webhooks`, and
@@ -38,7 +41,7 @@ bumped, the branch is merged, and a tag carries these notes.
 
 ### Two new skills: reporting progress, and working in a repository that is not this one
 
-**What changed.** The pack gains two workflow skills and now ships twenty-two.
+**What changed.** The pack gains two workflow skills and now ships twenty-three.
 
 `report-progress` fixes the shape of a progress report and the line between what the
 reporter verified and what somebody else claimed. Long work tends to fail its reader in one
@@ -75,7 +78,8 @@ especially where a checkout is shared with a colleague or a second session.
 **Compatibility.** Additive. No existing skill's contract, frontmatter, or carried
 reference changed, and neither runtime package was touched, so an installed pack keeps
 working exactly as before if these two are never installed. The repository README's pack
-count moved from twenty to twenty-two and its install block gained a line for the pair.
+count moved from twenty-one to twenty-three and its install block gained a line for the
+pair.
 Node.js 24 or newer is still the requirement for `npm run verify`. Neither skill carries a
 script, a reference file or a runtime of its own: each is a single `SKILL.md`, and the only
 tool `work-in-external-repo` asks for is the git an agent already has.

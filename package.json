@@ -1,6 +1,6 @@
 {
   "name": "@crissmoldovan/agent-skills",
-  "version": "0.9.1",
+  "version": "0.11.0",
   "description": "Verified Agent Skill publication, routing, lifecycles, Blocks reviews, and secure credentials.",
   "type": "module",
   "engines": {
@@ -13,7 +13,9 @@
     "verify:lifecycle": "npm run prepare:lifecycle && npm --prefix packages/agent-lifecycle run verify",
     "prepare:journal": "npm ci --prefix packages/agent-journal --ignore-scripts --no-audit --no-fund",
     "verify:journal": "npm run prepare:journal && npm --prefix packages/agent-journal run verify",
-    "verify": "npm test && node scripts/verify-skills.mjs && node scripts/verify-digests.mjs && node scripts/verify-journal-bundle.mjs && npm run verify:lifecycle && npm run verify:journal"
+    "prepare:governance": "npm ci --prefix packages/workspace-governance --ignore-scripts --no-audit --no-fund",
+    "verify:governance": "npm run prepare:governance && npm --prefix packages/workspace-governance run verify",
+    "verify": "npm test && node scripts/verify-skills.mjs && node scripts/verify-digests.mjs && node scripts/verify-journal-bundle.mjs && npm run verify:lifecycle && npm run verify:journal && npm run verify:governance"
   },
   "license": "MIT"
 }
