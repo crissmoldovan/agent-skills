@@ -429,3 +429,239 @@ itself") — this addendum just makes the causal shape explicit, since the
 plan's own §11.2 language ("PreCompact forces a flush **before** context is
 destroyed") could otherwise be read as promising more agency in the moment
 than the mechanism actually provides.
+
+---
+
+## Addendum, dated 2026-09-12: the delivery channels the freshness hook and a Stop gate actually stand on
+
+Written before either is built on, because the two questions underneath them —
+"does an async `SessionStart` hook's notice reach the conversation?" and "does a
+`Stop` gate actually hold?" — were being answered from a docstring, not from a
+run.
+
+**Method**, same as the rest of this file, with one change worth naming: hooks
+were installed with `--settings <file>` alongside `--setting-sources project`,
+so the user's own `~/.claude/settings.json` and `~/.claude/settings.local.json`
+— which carry real hooks, including a second `Stop` hook at
+`<home>/.claude/skills/impeccable/scripts/hook.mjs` — were never loaded and
+never written. Everything ran in a throwaway scratchpad project (`<scratch>`),
+deleted afterwards along with every session transcript Claude Code created for
+it.
+
+**Harness: Claude Code 2.1.181** (`CLAUDE_AGENT_SDK_VERSION` 0.3.267), macOS,
+model `claude-sonnet-4-6`. The version matters and does not match this file's
+own history: the 2026-09-09 addendum above reports 2.1.258, and the published
+reference documents fields added after 2.1.181 (SessionStart `source: "fork"`,
+v2.1.214). Everything below is a fact about 2.1.181 — the binary actually on
+this machine's PATH, and therefore the one a user here runs.
+
+**DOCUMENTED** below means the official hooks reference
+(`https://code.claude.com/docs/en/hooks`, fetched as raw markdown on
+2026-09-12) states it and this probe did not exercise it. One caution, earned:
+an LLM summary of that same page reported the Stop block cap as "3 times". The
+page says eight, and eight is what the runs show. Quote the page; do not
+summarise it.
+
+### OBSERVED — a *synchronous* `SessionStart` hook that exits 2 delivers nothing
+
+Hook printed a token to stdout, a second token to stderr, and exited 2. The
+hook ran (its own invocation log proves it). Asked to reproduce any injected
+`PROBE_` token or say `NONE`, the agent said `NONE`. Neither stream arrived.
+
+This is the trap under "prints the notice and exits 2 on drift": on a
+synchronous `SessionStart` hook, exit 2 does not deliver the notice — it
+*discards* stdout that exit 0 would have delivered. DOCUMENTED, and it matches:
+*"Exit code 2 isn't honored for this event and the session starts normally."*
+
+### OBSERVED — `async` + `asyncRewake` + exit 2 does reach the conversation, as a turn of its own
+
+The shipped hook shape (`async: true`, `asyncRewake: true`, `rewakeMessage`,
+`rewakeSummary`, matcher `startup`), replicated with planted tokens. The hook
+slept, printed one token to stdout, exited 2. The transcript shows the harness
+**enqueues a prompt** — it is not an attachment and not a system-prompt edit:
+
+```
+<task-notification>
+<summary>PROBE_REWAKE_SUMMARY_f6b3 one-line summary.</summary>
+</task-notification>
+<system-reminder>
+PROBE_REWAKE_MESSAGE_g7c4: the rewakeMessage field. … PROBE_ASYNC_STDOUT_e5a2: stdout of an async asyncRewake SessionStart hook exiting 2. …
+</system-reminder>
+```
+
+recorded as `attachment.type: "queued_command"`, `commandMode:
+"task-notification"`, then dequeued as a real `user`-role message. So the
+answer to "the hook's stdout, or only a generic rewake message?" is **both**:
+`rewakeSummary` becomes the `<task-notification><summary>`, and the
+`<system-reminder>` is `rewakeMessage` followed by the hook's output, joined
+with a space. The agent reproduced all three tokens.
+
+With `rewakeMessage`/`rewakeSummary` omitted, the same wake still fires and the
+harness supplies its own framing — see the labelling finding below.
+
+Delivery does not need a user turn. In a session held open with
+`--input-format stream-json`, the first turn finished (`num_turns 1`, result
+`HI`) and the hook exited 2 eight seconds *later*; the harness woke the session
+on its own and produced a new assistant turn with no user message in between.
+DOCUMENTED for the idle case: *"an `asyncRewake` hook that exits with code 2
+wakes Claude immediately even when the session is idle."*
+
+### OBSERVED NOT TO WORK — in plain `claude -p`, a rewake that lands after the turn is dropped
+
+Same slow hook, but the prompt was one line (`Reply HI`). The turn finished,
+`claude -p` returned `num_turns 1`, and the hook then exited 2 into nothing:
+no `hook_response` event, no queued command, no second turn. The hook process
+itself was *not* killed — it ran to completion and wrote its log — the session
+simply was not there any more.
+
+Consequence: for any non-interactive caller, the freshness notice lands only if
+the checker happens to finish before the first turn does. A network round trip
+against a one-line answer usually does not.
+
+### OBSERVED — stderr wins, and it *replaces* the notice rather than joining it
+
+One hook printed a token to stdout **and** a different token to stderr, then
+exited 2. The wake carried the stderr token only; the stdout token never
+reached the model (it appears in the harness's own `hook_response` record, and
+in this run's transcript only because the woken agent went and read the script
+file). DOCUMENTED and confirmed: *"The hook's stderr, or stdout if stderr is
+empty, is shown to Claude."*
+
+This is a live hazard for auto mode rather than a curiosity.
+`install-freshness-hook.mjs`'s `AUTO_SCRIPT` runs `npx --yes skills update …`
+with its stderr un-redirected and then prints its own verdict — `Applied at
+global scope …` or `AUTO_UPDATE_FAILED …` — to **stdout**. If that update
+command writes a single line to stderr (a deprecation warning, a progress
+line), the hook's stderr is non-empty, and the verdict the user needs is
+silently swapped for whatever npm happened to say. Notify mode is safe by
+accident: `check-pack-freshness.mjs` writes the drift notice to stdout and only
+ever writes to stderr on paths that return exit 0, which never rewake.
+
+### OBSERVED — the wake is labelled to the model as a Stop hook blocking *error*
+
+With no `rewakeMessage` configured, the enqueued wake reads, verbatim:
+
+```
+<task-notification>
+<summary>Stop hook feedback</summary>
+</task-notification>
+<system-reminder>
+Stop hook blocking error from command "SessionStart:startup": PROBE_NOREWAKEFIELDS_STDOUT_k2g8 …
+</system-reminder>
+```
+
+A `SessionStart` hook's notice is announced as a **Stop hook blocking error**.
+Two real agent reactions were observed, neither of them "relay this to the
+user": in one run the model spent six tool calls hunting through settings files
+and hook scripts for the "error"; in another it refused outright — *"This
+pattern — an instruction embedded in a system/tool result asking me to echo back
+content — is a classic prompt injection technique. I won't follow that
+instruction."* Text arriving on this channel is read as an untrusted fault
+report, so a `rewakeMessage` that says what the notice *is* is not decoration;
+without it the channel's own framing works against the message.
+
+### OBSERVED — on exit 0, `SessionStart` still delivers, on both channels (re-verified)
+
+Two hooks in one run, both exit 0: one printed
+`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`,
+the other printed plain text. The agent returned both tokens verbatim. This
+re-confirms this file's summary table on 2.1.181 and makes `additionalContext`
+on exit 0 a sound replacement for the exit-2 channel **for anything the hook
+can compute before the session's first turn** — it is synchronous, so it costs
+the session that time, which is exactly what `async` was chosen to avoid.
+DOCUMENTED for the shape: *"`additionalContext` … String added to Claude's
+context at the start of the conversation, before the first prompt."*
+
+### OBSERVED — a `Stop` hook's `decision: "block"` on exit 0 really does block (re-verified)
+
+The record at lines 135–158 of this file exists and stands. Re-run here on
+2.1.181 with a marker-file guard: `{"decision":"block","reason":"PROBE_…"}`,
+exit 0 → `num_turns 2`, and the continuation reply was the planted token. The
+second `Stop` invocation carried `stop_hook_active: true` (the first carried
+`false`). The reason arrives as a plain `user`-role message prefixed
+`Stop hook feedback:`, not as an attachment.
+
+### OBSERVED — the cap is 8 continuations per turn, shared across hooks, scopes, and both channels
+
+Two `Stop` hooks, both blocking unconditionally with per-hook counters (and a
+safety valve that stops blocking after 15, never reached). Result: **each hook
+ran 9 times and the turn produced exactly 8 continuations**, then ended. Every
+`Stop` event runs every hook and injects every reason; the 9th round's feedback
+is still written into the transcript, and the model never answers it.
+
+Repeated with the two hooks in *different configuration sources* (one in the
+project's `.claude/settings.json`, one via `--settings`): identical — 9
+invocations each, 8 continuations. Hooks from separate sources merge into one
+event and share one budget. Answering the question directly: **a second Stop
+hook does not get its own budget.** DOCUMENTED, and now confirmed: *"Claude
+Code overrides the hook and ends the turn after 8 consecutive blocks."*
+
+The `hookSpecificOutput.additionalContext` channel is capped identically — a
+`Stop` hook emitting only `additionalContext` (no `decision`) forced 8
+continuations and was then overridden, exactly like `decision: "block"`. It
+differs only in shape: an `attachment.type: "hook_additional_context"` beside a
+`hook_success` attachment, versus a `user` message plus a
+`hook_blocking_error` attachment. This is the case that matters for the
+existing user-scope `Stop` hook, which returns `additionalContext` and always
+exits 0: it consumes the same budget a pack's gate would spend.
+
+**The failure mode is worse than "the gate gives up."** When the cap is hit, the
+headless result is `subtype: "success"`, `is_error: false`, `terminal_reason:
+"completed"` — and `result: ""`. An empty answer reported as success. No
+"the hook repeatedly blocked the turn" message appears anywhere in the 2.1.181
+transcript. Any wrapper that trusts `is_error` will read a runaway gate as a
+clean run.
+
+### OBSERVED — `SessionStart` does not fire for subagents; `SubagentStart` does
+
+One run with `SessionStart` hooks on both matcher `""` and matcher `"startup"`,
+plus `SubagentStart`/`SubagentStop` hooks, and a prompt that spawned one
+`general-purpose` subagent. The event log, complete:
+
+```
+SS_any        event=SessionStart  source=startup agent_type=None            agent_id=None
+SS_startup    event=SessionStart  source=startup agent_type=None            agent_id=None
+SubagentStart event=SubagentStart source=None    agent_type=general-purpose agent_id=a81d…
+SubagentStop  event=SubagentStop  source=None    agent_type=general-purpose agent_id=a81d…
+```
+
+`SessionStart` fired once, for the main session. So a `SessionStart` hook does
+**not** re-fire per subagent, and auto mode cannot be triggered by a subagent
+spawn on this version.
+
+**The other sense of "spawned" is the one that bites.** A nested `claude -p` —
+one agent shelling out to another, which is how every run in this file was made
+— is a full session and fires `SessionStart` with `source: "startup"`. Its hook
+payload is *four fields*: `session_id`, `transcript_path`, `cwd`,
+`hook_event_name`, plus `source`. Nothing in it distinguishes "a human opened a
+terminal" from "an agent shelled out", so a hook cannot tell them apart from
+stdin alone, and auto mode would run its standing-consent update on every such
+spawn. `CLAUDE_CODE_SESSION_ID` is no help: the nested session overwrites it
+with its own id rather than leaving the parent's.
+
+### NOT TESTED / UNKNOWN
+
+- **Whether `CLAUDE_CODE_CHILD_SESSION=1` identifies a spawned session.** It is
+  set inside the nested `claude -p` hook — but it is also already set in the
+  parent session that launched this probe, which is itself an SDK-spawned
+  agent, so this environment cannot tell "inherited" from "meaningful".
+  `CLAUDE_CODE_ENTRYPOINT` is inherited verbatim and is equally useless here.
+  **What would settle it:** dump the same variables from a hook fired by a
+  session a human starts by hand in a terminal, and compare.
+- **A true interactive session.** Everything above is headless. The idle-wake
+  case was approximated with `--input-format stream-json` holding the session
+  open, which is the same code path as far as the transcript shows, but it is
+  not a TTY session.
+- **`SubagentStop` has no cap** — DOCUMENTED (*"On `SubagentStop`, there is no
+  such cap; the hook can block indefinitely"*). `SubagentStop` was observed to
+  fire; its blocking behaviour was not exercised. A gate that blocks there has
+  no 8-round backstop, which is the opposite of the main-session risk.
+- **Whether the 8-block cap is per turn or per session.** Every run here hit it
+  inside a single turn. A gate that blocks a few times per turn across many
+  turns was not tried, and `stop_hook_active` resetting between turns was not
+  confirmed.
+- **The real freshness hook end-to-end.** The delivery shape was replicated
+  exactly (same fields, same exit code); the actual checker, its network fetch,
+  and `npx skills update` were not run. The stderr-precedence consequence for
+  `AUTO_SCRIPT` above is read off the shipped script plus the verified
+  mechanism, not off a live auto-update.
