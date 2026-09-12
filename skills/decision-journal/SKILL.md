@@ -1,6 +1,6 @@
 ---
 name: decision-journal
-description: "Record why a decision was made, anchored to evidence a reader can check, so months later the question 'why is this like this, and what did we already rule out' has an answer. Use when work is worth being able to reconstruct."
+description: "Record a decision and the alternatives it rejected, anchored to evidence, so the reasoning survives the session — append-only, retractable, with show/trace/digest to read it back. Symptoms: we considered X and rejected it, why is this like this, what did we already rule out, I'm assuming Y without checking, that turned out to be wrong, write this down before you compact. Records the choice, not the diff — for what a change did, use describe-changes."
 license: MIT
 compatibility: "Any harness that can run a shell command, plus Node.js 24+ for the CLI it carries. Hooks capture actions automatically where the harness exposes them — Claude Code, Codex, Cursor and Gemini do; Cowork and ChatGPT Work do not, and there the agent records entries itself and the journal says so. Without a filesystem it degrades to structured blocks in the transcript. Git raises what a claim can point at but is not required: a design or ops journal anchors to tool calls, in a weaker voice."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"

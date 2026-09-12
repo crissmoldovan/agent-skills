@@ -1,6 +1,6 @@
 ---
 name: describe-changes
-description: "Document what a change actually did: analyse a commit, PR, or merge, classify it, and write short, medium, and detailed descriptions anchored to the diff."
+description: "Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'."
 license: MIT
 compatibility: "Any version control history the agent can read — git locally, or a forge API. Diff access is required for the detailed register; without it the skill still produces the short and medium registers and says so rather than inventing detail. Output is markdown plus a JSON envelope, so it fits a changelog, a release note, a ledger row, or a ticket comment without change."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
@@ -34,8 +34,12 @@ a since-you-were-away ledger and consumes these descriptions as its entries, and
   commit list.
 
 Do not use it to review a change — it describes what happened, it does not judge
-whether it should have. Do not use it to write a commit message before the work
-is done; it reads a completed diff. Do not use it as a summariser for a body of
+whether it should have. Do not use it to cut a release: a version's notes are a
+different artefact, and the semver call, the version bump, the changelog heading,
+the tag and the destinations belong to `release-notes` — a skill outside this
+pack, installed alongside it — which takes a description like this one as the
+*what*. Do not use it to write a commit message before the work is done; it
+reads a completed diff. Do not use it as a summariser for a body of
 text with no diff behind it; the entire value here is that claims are anchored,
 and with nothing to anchor to you have a paraphrase.
 

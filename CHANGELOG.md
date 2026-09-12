@@ -5,6 +5,37 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.14.0
+
+**What.** Fourteen skill descriptions rewritten to name the situation an agent finds itself in
+rather than the capability it provides; three broken hand-offs between skills corrected; and
+`workspace-governance` now declares the platforms its read-only surface actually runs on.
+
+**Why.** A skill is chosen by an agent reading a list of one-line descriptions — the body is only
+read *after* selection, so the description is the entire selection surface. The investment in this
+pack was inverted: every skill carries an excellent, situation-shaped `## When to Use` list in its
+body, in the words a user would actually type ("Someone asks for a what's-new popup", "A deletion
+looks safe — 'nothing calls this' is about to be load-bearing"), while the description stated a
+capability in house vocabulary nobody would search for. Twelve of twenty-three had a "Use when…"
+clause; those were the ones that got selected.
+
+The hand-offs mattered for a different reason: `release-ledger` pointed single release notes at
+`describe-changes`, which covers one CHANGE and carries no release machinery at all — no semver
+decision, no dist-tag, no forge Release. That one wrong sentence made three distinct skills look
+like duplicates of each other.
+
+`workspace-governance` declared `platforms: [linux]` and called macOS "expected but untested",
+while its whole read-only surface — validate, catalog, explain, workflow, discover, report, plan,
+audit, verify-plan — runs correctly on darwin, and the package's own 79 tests pass there. It was a
+skill excluding itself from a machine it works on. The corrected text distinguishes the two real
+Linux gates rather than flipping the flag: `manifest-init-plan` and `manifest-init-trial-plan`
+require Linux x86_64, `mutation-status` requires Linux on any architecture, and no procedure step
+in the skill reaches any of them.
+
+**Impact.** Additive, no migration. Same twenty-three skills; nothing renamed, removed or merged.
+An update changes what an agent sees when choosing, and makes `workspace-governance` selectable on
+macOS. Existing installs keep working unchanged.
+
 ## 0.13.1
 
 **What.** Every runnable script in the pack ran nothing and exited 0 when it was reached through a

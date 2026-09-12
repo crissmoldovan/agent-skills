@@ -1,6 +1,6 @@
 ---
 name: derive-codebase-context
-description: "Derive agent context, enforced boundaries, and an operational atlas from the repo itself. Use when agents keep losing the shape of a large codebase."
+description: "Write agent context for a repository from the repo itself: a CLAUDE.md / AGENTS.md that matches reality, the boundaries agents must not cross, and a map of where things live. Symptoms: write or fix our CLAUDE.md, the agent guidance is stale, the context files have multiplied (CLAUDE.md + AGENTS.md + Cursor rules), agents keep rediscovering the same layout, someone proposes a code knowledge graph / vector index / semantic search over the codebase."
 license: MIT
 compatibility: "Any repository an agent works in. The generators need Node 22+ (builtins only) and git. Layer 2 assumes a JavaScript/TypeScript import graph through dependency-cruiser; other ecosystems need their own edge linter, and the rest of the procedure is unchanged. The measurements behind this came from a TypeScript monorepo of roughly 2,500 files. No database server, no daemon, and no network at any layer."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
