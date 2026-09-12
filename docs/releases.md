@@ -39,6 +39,79 @@ in, and hands over to `land-complex-change` once that tree is right. Both are us
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+### A gate for progress reports, and a freshness check that can say "I could not tell"
+
+**What changed.** Two hooks that run outside the conversation: one new, one repaired.
+
+The pack gains its first user-installable enforcement hook,
+`adapters/claude-code/report-progress-gate.mjs` — the mechanical half of `report-progress`, and
+the part of it that is not instructions. On a turn that dispatched a subagent through the
+`Agent` tool it reads the turn's final message and, in `block` mode, holds the turn open for
+one more round when that message carries no report: three section labels, and a literal state
+and a freshness token on a running row, or `agent-lifecycle`'s no-evidence sentence standing in
+place of the section. `observe` mode writes what it would have refused to stderr and never
+holds a turn; it is the default, and the mode to live with for a day first.
+`install-report-progress-gate.mjs` writes both halves into a settings file and takes them out
+again with `--remove`.
+
+Three limits travel with it, in the code, in the reason string the model receives, in the
+installer's own output and in every document that introduces it. It checks the **shape** of a
+report and never whether anything in it is true — it cannot tell whether `npm test` was run,
+whether `child-7f2` exists, or whether "40s ago" was observed. It acts **at most once per
+turn** and then stands down, because Claude Code ends a turn after 8 consecutive `Stop` blocks
+and that budget is shared with every other `Stop` hook on the machine. And its marker is keyed
+by **session**, so a turn that dispatched a subagent and then died without a `Stop` leaves the
+marker behind, and the next turn in that session pays one block for a dispatch it did not make.
+
+The freshness check `update-agent-skills` carries stopped reporting "I could not tell" as
+silence. An unreadable lockfile, an unreachable source, or a crash inside the checker wrote a
+line to stderr and exited 0, while the `SessionStart` hook acted only on exit 2 — so a failed
+check produced exactly what a healthy pack produces: nothing. That is the failure the skill's
+own text names, shipped inside the implementation of the sentence naming it: where silence is
+the healthy signal, a failure that renders as silence reads as health. Delivery no longer rides
+on the exit code, because the exit code cannot carry it. Every verdict, drift and `unknown`
+alike, goes to stdout; a new `--hook` flag wraps the report in a `SessionStart`
+`hookSpecificOutput.additionalContext` envelope and always exits 0; `notify` became a
+synchronous hook, so the session waits for the check — about ten seconds cold, a process spawn
+when cached. `auto` stays asynchronous, because it may spend minutes inside `skills update`,
+but it now wakes the model on what the checker *said* rather than on what it exited with, so an
+undetermined check reaches the conversation too. The notice also records a limit it always had:
+a git tree hash carries no ordering, so an upstream revert or force-push reads exactly like a
+release, and "different" is not "newer".
+
+**Who should care.** Anyone whose agents dispatch children and then end a turn with "the
+subagent came back with done"; and anyone running the freshness hook, who until now could not
+tell "your pack is current" from "this check never completed".
+
+**Compatibility.** Additive, and nothing changes for a user who installs neither hook. No
+skill was added, removed or renamed — the catalogue still ships twenty-three — no skill's
+frontmatter `description` changed, and no runtime package was touched. Two `SKILL.md` bodies
+gained text: `report-progress` describes the gate and names it in its `compatibility` line,
+and `update-agent-skills` documents the new delivery and the tree-hash caveat. The gate is off until a human runs its
+installer and gone when they run it with `--remove`; it lives in this repository rather than
+inside the skill, because `npx skills add` copies `skills/report-progress/SKILL.md` and nothing
+else.
+
+One thing does not update itself: a `SessionStart` freshness hook installed before this release
+holds the old command string in `settings.json`. It keeps working and keeps reporting drift,
+but it will not carry an `unknown` verdict until the installer is run again, which rewrites the
+entry. Re-running it is the whole migration.
+
+**Action required to receive it.** Update the skill, then re-run the freshness installer if you
+had one:
+
+```bash
+npx skills update update-agent-skills report-progress --global --yes
+node <skill-folder>/scripts/install-freshness-hook.mjs --mode notify --source <owner>/<repo>
+```
+
+The gate is installed from a checkout of this repository, and starting in `observe` is the
+point of having two modes:
+
+```bash
+node adapters/claude-code/install-report-progress-gate.mjs --mode observe
+```
+
 ### Two new skills: reporting progress, and working in a repository that is not this one
 
 **What changed.** The pack gains two workflow skills and now ships twenty-three.
@@ -161,7 +234,12 @@ Release notes reach a reader only if they learn the release happened.
 installed pack against the published tree and prints the stale skills, the latest
 release, and the exact scoped command, plus an installer for an optional
 `SessionStart` hook that runs it. The check never invokes the Skills CLI, whose
-`check` is a mutating alias for `update`. Its notify mode reports and stops;
+`check` is a mutating alias for `update`. Every verdict it has is printed as text
+on stdout and delivered to the session on exit 0 — drift, and equally the
+`unknown` it returns when it could not determine anything at all. An exit code
+that means both "current" and "could not tell" can announce neither, and a check
+whose healthy signal is silence must never let a failure render as silence. Its
+notify mode reports and stops;
 installing its auto mode is the user's standing consent to update that source at
 that scope, and is withdrawn by removing the hook. Announcement remains
 communication, and mutation remains something a user asks for. The update-check

@@ -57,6 +57,32 @@ Background work visibility unavailable; state unknown.
 
 Task progress is not lifecycle status here either. A todo row or a percentage may appear in the report as task metadata, labelled as such; it never becomes a running row.
 
+### The gate that reads this boundary
+
+`report-progress` has an optional mechanical half: a Claude Code `Stop` hook in
+[`adapters/claude-code/`](../adapters/claude-code/README.md), off until a user installs it by
+hand. It inherits the boundary above rather than widening it. It reads no lifecycle evidence,
+dispatches nothing, holds no child bookkeeping and joins no composition — it reads the turn's
+final message and matches strings against it.
+
+Two consequences follow for these two skills:
+
+- **The no-evidence sentence is a shared constant.** The gate carries `agent-lifecycle`'s
+  sentence byte-for-byte and treats it as satisfying the running requirement outright, because
+  the skill puts it *in place of* the section rather than inside it. The gate does not import
+  that string from anywhere; changing the sentence in `agent-lifecycle` changes what the gate
+  accepts, so the copies have to move together.
+- **Passing the gate is not lifecycle evidence.** It can see that a running row names a literal
+  state and carries a freshness token. It cannot tell whether either was projected from a real
+  child or written from memory, which is the question this table leaves with `agent-lifecycle`,
+  and the gate's own reason string says as much to the model it blocks.
+
+Its ceiling belongs here too, because it bounds what "enforcement" can mean: it acts at most
+once per turn and then stands down — Claude Code ends a turn after 8 consecutive `Stop` blocks,
+and that budget is shared with every other `Stop` hook on the machine — and its marker is keyed
+by session, so a turn that dispatched a subagent and then died without a `Stop` leaves the
+marker behind and the next turn in that session pays one block for a dispatch it did not make.
+
 ## Where `work-in-external-repo` sits
 
 `work-in-external-repo` sits upstream of every other workflow skill, and only when the work belongs somewhere other than the current working directory. It owns exactly two things — which repository is meant, and which tree the work happens in — and it is finished the moment that tree exists at a fetched base. Work in the current repository never loads it; read-only inspection of another repository does not either, because nothing is written.

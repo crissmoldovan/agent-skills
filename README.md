@@ -272,6 +272,11 @@ Keep numbers you verified by running something apart from numbers a subagent cla
 say you cannot see the children rather than guessing what they are doing.
 ```
 
+`report-progress` also has a mechanical half, and it is not that prompt: an optional Claude
+Code `Stop` hook that holds a turn open when a report is owed and missing. It is off until a
+human installs it, and no agent may install it on your behalf — see
+[Optional hooks](#optional-hooks-adapters).
+
 ```text
 Use work-in-external-repo: this change belongs in another repository, not in this working
 directory. Prove the checkout by its origin remote before writing anything, fetch the base
@@ -290,6 +295,74 @@ The workspace-governance CLI is installed separately from a built local tarball;
 see [build/install guidance](packages/workspace-governance/README.md). Installing
 the skill does not install the CLI; the v0.1 candidate is unpublished.
 
+## Optional hooks (adapters)
+
+Two skills have a **mechanical half**: a hook that runs outside the conversation, where no
+model sits in the enforcement path. Both are off until a human installs one, both are
+removed by the same installer that wrote them, and no skill and no agent may install either
+on a user's behalf. They live in [`adapters/`](adapters/), beside the payload captures they
+were built against — [`adapters/NOTES.md`](adapters/NOTES.md) for the shapes Claude Code
+sends, [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md) for what a hook can
+print back and have the harness act on. Where a document and those notes disagree, the notes
+win: they are the observed record.
+
+### The `report-progress` gate — Claude Code `Stop`
+
+On a turn that dispatched a subagent through the `Agent` tool, it reads the turn's final
+message. In `block` mode it holds the turn open for one more round when that message carries
+no progress report; in `observe` mode — the default, and the one to live with first — it
+writes what it would have refused to stderr and never holds anything. A turn that dispatched
+nothing ends exactly as it would with the hook absent.
+
+The gate ships with **this repository**, not with the installed skill: `npx skills add`
+copies `skills/report-progress/SKILL.md` and nothing else, so arming the gate means running
+the installer from a checkout of this repo.
+
+```bash
+# say what it would have refused, on stderr; never holds a turn. This is the default.
+node adapters/claude-code/install-report-progress-gate.mjs --mode observe
+
+# hold the turn instead
+node adapters/claude-code/install-report-progress-gate.mjs --mode block
+
+# take it back out; nothing is left behind
+node adapters/claude-code/install-report-progress-gate.mjs --remove
+```
+
+Three limits, stated here because a guard that is misread is worse than no guard:
+
+- **It checks the shape of a report, never whether anything in it is true.** It sees three
+  section labels, and a literal state and a freshness token on a running row. It cannot tell
+  whether `npm test` was ever run, whether `child-7f2` exists, or whether "40s ago" was an
+  observation. A message that satisfies it can still be a fabrication; the skill's own
+  checklist, run by a reader, is what catches that.
+- **It acts at most once per turn and then stands down.** Claude Code ends a turn after 8
+  consecutive `Stop` blocks, and that budget is shared with every other `Stop` hook on the
+  machine — when it runs out, the result comes back as a success with an empty answer.
+- **Its marker is keyed by session,** and the `Stop` that ends a turn is what clears it. A
+  turn that dispatched a subagent and then died without a `Stop` — a crash, a kill — leaves
+  the marker behind, so the next turn in that session pays one block for a dispatch it did
+  not make. One block, then cleared.
+
+### The `update-agent-skills` freshness hook — Claude Code `SessionStart`
+
+This one is carried by the skill itself, so an installed copy has it:
+
+```bash
+node <skill-folder>/scripts/install-freshness-hook.mjs --mode notify --source <owner>/<repo>
+node <skill-folder>/scripts/install-freshness-hook.mjs --remove
+```
+
+`notify` reads and reports; it cannot mutate anything, because the checker cannot. Its hook
+is synchronous and always exits 0, handing the report to the model as
+`hookSpecificOutput.additionalContext` — so the session waits for it: roughly ten seconds on
+a cold check, a process spawn on a cached one. Drift and **`unknown`** travel that same
+channel: an unreadable lockfile, an unreachable source or a crashed check says so out loud
+rather than rendering as the silence that means "current".
+
+`auto` applies exactly the update the checker named, at global scope, for that one source.
+Installing it is the user's standing consent, and `--remove` is how it is withdrawn.
+
 ## Composition and references
 
 - [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership, where progress reports draw their evidence, and where external-repository work sits.
@@ -302,6 +375,7 @@ the skill does not install the CLI; the v0.1 candidate is unpublished.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
+- [`adapters/`](adapters/) — the optional hooks above, and the observed hook-payload and hook-output records they were built against.
 
 The [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml) is
 a load-time helper for routing plus lifecycle. It does not install skills.

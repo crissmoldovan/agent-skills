@@ -227,7 +227,8 @@ reading and four children are still running. This is the half that is not
 instructions.
 
 ```sh
-# try it without risking a turn: reports what it would have refused, blocks nothing
+# try it without risking a turn: reports what it would have refused, blocks nothing.
+# this is what `--mode` defaults to when it is left off.
 node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 
 # arm it
@@ -248,6 +249,11 @@ you name), and needs both:
   `{"decision":"block","reason":…}` at exit 0 when the final message carries no
   report. No marker, no gate: a turn that dispatched nothing ends exactly as it
   would with the hook absent.
+
+Re-running the installer replaces whatever it wrote last time rather than stacking
+a second copy beside it, so changing mode is one command. A hook wearing the
+gate's filename that this installer did not write is refused, not overwritten:
+somebody else put it there, and it is theirs to remove.
 
 It is deliberately **not** in `settings-fragment.json`. That fragment is the
 journal hook's, and it is meant to be copied wholesale — a gate that can end a
@@ -274,11 +280,16 @@ satisfies this gate can still be a fabrication.
 consecutive `Stop` blocks; that budget is **shared** across every `Stop` hook
 from every settings source, and when it runs out the headless result comes back
 `subtype: "success"`, `is_error: false`, `result: ""` — an empty answer reported
-as a clean run (`../HOOK-OUTPUT-NOTES.md`). The gate honours `stop_hook_active`,
-marks its own marker spent, and stands down after one block, so it can never be
-the hook that walks a session into that. `SubagentStop` is deliberately not
-wired: it has no 8-block backstop at all, so a bug there would hang a child agent
-instead of costing one continuation.
+as a clean run (`../HOOK-OUTPUT-NOTES.md`). The gate records the spent block in
+its marker *before* it emits one, and a gate that cannot write that record
+declines to block at all: every `Stop` is a fresh process, so that file is the
+only memory it has of having fired. `stop_hook_active` is honoured as the
+harness's own backstop rather than relied on as the ceiling — observed, with the
+marker directory made unwritable after arming, a gate that trusted it returned
+`decision: "block"` on three consecutive `Stop`s. One block, then it stands down,
+so it can never be the hook that walks a session into that. `SubagentStop` is
+deliberately not wired: it has no 8-block backstop at all, so a bug there would
+hang a child agent instead of costing one continuation.
 
 **What it is careful not to do.** It does not fire on a turn that dispatched no
 subagent, which is the whole reason it is survivable — a guard that blocks "yes,
@@ -287,7 +298,9 @@ enforces nothing. One hole in that, because it is a cost a user should hear abou
 rather than discover: the marker is keyed by session and cleared by the `Stop`
 that ends the turn, so a turn that dispatched a subagent and then died without a
 `Stop` — a crash, a kill — leaves one behind, and the next turn in that session
-pays one block for a dispatch it did not make. That is why the reason says "a
+pays one block for a dispatch it did not make. A marker older than six hours
+(`MARKER_MAX_AGE_MS`) is treated as stale and cleared without a block, which
+bounds how long a stranded one can cost anything. That is why the reason says "a
 subagent was dispatched" and not "this turn dispatched a subagent": the marker
 cannot support the second. It never prints `hookSpecificOutput.additionalContext`
 on `Stop`: that channel was observed to force continuations exactly like a block
