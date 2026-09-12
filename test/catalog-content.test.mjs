@@ -374,3 +374,35 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
     assert.ok(source.includes(runRecordPointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence`);
   }
 });
+
+// A RELEASED VERSION'S PROSE MUST NOT STILL BE STAGED AS UNRELEASED.
+//
+// ── WHAT WAS OBSERVED ────────────────────────────────────────────────────────
+// Three times running, a release shipped and its `## Unreleased` prose was left
+// in place: v0.12.0's two entries were still staged when v0.13.0 was cut, and
+// v0.13.0's and v0.13.1's were still staged after both had shipped. Each time
+// the next tag would have republished work that was already out, and each time
+// it was caught by reading the file rather than by anything failing.
+//
+// The invariant that makes it mechanical: prose sits under `## Unreleased`
+// while the work is unreleased. A release commit bumps package.json AND writes
+// the CHANGELOG entry for that version. So if package.json's version already
+// has a CHANGELOG heading, the release is cut — and nothing may remain staged.
+test('a released version leaves no prose staged as unreleased', async () => {
+  const version = rootPackage.version
+  const changelog = await read('CHANGELOG.md')
+  const released = new RegExp(`^##\\s+\\[?v?${version.replace(/\./g, '\\.')}\\]?([\\s]|$)`, 'm')
+    .test(changelog)
+  if (!released) return   // mid-cycle: the bump has not happened yet, staging is correct
+  const start = releases.indexOf('## Unreleased')
+  assert.notEqual(start, -1, 'docs/releases.md must keep its ## Unreleased section')
+  const end = releases.indexOf('\n## ', start + 5)
+  const staged = releases.slice(start, end === -1 ? undefined : end)
+  const entries = staged.match(/^### .*/gm) ?? []
+  assert.deepEqual(
+    entries, [],
+    `package.json is ${version} and CHANGELOG.md has its entry, so ${version} is released — `
+    + `but docs/releases.md still stages ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}: `
+    + `${entries.join(' | ')}. Move them into the release notes, or clear them if they already shipped.`,
+  )
+})
