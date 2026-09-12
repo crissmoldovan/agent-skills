@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  mkdtemp,
   writeFile,
   mkdir,
   rm,
@@ -9,10 +8,11 @@ import {
   symlink,
 } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
-import { tmpdir, devNull } from "node:os";
+import { devNull } from "node:os";
 import { join, delimiter } from "node:path";
 import { execFileSync } from "node:child_process";
 import { discoverGithub, discoverLocal } from "../src/discovery.ts";
+import { scratchRoot } from "./fixtures.ts";
 test("A7 one hundred full unique pages refuse truncation and late failure never returns partial", async () => {
   let pages = 0;
   await assert.rejects(
@@ -54,7 +54,7 @@ test("A7 one hundred full unique pages refuse truncation and late failure never 
   assert.equal(pages, 2);
 });
 test("A6 trusted Git shim proves fixed argv and sanitized environment", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-shim-"));
+  const root = await scratchRoot("governance-shim-");
   const oldPath = process.env.PATH;
   const oldTrace = process.env.GIT_TRACE;
   try {
@@ -139,7 +139,7 @@ const fs=require('node:fs');const cp=require('node:child_process');fs.appendFile
   }
 });
 test("A6 commondir whitespace cannot hide a symlink from metadata preflight", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-space-"));
+  const root = await scratchRoot("governance-space-");
   const oldPath = process.env.PATH;
   try {
     const scan = join(root, "scan");
@@ -165,8 +165,8 @@ test("A6 commondir whitespace cannot hide a symlink from metadata preflight", as
   }
 });
 test("A6 commondir escape and symlink fail before repository observation", async () => {
-  const root = await mkdtemp(join(tmpdir(), "governance-common-"));
-  const outside = await mkdtemp(join(tmpdir(), "governance-other-"));
+  const root = await scratchRoot("governance-common-");
+  const outside = await scratchRoot("governance-other-");
   try {
     const scan = join(root, "scan");
     const meta = join(scan, ".git");

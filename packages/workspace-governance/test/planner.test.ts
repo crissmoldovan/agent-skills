@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import { discoverLocal } from "../src/discovery.ts";
 import * as planner from "../src/planner.ts";
-import { example, envelope } from "./fixtures.ts";
+import { example, envelope, scratchRoot } from "./fixtures.ts";
 const inventory = () => ({
   root: resolve(tmpdir(), "synthetic-governance"),
   complete: true,
@@ -106,7 +106,7 @@ test("A8 deterministic scoped previews and exact rederivation reject every tampe
 });
 for (const components of [["example"], ["example", "service"]]) {
   test(`A8 real filesystem ${components.join("/")} ancestor obstruction is blocked`, async () => {
-    const root = await mkdtemp(join(tmpdir(), "governance-obstruction-"));
+    const root = await scratchRoot("governance-obstruction-");
     try {
       const ancestor = join(root, ...components);
       await mkdir(join(root, ...components.slice(0, -1)), { recursive: true });
