@@ -143,6 +143,15 @@ A verdict that names no commit is dated against the head rather than refused: on
 posted after the head was committed cannot have read an earlier one. Refusing it for
 its wording would be the same mistake one layer up.
 
+**The latest verdict decides, and acceptance asks that same verdict.** Within the
+`--requested-at` window the most recent finished verdict chooses the state — an
+older clean round never outvotes a newer one with findings — and head coverage is
+read from that verdict alone, never from whichever comment happens to name the head.
+When they came from different comments, a stale clean was accepted for a head it never
+read (cue-ui#94). A latest verdict naming an older head is refused even if an earlier
+one named the current head; re-request the review. Help text and acknowledgements are
+never a verdict, however recent.
+
 ## Visible Bounded Wait
 
 Mirror Trigger.dev's active-wait contract, not its transport:

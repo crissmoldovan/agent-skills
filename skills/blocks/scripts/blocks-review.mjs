@@ -485,6 +485,36 @@ export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, ve
 }
 
 /**
+ * Acceptance for a classified status, bound to the verdict that decided its state.
+ *
+ * The state and the head coverage have to come from ONE verdict. This used to ask
+ * whether ANY comment in the window named the head, so a stale clean verdict could
+ * borrow coverage from a newer comment that said something else entirely (see
+ * {@link latestVerdict}). Now the verdict that chose the state is the only one asked
+ * which commit it read. If it names an older head, acceptance is refused for that
+ * reason — even when an earlier verdict in the window named the current one. That
+ * refusal is the safe direction: re-requesting the review cures it, and nothing else
+ * can cure a merge.
+ *
+ * A verdict that names no commit is dated by its own timestamp. With no verdict
+ * comment at all (a check-run or formal-review delivery) the date falls back to the
+ * Blocks check, then to the newest comment — see {@link chooseVerdictAt}.
+ */
+export function acceptVerdict(result = {}, { headSha, ciConclusion, headCommittedAt, blocksCheckCompletedAt = null } = {}) {
+  const verdict = result.verdict ?? null;
+  const comments = result.comments ?? [];
+  const latestAt = comments.length ? (comments[comments.length - 1].createdAt ?? null) : null;
+  return verdictAcceptance({
+    state: result.state,
+    verdictSha: verdict ? (coversHead(verdict.body, headSha) ? headSha : reviewedSha(verdict.body)) : null,
+    headSha,
+    ciConclusion,
+    verdictAt: chooseVerdictAt({ namedAt: verdict?.createdAt ?? null, blocksCheckCompletedAt, latestAt }),
+    headCommittedAt,
+  });
+}
+
+/**
  * A finished Blocks review reported as a CHECK RUN rather than as a comment.
  *
  * Which channel it uses depends on how the integration is configured: on one
@@ -563,6 +593,31 @@ export function subThresholdCount(body = '') {
   return (lines.join('\n').match(/severity\s*\d/gi) ?? []).length;
 }
 
+/**
+ * The verdict that decides: the LATEST finished verdict in the window, never the first.
+ *
+ * Observed on cueplusplus/cue-ui#94. With the window opened before three rounds of
+ * review, this used to take the first verdict it met — a clean review of `e428be3`,
+ * two heads back — while the CLI took head coverage from whichever comment named the
+ * current head. The two halves of acceptance came from different verdicts, and the
+ * tool printed "Acceptable: clean verdict for 8b08c61" on the strength of a review of
+ * another commit. Had the newest round found something, a stale clean would still
+ * have decided the state and a fresh comment would still have supplied the head: the
+ * false clean this file calls the only error that merges.
+ *
+ * Only a finished verdict can be chosen. Help text and acknowledgements fail
+ * {@link isVerdict}, so however recently one was posted it never becomes "the latest
+ * verdict". Ordered by timestamp, then by position for comments posted in the same
+ * second, so an out-of-order page cannot change the answer.
+ */
+export function latestVerdict(comments = []) {
+  return comments
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => isVerdict(item.body))
+    .sort((a, b) => (timestamp(a.item) - timestamp(b.item)) || (a.index - b.index))
+    .at(-1)?.item ?? null;
+}
+
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));
@@ -578,36 +633,38 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
     url: item.url ?? item.htmlUrl ?? null,
   }));
   const summaryFindingReviews = relevantReviews.filter((item) => ['CHANGES_REQUESTED'].includes((item.state ?? '').toUpperCase()) || (/\S/.test(item.body ?? '') && /issue|finding|severity|requesting changes/i.test(item.body)));
-  const verdictComment = relevantComments.find((item) => isVerdict(item.body));
+  const verdictComment = latestVerdict(relevantComments);
   const cleanComment = relevantComments.find((item) => isClean(item.body));
   const cleanReview = relevantReviews.find((item) => isClean(item.body) || (item.state ?? '').toUpperCase() === 'APPROVED');
-  const dashboardUrl = [...relevantComments, ...relevantReviews].map((item) => dashboard(item.body)).find(Boolean) ?? null;
+  // The deciding verdict's own session first: the first link in the window can belong
+  // to a round that no longer decides anything.
+  const dashboardUrl = dashboard(verdictComment?.body) ?? [...relevantComments, ...relevantReviews].map((item) => dashboard(item.body)).find(Boolean) ?? null;
 
   if (findings.length || summaryFindingReviews.length) {
-    return { state: 'findings', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'findings', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   // Inline comments and formal reviews above are the stronger evidence and already
   // returned. A verdict comment is the next authority: reaching here means the inline
   // sweep found nothing, so the verdict's own wording decides between the two states.
   if (verdictComment) {
-    return { state: reportsFindings(verdictComment.body) ? 'findings' : 'clean', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: reportsFindings(verdictComment.body) ? 'findings' : 'clean', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (cleanComment || cleanReview) {
-    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   // No verdict in prose, but the integration may report completion as a check
   // instead. Nothing was found above — no inline comments, no findings review — so a
   // finished review with nothing to show is clean.
   if (blocksCheckCompleted(checks)) {
-    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (relevantComments.some((item) => isCourtesy(item.body)) || relevantReviews.length) {
-    return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (prState !== 'OPEN') {
-    return { state: 'pr_closed', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'pr_closed', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
-  return { state: 'requested', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+  return { state: 'requested', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
 }
 
 async function ghJson(args) {
