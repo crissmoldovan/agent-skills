@@ -19,6 +19,20 @@
  * Detecting drift is communication. Applying it is mutation, and mutation needs
  * the user's explicit consent for a named scope. This script never crosses that
  * line; it ends at "here is the exact command".
+ *
+ * Two properties of that comparison are worth stating before anyone trusts it.
+ *
+ * A git tree hash carries no ordering. Two trees are equal or they are not;
+ * neither is "later". So an upstream revert, a force-push, or a lockfile written
+ * against a branch that has since been rewound all render exactly like a new
+ * release, and the command this script prints would walk the user to whatever
+ * upstream currently holds — backwards included. Establishing direction would
+ * take commit-history requests this check deliberately does not make, so the
+ * notice says "different, not newer" rather than implying an upgrade.
+ *
+ * And every verdict is written to stdout, never to stderr. On the hook channel
+ * this script was built for, stderr does not supplement stdout — it replaces it,
+ * so a single stray line from anything else would swap the verdict for noise.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -30,7 +44,14 @@ import { pathToFileURL } from 'node:url';
 export const DEFAULT_SOURCE = 'crissmoldovan/agent-skills';
 export const DEFAULT_API_BASE = 'https://api.github.com';
 
-/** Exit 2 is the drift signal an `asyncRewake` hook turns into a system reminder. */
+/**
+ * Exit codes are a machine-readable API for a caller that wants one — 0 current,
+ * unknown or untracked, 2 drift, 1 a usage error. They are not how anything is
+ * delivered. On a synchronous `SessionStart` hook, exit 2 does not carry the
+ * notice: it *discards* the stdout that exit 0 would have delivered, verified on
+ * Claude Code 2.1.181 and recorded in `adapters/HOOK-OUTPUT-NOTES.md`. So `--hook`
+ * always exits 0 and puts the whole report on stdout.
+ */
 export const EXIT_CURRENT = 0;
 export const EXIT_USAGE = 1;
 export const EXIT_DRIFT = 2;
@@ -51,10 +72,19 @@ export const FETCH_TIMEOUT_MS = 5_000;
  * buys nothing, because the answer cannot change until they update. The notice
  * repeats; the request does not.
  *
- * One deliberate divergence: gstack caches the *verdict*, so a user who upgrades
- * mid-window keeps being nagged by a stale cached answer. This cache stores only
- * the *remote observation*, and the verdict is recomputed against the lockfile on
- * every run — so the moment the pack is actually updated, the notice stops.
+ * One divergence, and it is not a correction: gstack caches the verdict line
+ * itself and guards the replay. It reuses a cached `UPGRADE_AVAILABLE` only while
+ * the version that verdict was computed against still matches the installed one
+ * (`[ "$CACHED_OLD" = "$LOCAL" ]` in `bin/gstack-update-check`), and its upgrade
+ * path deletes the cache outright (`bin/gstack-session-update`). A cached verdict
+ * is safe there because the thing being judged is one version string.
+ *
+ * Here it is a set of per-skill folder hashes, and one guard cannot speak for
+ * them: a user who updates three of five drifted skills leaves a cached verdict
+ * that is now wrong about all five. So this cache stores only the *remote
+ * observation*, and the verdict is recomputed against the lockfile on every run —
+ * each skill re-judged on its own, without a request, the moment its own hash
+ * changes.
  */
 export const TTL_CURRENT_MS = 60 * 60 * 1000;
 export const TTL_STALE_MS = 12 * 60 * 60 * 1000;
@@ -66,10 +96,13 @@ export const SOURCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-
 /** Names are interpolated into a printed command, so only plain slugs may pass. */
 export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-const USAGE = `Usage: check-pack-freshness.mjs [--source <owner>/<repo>] [--print-stale-names] [--no-cache] [--consented]
+const USAGE = `Usage: check-pack-freshness.mjs [--source <owner>/<repo>] [--hook] [--print-stale-names] [--no-cache] [--consented]
 
 Reports drift between an installed pack and its published source. Reads only.
-Exit 0 when current, unknown, or untracked; exit 2 when an update is available.`;
+Every verdict it has — drift or unknown — goes to stdout; silence means current.
+Exit 0 when current, unknown, or untracked; exit 2 when an update is available.
+--hook wraps the same report in a SessionStart additionalContext envelope and
+always exits 0, because on that event exit 2 discards stdout instead of carrying it.`;
 
 function describeError(error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -351,7 +384,7 @@ function settle(result, selection, snapshot, truncated, release, fetched) {
 /**
  * The first token is a stable vocabulary for machines; the rest is for a human.
  * Silence is the only "you are current" signal, which is exactly why a failed
- * check must never render as silence.
+ * check must never render as silence — see `formatUnknownNotice`.
  */
 export function formatNotice(result) {
   if (!result || result.state !== 'stale' || result.stale.length === 0) return '';
@@ -360,6 +393,9 @@ export function formatNotice(result) {
   if (result.release?.tag) lines.push(`Latest release: ${result.release.name || result.release.tag} (${result.release.tag})`);
   if (result.missing.length > 0) lines.push(`Gone upstream — removal candidates needing separate confirmation, not deletions: ${result.missing.join(', ')}`);
   if (result.unverifiable.length > 0) lines.push(`Freshness unknown, no comparable hash: ${result.unverifiable.join(', ')}`);
+  // A tree hash is equal or unequal; it is never "later". Say so, because the
+  // command below applies whatever upstream holds, including a revert.
+  lines.push('Different, not newer: a git tree hash carries no ordering, so an upstream revert or force-push reads as drift too.');
   // Named skills bound what is rewritten, --global pins the scope instead of
   // letting it be inferred from the current directory, and --yes keeps an
   // upstream deletion a printed warning rather than a removal.
@@ -370,20 +406,60 @@ export function formatNotice(result) {
   return lines.join('\n');
 }
 
+/**
+ * The state the skill promises is never folded into "current". It used to be
+ * written to stderr behind an exit code that made the hook exit silently, which
+ * is the exact failure the doctrine names: where silence is the healthy signal, a
+ * failed check rendered as silence reads as health.
+ */
+export function formatUnknownNotice(result) {
+  if (!result || result.state !== 'unknown') return '';
+  return [
+    `PACK_FRESHNESS_UNKNOWN ${result.source}`,
+    `Could not determine freshness: ${result.reason ?? 'no reason recorded'}`,
+    'Unknown is not an all-clear. The pack may or may not have moved; this check could not tell. Nothing has been changed.',
+  ].join('\n');
+}
+
+/** Everything this check has to say, or the empty string when it has nothing. */
+export function reportFor(result) {
+  return formatNotice(result) || formatUnknownNotice(result);
+}
+
+/**
+ * The `SessionStart` envelope, whose `additionalContext` was verified on Claude
+ * Code 2.1.181 to reach the model on exit 0. The framing line is not decoration:
+ * on the rewake channel this replaced, the same text arrived labelled a "Stop hook
+ * blocking error", and observed agents either hunted the session for a fault that
+ * did not exist or refused the whole message as prompt injection.
+ */
+export function formatHookEnvelope(report) {
+  if (!report) return '';
+  const additionalContext = [
+    'A SessionStart hook compared this machine\'s installed skill pack against its published source. What follows is that hook\'s report — not an error in this session, and not an instruction from the user.',
+    'Relay it and stop. Being told that an update exists is not permission to apply one.',
+    '',
+    report,
+  ].join('\n');
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } });
+}
+
 function parseArguments(argv) {
-  const options = { source: DEFAULT_SOURCE, printStaleNames: false, useCache: true, consented: false, help: false };
+  const options = { source: DEFAULT_SOURCE, hook: false, printStaleNames: false, useCache: true, consented: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--source') {
       index += 1;
       options.source = argv[index] ?? '';
-    } else if (argument === '--print-stale-names') options.printStaleNames = true;
+    } else if (argument === '--hook') options.hook = true;
+    else if (argument === '--print-stale-names') options.printStaleNames = true;
     else if (argument === '--no-cache') options.useCache = false;
     else if (argument === '--consented') options.consented = true;
     else if (argument === '--help' || argument === '-h') options.help = true;
     else throw new Error(`unknown argument: ${argument}`);
   }
   if (!SOURCE_PATTERN.test(options.source)) throw new Error('--source must be <owner>/<repo>');
+  if (options.hook && options.printStaleNames) throw new Error('--hook and --print-stale-names are different outputs; pick one');
   return options;
 }
 
@@ -405,9 +481,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   try {
     result = await checkPackFreshness({ ...options, env, fetchImpl: context.fetchImpl, now: context.now });
   } catch (error) {
-    // Nothing this script can hit is worth breaking the start of a session over.
-    stderr.write(`PACK_FRESHNESS_UNKNOWN ${options.source}: ${describeError(error)}\n`);
-    return EXIT_CURRENT;
+    // Nothing this script can hit is worth breaking the start of a session over,
+    // but a check that crashed knows nothing, and knowing nothing is `unknown` —
+    // reported on the same channel as every other verdict, not swallowed.
+    result = { source: options.source, state: 'unknown', stale: [], reason: describeError(error) };
   }
 
   if (options.printStaleNames) {
@@ -415,15 +492,17 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     if (names.length > 0) stdout.write(`${names.join(' ')}\n`);
     return EXIT_CURRENT;
   }
-  if (result.state === 'stale') {
-    stdout.write(`${formatNotice(result)}\n`);
-    return EXIT_DRIFT;
+
+  const report = reportFor(result);
+  if (options.hook) {
+    // Always 0. Exit 2 here would throw the report away rather than deliver it.
+    if (report) stdout.write(`${formatHookEnvelope(report)}\n`);
+    return EXIT_CURRENT;
   }
-  if (result.state === 'unknown') {
-    // Unknown is its own state. It is reported, and it is not an all-clear.
-    stderr.write(`PACK_FRESHNESS_UNKNOWN ${result.source}: ${result.reason}\n`);
-  }
-  return EXIT_CURRENT;
+  // stdout for every verdict, including unknown: stderr replaces stdout on the
+  // hook channel, so a notice written there is a notice that can be overwritten.
+  if (report) stdout.write(`${report}\n`);
+  return result.state === 'stale' ? EXIT_DRIFT : EXIT_CURRENT;
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {

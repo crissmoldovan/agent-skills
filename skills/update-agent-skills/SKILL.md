@@ -163,11 +163,28 @@ node scripts/check-pack-freshness.mjs --source <owner>/<repo>
 ```
 
 Silence means current. Drift prints the stale skill names, the latest release, and
-the exact command that would apply it, then exits 2. Whatever it could not
-determine—an unreadable lockfile, an unreachable source, an entry carrying no
-comparable hash—is reported as `unknown` and exits 0. Unknown is a third state and
-is never folded into “current”: where silence is the healthy signal, a failure
-that renders as silence reads as health.
+the exact command that would apply it. Whatever it could not determine—an
+unreadable lockfile, an unreachable source, an entry carrying no comparable hash,
+its own crash—prints a `PACK_FRESHNESS_UNKNOWN` block that says so. Unknown is a
+third state and is never folded into “current”: where silence is the healthy
+signal, a failure that renders as silence reads as health.
+
+Every verdict goes to stdout; only a usage error goes to stderr. That split is
+mechanical, not stylistic. On the hook channel below, stderr does not supplement
+stdout—it replaces it—so a verdict written to stderr is a verdict any stray line
+from any other process can erase.
+
+Exit codes are a machine-readable API for a caller that wants one: 0 when current,
+untracked, or unknown; 2 on drift; 1 on a usage error. **Nothing user-facing may
+depend on them.** An earlier version of this skill delivered through the exit code
+and so reported `unknown` by exiting silently—the exact failure the paragraph
+above forbids, shipped inside the check that forbids it.
+
+A differing hash means different, not newer. Git tree hashes carry no ordering, so
+an upstream revert or force-push renders exactly like a release, and the printed
+command would move the installation to whatever upstream now holds, backwards
+included. Proving direction needs commit-history requests this check does not
+make, so the notice states the limit rather than implying an upgrade.
 
 Answers are cached with two deliberately different lifetimes. A current answer
 expires in an hour; a drifted one in twelve. A drifted pack is re-announced every
@@ -179,9 +196,7 @@ end of a cache window.
 ### Being told, and being updated
 
 `scripts/install-freshness-hook.mjs` writes a `SessionStart` hook that runs the
-checker asynchronously, so it never delays a session, and rewakes the model on
-exit code 2, so the notice reaches the conversation instead of the scrollback.
-The user runs this. No skill may install it on their behalf.
+checker. The user runs this. No skill may install it on their behalf.
 
 ```bash
 node scripts/install-freshness-hook.mjs --mode notify --source <owner>/<repo>
@@ -190,6 +205,14 @@ node scripts/install-freshness-hook.mjs --remove
 ```
 
 `notify` reports and stops. It cannot mutate anything, because the checker cannot.
+Its hook is synchronous and always exits 0, handing the report to the model as
+`hookSpecificOutput.additionalContext`. The session waits for it: at most two
+requests fenced at five seconds each, so roughly ten seconds on a cold check and a
+process spawn on a cached one. That cost is paid deliberately, because the
+asynchronous exit-2 rewake it replaced cannot carry this report at all. A
+synchronous `SessionStart` hook that exits 2 *discards* the stdout exit 0 would
+have delivered, and an asynchronous one delivers nothing on exit 0—which is the
+code a check that could not determine freshness returns.
 
 `auto` applies exactly the update the checker named. **Installing auto mode is the
 user's standing consent, for that source and that scope only.** This is not an
@@ -198,6 +221,18 @@ channel through which that request can be made ahead of time, recorded in a form
 that can be read back and withdrawn with `--remove`. It authorizes nothing beyond
 the source and scope named at install time: no other pack, no project scope, and
 no deletion.
+
+Auto cannot be synchronous—it may spend minutes inside `skills update`—so it stays
+asynchronous and wakes the model by exiting 2 whenever the checker had anything to
+say: drift, a failed update, or a check that could not tell. It never keys that
+decision off the checker's exit code, because 0 there covers both “current” and
+“could not tell”. Two costs come with that channel, measured rather than assumed
+and recorded in `adapters/HOOK-OUTPUT-NOTES.md`: in a non-interactive `claude -p`
+run a rewake landing after the turn ends is dropped entirely, so the update happens
+and nobody is told; and the harness announces the wake as a `Stop hook blocking
+error`, which is why the hook carries a `rewakeMessage` saying what the text is.
+Without it, agents have been observed hunting the session for a fault that does not
+exist, and refusing the whole message as prompt injection.
 
 Never widen that command into a bare `skills update`. Named skills bound what is
 rewritten, `--global` pins the scope instead of letting the working directory
@@ -240,6 +275,10 @@ Do not update any local library.
   whether a pack moved moves it. Detect drift read-only, apply it deliberately.
 - **Silence mistaken for health:** when “no output” means current, a check that
   crashed or could not reach the network must report `unknown`, never nothing.
+- **Exit code used as the delivery channel:** an exit code that means two things
+  cannot announce either. Deliver the words; keep the code for machines.
+- **Drift read as an upgrade:** a tree hash is equal or unequal, never later. A
+  revert upstream reads as drift and “updating” to it walks the user backwards.
 
 ## Verification
 
@@ -260,3 +299,5 @@ Do not update any local library.
 - [ ] Freshness was detected without invoking a command that mutates.
 - [ ] Any standing auto-update names the source and scope it covers, was installed
       by the user, and can be withdrawn.
+- [ ] `unknown` reaches the conversation on the same channel a drift notice does,
+      and no verdict depends on an exit code to be delivered.

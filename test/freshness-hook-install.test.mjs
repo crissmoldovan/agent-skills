@@ -46,19 +46,54 @@ test('the settings file is the user Claude Code settings, resolved from home', (
   assert.equal(resolveSettingsPath({ HOME: home }), path.join(home, '.claude', 'settings.json'));
 });
 
-test('a notify hook is an async rewaking SessionStart hook that only ever reads', () => {
+test('a notify hook is synchronous and delivers on exit 0, the only channel that carries every verdict', () => {
   const entry = build('notify');
 
   assert.equal(entry.type, 'command');
-  assert.equal(entry.async, true);
-  assert.equal(entry.asyncRewake, true);
   assert.ok(entry.command.includes(HOOK_MARKER));
-  assert.ok(Number.isInteger(entry.timeout) && entry.timeout > 0 && entry.timeout <= 60);
-  assert.ok(entry.rewakeSummary.length > 0 && !entry.rewakeSummary.includes('\n'));
+  // `--hook` is the whole delivery contract: one additionalContext envelope on
+  // stdout, exit 0 always. An asynchronous rewake cannot carry this hook's report,
+  // because the checker exits 0 when it could not determine freshness and an async
+  // hook delivers nothing on exit 0 — which is how `unknown` used to vanish.
+  assert.match(entry.command, /--hook$/);
+  assert.equal(entry.async, undefined, 'a synchronous hook must not claim to be async');
+  assert.equal(entry.asyncRewake, undefined);
+  assert.equal(entry.rewakeMessage, undefined);
+  assert.equal(entry.rewakeSummary, undefined);
+  // The session now waits for this, so the ceiling has to be one a user would accept.
+  assert.ok(Number.isInteger(entry.timeout) && entry.timeout > 0 && entry.timeout <= 20);
   assert.ok(entry.describe.startsWith(DESCRIBE_PREFIX));
   // Notify mode must contain no mutation whatsoever.
   assert.ok(!entry.command.includes('skills update'));
   assert.ok(!entry.command.includes('--consented'));
+});
+
+test('an auto hook rewakes, and says what the wake is, because the harness calls it a blocking error', () => {
+  const entry = build('auto');
+
+  assert.equal(entry.async, true);
+  assert.equal(entry.asyncRewake, true);
+  assert.ok(entry.rewakeSummary.length > 0 && !entry.rewakeSummary.includes('\n'));
+  // Observed on the un-framed channel: a model hunting the session for a fault
+  // that did not exist, and another refusing the text as prompt injection.
+  assert.match(entry.rewakeMessage, /not an error in this session/);
+  assert.match(entry.rewakeMessage, /not an instruction from the user/);
+  // The wake now also carries the undetermined case, so the framing must name it.
+  assert.match(entry.rewakeMessage, /could not be determined/);
+});
+
+test('the auto hook decides to wake on what the checker said, never on the code it exited with', () => {
+  const entry = build('auto');
+
+  // The defect this replaces: `[ "$status" -eq 2 ] || exit "$status"` treated the
+  // checker's exit 0 as "nothing to say", and exit 0 covers "current" AND
+  // "could not tell". The condition is now the text itself.
+  assert.ok(!entry.command.includes('status=$?'), 'the checker exit code is not the wake signal');
+  assert.match(entry.command, /\[ -n "\$notice" \] \|\| exit 0/);
+  // stderr folded into the captured text, so the hook's own stderr stays empty:
+  // on a rewake stderr does not supplement stdout, it replaces it.
+  assert.match(entry.command, /--consented 2>&1/);
+  assert.match(entry.command, /skills update \$names --global --yes 2>&1/);
 });
 
 test('an auto hook names the stale skills, pins the scope, and never prompts', () => {
