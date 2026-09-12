@@ -45,9 +45,9 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
-import { GATE_ENV_FLAG, GATE_MODES } from './report-progress-gate.mjs';
+import { GATE_ENV_FLAG, GATE_MODES, isEntrypoint } from './report-progress-gate.mjs';
 
 /** Every hook this script writes carries the gate's filename in its command. */
 export const HOOK_MARKER = 'report-progress-gate.mjs';
@@ -344,6 +344,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+// Imported from the gate rather than restated: the two files ship side by side, and two
+// copies of this decision are how one of them drifts back. Restated as a raw path
+// comparison, it was false through the symlink the Skills CLI installs — this installer
+// wrote no settings, printed nothing, and exited 0, which reads exactly like success.
+if (isEntrypoint(import.meta.url)) {
   process.exitCode = await main();
 }

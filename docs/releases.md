@@ -112,6 +112,42 @@ point of having two modes:
 node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 ```
 
+### Every runnable script in the pack did nothing when reached through a symlink
+
+**What changed.** Each script that can be run ends by deciding whether it was run or merely
+imported, and that decision compared `process.argv[1]` against `import.meta.url` as written.
+The Skills CLI installs a pack as a symlink — `~/.claude/skills/<name>` points at
+`~/.agents/skills/<name>` — and through that path the two are different spellings of one file:
+`argv[1]` keeps the link as typed, `import.meta.url` is what Node resolved it to. The
+comparison was false, `main()` never ran, and the script exited **0 having printed nothing and
+written nothing**. Observed on 2026-09-12 against an installed pack: the documented
+`install-freshness-hook.mjs --mode notify …` command left the settings file untouched and said
+so with an empty, successful exit; the identical command through `~/.agents/skills/...`
+installed the hook.
+
+Six files carried that guard — `check-pack-freshness.mjs` and `install-freshness-hook.mjs` in
+`update-agent-skills`, `install-cli.mjs` in `decision-journal`, both halves of the
+`report-progress` gate under `adapters/claude-code/`, and `scripts/verify-journal-bundle.mjs` —
+and a seventh, `packages/workspace-governance/scripts/verify-effective-uid.mjs`, compared a
+hand-pasted `file://` string, which additionally never matched a path containing a space. All
+now resolve **both** sides to real paths before comparing, so neither a symlink nor
+`--preserve-symlinks-main` nor a case-insensitive volume can make a script decide it is not the
+program being run. `test/entrypoint-guard.test.mjs` runs each one through a real symlink and
+sweeps every `.mjs` in the pack for the old comparison.
+
+**Why it matters to you.** The freshness checker is the file the `SessionStart` hook runs, and
+this pack defines its silence as "your pack is current" — so a checker that never ran reported
+every pack as fresh, at every session start, with nothing to notice. The installers were worse
+in a quieter way: they told a user their hook was armed by saying nothing at all.
+
+**Action required.** If you installed either hook through a `~/.claude/skills/...` path, you do
+not have it. Re-run the installer and confirm by reading the settings file, not the exit code:
+
+```bash
+node <skill-folder>/scripts/install-freshness-hook.mjs --mode notify --source <owner>/<repo>
+grep -c check-pack-freshness ~/.claude/settings.json
+```
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.

@@ -42,9 +42,9 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_SOURCE, SOURCE_PATTERN } from './check-pack-freshness.mjs';
+import { DEFAULT_SOURCE, SOURCE_PATTERN, isEntrypoint } from './check-pack-freshness.mjs';
 
 /** Every hook this script writes carries the checker's filename in its command. */
 export const HOOK_MARKER = 'check-pack-freshness.mjs';
@@ -345,6 +345,12 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+// Imported from the checker rather than restated: this file and that one ship in the
+// same skill directory, and two copies of this decision are how one of them drifts back.
+// Observed before the shared version existed — reached through the symlink the Skills
+// CLI installs (~/.claude/skills/<name> -> ~/.agents/skills/<name>), this script exited
+// 0 having printed nothing and written nothing, so a user who ran the documented command
+// was left believing they had armed a hook that was never written.
+if (isEntrypoint(import.meta.url)) {
   process.exitCode = await main();
 }

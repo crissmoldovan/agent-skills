@@ -18,11 +18,46 @@
  * marker, and nothing this script did not write is ever overwritten or removed —
  * the same rule the pack's freshness-hook installer keeps.
  */
+import { realpathSync } from 'node:fs';
 import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * True when this file is the program being run, false when it was imported.
+ *
+ * Its own copy, not an import: the only file beside it in this skill is the generated
+ * CLI bundle, and an installer that stops working when the bundle is regenerated is a
+ * worse trade than four lines repeated. The pack's other copies are in
+ * `skills/update-agent-skills/scripts/check-pack-freshness.mjs` and
+ * `adapters/claude-code/report-progress-gate.mjs`; `test/entrypoint-guard.test.mjs`
+ * sweeps every one of them, because this decision has already drifted once.
+ *
+ * Observed on 2026-09-12: reached through the symlink the Skills CLI installs
+ * (`~/.claude/skills/<name>` -> `~/.agents/skills/<name>`), `process.argv[1]` is the
+ * path as typed while `import.meta.url` is the file Node resolved it to. Comparing
+ * them as written was false, `main()` never ran, and the script exited 0 having
+ * written no command and printed nothing — leaving the user to discover at their next
+ * `agent-journal` that nothing was installed.
+ *
+ * BOTH sides are resolved: under `--preserve-symlinks-main` it is `import.meta.url`
+ * that keeps the symlink. `realpathSync.native` also returns the on-disk case, which a
+ * case-insensitive volume otherwise makes compare unequal. It can throw, and a guard
+ * that throws at load turns an import into a crash, so it falls back to the unresolved
+ * comparison rather than to silence.
+ */
+function isEntrypoint(moduleUrl) {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync.native(invoked) === realpathSync.native(modulePath);
+  } catch {
+    return path.resolve(invoked) === modulePath;
+  }
+}
 
 export const COMMAND = 'agent-journal';
 /** In every wrapper this script writes; how it knows a file is its own. */
@@ -199,6 +234,6 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+if (isEntrypoint(import.meta.url)) {
   process.exitCode = await main();
 }
