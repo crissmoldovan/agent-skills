@@ -8,6 +8,11 @@ piece that calls it from a real Claude Code session. Task 3 (Plan 7) is what
 makes it also *speak* into a session: until then, every hook here only
 observed and wrote.
 
+This directory also carries a **second, unrelated hook** — the progress-report
+gate, which shares none of the journal's code, configuration, or installation.
+Everything from here to "Authoring floors" is about the journal hook only; the
+gate has its own section below, and nothing about it is on by default.
+
 **Everything this file claims about payload shapes and event names comes from
 [`../NOTES.md`](../NOTES.md)**, produced by capturing real hook payloads from
 a throwaway project rather than assuming how Claude Code hooks behave. If
@@ -38,6 +43,14 @@ output side"). Same rule: it outranks this file if they ever disagree.
   `~/.claude/settings.json` (merge with any existing `"hooks"` key rather
   than replacing it). Now includes a `PreCompact` block (Floor 1 needs it;
   nothing before this task ever wired that event at all).
+- `report-progress-gate.mjs` — the progress-report gate: a `Stop` hook that
+  refuses a turn's final message when that turn dispatched a subagent and the
+  message carries no progress report, plus the `PostToolUse` marker writer that
+  arms it. Nothing to do with the journal — separate install, separate flag,
+  separate settings entries. See "The progress-report gate" below.
+- `install-report-progress-gate.mjs` — writes and removes that pair of hooks in
+  a settings file. `--mode observe|block`, `--remove`, atomic tmp+rename, and a
+  refusal to touch a hook wearing the gate's name that it did not write itself.
 
 ## Installing it
 
@@ -205,6 +218,75 @@ which only `PostCompact` can answer). `main()` keeps these as two genuinely
 independent streams: `mapPayload(payload)` returning `null` for `PreCompact`
 must not — and, per the mutation-check in this task's report, once briefly
 did — short-circuit the function before the floor stream ever runs.
+
+## The progress-report gate (separate hook, off by default)
+
+The mechanical half of the `report-progress` skill. A skill is instructions, and
+instructions get skipped silently on exactly the turns where the user has stopped
+reading and four children are still running. This is the half that is not
+instructions.
+
+```sh
+# try it without risking a turn: reports what it would have refused, blocks nothing
+node adapters/claude-code/install-report-progress-gate.mjs --mode observe
+
+# arm it
+node adapters/claude-code/install-report-progress-gate.mjs --mode block
+
+# take it back out; nothing is left behind
+node adapters/claude-code/install-report-progress-gate.mjs --remove
+```
+
+It writes two entries into `~/.claude/settings.json` (or the `--settings` file
+you name), and needs both:
+
+- **`PostToolUse`, matcher `Agent`** — arms a per-session marker when a subagent
+  is dispatched. The tool is named `Agent` on this harness, not `Task`
+  (`../NOTES.md`). Scoped to that matcher so the hook is not invoked at all on
+  the hundreds of `Read` and `Bash` calls around it.
+- **`Stop`, matcher `*`** — reads the marker and returns
+  `{"decision":"block","reason":…}` at exit 0 when the final message carries no
+  report. No marker, no gate: a turn that dispatched nothing ends exactly as it
+  would with the hook absent.
+
+It is deliberately **not** in `settings-fragment.json`. That fragment is the
+journal hook's, and it is meant to be copied wholesale — a gate that can end a
+turn must never arrive that way. Running the installer is the only thing that
+arms this one.
+
+**Off unless armed.** `report-progress-gate.mjs` exits without reading its input
+unless `AGENT_SKILLS_PROGRESS_GATE` is `block` or `observe` in its environment,
+and the installer is what puts that assignment in the command it writes — in the
+command rather than in an exported variable, because a hook inherits whatever
+environment Claude Code launched with, and a desktop launch inherits no shell
+profile at all. Changing that one word to `off` in `settings.json` disarms the
+gate without uninstalling it.
+
+**It checks shape, not truth, and every string it prints says so.** It can see
+that the three section labels are present and that a running row carries a state
+word and a freshness token (`last observed 40s ago`), or that
+`agent-lifecycle`'s exact no-evidence sentence stands in place of the section. It
+cannot see whether `npm test` was ever run, whether `child-7f2` exists, or
+whether `40s ago` was an observation rather than a guess. A message that
+satisfies this gate can still be a fabrication.
+
+**One block per turn, and the reason says so.** Claude Code ends a turn after 8
+consecutive `Stop` blocks; that budget is **shared** across every `Stop` hook
+from every settings source, and when it runs out the headless result comes back
+`subtype: "success"`, `is_error: false`, `result: ""` — an empty answer reported
+as a clean run (`../HOOK-OUTPUT-NOTES.md`). The gate honours `stop_hook_active`,
+marks its own marker spent, and stands down after one block, so it can never be
+the hook that walks a session into that. `SubagentStop` is deliberately not
+wired: it has no 8-block backstop at all, so a bug there would hang a child agent
+instead of costing one continuation.
+
+**What it is careful not to do.** It never fires on a turn that dispatched no
+subagent, which is the whole reason it is survivable — a guard that blocks "yes,
+that file is in `src/`" gets uninstalled within a day, and an uninstalled guard
+enforces nothing. It never prints `hookSpecificOutput.additionalContext` on
+`Stop`: that channel was observed to force continuations exactly like a block
+does, so its stand-down notice goes to stderr, which Claude Code does not deliver
+to the model at exit 0. Every path exits 0.
 
 ## What this costs, honestly
 

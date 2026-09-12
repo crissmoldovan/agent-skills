@@ -2,7 +2,7 @@
 name: report-progress
 description: "Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn."
 license: MIT
-compatibility: "Any agent that writes prose to a user; nothing to install. A count is verified only where the agent can run the command that produces it — elsewhere it is labelled as someone else's claim. The running section is sourced from agent-lifecycle evidence where that exists, and carries the lifecycle skill's no-evidence sentence where it does not. Output is the report itself plus the checklist run over it before sending."
+compatibility: "Any agent that writes prose to a user; nothing to install, plus an optional user-installed Claude Code Stop-hook gate. A count is verified only where the agent can run the command that produces it — elsewhere it is labelled as someone else's claim. The running section is sourced from agent-lifecycle evidence where that exists, and carries the lifecycle skill's no-evidence sentence where it does not. Output is the report itself plus the checklist run over it before sending."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
@@ -39,6 +39,34 @@ compliance without producing the evidence.** A missing section is visibly missin
 unlabelled number is visibly unlabelled. That is the whole mechanism, and it is enough,
 because the failure mode it addresses is not inability — it is a report that was never
 checked against anything.
+
+### The mechanical half, which is not this file
+
+A separate, optional gate can hold a turn open when a report is owed and missing. It is a
+Claude Code `Stop` hook carried in this pack's adapter directory
+(`adapters/claude-code/report-progress-gate.mjs`), with its own installer beside it. It is
+off until a user installs it, and gone when they run that installer with `--remove`. The
+paragraphs above are unchanged by it: this file still executes nothing, and nothing in this
+skill can install the gate or arm it on a user's behalf.
+
+**What it does.** On a turn that dispatched a subagent through the `Agent` tool — and only
+such a turn — it reads that turn's final message and returns `{"decision":"block"}` when the
+shape is absent, which holds the turn for one more round so the report can be written. It has
+an `observe` mode that reports what it would have blocked and never holds anything. In either
+mode it acts at most once per turn and then stands down, because Claude Code ends a turn after
+8 consecutive blocks and that budget is shared with every other `Stop` hook on the machine.
+
+**What it can check.** That a "what is done", a "what is running" and a "what is next" section
+label are present; that a running row carries a literal state and a freshness token, or that
+the exact no-evidence sentence below stands in its place; and that an empty section says so.
+It is string matching, and that is the only reason it is enforcement rather than more
+instructions — no model sits in its path, so there is nothing there to talk round.
+
+**What it cannot check.** Whether any number in the report is real. It cannot tell whether
+`npm test` was ever run, whether `child-7f2` exists, or whether "40s ago" was an observation
+rather than a guess. A message that satisfies the gate can still be a fabrication, and the
+five rules and the checklist at the end of this file are what catch that. The gate replaces
+neither, and a passing turn is not a verified report.
 
 ### The five rules
 
