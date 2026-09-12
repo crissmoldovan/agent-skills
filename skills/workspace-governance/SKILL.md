@@ -4,7 +4,7 @@ description: Audit repository placement and explain inherited policy.
 version: 0.1.0
 author: Cristian Moldovan (crissmoldovan), Hermes Agent
 license: MIT
-platforms: [linux]
+platforms: [linux, darwin]
 ---
 
 # Workspace Governance
@@ -30,9 +30,14 @@ copies only this skill, not the sibling package. Read the portable
 [installation and command reference](references/commands.md). The candidate is
 unpublished: do not invent a registry installation or install globally.
 
-Linux Node.js 24+, trusted Git and an explicit manifest/scan root are required.
+Node.js 24+, trusted Git and an explicit manifest/scan root are required.
 GitHub discovery is optional and requires trusted `gh` plus authorized credentials.
-macOS paths are expected but untested; Windows is not yet supported.
+**Linux and macOS both run the whole read-only surface this skill uses** — `validate`,
+`catalog`, `explain`, `workflow`, `discover`, `report` in JSON and in HTML, `plan`, `audit`
+and `verify-plan` — and the package's own suite passes on both. The CLI also carries
+`manifest-init-plan`, `manifest-init-trial-plan` and `mutation-status`: those are
+Linux-x86_64 only, refuse elsewhere with `UNSUPPORTED` and exit 2, and no step below calls
+them. Windows is not supported.
 Use your host's terminal tool for the commands below. Do not scan home by default.
 
 ## Procedure

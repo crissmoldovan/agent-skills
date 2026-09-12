@@ -14,7 +14,8 @@ npm install --prefix "$CONSUMER_DIR" --ignore-scripts --no-audit --no-fund "$TAR
 
 Use the real tarball name printed by npm. Either invoke that exact installed bin
 or add only its directory to your terminal's PATH. Node 24+ and trusted Git are
-required on Linux. GitHub additionally requires trusted gh and authorized access.
+required, on Linux or macOS alike; the commands listed below are read-only and run on
+both. GitHub additionally requires trusted gh and authorized access.
 Do not copy credentials into manifests or ask users to disclose them in chat.
 
 ```sh

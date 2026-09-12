@@ -1,8 +1,8 @@
 ---
 name: blast-area
-description: "Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break."
+description: "Map what a set of changes would affect before making it — callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering and second-order readers, with searched negatives and a list of what the map cannot see — then draw it: mermaid first, optionally one self-contained interactive HTML file, changed styled against affected, and the blind spots rendered as nodes on the diagram rather than dropped into a caption. Use when you need to know what a change would break, and when that answer has to be seen, shared or dug into."
 license: MIT
-compatibility: "Any repository the agent can read, with git and a text search tool. A language server or compiler-resolved symbol index raises precision and is used when present; without one, resolution is name-based and the map says so. Data-resident references need a queryable datastore — without one, the surface is reported unchecked rather than empty. Output is a written map plus a JSON envelope that renders as a diagram; nothing is changed and nothing is committed unless a run record is asked for."
+compatibility: "Any repository the agent can read, with git and a text search tool. A compiler-resolved symbol index raises precision where present; without one, resolution is name-based and the map says so. Data-resident references need a queryable datastore — without one that surface is reported unchecked, not empty. Graph tooling is used only where already installed, never installed. Output is a written map, a JSON envelope, mermaid, and optionally one offline HTML file; nothing is committed unless asked."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
@@ -22,7 +22,7 @@ item; a deploy ordering with the reason it is that way round; the searches that 
 every empty cell; and a mandatory statement of what the map could not see, at a confidence
 drawn from five fixed words.
 
-It maps. It changes nothing, and it commits nothing unless a run record is asked for.
+It maps, then it draws the map. It changes nothing and commits nothing unless asked.
 
 ## What a map has to carry to be a decision
 
@@ -46,9 +46,8 @@ It maps. It changes nothing, and it commits nothing unless a run record is asked
 Composition: **`investigate-codebase`** does the searching — complexity scoring, the
 decomposition axes, the control rule on every negative, the contradiction table — and this
 skill arranges what it returns by surface and adds the timing, the ordering and the
-blindspots. **`visualise-blast-area`** consumes the output contract below and renders it.
-**`land-complex-change`** turns the map into a touch-set budget and a regression gate per
-affected surface. **`derive-codebase-context`** builds the durable index that raises this
+blindspots. **`land-complex-change`** turns the map into a touch-set budget and a regression
+gate per affected surface. **`derive-codebase-context`** builds the durable index that raises this
 map's ceiling. Install the companions with `npx skills add crissmoldovan/agent-skills`.
 
 ## When to Use
@@ -62,12 +61,14 @@ map's ceiling. Install the companions with `npx skills add crissmoldovan/agent-s
 - A change crosses a boundary — packages, toolchains, services, repositories — and no single
   compiler sees the whole path.
 - A review asks "what else does this touch?" and the honest answer is currently a shrug.
+- The map has to be *seen* — reviewed by people who will not read a JSON envelope, pasted into a
+  pull request comment, or explored rather than read.
 
 Do not use it to answer one question about how the code works — that is `investigate-codebase`,
-which this skill calls for its searching rather than duplicating. Do not use it to draw the
-diagram: `visualise-blast-area` consumes this skill's output contract, and a map built to be
-drawn rather than to be decided on will be shaped by what renders well. Do not use it to run a
-report through to a fix — `resolve-problem-report` owns that pipeline and calls this skill once
+which this skill calls for its searching rather than duplicating. Do not shape the map for the
+picture: the decision comes first and the render is step 11, so a map built to draw well was built
+against the wrong constraint. Do not use it to run a report through to a fix —
+`resolve-problem-report` owns that pipeline and calls this skill once
 per candidate. Do not use it to actually make the change inside a contained budget; that is
 `land-complex-change`. Do not use it to describe a change that already landed — `describe-changes`
 reads the diff and this skill reads a proposal. Do not use it as a code review over a pull
@@ -219,8 +220,8 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    `not checked` — nobody looked, written down rather than left blank. Never a percentage, and
    never a sixth word.
 
-8. **Assemble the output contract.** One envelope, which `visualise-blast-area` consumes
-   directly. Twelve surfaces in the fixed order with their fixed ids, **present even when
+8. **Assemble the output contract.** One envelope, which step 11 renders directly. Twelve
+   surfaces in the fixed order with their fixed ids, **present even when
    empty**; one state per node; **every edge carrying its confidence and its evidence**.
 
    ```json
@@ -275,13 +276,36 @@ request: `request-blocks-review` and `blocks` own that loop, and they judge a di
    layer 4 reports at that ceiling and says so; it does not quietly promise the precision of an
    index it does not have.
 
-10. **Hand the map on, whole.** `visualise-blast-area` renders the envelope, blindspots included
-    as visible nodes. `land-complex-change` converts the surfaces into a touch-set budget and one
-    regression gate per affected surface. `resolve-problem-report` compares candidates by their
-    maps. Hand over the envelope and the coverage together — a consumer given only the nodes will
-    treat the blank cells as checked.
+10. **Hand the map on, whole.** `land-complex-change` converts the surfaces into a touch-set
+    budget and one regression gate per affected surface. `resolve-problem-report` compares
+    candidates by their maps. Hand over the envelope and the coverage together — a consumer given
+    only the nodes will treat the blank cells as checked.
 
-11. **Document the run when the branch calls for it.** The convention is below, and it is
+11. **Render it — and render what it could not see.** A table of facts reads as a shape once it is
+    laid out, and the shape is what a reviewer argues with. The risk is that **a diagram looks
+    finished**: absence has no glyph. Validate the envelope first, **render the failure rather than
+    smoothing it** — an empty surface with no negatives draws `not checked`, never clean — and
+    never invent a node, edge or state to make the picture connected.
+
+    - **Mermaid first: `flowchart LR`.** Always `flowchart`, never `graph` — only `flowchart` lets
+      an edge touch a subgraph, which deploy-ordering edges and surface-level blindspots need.
+      Twelve surface subgraphs, fixed order, fixed ids, **present even when empty**, each empty one
+      carrying one node stating its coverage: `checked · empty` or `not checked`.
+    - **Blind spots occupy space on the page**, as a node inside their own surface carrying the
+      probe. **Not a caption** — a caption reads as a disclaimer about the drawing, and a node
+      reads as part of the map, which is what it is.
+    - **Every style and label is read from the envelope, never re-derived**: changed against
+      affected, `unknown` visibly unknown, `silent` distinct from `compile` at a glance, each
+      edge's kind and confidence in its label (`-->|calls · measured|`). Most-severe-wins already
+      ran upstream, and an `inferred` edge drawn like an `enumerated` one launders a guess.
+    - **Collapse, never truncate; install nothing; caption everything.** ~120 nodes is the working
+      ceiling, reasoned rather than measured; over it collapse within a surface into a count node
+      that keeps its confidence, never dropping a blindspot for room. Graph tooling is used only
+      where already installed and the languages it misses are `not checked`. Every artefact carries
+      its revisions, resolver, tool versions, envelope fingerprint, `notScanned[]` and any
+      collapsing. The optional offline HTML file and comparison mode are specified in the references.
+
+12. **Document the run when the branch calls for it.** The convention is below, and it is
     identical in every skill of this family that supports it.
 
 ### The run record
@@ -312,7 +336,9 @@ it is that way round.
 ```text
 We are renaming this exported helper across the monorepo. Walk all twelve surfaces, including
 the ones you think are empty — and for every empty one, show me the search and the control
-that proves the search was working. I have been burned by a clean grep before.
+that proves the search was working. I have been burned by a clean grep before. Then draw it
+for the pull request: changed obvious against merely affected, silent breaks visible at a
+glance, and the blind spots on the diagram itself rather than in a note underneath.
 ```
 
 ```text
@@ -376,8 +402,13 @@ the surprise was a prompt row in the database that no code search would ever hav
   which is usually: these premises hold, this one does not, here is the number.
 - **Skipping "what this map cannot see" because the map looks complete.** A map that looks
   complete is exactly when the section is load-bearing.
-- **Shaping the map for the diagram.** Decide first, render second. `visualise-blast-area`
-  consumes the envelope; it does not get a vote in what goes into it.
+- **Shaping the map for the diagram.** Decide first, render second. The render consumes the
+  envelope; it does not get a vote in what went into it.
+- **Tidying the render.** A blind spot moved to a caption reads as a disclaimer about the
+  drawing; a dropped empty subgraph makes checked-and-empty and never-checked look like the same
+  nothing; changed and affected in one colour answers "what is involved", which nobody asked; and
+  state re-derived at render time produces a second answer. Every one of them happens while the
+  diagram is getting prettier.
 
 ## Verification
 
@@ -417,6 +448,14 @@ the surprise was a prompt row in the database that no code search would ever hav
       dispatch and the registries found; data-resident references and whether the store was
       queried; resolution basis with the collision count or its absence; runtime-only edges.
 - [ ] The precision-ceiling clause is stated where no compiler-resolved index exists.
+- [ ] Where it was rendered: `flowchart LR`, twelve surface subgraphs in the fixed order including
+      the empty ones with their coverage stated, states read from the envelope rather than
+      re-derived, every edge carrying its confidence from the five fixed words, and **every
+      blindspot present as a node** in its own surface with its probe — not as a caption, and none
+      dropped for space.
+- [ ] Where it was rendered: the node count was checked against the cap, no tool was installed,
+      every artefact carries its metadata line, and any interactive file is one file, no build
+      step, no external requests, one unedited `const BLAST` literal.
 - [ ] Nothing in the repository was changed, and nothing was committed except a run record that
       was explicitly asked for.
 - [ ] Where a record was written, it exists at `docs/blast-area/<UTC-date>-<slug>.md` (or the
@@ -435,10 +474,17 @@ the surprise was a prompt row in the database that no code search would ever hav
   window and the drain question, expand-migrate-contract, and the orderings that are not
   orderings.
 - [The output contract](references/output-contract.md): the envelope field by field, node
-  states, edge kinds, the confidence vocabulary applied, and a full worked example ready for
-  `visualise-blast-area`.
-- [A worked blast map](references/worked-blast-map.md): one column drop mapped end to end,
-  including the refuted premise, the searched negative that decided it, and the blindspot that
-  survived.
+  states, edge kinds, the confidence vocabulary applied, and a full worked example ready to
+  render.
+- [A worked blast map](references/worked-blast-map.md) and [a worked render](references/worked-render.md):
+  one column drop mapped end to end — the refuted premise, the searched negative that decided it,
+  the blindspot that survived — and one envelope taken end to end into a diagram.
+- [The mermaid contract](references/mermaid-contract.md): the full `flowchart LR` template, fixed
+  subgraph ids, classDef styling, edge labels, the legend, blindspot nodes, and the collapse rules.
+- [The smart HTML contract](references/smart-html.md): the single-file skeleton, the `BLAST`
+  literal, the `meta` provenance fields, the affordances, and the prohibitions behind them.
+- [Tool tiering](references/tool-tiering.md) and [comparison mode](references/comparison-mode.md):
+  what each optional tool contributes and why none is installed; the preconditions for a delta and
+  its added / removed / rewired classification.
 - [The run-record convention](references/documenting-the-run.md): when a record is written,
   where it goes, its five headings, the prohibitions, and a worked record.

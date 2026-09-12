@@ -7,20 +7,20 @@ Thanks for helping build a safe, portable public catalog.
 This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
-`describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
+`describe-changes`, `investigate-codebase`, `blast-area`,
 `land-complex-change`, `resolve-problem-report`, `new-ux-discovery`,
-`decision-journal`, `delphi-ground`, `delphi-imagine`, `workspace-governance`,
-`report-progress`, and `work-in-external-repo` — twenty-three in all. Routing
+`decision-journal`, `delphi-imagine`, `workspace-governance`,
+`report-progress`, and `work-in-external-repo` — twenty-one in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
 `investigate-codebase` owns evidence-backed answers about a codebase; `blast-area`
-owns what a proposed change would affect and `visualise-blast-area` owns drawing it;
+owns what a proposed change would affect and the drawing of it;
 `land-complex-change` owns the declared touch-set budget and the regression gate
 ladder; `resolve-problem-report` owns the arc from a report to a resolution;
 `new-ux-discovery` owns gated UX opportunity discovery; `decision-journal` owns the
-record of why a decision was made; `delphi-ground` owns the verified-facts briefing
-and `delphi-imagine` the perspective review built on one; `workspace-governance`
+record of why a decision was made; `delphi-imagine` owns the verified-facts briefing
+and the perspective review built on it; `workspace-governance`
 owns declared-catalog placement and inherited policy; `report-progress` owns the
 shape of what a reader is told while long work runs; and `work-in-external-repo`
 owns which repository a change belongs in and the tree it happens in. A new skill

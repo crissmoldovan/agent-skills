@@ -56,8 +56,7 @@ standing in front of.
 | Dispatching children and seeing what they did | `agent-lifecycle` | Consumes it; keeps no child bookkeeping of its own. |
 | Durable, regenerable, CI-gated repo artifacts | `derive-codebase-context` | Reads what already exists; builds nothing durable. |
 | Answering one question about the code | `investigate-codebase` | Delegates every search, and **inherits its complexity rubric rather than restating it**. |
-| What a set of changes would affect | `blast-area` | Consumes its map as the budget's source, and re-enters it when the budget is breached. |
-| Drawing that map | `visualise-blast-area` | Optional. Renders the same envelope; changes nothing in it. |
+| What a set of changes would affect, and drawing it | `blast-area` | Consumes its map as the budget's source, and re-enters it when the budget is breached. Its own last step renders the envelope; this skill changes nothing in it. |
 | Describing what the change did | `describe-changes` | Hands it the landed diff at the end. |
 | The review loop over the pull request | `request-blocks-review` and `blocks` | Hands over the budget, the ladder and the residuals; runs no review loop of its own. |
 | Intake, reproduction and candidate offers for a **report** | `resolve-problem-report` | Receives a spec from it; never performs its own intake. |
