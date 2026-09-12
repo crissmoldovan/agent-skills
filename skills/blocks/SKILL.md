@@ -1,6 +1,6 @@
 ---
 name: blocks
-description: "Interact with Blocks sessions, status, and bounded waits."
+description: "Low-level primitives for talking to Blocks: resolve a workspace, open or read a session, collect GitHub review evidence, classify status, and wait with a visible bound. Symptoms: ask Blocks, start a Blocks session, what is Blocks doing, await the Blocks response. This is the plumbing other skills call — for the review-until-clean loop on a pull request use request-blocks-review."
 license: MIT
 compatibility: "Blocks REST Sessions API or Blocks GitHub integration; direct sessions require a workspace-scoped API key, and GitHub status requires authenticated gh."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"

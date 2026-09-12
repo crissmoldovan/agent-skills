@@ -1,6 +1,6 @@
 ---
 name: release-ledger
-description: "Onboard a since-you-have-been-gone release ledger into any product: capture merged work, analyse and categorise it, and show each user what changed since they last looked."
+description: "Build a what's-new feature into a product: capture merged work, categorise it nightly, and show each signed-in user only what shipped since they last looked, plus a digest and hand-written announcements. Symptoms: what's-new popup, in-app changelog for users, since-you-were-away digest, tell logged-in users what changed, product updates feed. This writes tables, jobs and UI into an app; it does not write the notes for one version — that is release-notes."
 license: MIT
 compatibility: "Any product with a version-controlled source of merged work, a durable store, a scheduler that can run once a day, and an authenticated user identity to hang a per-user watermark on. Automatic capture assumes a forge that emits webhooks; manual capture needs none. Analysis assumes a language model reachable from the job runner, and the digest assumes one chat or mail surface. No specific framework, database, or job runner is required."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
@@ -70,10 +70,11 @@ contracts, the failure modes at each boundary, and the sequences in text form.
 - A ledger exists partially — capture but no analysis, entries but no per-user
   watermark — and you need to know which stage to finish next.
 
-Do not use it to write a single set of release notes; that is `describe-changes`
-on a release range, on its own. Do not use it to build a curated marketing
-changelog — a ledger is derived from merged work, and a page nobody derives is a
-CMS, not this. Do not use it to notify users of incidents or outages; those need
+Do not use it to write the notes for one version; that is `release-notes` — a
+skill outside this pack, installed alongside it — which makes the semver call,
+writes the changelog entry and cuts the release itself. This skill has none of
+that machinery. Do not use it to build a curated marketing changelog — a ledger
+is derived from merged work, and a page nobody derives is a CMS, not this. Do not use it to notify users of incidents or outages; those need
 a status surface with different latency guarantees.
 
 ## Prerequisites

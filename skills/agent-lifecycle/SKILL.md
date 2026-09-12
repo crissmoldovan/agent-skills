@@ -1,6 +1,6 @@
 ---
 name: agent-lifecycle
-description: "Integrate live visibility for child-agent lifecycles."
+description: "Add live child-agent visibility to something you are building — an orchestrator, CLI, desktop app or web UI: one event schema over several child runtimes, plus recovery of events missed across a disconnect or restart. Symptoms: show what my subagents are doing, stream agent status into the UI, normalise different child runtimes behind one interface, my agent events stop after a reconnect. This builds the feature; it is not a dispatch or routing policy."
 version: 0.2.1
 author: Criss, Hermes Agent
 license: MIT

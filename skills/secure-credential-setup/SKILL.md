@@ -1,6 +1,6 @@
 ---
 name: secure-credential-setup
-description: "Place and verify secrets without exposing their values."
+description: "Get an API key, token or password into a secret store without the value ever appearing in the transcript: one credential at a time, one exact copy-pasteable terminal command for the user to run, then verification that it authenticates without printing it. Symptoms: where do I put this key, set up my API token, add it to .env / the keychain / the secret manager, here's my key (don't paste it back), the tool says unauthorized and no credential is configured."
 license: MIT
 compatibility: "macOS, Linux, or Windows with an approved secret store and a harmless provider authentication endpoint for verification."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"

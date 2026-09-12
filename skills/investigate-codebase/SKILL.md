@@ -1,6 +1,6 @@
 ---
 name: investigate-codebase
-description: "Answer a question about a codebase with evidence that can prove it — score complexity before spending, fan out searches with controls, reconcile contradictions, and say what was not searched. Use when a code question needs a defensible answer, not a guess."
+description: "Answer a question about a codebase with evidence a reader can re-run: path and line, command output, and searched negatives reported as searched rather than as absence. Symptoms: how does X actually work, does anything still call this, is this dead code, where does this value come from, two sources disagree (a doc against the code, a registry against the runtime), I need to be sure before I delete it. For a failing test or a live bug use systematic debugging; this answers questions rather than repairing behaviour."
 license: MIT
 compatibility: "Any repository the agent can read, with git and a text search tool. Parallel children need a harness that can dispatch subagents and withhold context from them; without that, the bands run as sequential passes and the skill says so. Model choice is optional — the band then controls depth only. No index, no daemon, no network. Output is a written answer plus its coverage; nothing is committed unless the run record is asked for."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"

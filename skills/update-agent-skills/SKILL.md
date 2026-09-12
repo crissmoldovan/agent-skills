@@ -1,6 +1,6 @@
 ---
 name: update-agent-skills
-description: "Update Agent Skills across every requested local plane."
+description: "Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack. It moves installed copies; it does not publish a new release — that is publish-agent-skill."
 license: MIT
 compatibility: "Agent Skills-compatible agents; the generic Skills CLI for managed project/global installs; native plugin/package updaters or manual artifact channels where applicable."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
