@@ -149,7 +149,9 @@ new guidance, and patch for corrections within an already-correct contract.
 ## Changelog and update communication
 
 GitHub Releases are the public changelog. A tag or generated diff is not release
-notes. Notes must explain end-user behavior and exact update instructions.
+notes. [`CHANGELOG.md`](../CHANGELOG.md) carries the same entry per version inside the
+repository, so `git log` alone answers what shipped in which version; a Release body and
+its changelog entry must agree. Notes must explain end-user behavior and exact update instructions.
 Repository README and agent-facing update prompts must agree with the published
 catalogue. Encouraging an update never authorizes mutation of a user's machine;
 local synchronization remains an explicit target handled by `update-agent-skills`.
