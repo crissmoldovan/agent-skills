@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { chooseVerdictAt, collectBlocksStatus, coversHead, mentionedShas, reviewedSha, subThresholdCount, verdictAcceptance, waitForBlocksReview } from './blocks-review.mjs';
+import { acceptVerdict, collectBlocksStatus, subThresholdCount, waitForBlocksReview } from './blocks-review.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -77,30 +77,11 @@ if (!['status', 'wait'].includes(command) || !repo || !Number.isInteger(pr) || !
   // A clean verdict is not acceptance. It has to name the head under consideration,
   // and CI has to have passed on that same commit — see `verdictAcceptance`.
   const { headSha, ciConclusion, headCommittedAt, blocksCheckCompletedAt } = await headAndCi(repo, pr);
-  // Does ANY post-baseline verdict name this head? Asked across all of them and by
-  // mention rather than by position, because a verdict names both the commit it read
-  // and the one it is comparing against, and the older verdict can land after the
-  // newer push. Taking the first sha of the first comment got both of those wrong.
-  const covering = (result.comments ?? []).find((item) => coversHead(item.body, headSha));
-  const named = covering ?? [...(result.comments ?? [])].reverse().find((item) => reviewedSha(item.body));
-  const latest = (result.comments ?? [])[(result.comments ?? []).length - 1];
-  // Where the verdict's timestamp comes from, in order of how much it is worth.
-  //
-  // A comment naming the head is best. The Blocks CHECK's completion is next, and it
-  // is not optional: when the review arrives only as a check there is no comment to
-  // date, and without this the check-run path could never be accepted — one of the
-  // two delivery modes, permanently refused. Falling straight through to `latest`
-  // was worse than refusing, because `latest` can be the integration's help text,
-  // and dating a verdict by an unrelated courtesy comment is an accident that looks
-  // like a decision.
-  const acceptance = verdictAcceptance({
-    state: result.state,
-    verdictSha: covering ? headSha : (named ? reviewedSha(named.body) : null),
-    headSha,
-    ciConclusion,
-    verdictAt: chooseVerdictAt({ namedAt: named?.createdAt, blocksCheckCompletedAt, latestAt: latest?.createdAt }),
-    headCommittedAt,
-  });
+  // The state and the head coverage come from ONE verdict — the latest finished one
+  // in the window, which is the one that chose the state. Asking whether ANY comment
+  // named the head let a stale clean verdict borrow a newer comment's coverage
+  // (cue-ui#94); see `latestVerdict` and `acceptVerdict`.
+  const acceptance = acceptVerdict(result, { headSha, ciConclusion, headCommittedAt, blocksCheckCompletedAt });
   const enriched = { ...result, headSha, ciConclusion, acceptance };
 
   if (json) console.log(JSON.stringify(enriched, null, 2));
@@ -113,7 +94,11 @@ if (!['status', 'wait'].includes(command) || !repo || !Number.isInteger(pr) || !
     // Excluded from the findings decision, so said out loud here instead: a review
     // that disclosed observations below the bar should not look identical to one
     // that had none.
-    const disclosed = (result.comments ?? []).reduce((n, item) => n + subThresholdCount(item.body), 0);
+    // Counted on the deciding verdict when there is one, so a superseded round's
+    // disclosures are not reported against this one.
+    const disclosed = result.verdict
+      ? subThresholdCount(result.verdict.body)
+      : (result.comments ?? []).reduce((n, item) => n + subThresholdCount(item.body), 0);
     if (disclosed) console.log(`Sub-threshold: ${disclosed} observation(s) disclosed, below the reporting bar — read the summary.`);
     console.log(acceptance.acceptable
       ? `Acceptable: clean verdict for ${String(headSha).slice(0, 7)}, CI ${ciConclusion}.`

@@ -143,6 +143,17 @@ function dashboard(body = '') {
 
 /** The nouns this bot uses for one unit of outstanding work. */
 const NOUN = String.raw`(?:findings?|inline\s+comments?|issues?|blockers?|problems?|defects?|bugs?)`;
+
+/**
+ * What can be OUTSTANDING is wider than what can state emptiness. A test failure a
+ * verdict reports is work left — "one test failure remains on this head" — so the
+ * standing, counting and scoping checks in {@link reportsFindings} read it, and so
+ * do the negation strips that clear "not a test failure" and "no failures". But "no
+ * test failures" is a statement about CI, not a verdict that the review found
+ * nothing, so {@link statesEmptiness} keeps the narrower NOUN: clean is still earned
+ * only by saying the review itself came up empty.
+ */
+const WORK = String.raw`(?:${NOUN}|failures?|failing\s+(?:tests?|checks?|specs?|builds?))`;
 const re = (source, flags = 'i') => new RegExp(source, flags);
 
 // Acknowledgement, progress, or onboarding text: the review has not finished.
@@ -222,6 +233,43 @@ function statesEmptiness(text) {
     || /\b(?:neither|none of them|all (?:three|two|four|of them))\s+(?:survives?|remains?|stands?|persists?)/i.test(text);
 }
 
+// A mention the verdict DISCLAIMS as a defect of the change is not outstanding work.
+//
+// Observed on cueplusplus/cue-ui#94: a clean verdict closed with "Independent
+// targeted tests were blocked by missing generated workspace build artifacts in the
+// fresh clone; this was an environment setup issue, not a test failure." The counted-
+// mention check read "an environment setup issue" as one issue left, so a review that
+// had just said "No actionable issues (severity ≥7) found" was reported as findings.
+//
+// Negation alone cannot clear that mention, and must not. In "X, not Y" the "not"
+// scopes over Y only — X is asserted — so "this is a real bug, not a test failure"
+// keeps its bug, and so does "not a test failure but a real bug". X is set aside only
+// when two things hold at once: the clause explicitly denies a defect reading ("not a
+// test failure", "rather than a bug"), AND X names the reviewer's own sandbox rather
+// than the code. Either half alone leaves X counted.
+//
+// The sandbox vocabulary is closed on purpose. "Environment variable", "test setup"
+// and "CI config" all name code a pull request can break, so none of them is here, and
+// X must be the noun right after it — "an environment variable parsing bug, not a test
+// failure" is a bug. A sentence that ties the mention to the change ("introduced by",
+// "this PR", a file path) is never a disclaimer, whatever else it says.
+const REVIEW_ENVIRONMENT = String.raw`(?:local[\s-]+)?(?:environment(?:al)?|sandbox|clone|infrastructure)(?:[\s-]+set-?up)?`;
+const ENVIRONMENT_MENTION = String.raw`(?:an?\s+|the\s+)?${REVIEW_ENVIRONMENT}[\s-]+(?:issues?|problems?|failures?)`;
+const DENIED_DEFECT = String.raw`(?:not|rather\s+than)\s+(?:an?\s+|the\s+)?(?:[\w-]+[\s-]+){0,2}?${WORK}\b`;
+const DISCLAIMED = re(String.raw`\b(?:is|was|are|were)\s+${ENVIRONMENT_MENTION}\s*(?:,|—|–|\s-\s)?\s*(?:and\s+)?${DENIED_DEFECT}|\bnot\s+(?:an?\s+|the\s+)?(?:[\w-]+[\s-]+){0,2}?${WORK}\s*,?\s*but\s+(?:rather\s+)?${ENVIRONMENT_MENTION}\b`, 'gi');
+const TIED_TO_CHANGE = /\b(?:introduced|caused|triggered|broken)\s+by\b|\b(?:this|the)\s+(?:pr|pull request|diff|changes?|patch|commit|branch)\b|`[^`\n]*(?:\/|\.[a-z]{1,5}\b)[^`\n]*`/i;
+
+function withoutDisclaimed(text) {
+  // Per sentence, so the veto sees the whole sentence the disclaimer sits in: a
+  // semicolon must not separate "the script in this PR drops PATH" from "; this was an
+  // environment setup issue, not a test failure". A period only ends a sentence when
+  // whitespace follows, so `retry.test.ts` stays whole.
+  return text
+    .split(/(?<=[.!?])(?=\s)|(?<=\n)/)
+    .map((sentence) => (TIED_TO_CHANGE.test(sentence) ? sentence : sentence.replace(DISCLAIMED, ' ')))
+    .join('');
+}
+
 // "no actionable findings" and "that finding is fixed" are both completion, not work
 // left. Only a counted or plural mention surviving those two readings means findings
 // remain in a verdict that left no inline comment to read.
@@ -263,7 +311,7 @@ function reportsFindings(body = '') {
   // A NEGATED RESOLUTION means the work stands, so it is checked before the strips
   // below can eat it: "Zero of these findings have been addressed" is the strongest
   // possible findings statement and reads, to a stripper, like the weakest.
-  if (re(String.raw`\b(?:zero|none|no|not one|not any|nothing)\s+(?:of\s+)?(?:these|those|them|the)?\s*(?:${NOUN})?[^.!?;\n]{0,60}?\b(?:have|has|are|is|were|was)\s+been\s+(?:fixed|resolved|addressed|cleared)`).test(own)) return true;
+  if (re(String.raw`\b(?:zero|none|no|not one|not any|nothing)\s+(?:of\s+)?(?:these|those|them|the)?\s*(?:${WORK})?[^.!?;\n]{0,60}?\b(?:have|has|are|is|were|was)\s+been\s+(?:fixed|resolved|addressed|cleared)`).test(own)) return true;
   if (/\b(?:zero|none|no)\s+of\s+(?:these|those|them)\b/i.test(own) && /\b(?:fixed|resolved|addressed|cleared)\b/i.test(own)) return true;
   if (/\bnothing\s+(?:is|has been)\s+(?:fixed|resolved|addressed|cleared)\b/i.test(own)) return true;
   if (/\b(?:is back|are back|regressed|reintroduced|reappeared|back in its original)\b/i.test(own)) return true;
@@ -276,7 +324,7 @@ function reportsFindings(body = '') {
   // finding about the missing retry budget in the billing retry helper is still open"
   // — but it is still bounded by clause punctuation, which is what keeps "…accurate;
   // upstream PR #15 is still open" out: the semicolon ends the reach.
-  if (re(String.raw`${NOUN}[^.!?;\n]{0,80}?\b(?:remain|remains|stand|standing|persist|still\s+open|are\s+open|is\s+open|are\s+outstanding|reproduce)`).test(own)) return true;
+  if (re(String.raw`${WORK}[^.!?;\n]{0,80}?\b(?:remain|remains|stand|standing|persist|still\s+open|are\s+open|is\s+open|are\s+outstanding|reproduce)`).test(own)) return true;
   // A verdict can clear last round's findings and open new ones in the same breath:
   // "the three from round two are resolved and the new ones are listed below".
   if (/\bopen items\b|\bthe new ones\b|\bnew (?:findings?|issues?) (?:are|is) listed\b/i.test(own)) return true;
@@ -286,25 +334,31 @@ function reportsFindings(body = '') {
 
   // Resolutions. The window stops at a conjunction as well as at clause punctuation,
   // so it cannot bridge "two findings remain open, and the other one is resolved".
-  text = text.replace(re(String.raw`${NOUN}(?:(?!\b(?:but|however|though)\b)[^.!?;\n]){0,140}?\b(?:is|are|was|were|has been|have been|had been)\s+(?:now\s+)?(?:all\s+)?(?:fixed|resolved|addressed|cleared|gone)\b`, 'gi'), ' ');
+  text = text.replace(re(String.raw`${WORK}(?:(?!\b(?:but|however|though)\b)[^.!?;\n]){0,140}?\b(?:is|are|was|were|has been|have been|had been)\s+(?:now\s+)?(?:all\s+)?(?:fixed|resolved|addressed|cleared|gone)\b`, 'gi'), ' ');
   text = text.replace(/\b(?:neither|none of them|all (?:three|two|four|of them))\s+(?:survives?|remain|stand|persist)/gi, ' ');
   // The same resolution in the active voice — "the two commits address the severity-4
   // finding from the prior round". The passive pattern above only catches "the
   // finding is addressed", and a verdict describing what it fixed reads as a verdict
   // reporting what is broken.
-  text = text.replace(re(String.raw`\b(?:address(?:es|ed)?|fix(?:es|ed)?|resolv(?:es|ed)?|clear(?:s|ed)?)\s+(?:the\s+)?[^.!?;\n]{0,40}?${NOUN}`, 'gi'), ' ');
-  text = text.replace(re(String.raw`\ball\s+(?:\w+\s+)?${NOUN}[^.!?;\n]{0,80}?\b(?:addressed|fixed|resolved|cleared)\b`, 'gi'), ' ');
+  text = text.replace(re(String.raw`\b(?:address(?:es|ed)?|fix(?:es|ed)?|resolv(?:es|ed)?|clear(?:s|ed)?)\s+(?:the\s+)?[^.!?;\n]{0,40}?${WORK}`, 'gi'), ' ');
+  text = text.replace(re(String.raw`\ball\s+(?:\w+\s+)?${WORK}[^.!?;\n]{0,80}?\b(?:addressed|fixed|resolved|cleared)\b`, 'gi'), ' ');
+
+  // A mention the verdict disclaims as its own sandbox's problem, not a defect of the
+  // change. Before the negation strips, which would otherwise eat the "not a test
+  // failure" half that makes it a disclaimer and leave the other half to be counted.
+  // See {@link withoutDisclaimed} for why both halves are required.
+  text = withoutDisclaimed(text);
 
   // Negated mentions, in every shape this bot writes them.
-  text = text.replace(re(String.raw`\b(?:no|zero|0|none|nothing|without|not)\b[^.!?;:\n]{0,40}?${NOUN}`, 'gi'), ' ');
-  text = text.replace(re(String.raw`\bhave not opened\b[^.!?;\n]{0,40}?${NOUN}`, 'gi'), ' ');
-  text = text.replace(re(String.raw`\bnot opened it as a\s+${NOUN}`, 'gi'), ' ');
-  text = text.replace(re(String.raw`\|[^|\n]*${NOUN}[^|\n]*\|\s*0\s*\|`, 'gi'), ' ');
-  text = text.replace(re(String.raw`${NOUN}[^.!?;\n]{0,30}?\b(?:is|are)\s+empty\b`, 'gi'), ' ');
-  text = text.replace(re(String.raw`^\s*#+\s*${NOUN}\s*\n+\s*(?:none|nil|n\/a)\.?`, 'gim'), ' ');
+  text = text.replace(re(String.raw`\b(?:no|zero|0|none|nothing|without|not)\b[^.!?;:\n]{0,40}?${WORK}`, 'gi'), ' ');
+  text = text.replace(re(String.raw`\bhave not opened\b[^.!?;\n]{0,40}?${WORK}`, 'gi'), ' ');
+  text = text.replace(re(String.raw`\bnot opened it as a\s+${WORK}`, 'gi'), ' ');
+  text = text.replace(re(String.raw`\|[^|\n]*${WORK}[^|\n]*\|\s*0\s*\|`, 'gi'), ' ');
+  text = text.replace(re(String.raw`${WORK}[^.!?;\n]{0,30}?\b(?:is|are)\s+empty\b`, 'gi'), ' ');
+  text = text.replace(re(String.raw`^\s*#+\s*${WORK}\s*\n+\s*(?:none|nil|n\/a)\.?`, 'gim'), ' ');
 
-  if (re(String.raw`\b(?:\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|several|multiple|some|few|new|remaining|outstanding|both|each|every)\s+(?:\w+[\s-]+){0,3}?${NOUN}`).test(text)) return true;
-  if (re(String.raw`\b${NOUN}\b[^.!?;\n]{0,40}?\b(?:remain|stand|outstanding|unresolved|untouched|reproduce)`).test(text)) return true;
+  if (re(String.raw`\b(?:\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|several|multiple|some|few|new|remaining|outstanding|both|each|every)\s+(?:\w+[\s-]+){0,3}?${WORK}`).test(text)) return true;
+  if (re(String.raw`\b${WORK}\b[^.!?;\n]{0,40}?\b(?:remain|stand|outstanding|unresolved|untouched|reproduce)`).test(text)) return true;
   // "still open" is NOT in this unscoped set, deliberately. Pull requests, issues and
   // tickets are open; only the scoped check above may read "open" as a defect still
   // standing, because there it has a findings noun in front of it. A verdict saying
@@ -431,6 +485,36 @@ export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, ve
 }
 
 /**
+ * Acceptance for a classified status, bound to the verdict that decided its state.
+ *
+ * The state and the head coverage have to come from ONE verdict. This used to ask
+ * whether ANY comment in the window named the head, so a stale clean verdict could
+ * borrow coverage from a newer comment that said something else entirely (see
+ * {@link latestVerdict}). Now the verdict that chose the state is the only one asked
+ * which commit it read. If it names an older head, acceptance is refused for that
+ * reason — even when an earlier verdict in the window named the current one. That
+ * refusal is the safe direction: re-requesting the review cures it, and nothing else
+ * can cure a merge.
+ *
+ * A verdict that names no commit is dated by its own timestamp. With no verdict
+ * comment at all (a check-run or formal-review delivery) the date falls back to the
+ * Blocks check, then to the newest comment — see {@link chooseVerdictAt}.
+ */
+export function acceptVerdict(result = {}, { headSha, ciConclusion, headCommittedAt, blocksCheckCompletedAt = null } = {}) {
+  const verdict = result.verdict ?? null;
+  const comments = result.comments ?? [];
+  const latestAt = comments.length ? (comments[comments.length - 1].createdAt ?? null) : null;
+  return verdictAcceptance({
+    state: result.state,
+    verdictSha: verdict ? (coversHead(verdict.body, headSha) ? headSha : reviewedSha(verdict.body)) : null,
+    headSha,
+    ciConclusion,
+    verdictAt: chooseVerdictAt({ namedAt: verdict?.createdAt ?? null, blocksCheckCompletedAt, latestAt }),
+    headCommittedAt,
+  });
+}
+
+/**
  * A finished Blocks review reported as a CHECK RUN rather than as a comment.
  *
  * Which channel it uses depends on how the integration is configured: on one
@@ -509,6 +593,31 @@ export function subThresholdCount(body = '') {
   return (lines.join('\n').match(/severity\s*\d/gi) ?? []).length;
 }
 
+/**
+ * The verdict that decides: the LATEST finished verdict in the window, never the first.
+ *
+ * Observed on cueplusplus/cue-ui#94. With the window opened before three rounds of
+ * review, this used to take the first verdict it met — a clean review of `e428be3`,
+ * two heads back — while the CLI took head coverage from whichever comment named the
+ * current head. The two halves of acceptance came from different verdicts, and the
+ * tool printed "Acceptable: clean verdict for 8b08c61" on the strength of a review of
+ * another commit. Had the newest round found something, a stale clean would still
+ * have decided the state and a fresh comment would still have supplied the head: the
+ * false clean this file calls the only error that merges.
+ *
+ * Only a finished verdict can be chosen. Help text and acknowledgements fail
+ * {@link isVerdict}, so however recently one was posted it never becomes "the latest
+ * verdict". Ordered by timestamp, then by position for comments posted in the same
+ * second, so an out-of-order page cannot change the answer.
+ */
+export function latestVerdict(comments = []) {
+  return comments
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => isVerdict(item.body))
+    .sort((a, b) => (timestamp(a.item) - timestamp(b.item)) || (a.index - b.index))
+    .at(-1)?.item ?? null;
+}
+
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));
@@ -524,36 +633,38 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
     url: item.url ?? item.htmlUrl ?? null,
   }));
   const summaryFindingReviews = relevantReviews.filter((item) => ['CHANGES_REQUESTED'].includes((item.state ?? '').toUpperCase()) || (/\S/.test(item.body ?? '') && /issue|finding|severity|requesting changes/i.test(item.body)));
-  const verdictComment = relevantComments.find((item) => isVerdict(item.body));
+  const verdictComment = latestVerdict(relevantComments);
   const cleanComment = relevantComments.find((item) => isClean(item.body));
   const cleanReview = relevantReviews.find((item) => isClean(item.body) || (item.state ?? '').toUpperCase() === 'APPROVED');
-  const dashboardUrl = [...relevantComments, ...relevantReviews].map((item) => dashboard(item.body)).find(Boolean) ?? null;
+  // The deciding verdict's own session first: the first link in the window can belong
+  // to a round that no longer decides anything.
+  const dashboardUrl = dashboard(verdictComment?.body) ?? [...relevantComments, ...relevantReviews].map((item) => dashboard(item.body)).find(Boolean) ?? null;
 
   if (findings.length || summaryFindingReviews.length) {
-    return { state: 'findings', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'findings', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   // Inline comments and formal reviews above are the stronger evidence and already
   // returned. A verdict comment is the next authority: reaching here means the inline
   // sweep found nothing, so the verdict's own wording decides between the two states.
   if (verdictComment) {
-    return { state: reportsFindings(verdictComment.body) ? 'findings' : 'clean', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: reportsFindings(verdictComment.body) ? 'findings' : 'clean', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (cleanComment || cleanReview) {
-    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   // No verdict in prose, but the integration may report completion as a check
   // instead. Nothing was found above — no inline comments, no findings review — so a
   // finished review with nothing to show is clean.
   if (blocksCheckCompleted(checks)) {
-    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (relevantComments.some((item) => isCourtesy(item.body)) || relevantReviews.length) {
-    return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (prState !== 'OPEN') {
-    return { state: 'pr_closed', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+    return { state: 'pr_closed', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
-  return { state: 'requested', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl };
+  return { state: 'requested', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
 }
 
 async function ghJson(args) {

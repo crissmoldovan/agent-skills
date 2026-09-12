@@ -1,0 +1,347 @@
+[
+  {
+    "id": "real-94-wide",
+    "source": "observed on cueplusplus/cue-ui#94",
+    "why": "The window opens before three rounds. The first verdict (e428be3, clean) used to decide the state while coverage came from the 8b08c61 comment; the latest verdict must decide, and coverage must come from it.",
+    "requestedAt": "2026-09-11T00:00:00Z",
+    "headSha": "8b08c61b62643c8376c7f4de6faa9c7664cdfce1",
+    "headCommittedAt": "2026-09-11T16:39:16Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 5636691885,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:23:19Z",
+        "body": "Mention Blocks like a regular teammate with your question or request:\n\n@blocks review this pull request\n@blocks make the following changes ...\n@blocks create an issue from what was mentioned in the following comment ...\n@blocks explain the following code ...\n@blocks are there any security or performance concerns?\n\nRun `@blocks /help` for more information.\n\n[Workspace settings](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github) | [Disable this message](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github)\n\n"
+      },
+      {
+        "id": 5637136711,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:58:56Z",
+        "body": "Reviewed PR #94 at head `e428be3`.\n\nNo actionable issues (severity \u22657) found. The PR checks are passing, and I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/4ee10dc3-50d3-472d-8cbe-352cd593f632)**"
+      },
+      {
+        "id": 5637597616,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T16:36:36Z",
+        "body": "Reviewed PR #94 at head `e60daa3`.\n\nNo actionable issues (severity \u22657) found. Current CI and Vercel checks are passing; I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/95c40a1f-5f09-4b11-9570-63f551c5b3a1)**"
+      },
+      {
+        "id": 5637976526,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T17:09:58Z",
+        "body": "Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/932dc84b-a003-4cc1-b471-1a1840487cbd)**"
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 5637976526,
+      "acceptable": true,
+      "dashboardSession": "932dc84b-a003-4cc1-b471-1a1840487cbd"
+    }
+  },
+  {
+    "id": "real-94-narrow",
+    "source": "observed on cueplusplus/cue-ui#94",
+    "why": "Only the 8b08c61 verdict is in the window: the same answer as the wide window, because the same verdict decides.",
+    "requestedAt": "2026-09-11T17:05:00Z",
+    "headSha": "8b08c61b62643c8376c7f4de6faa9c7664cdfce1",
+    "headCommittedAt": "2026-09-11T16:39:16Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 5636691885,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:23:19Z",
+        "body": "Mention Blocks like a regular teammate with your question or request:\n\n@blocks review this pull request\n@blocks make the following changes ...\n@blocks create an issue from what was mentioned in the following comment ...\n@blocks explain the following code ...\n@blocks are there any security or performance concerns?\n\nRun `@blocks /help` for more information.\n\n[Workspace settings](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github) | [Disable this message](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github)\n\n"
+      },
+      {
+        "id": 5637136711,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:58:56Z",
+        "body": "Reviewed PR #94 at head `e428be3`.\n\nNo actionable issues (severity \u22657) found. The PR checks are passing, and I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/4ee10dc3-50d3-472d-8cbe-352cd593f632)**"
+      },
+      {
+        "id": 5637597616,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T16:36:36Z",
+        "body": "Reviewed PR #94 at head `e60daa3`.\n\nNo actionable issues (severity \u22657) found. Current CI and Vercel checks are passing; I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/95c40a1f-5f09-4b11-9570-63f551c5b3a1)**"
+      },
+      {
+        "id": 5637976526,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T17:09:58Z",
+        "body": "Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/932dc84b-a003-4cc1-b471-1a1840487cbd)**"
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 5637976526,
+      "acceptable": true,
+      "dashboardSession": "932dc84b-a003-4cc1-b471-1a1840487cbd"
+    }
+  },
+  {
+    "id": "real-94-wide-then-findings",
+    "source": "cueplusplus/cue-ui#94 plus one synthetic newer round",
+    "why": "The hazard itself, on real data: a newer round finds something on the head. The old code still took the clean e428be3 verdict for the state and the newest comment for coverage, and accepted.",
+    "requestedAt": "2026-09-11T00:00:00Z",
+    "headSha": "8b08c61b62643c8376c7f4de6faa9c7664cdfce1",
+    "headCommittedAt": "2026-09-11T16:39:16Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 5636691885,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:23:19Z",
+        "body": "Mention Blocks like a regular teammate with your question or request:\n\n@blocks review this pull request\n@blocks make the following changes ...\n@blocks create an issue from what was mentioned in the following comment ...\n@blocks explain the following code ...\n@blocks are there any security or performance concerns?\n\nRun `@blocks /help` for more information.\n\n[Workspace settings](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github) | [Disable this message](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github)\n\n"
+      },
+      {
+        "id": 5637136711,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:58:56Z",
+        "body": "Reviewed PR #94 at head `e428be3`.\n\nNo actionable issues (severity \u22657) found. The PR checks are passing, and I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/4ee10dc3-50d3-472d-8cbe-352cd593f632)**"
+      },
+      {
+        "id": 5637597616,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T16:36:36Z",
+        "body": "Reviewed PR #94 at head `e60daa3`.\n\nNo actionable issues (severity \u22657) found. Current CI and Vercel checks are passing; I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/95c40a1f-5f09-4b11-9570-63f551c5b3a1)**"
+      },
+      {
+        "id": 5637976526,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T17:09:58Z",
+        "body": "Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/932dc84b-a003-4cc1-b471-1a1840487cbd)**"
+      },
+      {
+        "id": 9000000001,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T18:00:00Z",
+        "body": "Reviewed PR #94 at head `8b08c61`.\n\nOne actionable issue (severity 8) found: the preview tile reads the preset before the theme provider mounts, so the first paint uses the wrong density."
+      }
+    ],
+    "expected": {
+      "state": "findings",
+      "verdictId": 9000000001,
+      "acceptable": false
+    }
+  },
+  {
+    "id": "real-94-wide-newer-head",
+    "source": "cueplusplus/cue-ui#94 with a hypothetical newer head",
+    "why": "The latest verdict names 8b08c61; if the head under consideration has moved on, it is clean but not acceptable.",
+    "requestedAt": "2026-09-11T00:00:00Z",
+    "headSha": "c0ffee1000000000000000000000000000000000",
+    "headCommittedAt": "2026-09-11T17:30:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 5636691885,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:23:19Z",
+        "body": "Mention Blocks like a regular teammate with your question or request:\n\n@blocks review this pull request\n@blocks make the following changes ...\n@blocks create an issue from what was mentioned in the following comment ...\n@blocks explain the following code ...\n@blocks are there any security or performance concerns?\n\nRun `@blocks /help` for more information.\n\n[Workspace settings](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github) | [Disable this message](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/settings/integrations/github)\n\n"
+      },
+      {
+        "id": 5637136711,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T15:58:56Z",
+        "body": "Reviewed PR #94 at head `e428be3`.\n\nNo actionable issues (severity \u22657) found. The PR checks are passing, and I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/4ee10dc3-50d3-472d-8cbe-352cd593f632)**"
+      },
+      {
+        "id": 5637597616,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T16:36:36Z",
+        "body": "Reviewed PR #94 at head `e60daa3`.\n\nNo actionable issues (severity \u22657) found. Current CI and Vercel checks are passing; I left no inline comments.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/95c40a1f-5f09-4b11-9570-63f551c5b3a1)**"
+      },
+      {
+        "id": 5637976526,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-11T17:09:58Z",
+        "body": "Reviewed PR #94 at head `8b08c61`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments. The effective diff is clean and all current CI/Vercel checks pass.\n\nIndependent targeted tests were blocked by missing generated workspace build artifacts in the fresh clone; this was an environment setup issue, not a test failure.\n\n**[View on dashboard](https://blocks.team/app/dd73b09d-4599-4160-a58c-8d17b0023108/sessions/932dc84b-a003-4cc1-b471-1a1840487cbd)**"
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 5637976526,
+      "acceptable": false,
+      "reason": "the verdict reviewed `8b08c61`"
+    }
+  },
+  {
+    "id": "old-clean-new-findings",
+    "source": "generated",
+    "why": "An older clean verdict must not outvote a newer one with findings.",
+    "requestedAt": "2026-09-12T09:00:00Z",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headCommittedAt": "2026-09-12T10:30:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 1,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:00:00Z",
+        "body": "Reviewed PR #7 at `aaaaaaa`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments.\n\n**[View on dashboard](https://blocks.team/pr/7/round-1)**"
+      },
+      {
+        "id": 2,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T11:00:00Z",
+        "body": "Reviewed PR #7 at `bbbbbbb`.\n\nTwo actionable issues (severity \u22657) found on this head: the retry helper swallows `AbortError`, and the queue worker acknowledges before the flush settles.\n\n**[View on dashboard](https://blocks.team/pr/7/round-2)**"
+      }
+    ],
+    "expected": {
+      "state": "findings",
+      "verdictId": 2,
+      "acceptable": false
+    }
+  },
+  {
+    "id": "old-clean-new-findings-out-of-order",
+    "source": "generated",
+    "why": "The same two verdicts delivered newest-first: selection is by time, not by position in the page.",
+    "requestedAt": "2026-09-12T09:00:00Z",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headCommittedAt": "2026-09-12T10:30:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 2,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T11:00:00Z",
+        "body": "Reviewed PR #7 at `bbbbbbb`.\n\nTwo actionable issues (severity \u22657) found on this head: the retry helper swallows `AbortError`, and the queue worker acknowledges before the flush settles.\n\n**[View on dashboard](https://blocks.team/pr/7/round-2)**"
+      },
+      {
+        "id": 1,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:00:00Z",
+        "body": "Reviewed PR #7 at `aaaaaaa`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments.\n\n**[View on dashboard](https://blocks.team/pr/7/round-1)**"
+      }
+    ],
+    "expected": {
+      "state": "findings",
+      "verdictId": 2,
+      "acceptable": false
+    }
+  },
+  {
+    "id": "old-findings-new-clean",
+    "source": "generated",
+    "why": "A re-review that clears the previous round, for the current head, is clean and acceptable.",
+    "requestedAt": "2026-09-12T09:00:00Z",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headCommittedAt": "2026-09-12T10:30:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 1,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:00:00Z",
+        "body": "Reviewed PR #7 at `aaaaaaa`.\n\nTwo actionable issues (severity \u22657) found on this head: the retry helper swallows `AbortError`, and the queue worker acknowledges before the flush settles.\n\n**[View on dashboard](https://blocks.team/pr/7/round-1)**"
+      },
+      {
+        "id": 2,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T11:00:00Z",
+        "body": "Reviewed PR #7 at `bbbbbbb`.\n\nThe two findings from the previous round are fixed, and no new actionable issues (severity \u22657) were found.\n\n**[View on dashboard](https://blocks.team/pr/7/round-2)**"
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 2,
+      "acceptable": true
+    }
+  },
+  {
+    "id": "new-clean-older-head",
+    "source": "generated",
+    "why": "The latest verdict is clean but reviewed an older head: not acceptable, with the existing reason.",
+    "requestedAt": "2026-09-12T09:00:00Z",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headCommittedAt": "2026-09-12T10:30:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 1,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:00:00Z",
+        "body": "Reviewed PR #7 at `aaaaaaa`.\n\nTwo actionable issues (severity \u22657) found on this head: the retry helper swallows `AbortError`, and the queue worker acknowledges before the flush settles.\n\n**[View on dashboard](https://blocks.team/pr/7/round-1)**"
+      },
+      {
+        "id": 2,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T11:00:00Z",
+        "body": "Reviewed PR #7 at `aaaaaaa`.\n\nThe two findings from the previous round are fixed, and no new actionable issues (severity \u22657) were found.\n\n**[View on dashboard](https://blocks.team/pr/7/round-2)**"
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 2,
+      "acceptable": false,
+      "reason": "the verdict reviewed `aaaaaaa` but the head is `bbbbbbb`"
+    }
+  },
+  {
+    "id": "new-clean-older-head-after-covering-verdict",
+    "source": "generated",
+    "why": "An EARLIER verdict named the current head, but the latest one names an older head. Coverage binds to the deciding verdict, so the earlier one cannot lend it coverage; the old any-comment rule accepted this.",
+    "requestedAt": "2026-09-12T09:00:00Z",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headCommittedAt": "2026-09-12T10:00:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 1,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:10:00Z",
+        "body": "Reviewed PR #7 at `bbbbbbb`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments.\n\n**[View on dashboard](https://blocks.team/pr/7/round-2)**"
+      },
+      {
+        "id": 2,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:20:00Z",
+        "body": "Reviewed PR #7 at `aaaaaaa`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments.\n\n**[View on dashboard](https://blocks.team/pr/7/round-1)**"
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 2,
+      "acceptable": false,
+      "reason": "the verdict reviewed `aaaaaaa`"
+    }
+  },
+  {
+    "id": "help-and-ack-after-verdict",
+    "source": "generated",
+    "why": "Help text and an acknowledgement posted after the verdict are the newest comments, but never the latest verdict.",
+    "requestedAt": "2026-09-12T09:00:00Z",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headCommittedAt": "2026-09-12T09:30:00Z",
+    "ciConclusion": "success",
+    "comments": [
+      {
+        "id": 1,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:00:00Z",
+        "body": "Reviewed PR #7 at `bbbbbbb`.\n\nNo actionable issues (severity \u22657) found, so I left no inline comments.\n\n**[View on dashboard](https://blocks.team/pr/7/round-1)**"
+      },
+      {
+        "id": 2,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:30:00Z",
+        "body": "Mention Blocks like a regular teammate with your question or request:\n\n@blocks review this pull request\n\nRun `@blocks /help` for more information."
+      },
+      {
+        "id": 3,
+        "author": "blocksorg[bot]",
+        "createdAt": "2026-09-12T10:31:00Z",
+        "body": "I'm taking a look. Review in progress."
+      }
+    ],
+    "expected": {
+      "state": "clean",
+      "verdictId": 1,
+      "acceptable": true
+    }
+  }
+]
