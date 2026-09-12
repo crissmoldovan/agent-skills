@@ -1,10 +1,14 @@
 # Policy and safety contract
 
-Declare one authority with a user or organization root. User may parent
-organization; organization/area may parent area/project; project parents repository;
-repository parents an unbound workspace. No session node or multiple parents.
+Declare one authority with a user or legacy organization root. A user may parent
+domains or legacy organizations. Domain parents source namespace;
+namespace/organization/area may parent area/project; namespace/area/project may
+parent repository; repository parents an unbound workspace. Area and project are
+optional below a source namespace. No session node or multiple parents.
 Stable IDs are separate from mutable path slugs and canonical GitHub remotes.
-A logical organization may span hosting owners. Inventory does not invent ancestry.
+A logical domain may span source namespaces. Inventory does not invent ancestry.
+Use optional human-facing labels for punctuation, spaces and capitalization; keep
+slugs path-safe because deterministic targets are derived from slugs only.
 
 Settings are flat dotted keys; prefix overlaps fail. Defaults precede ancestry,
 explicit invocation follows it. At each scope, the selected workflow contributes

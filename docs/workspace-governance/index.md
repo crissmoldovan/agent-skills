@@ -34,6 +34,17 @@ values; manifest records additionally total at most20,000. Schemas document
 structural constraints; runtime handles graph, uniqueness, byte/depth bounds and
 resolution semantics. JSON Schema cannot detect duplicate keys after decoding.
 
+## Taxonomy
+
+New multi-owner catalogs use `user → domain → source namespace → area → project →
+repository → workspace`. A domain is a stable logical grouping such as `personal`,
+`cue` or `rgc`; a source namespace is a provider-neutral hosting owner such as
+`crissmoldovan`, `cueplusplus`, `RGC-LABS` or `wherefromuk`. Area and project are
+optional below a source namespace, so catalogs do not need placeholder levels.
+Legacy organization-root and user → organization manifests remain valid.
+Human-facing labels preserve names such as `CUE++` and `Brand Assets`; separate
+path-safe slugs (`cue`, `brand-assets`) determine local checkout paths.
+
 ## Acceptance and verification
 
 From the repository root, run `npm run verify` on Node24+. It explicitly prepares

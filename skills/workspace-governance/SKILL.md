@@ -16,7 +16,7 @@ codebase investigation, or publishing. It never executes workflows or moves repo
 
 ## When to Use
 
-- A user wants a declared organization/area/project/repository catalog audited.
+- A user wants a declared domain/source-namespace/area/project/repository catalog audited.
 - An agent needs the effective rules and their provenance for a stable node ID.
 - A user wants a safe, reproducible local placement preview before designing moves.
 
@@ -39,8 +39,10 @@ Use your host's terminal tool for the commands below. Do not scan home by defaul
 
 1. **Identify the inputs.** Confirm the user's manifest, stable scope ID, principal
    and local scan root. Keep real inventories outside public repositories. Separate
-   logical organization from GitHub owner; classify only by explicit canonical
-   remote mappings, never infer ownership from repository names.
+   logical domain from its source namespace or GitHub owner; classify only by
+   explicit canonical remote mappings, never infer ownership from repository names.
+   Preserve human names in optional labels and keep slugs path-safe; filesystem
+   targets use slugs, while reports show both when they differ.
 2. **Validate.** Run `workspacectl validate --manifest manifest.json`. Stop on any
    schema/parser error; do not repair malformed remote tokens before validation.
    Root visibility is required. Workspace nodes are unbound catalog identities:

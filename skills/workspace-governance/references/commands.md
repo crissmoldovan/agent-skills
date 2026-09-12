@@ -36,7 +36,8 @@ organization. Validate/discover are local administrative views, not filtered by 
 principal. Catalog is a fixed readable projection. Explain/workflow resolve rules;
 workflow requires `--workflow ID`. Explain/report/plan/audit/verify-plan optionally
 accept it. Report/plan/audit/verify-plan discover locally with `--depth N` (default8,
-range0–32). Report accepts user, organization, area, project and repository scopes;
+range0–32). Report accepts user, domain, source namespace, organization, area,
+project and repository scopes;
 the selected node and its complete descendant subtree must be readable or the whole
 report refuses with `UNAVAILABLE`; ancestors shown are readable. Its default JSON
 combines hierarchy, placement summary, effective policy provenance and the selected
@@ -44,6 +45,8 @@ inert workflow. `--format html` emits a self-contained visual rendering of key r
 fields—including identity/authorization context, hierarchy, status, dirty state,
 policy provenance, constraints and inert workflow details—not a lossless or
 data-equivalent JSON serialization. Redirect report files outside the scan root.
+Hierarchy reports show a validated human label and retain the path slug whenever
+they differ; target paths always use slugs.
 Never trust a saved plan to choose root/principal/scope/workflow.
 
 Save preview JSON outside the scan root so the output does not change its own

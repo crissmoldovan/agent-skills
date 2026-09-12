@@ -188,3 +188,43 @@ test("A8 unreadable descendants refuse whole scope; workspace is explicitly unbo
   assert.equal(text.includes("unmanaged"), false);
   assert.equal(text.includes("example/hidden"), false);
 });
+
+test("A8 domain and source namespace scopes produce the approved logical layout", () => {
+  const manifest = {
+    apiVersion: "workspace-governance/v1",
+    authorityId: "approved-taxonomy",
+    nodes: [
+      { id: "person", kind: "user", slug: "criss", label: "Cristian", parentId: null, visibility: { mode: "public", readers: [] } },
+      { id: "cue", kind: "domain", slug: "cue", label: "CUE++", parentId: "person" },
+      { id: "cue-github", kind: "namespace", slug: "cueplusplus", label: "cueplusplus", parentId: "cue" },
+      { id: "cue-agent-tools", kind: "area", slug: "agent-tools", label: "Agent Tools", parentId: "cue-github" },
+      { id: "reactor", kind: "project", slug: "reactor", label: "Reactor", parentId: "cue-agent-tools" },
+      { id: "reactor-repo", kind: "repository", slug: "reactor", label: "reactor", parentId: "reactor", remote: "https://github.com/cueplusplus/reactor" },
+      { id: "hermes", kind: "project", slug: "hermes", label: "Hermes", parentId: "cue-agent-tools" },
+      { id: "project-groups-repo", kind: "repository", slug: "hermes-plugin-project-groups", label: "hermes-plugin-project-groups", parentId: "hermes", remote: "https://github.com/cueplusplus/hermes-plugin-project-groups" },
+      { id: "rgc", kind: "domain", slug: "rgc", label: "RGC", parentId: "person" },
+      { id: "rgc-labs", kind: "namespace", slug: "rgc-labs", label: "RGC-LABS", parentId: "rgc" },
+      { id: "rgc-platform", kind: "area", slug: "platform", label: "Platform", parentId: "rgc-labs" },
+      { id: "brand-assets", kind: "project", slug: "brand-assets", label: "Brand Assets", parentId: "rgc-platform" },
+      { id: "public-assets-repo", kind: "repository", slug: "public-assets", label: "public-assets", parentId: "brand-assets", remote: "https://github.com/rgc-labs/public-assets" },
+      { id: "wherefromuk", kind: "namespace", slug: "wherefromuk", label: "wherefromuk", parentId: "rgc" },
+      { id: "legacy", kind: "area", slug: "legacy", label: "Legacy", parentId: "wherefromuk" },
+      { id: "wherefrom", kind: "project", slug: "wherefrom", label: "Wherefrom", parentId: "legacy" },
+      { id: "wordpress-repo", kind: "repository", slug: "wherefrom-wordpress-plugin", label: "wherefrom-wordpress-plugin", parentId: "wherefrom", remote: "https://github.com/wherefromuk/wherefrom-wordpress-plugin" },
+    ],
+    policies: [],
+    workflows: [],
+    metadata: {},
+  };
+  const inv = inventory();
+  const cue = planner.createPlan(envelope(manifest), inv, "cue", "reader");
+  assert.deepEqual(Object.fromEntries(cue.entries.map((entry) => [entry.repositoryId, entry.target])), {
+    "project-groups-repo": join(inv.root, "cue", "cueplusplus", "agent-tools", "hermes", "hermes-plugin-project-groups"),
+    "reactor-repo": join(inv.root, "cue", "cueplusplus", "agent-tools", "reactor", "reactor"),
+  });
+  const wherefrom = planner.createPlan(envelope(manifest), inv, "wherefromuk", "reader");
+  assert.equal(
+    wherefrom.entries[0].target,
+    join(inv.root, "rgc", "wherefromuk", "legacy", "wherefrom", "wherefrom-wordpress-plugin"),
+  );
+});

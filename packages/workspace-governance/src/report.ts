@@ -9,7 +9,9 @@ import type { Inventory } from "./discovery.ts";
 import { createPlan } from "./planner.ts";
 import type { PlanEntry } from "./planner.ts";
 
-export type ReportNode = Pick<Node, "id" | "kind" | "slug" | "parentId">;
+export type ReportNode = Pick<Node, "id" | "kind" | "slug" | "parentId"> & {
+  label: string;
+};
 
 export interface ReportRepository extends PlanEntry {
   slug: string;
@@ -65,7 +67,16 @@ export function createReport(
 ): Report {
   const current = validateSnapshot(snapshot);
   const plan = createPlan(current, inventory, nodeId, principal, options);
-  const visible = visibleNodes(current, principal);
+  const declaredById = new Map(current.manifest.nodes.map((node) => [node.id, node]));
+  const visible: ReportNode[] = visibleNodes(current, principal).map(
+    ({ id, kind, slug, parentId }) => ({
+      id,
+      kind,
+      slug,
+      label: declaredById.get(id)?.label ?? slug,
+      parentId,
+    }),
+  );
   const byId = new Map(visible.map((node) => [node.id, node]));
   const scopeAncestry = ancestry(byId, nodeId);
   const scopeIds = new Set(scopeAncestry.map((node) => node.id));
@@ -74,7 +85,7 @@ export function createReport(
       const chain = ancestry(byId, node.id);
       return scopeIds.has(node.id) || chain.some((ancestor) => ancestor.id === nodeId);
     })
-    .map(({ id, kind, slug, parentId }) => ({ id, kind, slug, parentId }));
+    .map(({ id, kind, slug, label, parentId }) => ({ id, kind, slug, label, parentId }));
   const resolutions = resolvePolicyBatch(
     current,
     plan.entries.map((entry) => entry.repositoryId),

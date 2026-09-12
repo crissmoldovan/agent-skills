@@ -2,11 +2,19 @@ import { createHash } from "node:crypto";
 export type Json =
   null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Kind =
-  "user" | "organization" | "area" | "project" | "repository" | "workspace";
+  | "user"
+  | "domain"
+  | "namespace"
+  | "organization"
+  | "area"
+  | "project"
+  | "repository"
+  | "workspace";
 export interface Node {
   id: string;
   kind: Kind;
   slug: string;
+  label?: string;
   parentId: string | null;
   remote?: string;
   metadata?: Record<string, Json>;
@@ -324,17 +332,19 @@ export function validateManifest(input: unknown): Manifest {
   requireThat(Array.isArray(m.policies) && Array.isArray(m.workflows));
   const kinds: Record<Kind, Kind[]> = {
     user: [],
+    domain: ["user"],
+    namespace: ["domain"],
     organization: ["user"],
-    area: ["organization", "area"],
-    project: ["organization", "area"],
-    repository: ["project"],
+    area: ["namespace", "organization", "area"],
+    project: ["namespace", "organization", "area"],
+    repository: ["namespace", "area", "project"],
     workspace: ["repository"],
   };
   for (const n of m.nodes) {
     keys(
       n,
       ["id", "kind", "slug", "parentId"],
-      ["remote", "metadata", "visibility"],
+      ["label", "remote", "metadata", "visibility"],
     );
     id(n.id);
     requireThat(!["$defaults", "$invocation"].includes(n.id));
@@ -345,6 +355,14 @@ export function validateManifest(input: unknown): Manifest {
         !n.slug.endsWith(".") &&
         !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(n.slug),
     );
+    if (n.label !== undefined)
+      requireThat(
+        typeof n.label === "string" &&
+          n.label.length > 0 &&
+          [...n.label].length <= 256 &&
+          n.label.trim() === n.label &&
+          !/[\x00-\x1f\x7f]/.test(n.label),
+      );
     requireThat(n.parentId === null || typeof n.parentId === "string");
     if (n.kind === "repository")
       requireThat(

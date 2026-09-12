@@ -3,9 +3,10 @@
   "authorityId": "example-authority",
   "nodes": [
     {
-      "id": "org",
-      "kind": "organization",
-      "slug": "example",
+      "id": "user",
+      "kind": "user",
+      "slug": "example-user",
+      "label": "Example User",
       "parentId": null,
       "visibility": {
         "mode": "public",
@@ -13,15 +14,31 @@
       }
     },
     {
+      "id": "org",
+      "kind": "domain",
+      "slug": "demo",
+      "label": "Demo",
+      "parentId": "user"
+    },
+    {
+      "id": "source",
+      "kind": "namespace",
+      "slug": "example",
+      "label": "example",
+      "parentId": "org"
+    },
+    {
       "id": "project",
       "kind": "project",
       "slug": "service",
-      "parentId": "org"
+      "label": "Service",
+      "parentId": "source"
     },
     {
       "id": "repo",
       "kind": "repository",
       "slug": "api",
+      "label": "API",
       "parentId": "project",
       "remote": "https://github.com/example/api"
     }

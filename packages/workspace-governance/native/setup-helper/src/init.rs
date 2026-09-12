@@ -213,6 +213,19 @@ fn slug(value: &Value) -> Result<()> {
     Ok(())
 }
 
+fn ecmascript_trim_whitespace(c: u16) -> bool {
+    matches!(c, 0x0009..=0x000d | 0x0020 | 0x00a0 | 0x1680 | 0x2000..=0x200a |
+        0x2028 | 0x2029 | 0x202f | 0x205f | 0x3000 | 0xfeff)
+}
+fn label(value: &Value) -> Result<()> {
+    let Value::String(s) = value else { return invalid(); };
+    if s.is_empty() || std::char::decode_utf16(s.iter().copied()).count() > 256 ||
+        s.first().is_some_and(|c| ecmascript_trim_whitespace(*c)) ||
+        s.last().is_some_and(|c| ecmascript_trim_whitespace(*c)) ||
+        s.iter().any(|c| *c <= 0x001f || *c == 0x007f) { return invalid(); }
+    Ok(())
+}
+
 /// Independently validate an init request and derive the exact original manifest-v1
 /// canonical bytes + LF. No Node callback, supplied action bytes, filesystem or effects.
 /// This is a prerequisite for, NOT complete semantic plan/resource rederivation.
@@ -222,12 +235,13 @@ pub fn derive_manifest(request_bytes: &[u8]) -> Result<Vec<u8>> {
     if !is(get(&request,"apiVersion")?,"workspace-governance/init-request-v1") { return invalid(); }
     let authority = get(&request,"authorityId")?; id(authority)?;
     let root = get(&request,"rootNode")?;
-    fields(root,&["id","kind","slug","parentId","visibility"],&["metadata"])?;
+    fields(root,&["id","kind","slug","parentId","visibility"],&["label","metadata"])?;
     let root_id = get(root,"id")?; id(root_id)?;
     if is(root_id,"$defaults") || is(root_id,"$invocation") { return invalid(); }
     let kind = get(root,"kind")?;
     if !(is(kind,"user") || is(kind,"organization")) || *get(root,"parentId")? != Value::Null { return invalid(); }
     slug(get(root,"slug")?)?;
+    if let Ok(value) = get(root,"label") { label(value)?; }
     if let Ok(metadata) = get(root,"metadata") { if !matches!(metadata,Value::Object(_)) { return invalid(); } }
     let visibility = get(root,"visibility")?; fields(visibility,&["mode","readers"],&[])?;
     let mode = get(visibility,"mode")?;

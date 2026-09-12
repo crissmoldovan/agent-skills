@@ -16,8 +16,9 @@ workspacectl report --manifest example.json --node org --principal reader \
 ```
 
 JSON is the default (`--format json` is equivalent). The report accepts a user,
-organization, area, project or repository scope. The selected node and its complete
-descendant subtree must be readable or the whole report refuses with `UNAVAILABLE`;
+domain, source namespace, organization, area, project or repository scope. The
+selected node and its complete descendant subtree must be readable or the whole
+report refuses with `UNAVAILABLE`;
 ancestors included in the report are readable. HTML is a self-contained visual
 rendering of key report fields, not a lossless JSON serialization. Report output is
 deterministic and read-only: it does not classify unknown repositories, clone or
@@ -199,10 +200,18 @@ production/trial families are not admitted. No policy amendment is activated.
 
 ## Model and trust boundary
 
-- One authority has one user or organization root with explicit visibility.
-  A user may parent organizations; an organization cannot parent a user.
-  Organization/area → area/project; project → repository; repository → workspace.
-  No session nodes. Logical organization need not equal a hosting organization.
+- One authority has one user or legacy organization root with explicit visibility.
+  A user may parent domains or legacy organizations. Domain → source namespace;
+  namespace/organization/area → area/project; namespace/area/project → repository;
+  repository → workspace. Area and project are optional below a source namespace.
+  No session nodes.
+- A domain is a stable logical grouping such as `personal`, `cue` or `rgc`. A source
+  namespace is the provider-neutral hosting account or owner, such as a GitHub user
+  or organization. Keep repository remotes as canonical source identities; do not
+  infer a domain from a repository name.
+- Each node has a path-safe `slug` and may have a human-facing `label`. For example,
+  label `CUE++` uses slug `cue`, and label `Brand Assets` uses slug `brand-assets`.
+  Reports preserve both; filesystem targets use only slugs.
 - Node IDs are stable; slugs and remotes are mutable declarations. `$defaults` and
   `$invocation` are reserved synthetic provenance sources. Workspace identities
   are **unbound** catalog nodes: policy resolution works, workspace-scope plans
@@ -215,7 +224,8 @@ production/trial families are not admitted. No policy amendment is activated.
 - File and memory snapshots are **advisory**. Local `--principal` is visibility
   simulation, not authentication. File access already gives access to all bytes.
   Effective readership intersects ancestor restrictions; descendants cannot widen it.
-  Catalog emits only id/kind/slug/parentId. Metadata is opaque and not projected.
+  Catalog emits only id/kind/slug/parentId. Report nodes additionally emit a
+  validated label, defaulting to the slug. Metadata is opaque and not projected.
   Readable policy/workflow text is intentionally shared; authors must not embed
   hidden names/secrets. No arbitrary string redaction or hidden-change guarantee.
 - Trusted hosts may inject a `SnapshotStore` with complete enforced authority
