@@ -57,10 +57,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.11.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.11.0');
-  assert.equal(rootLock.version, '0.11.0');
-  assert.equal(rootLock.packages[''].version, '0.11.0');
+test('v0.12.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.12.0');
+  assert.equal(rootLock.version, '0.12.0');
+  assert.equal(rootLock.packages[''].version, '0.12.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();

@@ -104,6 +104,29 @@ npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 Restart or reload any agent whose loader caches installed files; a session already open will
 keep using the instructions it loaded at start.
 
+### `npm run verify` is green on macOS again
+
+**What changed.** Thirty-one of the seventy-two `workspace-governance` tests had been failing
+on every macOS machine, and one further test asserted a Linux-only code path unconditionally.
+Nothing in CI could see it: GitHub Actions runs Linux, where `/var` is a real directory.
+
+The mechanism is a macOS detail with a sharp edge. Fixtures build scratch roots with
+`mkdtemp(join(tmpdir(), …))`, which on macOS lands under `/var/folders/…`; local discovery
+refuses any root with a symlink ancestor, and macOS resolves `/var` to `/private/var`. So the
+very first path component of every fixture root was rejected, and every affected test failed
+with the same opaque `Invalid input (INVALID)`.
+
+The refusal is correct and is left exactly as it was: it is a published contract in four
+documents, and it is the precondition that makes the containment check on a `.git` file's
+`gitdir:` pointer meaningful — a lexical prefix test against a non-canonical root proves
+nothing. The fixtures were wrong, not the guard, so the fixtures now resolve their scratch
+root before handing it over. `packages/agent-journal` already did exactly this, with a comment
+naming the same cause. No file under `src/` changed.
+
+**Who should care.** Anyone running `npm run verify` on macOS — step 3 of the release
+checklist in this document, which could not pass there. On Linux the change is the identity
+function: resolving a path with no symlink ancestors returns the same string.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
