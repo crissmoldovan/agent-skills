@@ -1,9 +1,26 @@
 import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
+import {realpathSync} from 'node:fs';
 import {cp,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+// True when this file is the program being run. It used to ask by pasting argv[1] into a
+// file:// string and comparing that to import.meta.url, which is false through any symlink
+// (argv[1] keeps the link, import.meta.url is what Node resolved) and false for any path
+// holding a space or a '#' (import.meta.url percent-encodes those, the paste does not).
+// Either way this file exits 0 having verified nothing at all, and a privilege-boundary
+// check that runs nothing is indistinguishable from one that passed. Both sides are
+// resolved because --preserve-symlinks-main puts the unresolved path on the other side;
+// realpathSync.native also canonicalises case, and its throw falls back rather than
+// crashing an importer.
+const isEntrypoint=moduleUrl=>{
+ const invoked=process.argv[1];if(!invoked)return false;
+ const modulePath=fileURLToPath(moduleUrl);
+ try{return realpathSync.native(invoked)===realpathSync.native(modulePath);}catch{return resolve(invoked)===modulePath;}
+};
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const run=(file,args,options={})=>spawnSync(file,args,{encoding:'utf8',timeout:30000,maxBuffer:1048576,...options});
@@ -115,7 +132,7 @@ export async function verifyEffectiveUidBoundary(installedBin,onlyCase){
  return {ruid:process.getuid(),euid:0,current,mutationControls};
 }
 
-if(import.meta.url===`file://${process.argv[1]}`){
+if(isEntrypoint(import.meta.url)){
  const bin=process.argv[2];assert.ok(bin,'usage: verify-effective-uid.mjs INSTALLED_BIN [CASE]');
  console.log(JSON.stringify(await verifyEffectiveUidBoundary(bin,process.argv[3])));
 }

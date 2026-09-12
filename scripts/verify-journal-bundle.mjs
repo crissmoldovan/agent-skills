@@ -23,9 +23,39 @@
  *   npm --prefix packages/agent-journal run bundle:skill
  */
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * True when this file is the program being run, false when it was imported.
+ *
+ * Its own copy — this script is repo-level, and the pack's other copies live inside
+ * skills that ship on their own, so it cannot import one without depending on a
+ * directory that is not installed with it. `test/entrypoint-guard.test.mjs` sweeps
+ * every copy, which is what keeps them from diverging again.
+ *
+ * Observed on 2026-09-12, across this pack: `process.argv[1]` keeps a symlinked path
+ * as typed while `import.meta.url` is the file Node resolved it to, so comparing them
+ * as written was false whenever the file was reached through a link, and `main()`
+ * never ran. A check that exits 0 without checking anything is the one failure a
+ * verifier must not have: nothing downstream can tell it apart from a pass.
+ *
+ * BOTH sides are resolved, because `--preserve-symlinks-main` moves the unresolved
+ * path to the other side. `realpathSync.native` also returns the on-disk case, which a
+ * case-insensitive volume otherwise makes compare unequal; it can throw, so a failure
+ * falls back to the unresolved comparison rather than crashing an importer.
+ */
+function isEntrypoint(moduleUrl) {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync.native(invoked) === realpathSync.native(modulePath);
+  } catch {
+    return resolve(invoked) === modulePath;
+  }
+}
 
 export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 export const SOURCE_DIR = join(ROOT, 'packages', 'agent-journal', 'src');
@@ -120,6 +150,6 @@ export function main() {
   return 0;
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+if (isEntrypoint(import.meta.url)) {
   process.exitCode = main();
 }

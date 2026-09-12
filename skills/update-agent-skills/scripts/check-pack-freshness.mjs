@@ -34,11 +34,47 @@
  * this script was built for, stderr does not supplement stdout — it replaces it,
  * so a single stray line from anything else would swap the verdict for noise.
  */
+import { realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * True when this file is the program being run, false when it was imported.
+ *
+ * Observed on 2026-09-12, on the installed pack: the Skills CLI installs a skill as
+ * a symlink — `~/.claude/skills/<name>` points at `~/.agents/skills/<name>` — and
+ * run through that path, `process.argv[1]` is the symlink as typed while
+ * `import.meta.url` is the file Node resolved it to. Comparing the two as written
+ * was therefore false on every symlinked install, `main()` never ran, and the script
+ * exited 0 having printed nothing. For this file that is the worst shape the defect
+ * has: it is the checker the freshness hook runs, and this pack reads its silence as
+ * "the pack is current" — so a checker that never ran reports a drifted pack as
+ * fresh at every session start, and nothing about that looks wrong.
+ *
+ * BOTH sides are resolved, not just `argv[1]`: under `--preserve-symlinks-main` it
+ * is `import.meta.url` that keeps the symlink, so resolving one side only fails the
+ * same silent way in the other direction. `realpathSync.native` rather than the JS
+ * implementation because it also returns the name's on-disk case, and on a
+ * case-insensitive volume — macOS by default — a differently-cased path names the
+ * same file, which the JS one hands back as typed and so compares unequal.
+ *
+ * Resolving can throw (a deleted entry, an unreadable parent), and a guard that
+ * throws at load turns an import into a crash, so a failure falls back to comparing
+ * the paths unresolved — the old comparison, which is right when no link is in play.
+ */
+export function isEntrypoint(moduleUrl) {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync.native(invoked) === realpathSync.native(modulePath);
+  } catch {
+    return path.resolve(invoked) === modulePath;
+  }
+}
 
 /** The pack this copy was published from. Any pack works via `--source`. */
 export const DEFAULT_SOURCE = 'crissmoldovan/agent-skills';
@@ -505,6 +541,6 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   return result.state === 'stale' ? EXIT_DRIFT : EXIT_CURRENT;
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+if (isEntrypoint(import.meta.url)) {
   process.exitCode = await main();
 }

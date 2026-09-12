@@ -72,11 +72,40 @@
  *   4. It never speaks when it has nothing to enforce. Not armed, not owed,
  *      already spent, or passing: stdout stays empty.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * True when this file is the program being run, false when it was imported.
+ *
+ * Observed on 2026-09-12: reached through a symlink — which is how the Skills CLI
+ * installs a pack, `~/.claude/skills/<name>` pointing at `~/.agents/skills/<name>` —
+ * `process.argv[1]` is the path as typed while `import.meta.url` is the file Node
+ * resolved it to, so comparing the two as written was false, the file's `main()`
+ * never ran, and it exited 0 having done nothing. For a Stop hook that means a gate
+ * the user installed, sees in their settings, and which enforces nothing.
+ *
+ * BOTH sides are resolved, not just `argv[1]`: under `--preserve-symlinks-main` it is
+ * `import.meta.url` that keeps the symlink, and resolving one side only fails the same
+ * silent way in the other direction. `realpathSync.native` also returns the on-disk
+ * case, which a case-insensitive volume otherwise makes compare unequal.
+ *
+ * Resolving can throw — a deleted entry, an unreadable parent — and a guard that throws
+ * at load turns an import into a crash, so it falls back to comparing them unresolved.
+ */
+export function isEntrypoint(moduleUrl) {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync.native(invoked) === realpathSync.native(modulePath);
+  } catch {
+    return path.resolve(invoked) === modulePath;
+  }
+}
 
 /**
  * Arming flag, and the mode selector: `block` (or `1`) blocks, `observe` reports to
@@ -507,8 +536,10 @@ async function main() {
 // test does, and which the installer does for its own constants — runs `main()` and then
 // `process.exit(0)`, killing the importing process mid-flight with a success code and no
 // output. That is precisely how the installer was observed to write nothing at all and
-// report exit 0 while doing so.
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+// report exit 0 while doing so. The guard then produced that same silence from the other
+// direction: asked as a raw path comparison, it was false whenever the pack was reached
+// through the symlink the Skills CLI installs, and the hook ran as an empty exit 0.
+if (isEntrypoint(import.meta.url)) {
   main()
     .catch(() => {})
     .finally(() => process.exit(0));
