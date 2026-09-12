@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,12 +16,17 @@ import {
   TTL_STALE_MS,
   TTL_UNKNOWN_MS,
   checkPackFreshness,
+  formatHookEnvelope,
   formatNotice,
+  formatUnknownNotice,
+  main,
+  reportFor,
   resolveCachePath,
   resolveLockPath,
   selectPackEntries,
   skillFolderOf,
 } from '../skills/update-agent-skills/scripts/check-pack-freshness.mjs';
+import { buildHookEntry } from '../skills/update-agent-skills/scripts/install-freshness-hook.mjs';
 
 const checker = fileURLToPath(new URL('../skills/update-agent-skills/scripts/check-pack-freshness.mjs', import.meta.url));
 const SOURCE = 'example-owner/example-pack';
@@ -405,13 +410,18 @@ test('exit 0 and silence when current; exit 2 and a notice when drifted', async 
   }
 });
 
-test('an unreachable API exits 0 with the failure on stderr, never a silent all-clear', async () => {
+test('an unreachable API reports unknown on stdout, the channel a verdict is actually read from', async () => {
   const home = await stateHome('exit-offline', { blocks: lockEntry('blocks', 'sha-old') });
   const result = await runChecker(['--source', SOURCE], { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: 'http://127.0.0.1:1' });
 
+  // The exit code still says "do not break the session". It is not what carries
+  // the answer, and the answer is not silence.
   assert.equal(result.status, EXIT_CURRENT);
-  assert.equal(result.stdout.trim(), '');
-  assert.match(result.stderr, /PACK_FRESHNESS_UNKNOWN/);
+  assert.match(result.stdout, /^PACK_FRESHNESS_UNKNOWN/m);
+  assert.match(result.stdout, /not an all-clear/);
+  // stderr is not a second channel here: on the hook path it REPLACES stdout, so
+  // a verdict written there is a verdict any stray line can erase.
+  assert.equal(result.stderr.trim(), '');
 });
 
 test('stale names print alone for the auto-mode hook, and only well-formed names', async () => {
@@ -440,4 +450,236 @@ test('a malformed source is a usage error, not a drift signal', async () => {
 
 test('the default source is the pack this copy was published from', () => {
   assert.match(DEFAULT_SOURCE, /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
+});
+
+// ── The unknown state, which the skill promises is never silent ──────────────
+
+test('an undetermined check formats a notice of its own rather than nothing', () => {
+  const unknown = formatUnknownNotice({ state: 'unknown', source: SOURCE, reason: 'source is unreachable (ENOTFOUND)' });
+
+  assert.match(unknown, /^PACK_FRESHNESS_UNKNOWN example-owner\/example-pack$/m);
+  assert.match(unknown, /source is unreachable \(ENOTFOUND\)/);
+  // The whole point: it must not read as an all-clear.
+  assert.match(unknown, /not an all-clear/i);
+  assert.equal(formatUnknownNotice({ state: 'current', source: SOURCE }), '');
+  assert.equal(formatUnknownNotice({ state: 'untracked', source: SOURCE }), '');
+});
+
+test('a check that crashed outright still reports unknown, on stdout, and exits 0', async () => {
+  // The one limb no other test here reaches. Every other failure — an unreachable source,
+  // an unreadable lockfile, an entry with no comparable hash — fails INSIDE
+  // checkPackFreshness, which RETURNS an unknown result. This is the case where the check
+  // throws out of it entirely, and its handler is the code that used to write to stderr and
+  // return 0: verified by putting that back, at which point this file's other 30 tests all
+  // still passed. `env: null` is the crash — the first lockfile read cannot even be located.
+  let stdout = ''; let stderr = '';
+  const sink = { stdout: { write: (chunk) => { stdout += chunk; } }, stderr: { write: (chunk) => { stderr += chunk; } } };
+
+  const status = await main(['--source', SOURCE], { env: null, ...sink });
+
+  assert.equal(status, EXIT_CURRENT, 'a crashed check must not break the start of a session');
+  assert.match(stdout, /^PACK_FRESHNESS_UNKNOWN/);
+  assert.match(stdout, /not an all-clear/);
+  // Not a second channel: on the hook path stderr REPLACES stdout, so a verdict written
+  // there is a verdict any stray line from anything else can erase.
+  assert.equal(stderr, '', 'the verdict for a crashed check must not live on stderr');
+
+  stdout = ''; stderr = '';
+  await main(['--source', SOURCE, '--hook'], { env: null, ...sink });
+  const envelope = JSON.parse(stdout);
+  assert.match(envelope.hookSpecificOutput.additionalContext, /PACK_FRESHNESS_UNKNOWN/);
+  assert.equal(stderr, '');
+});
+
+test('the report is the drift notice or the unknown notice, and silence only means current', async () => {
+  const { lockPath, cachePath } = await scratch('report');
+  await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-blocks') });
+
+  const current = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, env: {}, fetchImpl: stubFetch([['git/trees', jsonResponse(treeResponse({ 'skills/blocks': 'sha-blocks' }))]]) });
+  assert.equal(reportFor(current), '');
+
+  const offline = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, useCache: false, env: {}, fetchImpl: stubFetch([['git/trees', () => { throw new Error('ENOTFOUND'); }]]) });
+  assert.match(reportFor(offline), /^PACK_FRESHNESS_UNKNOWN/);
+});
+
+test('a drift notice says a differing tree hash is different, not newer', async () => {
+  const { lockPath, cachePath } = await scratch('ordering');
+  await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-installed') });
+  // Upstream was reverted: it now holds a tree this install has never had. A tree
+  // hash carries no ordering, so this is indistinguishable from a new release —
+  // and "updating" to it walks the user backwards.
+  const fetchImpl = stubFetch([
+    ['git/trees', jsonResponse(treeResponse({ 'skills/blocks': 'sha-reverted' }))],
+    ['releases/latest', jsonResponse(RELEASE)],
+  ]);
+
+  const notice = formatNotice(await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {} }));
+
+  assert.match(notice, /Different, not newer/);
+  assert.match(notice, /no ordering/);
+});
+
+// ── Delivery: the envelope, not the exit code ───────────────────────────────
+
+test('the hook envelope is a SessionStart additionalContext payload that frames what it carries', () => {
+  const envelope = JSON.parse(formatHookEnvelope('PACK_UPDATE_AVAILABLE a/b 1 skill'));
+
+  assert.equal(envelope.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(envelope.hookSpecificOutput.additionalContext, /PACK_UPDATE_AVAILABLE a\/b 1 skill/);
+  // The harness has been observed labelling this channel a blocking error, and
+  // models have refused it as prompt injection. The framing is load-bearing.
+  assert.match(envelope.hookSpecificOutput.additionalContext, /not an error in this session/);
+  assert.match(envelope.hookSpecificOutput.additionalContext, /not permission to apply one/);
+  assert.equal(formatHookEnvelope(''), '');
+});
+
+test('--hook delivers drift on stdout and exits 0, because exit 2 would discard it', async () => {
+  const { server, base } = await apiStandIn({ 'skills/blocks': 'sha-new' });
+  try {
+    const home = await stateHome('hook-stale', { blocks: lockEntry('blocks', 'sha-old') });
+    const result = await runChecker(['--source', SOURCE, '--hook'], { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: base });
+
+    // A synchronous SessionStart hook that exits 2 delivers nothing at all: it
+    // throws away the stdout exit 0 would have carried.
+    assert.equal(result.status, EXIT_CURRENT);
+    assert.notEqual(result.status, EXIT_DRIFT);
+    const envelope = JSON.parse(result.stdout);
+    assert.equal(envelope.hookSpecificOutput.hookEventName, 'SessionStart');
+    assert.match(envelope.hookSpecificOutput.additionalContext, /npx skills update blocks --global --yes/);
+    assert.equal(result.stderr.trim(), '');
+  } finally {
+    server.close();
+  }
+});
+
+test('--hook delivers the unknown state too, which is the state that used to vanish', async () => {
+  const home = await stateHome('hook-unknown', { blocks: lockEntry('blocks', 'sha-old') });
+  const result = await runChecker(['--source', SOURCE, '--hook'], { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: 'http://127.0.0.1:1' });
+
+  assert.equal(result.status, EXIT_CURRENT);
+  const envelope = JSON.parse(result.stdout);
+  assert.match(envelope.hookSpecificOutput.additionalContext, /PACK_FRESHNESS_UNKNOWN/);
+  assert.match(envelope.hookSpecificOutput.additionalContext, /not an all-clear/i);
+});
+
+test('--hook stays silent when the pack is current, so silence still means healthy', async () => {
+  const { server, base } = await apiStandIn({ 'skills/blocks': 'sha-new' });
+  try {
+    const home = await stateHome('hook-current', { blocks: lockEntry('blocks', 'sha-new') });
+    const result = await runChecker(['--source', SOURCE, '--hook'], { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: base });
+
+    assert.equal(result.status, EXIT_CURRENT);
+    assert.equal(result.stdout.trim(), '');
+  } finally {
+    server.close();
+  }
+});
+
+test('--hook and --print-stale-names are refused together rather than one silently winning', async () => {
+  const home = await stateHome('hook-conflict', { blocks: lockEntry('blocks', 'sha-old') });
+  const result = await runChecker(['--source', SOURCE, '--hook', '--print-stale-names'], { XDG_STATE_HOME: home });
+
+  assert.equal(result.status, EXIT_USAGE);
+  assert.equal(result.stdout.trim(), '');
+});
+
+// ── The auto-mode hook body, run as the shipped command string ──────────────
+// buildHookEntry emits a complete `sh -c '…' <node> <checker> <source>` command.
+// Running that string is the only way to test the quoting and the shell logic
+// together, and the shell logic is what decides whether a verdict is delivered.
+
+async function fakeNpx(exitStatus) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pack-freshness-npx-'));
+  const file = path.join(dir, 'npx');
+  await writeFile(file, [
+    '#!/bin/sh',
+    // Real npm writes to stderr constantly. On a rewake, stderr REPLACES stdout,
+    // so an un-redirected line here would erase the hook's own verdict.
+    'echo "npm warn deprecated left-pad@0.0.1" >&2',
+    `echo "skills update ran: $*"`,
+    `exit ${exitStatus}`,
+    '',
+  ].join('\n'));
+  await chmod(file, 0o755);
+  return dir;
+}
+
+function runAutoHook(command, env) {
+  return new Promise((resolve) => {
+    const child = spawn('/bin/sh', ['-c', command], { env: { PATH: process.env.PATH, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+const autoCommand = () => buildHookEntry({ mode: 'auto', source: SOURCE, checkerPath: checker, nodePath: process.execPath }).command;
+
+test('the auto hook wakes the model when the check could not tell, not only when it found drift', async () => {
+  const home = await stateHome('auto-unknown', { blocks: lockEntry('blocks', 'sha-old') });
+  const bin = await fakeNpx(0);
+
+  const result = await runAutoHook(autoCommand(), { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: 'http://127.0.0.1:1', PATH: `${bin}:${process.env.PATH}` });
+
+  // Exit 2 is what an asyncRewake hook wakes on. The checker exits 0 for BOTH
+  // "current" and "could not tell", so a hook that tested the checker's exit code
+  // reported a failed check by going silent — which reads as health.
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /PACK_FRESHNESS_UNKNOWN/);
+  assert.ok(!result.stdout.includes('skills update ran'), 'an undetermined check must not trigger the update');
+  assert.equal(result.stderr.trim(), '');
+});
+
+test('the auto hook stays silent when the pack is current', async () => {
+  const { server, base } = await apiStandIn({ 'skills/blocks': 'sha-new' });
+  try {
+    const home = await stateHome('auto-current', { blocks: lockEntry('blocks', 'sha-new') });
+    const bin = await fakeNpx(0);
+
+    const result = await runAutoHook(autoCommand(), { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: base, PATH: `${bin}:${process.env.PATH}` });
+
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), '');
+  } finally {
+    server.close();
+  }
+});
+
+test('the auto hook applies the named update and reports on stdout, with nothing on stderr to replace it', async () => {
+  const { server, base } = await apiStandIn({ 'skills/blocks': 'sha-new' });
+  try {
+    const home = await stateHome('auto-drift', { blocks: lockEntry('blocks', 'sha-old') });
+    const bin = await fakeNpx(0);
+
+    const result = await runAutoHook(autoCommand(), { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: base, PATH: `${bin}:${process.env.PATH}` });
+
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /PACK_UPDATE_AVAILABLE/);
+    assert.match(result.stdout, /Applied at global scope for example-owner\/example-pack: blocks/);
+    // npm wrote to stderr. If that had reached the hook's own stderr it would have
+    // replaced this entire verdict on the rewake.
+    assert.equal(result.stderr.trim(), '');
+    assert.ok(!result.stdout.includes('left-pad'), 'a successful update reports its verdict, not npm chatter');
+  } finally {
+    server.close();
+  }
+});
+
+test('a failed auto-update surfaces the command to re-run by hand, and the tool output that explains why', async () => {
+  const { server, base } = await apiStandIn({ 'skills/blocks': 'sha-new' });
+  try {
+    const home = await stateHome('auto-failed', { blocks: lockEntry('blocks', 'sha-old') });
+    const bin = await fakeNpx(1);
+
+    const result = await runAutoHook(autoCommand(), { XDG_STATE_HOME: home, SKILLS_FRESHNESS_API_BASE: base, PATH: `${bin}:${process.env.PATH}` });
+
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /AUTO_UPDATE_FAILED/);
+    assert.match(result.stdout, /npx skills update blocks --global --yes/);
+    assert.match(result.stdout, /left-pad/, 'the failure diagnosis is the one place npm output is worth keeping');
+    assert.equal(result.stderr.trim(), '');
+  } finally {
+    server.close();
+  }
 });

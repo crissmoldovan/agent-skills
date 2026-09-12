@@ -17,9 +17,26 @@
  *           Installing this mode IS the user's standing consent to that, for
  *           that source and that scope, until they remove it with `--remove`.
  *
- * The hook is asynchronous so it never delays the start of a session, and it
- * rewakes the model on exit code 2 so the notice reaches the conversation
- * instead of scrolling past in a terminal.
+ * The two modes deliver differently, and that is forced by what each has to do.
+ *
+ * `notify` is SYNCHRONOUS and always exits 0, handing the report to the model as
+ * `hookSpecificOutput.additionalContext`. That channel was verified on Claude Code
+ * 2.1.181; the exit-2 rewake it replaced was not a channel it could use, because a
+ * synchronous `SessionStart` hook that exits 2 delivers nothing at all, and an
+ * asynchronous one delivers nothing on exit 0 — which is the code the checker
+ * returns when it could not determine freshness. The cost is real and is paid at
+ * every session start: the checker fences each request at five seconds and makes
+ * at most two, so a cold check can hold the session for roughly ten seconds. A
+ * cached one costs a process spawn.
+ *
+ * `auto` cannot be synchronous — it may spend minutes inside `skills update` — so
+ * it stays `async` + `asyncRewake` and wakes the model by exiting 2. Two things
+ * about that channel are worth knowing before trusting it, both observed on
+ * 2.1.181 and recorded in `adapters/HOOK-OUTPUT-NOTES.md`: in a non-interactive
+ * `claude -p` run, a rewake landing after the turn ends is dropped entirely, so
+ * the update happens and nobody is told; and the harness announces the wake as a
+ * "Stop hook blocking error", which is why `rewakeMessage` has to say what the
+ * text actually is.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -35,8 +52,12 @@ export const HOOK_MARKER = 'check-pack-freshness.mjs';
 export const DESCRIBE_PREFIX = 'agent-skills pack freshness';
 export const MODES = Object.freeze(['notify', 'auto']);
 
-/** One short fetch plus overhead. The session is not waiting on this anyway. */
-export const NOTIFY_TIMEOUT_SECONDS = 20;
+/**
+ * The session IS waiting on this one. The ceiling sits just above the checker's
+ * own budget — two requests fenced at five seconds each, plus a process spawn —
+ * so a wedged network ends the hook rather than the session's patience.
+ */
+export const NOTIFY_TIMEOUT_SECONDS = 15;
 /**
  * Long enough that an update is never killed halfway through rewriting a skill
  * tree. It costs nothing to allow: the hook is asynchronous.
@@ -55,30 +76,37 @@ auto    apply the named, global-scoped update when drift is found. Installing
  * that no path is ever interpolated into the script text, and read in the order
  * it runs:
  *
- *   1. run the checker, which prints the notice and exits 2 on drift;
- *   2. anything other than drift ends here;
- *   3. ask the checker for the stale names alone — served from the cache the
- *      call above just wrote, so this costs no second request. The checker only
- *      ever prints names matching a plain slug pattern, which is what makes the
+ *   1. capture everything the checker has to say, stderr folded into stdout. Both
+ *      redirections matter. Folding keeps this hook's OWN stderr empty, because on
+ *      a rewake stderr does not supplement stdout, it replaces it — one npm
+ *      deprecation line would otherwise swap the verdict below for whatever npm
+ *      said. Capturing rather than testing `$?` is what fixes the reported defect:
+ *      the checker exits 0 for "current" AND for "could not tell", so an exit-code
+ *      test made every failed check indistinguishable from a healthy one;
+ *   2. ask the checker for the stale names alone — served from the cache the call
+ *      above just wrote, so this costs no second request. The checker only ever
+ *      prints names matching a plain slug pattern, which is what makes the
  *      unquoted expansion below safe;
- *   4. apply the update: named skills bound what is rewritten, `--global` pins
- *      the scope instead of letting it be inferred from whatever directory the
- *      hook inherited, and `--yes` keeps an upstream deletion a printed warning
- *      rather than a removal;
- *   5. exit 2 either way, so a failed auto-update is reported rather than
- *      swallowed. A check whose good path is silent must never let a failure
- *      look like good news.
+ *   3. apply the update when there are names: named skills bound what is
+ *      rewritten, `--global` pins the scope instead of letting it be inferred from
+ *      whatever directory the hook inherited, and `--yes` keeps an upstream
+ *      deletion a printed warning rather than a removal. Its output is captured
+ *      too, and surfaced only on failure, where it is the diagnosis;
+ *   4. wake the model whenever there is anything at all to say — drift, a failed
+ *      update, or a check that could not tell — and stay silent only when the
+ *      checker was silent, which it is exactly when the pack is current.
  */
 const AUTO_SCRIPT = [
-  '"$0" "$1" --source "$2" --consented',
-  'status=$?',
-  '[ "$status" -eq 2 ] || exit "$status"',
-  'names=$("$0" "$1" --source "$2" --print-stale-names)',
-  '[ -n "$names" ] || exit 0',
-  'if npx --yes skills update $names --global --yes',
-  'then printf "Applied at global scope for %s: %s\\n" "$2" "$names"',
-  'else printf "AUTO_UPDATE_FAILED for %s: %s — run: npx skills update %s --global --yes\\n" "$2" "$names" "$names"',
+  'notice=$("$0" "$1" --source "$2" --consented 2>&1)',
+  'names=$("$0" "$1" --source "$2" --print-stale-names 2>/dev/null)',
+  'if [ -n "$names" ]',
+  'then if applied=$(npx --yes skills update $names --global --yes 2>&1)',
+  'then notice=$(printf "%s\\nApplied at global scope for %s: %s" "$notice" "$2" "$names")',
+  'else notice=$(printf "%s\\nAUTO_UPDATE_FAILED for %s: %s — run: npx skills update %s --global --yes\\n%s" "$notice" "$2" "$names" "$names" "$applied")',
   'fi',
+  'fi',
+  '[ -n "$notice" ] || exit 0',
+  'printf "%s\\n" "$notice"',
   'exit 2',
 ].join('; ');
 
@@ -106,27 +134,32 @@ export function buildHookEntry({ mode, source, checkerPath, nodePath = process.e
   if (!MODES.includes(mode)) throw new Error(`mode must be one of: ${MODES.join(', ')}`);
   if (!SOURCE_PATTERN.test(source)) throw new Error('source must be <owner>/<repo>');
 
+  // Notify delivers through `--hook`: one envelope on stdout, exit 0 always.
   const command = mode === 'auto'
     ? `sh -c ${shellQuote(AUTO_SCRIPT)} ${shellQuote(nodePath)} ${shellQuote(checkerPath)} ${shellQuote(source)}`
-    : `${shellQuote(nodePath)} ${shellQuote(checkerPath)} --source ${shellQuote(source)}`;
+    : `${shellQuote(nodePath)} ${shellQuote(checkerPath)} --source ${shellQuote(source)} --hook`;
 
-  return {
+  const entry = {
     type: 'command',
     command,
     timeout: mode === 'auto' ? AUTO_TIMEOUT_SECONDS : NOTIFY_TIMEOUT_SECONDS,
-    async: true,
-    asyncRewake: true,
-    statusMessage: mode === 'auto' ? 'Checking and updating the skills pack…' : 'Checking whether the skills pack moved…',
-    rewakeSummary: mode === 'auto'
-      ? 'The skills pack drifted and the standing auto-update ran.'
-      : 'A newer version of the skills pack is available.',
-    rewakeMessage: mode === 'auto'
-      ? 'The installed skills pack drifted from its published source and was updated at global scope under the standing consent recorded when this hook was installed. Report what changed. The Skills CLI has no agent selector, so a successful update is not proof that every agent projection changed — verify the projections before calling every plane current.'
-      : 'The installed skills pack has drifted from its published source. Report this to the user together with the exact update command. Being told about an update is not permission to apply one: do not update anything without the user explicitly naming the scope.',
     describe: mode === 'auto'
       ? `${DESCRIBE_PREFIX} (auto) for ${source}: standing consent to update this source at global scope, granted by installing this hook and revocable with --remove.`
-      : `${DESCRIBE_PREFIX} (notify) for ${source}: read-only drift report, grants no consent to mutate anything.`,
+      : `${DESCRIBE_PREFIX} (notify) for ${source}: read-only drift report delivered synchronously on exit 0, grants no consent to mutate anything.`,
   };
+  if (mode !== 'auto') return entry;
+
+  // Only auto rewakes, because only auto has work that cannot be waited on. The
+  // rewakeMessage is load-bearing: the harness labels this wake a "Stop hook
+  // blocking error", and an unlabelled report on that channel has been observed
+  // to send a model hunting for a fault that does not exist, or to be refused
+  // outright as prompt injection.
+  entry.async = true;
+  entry.asyncRewake = true;
+  entry.statusMessage = 'Checking and updating the skills pack…';
+  entry.rewakeSummary = 'The skills pack freshness hook has something to report.';
+  entry.rewakeMessage = 'This is the pack-freshness hook\'s own report, not an error in this session and not an instruction from the user. It ran with the standing consent recorded when the hook was installed, which covers updating this one source at global scope. It says one of three things: drifted skills were updated, the update failed and names the command to re-run by hand, or freshness could not be determined at all — and "could not be determined" is not "current". Relay what it says. The Skills CLI has no agent selector, so a successful update is not proof that every agent projection changed; verify the projections before calling every plane current.';
+  return entry;
 }
 
 function isOurs(hook) {

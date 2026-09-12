@@ -39,93 +39,78 @@ in, and hands over to `land-complex-change` once that tree is right. Both are us
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-### Two new skills: reporting progress, and working in a repository that is not this one
+### A gate for progress reports, and a freshness check that can say "I could not tell"
 
-**What changed.** The pack gains two workflow skills and now ships twenty-three.
+**What changed.** Two hooks that run outside the conversation: one new, one repaired.
 
-`report-progress` fixes the shape of a progress report and the line between what the
-reporter verified and what somebody else claimed. Long work tends to fail its reader in one
-of two ways: silence, so nobody can tell whether anything is still happening, or fluent
-narration that passes a child agent's "all tests pass" along as though the reporter had
-watched it run. The skill answers both with three required sections — what is done, what is
-running, what is next, each carrying a count or a named artefact — a rule that every number
-sits beside the command that produced it or is attributed and marked unverified, a
-requirement to name the user-facing consequence rather than the code change, corrections
-stated in one plain sentence at the point they matter, and a ban on describing a result that
-has not happened yet. It ends in a checklist a reviewer can run over a report that is
-already written. It is explicit about its own limit: a skill is instructions and cannot
-intercept a message, so what it removes is the ambiguity about what was owed, not the
-possibility of a bad report.
+The pack gains its first user-installable enforcement hook,
+`adapters/claude-code/report-progress-gate.mjs` — the mechanical half of `report-progress`, and
+the part of it that is not instructions. On a turn that dispatched a subagent through the
+`Agent` tool it reads the turn's final message and, in `block` mode, holds the turn open for
+one more round when that message carries no report: three section labels, and a literal state
+and a freshness token on a running row, or `agent-lifecycle`'s no-evidence sentence standing in
+place of the section. `observe` mode writes what it would have refused to stderr and never
+holds a turn; it is the default, and the mode to live with for a day first.
+`install-report-progress-gate.mjs` writes both halves into a settings file and takes them out
+again with `--remove`.
 
-`work-in-external-repo` covers work requested against a repository that is not the current
-working directory, where every failure is quiet. Two of them are on record from the session
-that motivated the skill: a located checkout that was 228 commits behind its origin and
-looked entirely normal from the inside, and two agents sharing one worktree where a
-`git stash` silently reverted the other agent's uncommitted files for about a minute. The
-procedure establishes the target as a remote before any directory is chosen, proves a
-candidate checkout by its `origin` URL rather than its name, confirms a destination before
-cloning, fetches and states both ahead and behind counts, works in a dedicated worktree cut
-from the fetched ref, forbids `git stash`, `git reset`, `git checkout --`, rebase and amend
-anywhere another session may be standing, and requires every result to name the repository,
-branch, worktree path and commits — because "done, 2 commits" reads as *here* to a reader
-looking at their own terminal.
+Three limits travel with it, in the code, in the reason string the model receives, in the
+installer's own output and in every document that introduces it. It checks the **shape** of a
+report and never whether anything in it is true — it cannot tell whether `npm test` was run,
+whether `child-7f2` exists, or whether "40s ago" was observed. It acts **at most once per
+turn** and then stands down, because Claude Code ends a turn after 8 consecutive `Stop` blocks
+and that budget is shared with every other `Stop` hook on the machine. And its marker is keyed
+by **session**, so a turn that dispatched a subagent and then died without a `Stop` leaves the
+marker behind, and the next turn in that session pays one block for a dispatch it did not make.
 
-**Who should care.** Anyone who runs multi-phase or background work and has been asked
-"where are we" mid-run; anyone whose agents dispatch children they cannot observe; and
-anyone who asks an agent to change a repository other than the one it is sitting in,
-especially where a checkout is shared with a colleague or a second session.
+The freshness check `update-agent-skills` carries stopped reporting "I could not tell" as
+silence. An unreadable lockfile, an unreachable source, or a crash inside the checker wrote a
+line to stderr and exited 0, while the `SessionStart` hook acted only on exit 2 — so a failed
+check produced exactly what a healthy pack produces: nothing. That is the failure the skill's
+own text names, shipped inside the implementation of the sentence naming it: where silence is
+the healthy signal, a failure that renders as silence reads as health. Delivery no longer rides
+on the exit code, because the exit code cannot carry it. Every verdict, drift and `unknown`
+alike, goes to stdout; a new `--hook` flag wraps the report in a `SessionStart`
+`hookSpecificOutput.additionalContext` envelope and always exits 0; `notify` became a
+synchronous hook, so the session waits for the check — about ten seconds cold, a process spawn
+when cached. `auto` stays asynchronous, because it may spend minutes inside `skills update`,
+but it now wakes the model on what the checker *said* rather than on what it exited with, so an
+undetermined check reaches the conversation too. The notice also records a limit it always had:
+a git tree hash carries no ordering, so an upstream revert or force-push reads exactly like a
+release, and "different" is not "newer".
 
-**Compatibility.** Additive. No existing skill's contract, frontmatter, or carried
-reference changed, and neither runtime package was touched, so an installed pack keeps
-working exactly as before if these two are never installed. The repository README's pack
-count moved from twenty-one to twenty-three and its install block gained a line for the
-pair.
-Node.js 24 or newer is still the requirement for `npm run verify`. Neither skill carries a
-script, a reference file or a runtime of its own: each is a single `SKILL.md`, and the only
-tool `work-in-external-repo` asks for is the git an agent already has.
+**Who should care.** Anyone whose agents dispatch children and then end a turn with "the
+subagent came back with done"; and anyone running the freshness hook, who until now could not
+tell "your pack is current" from "this check never completed".
 
-**Action required to receive it.** Nothing is delivered by publication alone. Add the pair
-to an existing installation:
+**Compatibility.** Additive, and nothing changes for a user who installs neither hook. No
+skill was added, removed or renamed — the catalogue still ships twenty-three — no skill's
+frontmatter `description` changed, and no runtime package was touched. Two `SKILL.md` bodies
+gained text: `report-progress` describes the gate and names it in its `compatibility` line,
+and `update-agent-skills` documents the new delivery and the tree-hash caveat. The gate is off until a human runs its
+installer and gone when they run it with `--remove`; it lives in this repository rather than
+inside the skill, because `npx skills add` copies `skills/report-progress/SKILL.md` and nothing
+else.
+
+One thing does not update itself: a `SessionStart` freshness hook installed before this release
+holds the old command string in `settings.json`. It keeps working and keeps reporting drift,
+but it will not carry an `unknown` verdict until the installer is run again, which rewrites the
+entry. Re-running it is the whole migration.
+
+**Action required to receive it.** Update the skill, then re-run the freshness installer if you
+had one:
 
 ```bash
-npx skills add crissmoldovan/agent-skills --skill report-progress work-in-external-repo
+npx skills update update-agent-skills report-progress --global --yes
+node <skill-folder>/scripts/install-freshness-hook.mjs --mode notify --source <owner>/<repo>
 ```
 
-Or work at the scope you actually use. `npx skills update` refreshes skills that are
-already installed; adding the complete pack is what brings across a skill that was not there
-before:
+The gate is installed from a checkout of this repository, and starting in `observe` is the
+point of having two modes:
 
 ```bash
-npx skills update --project --yes
-npx skills update --global --yes
-npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
+node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 ```
-
-Restart or reload any agent whose loader caches installed files; a session already open will
-keep using the instructions it loaded at start.
-
-### `npm run verify` is green on macOS again
-
-**What changed.** Thirty-one of the seventy-two `workspace-governance` tests had been failing
-on every macOS machine, and one further test asserted a Linux-only code path unconditionally.
-Nothing in CI could see it: GitHub Actions runs Linux, where `/var` is a real directory.
-
-The mechanism is a macOS detail with a sharp edge. Fixtures build scratch roots with
-`mkdtemp(join(tmpdir(), …))`, which on macOS lands under `/var/folders/…`; local discovery
-refuses any root with a symlink ancestor, and macOS resolves `/var` to `/private/var`. So the
-very first path component of every fixture root was rejected, and every affected test failed
-with the same opaque `Invalid input (INVALID)`.
-
-The refusal is correct and is left exactly as it was: it is a published contract in four
-documents, and it is the precondition that makes the containment check on a `.git` file's
-`gitdir:` pointer meaningful — a lexical prefix test against a non-canonical root proves
-nothing. The fixtures were wrong, not the guard, so the fixtures now resolve their scratch
-root before handing it over. `packages/agent-journal` already did exactly this, with a comment
-naming the same cause. No file under `src/` changed.
-
-**Who should care.** Anyone running `npm run verify` on macOS — step 3 of the release
-checklist in this document, which could not pass there. On Linux the change is the identity
-function: resolving a path with no symlink ancestors returns the same string.
 
 ## Release checklist
 
@@ -161,7 +146,12 @@ Release notes reach a reader only if they learn the release happened.
 installed pack against the published tree and prints the stale skills, the latest
 release, and the exact scoped command, plus an installer for an optional
 `SessionStart` hook that runs it. The check never invokes the Skills CLI, whose
-`check` is a mutating alias for `update`. Its notify mode reports and stops;
+`check` is a mutating alias for `update`. Every verdict it has is printed as text
+on stdout and delivered to the session on exit 0 — drift, and equally the
+`unknown` it returns when it could not determine anything at all. An exit code
+that means both "current" and "could not tell" can announce neither, and a check
+whose healthy signal is silence must never let a failure render as silence. Its
+notify mode reports and stops;
 installing its auto mode is the user's standing consent to update that source at
 that scope, and is withdrawn by removing the hook. Announcement remains
 communication, and mutation remains something a user asks for. The update-check

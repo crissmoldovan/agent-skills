@@ -5,6 +5,69 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.13.0
+
+**What.** Two hooks that run outside the conversation. A new, user-installable Claude Code
+`Stop` gate for `report-progress` (`adapters/claude-code/report-progress-gate.mjs`, with
+`install-report-progress-gate.mjs` beside it) that holds a turn open for one more round when
+that turn dispatched a subagent and the final message carries no progress report. And a
+delivery fix in the freshness check `update-agent-skills` carries: a new `--hook` flag that
+emits a `SessionStart` `hookSpecificOutput.additionalContext` envelope, `notify` turned
+synchronous, and every verdict — drift and `unknown` alike — written to stdout. No skill was
+added, removed or renamed; the catalogue still ships twenty-three.
+
+**Why.** A skill is instructions, and instructions get skipped in silence on exactly the turns
+where that costs most: the user has stopped reading, children are still running, and the whole
+final message is "the subagent came back with done." `skills/report-progress` already fixes the
+shape of the report; nothing made producing one anything other than optional. The gate is the
+half that is not instructions — string matching in a hook, with no model in the enforcement
+path, so there is nothing there to talk round.
+
+The freshness fix exists because a notifier that could not determine an answer was reporting
+silence, and silence is its healthy signal. An unreadable lockfile, an unreachable source or a
+crash inside the checker wrote a line to stderr and exited 0, while the `SessionStart` hook
+acted only on exit 2 — so a failed check produced exactly what a current pack produces:
+nothing. The skill's own text names that failure ("where silence is the healthy signal, a
+failure that renders as silence reads as health") and shipped it inside the implementation of
+the sentence naming it. Delivery no longer rides on the exit code, because the exit code cannot
+carry it: on this harness a synchronous `SessionStart` hook that exits 2 discards the stdout
+exit 0 would have delivered, and an asynchronous one delivers nothing on exit 0 — which is the
+code an undetermined check returns. Neither shape could announce "I could not tell". The
+channels were probed on the installed binary before anything was built on them, and the runs
+are recorded in `adapters/HOOK-OUTPUT-NOTES.md`.
+
+**Impact.** **Additive.** **No migration**, and nothing changes for a user who installs neither
+hook. No skill's name or frontmatter `description` changed, no export or return shape changed,
+and no runtime package was touched. Two `SKILL.md` bodies gained text: `report-progress`
+describes the gate and names it in its `compatibility` line, and `update-agent-skills`
+documents the new delivery and the caveat that a tree hash is different, never newer.
+
+- *Blast radius:* the gate is off until a human runs its installer and gone when they run it
+  with `--remove`. It lives in this repository rather than inside the skill — `npx skills add`
+  copies `skills/report-progress/SKILL.md` and nothing else — so installing the pack does not
+  install it and cannot.
+- *Runtime behavior:* one thing does change without being asked for. A `SessionStart` freshness
+  hook installed before this release keeps the command string it was written with, so it keeps
+  reporting drift but still cannot carry an `unknown` verdict; re-running
+  `install-freshness-hook.mjs` rewrites the entry and is the whole migration. Freshly installed
+  `notify` hooks are now synchronous: the session waits for the check, roughly ten seconds cold
+  (two requests fenced at five seconds each) and a process spawn when cached. That cost buys a
+  report that arrives.
+- *What the gate cannot do, stated because over-trusting it is the risk:* it checks the SHAPE
+  of a report and never whether anything in it is true — it cannot tell whether `npm test` was
+  run, whether `child-7f2` exists, or whether "40s ago" was observed. It acts at most once per
+  turn and then stands down, because Claude Code ends a turn after 8 consecutive `Stop` blocks
+  and that budget is shared with every other `Stop` hook on the machine. Its marker is keyed by
+  session, so a turn that dispatched a subagent and then died without a `Stop` leaves it behind
+  and the next turn in that session pays one block for a dispatch it did not make.
+- *Dependencies:* none added. `engines.node` remains `>=24`, required to run this repository's
+  verification rather than to use the skills.
+- *Downstream surfacing:* `README.md` gains an "Optional hooks (adapters)" section,
+  `docs/architecture.md` an "Adapters and hooks" boundary, `docs/composition.md` the note that
+  the gate carries `agent-lifecycle`'s no-evidence sentence as a shared constant, and
+  `CONTRIBUTING.md` the rules for changing anything under `adapters/`. `docs/releases.md`
+  carries the reader-facing prose for the tag.
+
 ## 0.12.0
 
 **What.** Six new skills, taking the catalogue from seventeen to twenty-three:
