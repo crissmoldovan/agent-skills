@@ -79,7 +79,10 @@ unchanged whether or not anyone touches the gate.
   runner prefix going ungated, `gh release create --repo owner/name` resolved against the wrong
   repository, a version bump invisible in a one-line `package.json`, a build step's `--filter`
   read as the publish's package, and a trailing `;` printed in a refusal message — each with a
-  test that reddens when only that fix is reverted.
+  test that reddens when only that fix is reverted. A sixth, in the test harness rather than the
+  gate, was found while cutting this release: the unarmed-gate case raced its own stdin write and
+  reddened roughly one full-suite run in six, because an unarmed gate exits without draining
+  stdin and the resulting EPIPE had no handler. The gate was correct every time it fired.
 - *Distribution:* the Skills CLI resolves this repository's default branch, so the update reaches
   users through `npx skills update --global --yes` with no dist-tag to manage.
 
