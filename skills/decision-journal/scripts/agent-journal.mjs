@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // GENERATED from packages/agent-journal/src by bundle:skill. Do not edit.
-// source-sha256: ba2502bd736ff4c5fe1aeb8e14c1d9393e43c6c74eb027e1d7704d05caf472f2
+// source-sha256: 68fd7863e70dabbe29c33689a2a07ab93c8b6ac37e6b0218827615b5bb8fca72
 // body-sha256: 56578d726b8039c8fe5f800fed9ddc9f9442c3f7ead534c75b4a4528396a5c2d
 
 // src/cli.ts

@@ -26,7 +26,11 @@ const result = await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: 'node24',
+  // The floor skills/decision-journal/scripts/install-cli.mjs admits, not the Node
+  // this is built on. Left above it, esbuild emits syntax the Node that installer
+  // just approved cannot parse, and the user meets a SyntaxError from a command
+  // that installed without a word of warning.
+  target: 'node22',
   legalComments: 'none',
   write: false,
   logLevel: 'warning',
