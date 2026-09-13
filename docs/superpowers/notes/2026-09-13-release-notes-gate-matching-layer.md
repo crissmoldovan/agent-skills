@@ -9,6 +9,31 @@
 - **Status:** recommendation only. No change to the gate is proposed here as applied; the
   work list below is unimplemented.
 
+> **[FOLLOW-UP, same day]** The work list **was** implemented, in commit `136f9eb` on this
+> branch — items 1–7, each with its failing test first and each mutation-checked. Three
+> things the note said that the implementation can now confirm or correct:
+>
+> - **Confirmed.** Repair **B** (`export LC_ALL=C`) was used, and the seventh defect the
+>   note found — `head: illegal byte count -- 0` leaking to stderr — did not recur; the
+>   test that would have caught it (`a project with no release-note file at all is allowed,
+>   silently`, which asserts silence) stayed green throughout. The suite went 61 → 70 and
+>   lost nothing.
+> - **Confirmed, with numbers of its own.** The linear formulation lands where the note
+>   predicted: through the whole gate, 128KB 1039ms → 70ms and 2000 lines 1048ms → 71ms,
+>   against 59ms and 61ms for the v0.16.0 build that has no such pass. One shape the note
+>   did not measure is worse than the rest and is now stated in the gate header: 128KB made
+>   of ~7000 quoted spans costs 121ms against 63ms. The rewrite was checked for equivalence
+>   rather than assumed — byte-identical output to the character loop on all 4054 inputs of
+>   a fuzz corpus over exactly the alphabet that can change parsing state.
+> - **One defect the note's list missed**, found while bounding item 4's extractor and fixed
+>   with it: the `-C` that decides WHICH repository a tag is judged against was read with the
+>   same greedy `.*` over the whole line, so `git tag v9.9.9 -m "see git -C <other> tag
+>   v1.0.0"` let a commit message nominate the checkout whose notes were consulted. Same
+>   class, same line of thinking, not on the list — which is the note's own "extractors did
+>   not learn what the detectors learned" holding one more time than it said.
+>
+> The trip-wires under "When to revisit" are unchanged and still apply.
+
 Every number in this note was measured on the machine that produced it, not estimated.
 Where a measurement contradicted something I had already written down, the note says so.
 
