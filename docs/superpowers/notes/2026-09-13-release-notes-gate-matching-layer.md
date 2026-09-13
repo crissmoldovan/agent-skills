@@ -34,6 +34,46 @@
 >
 > The trip-wires under "When to revisit" are unchanged and still apply.
 
+> **[SECOND FOLLOW-UP, same day — round 8]** Three more defects, and one of them corrects a
+> measurement in the follow-up above. None of them changes the PATCH recommendation; two of
+> them sharpen the case for the structural guard.
+>
+> - **Corrected.** The follow-up above reported the linear rewrite as landed, on inert,
+>   metacharacter and many-line inputs. It was still **superlinear on quote-dense input**,
+>   which is the only shape the pass actually works on: 128KB 97ms, 256KB 256ms, 512KB
+>   1398ms — four times the input for fourteen times the time. End to end that made the
+>   branch 3–29x dearer than 0.16.0 on ORDINARY commands, worst on `curl -d "{JSON}"`
+>   (204ms → 5747ms at 512KB). The note's own prescription — one `gsub` to mark, one
+>   `split`, append whole runs — had been applied correctly and was not sufficient, because
+>   neither cause was in the algorithm: one-true-awk's `printf` allocates a scratch buffer of
+>   three times the RECORD size on every call, and its `gsub`/`split` over a regex are
+>   themselves superlinear in match count on a long subject. `print` with `ORS=""` fixes the
+>   first (512KB 1398ms → 788ms) and walking the record in 4KB pieces fixes the second (→
+>   231ms); each is measured on its own and each has a mutation test. The lesson the note
+>   already half-records, in a sharper form: **a scaling test that omits the shape the code
+>   is FOR measures the shapes it is not for.** The gate's own scaling test drove inert text,
+>   metacharacters and many lines — every one of them linear throughout the defect.
+> - **Round 8 is the anchoring class again, on the LAST greedy read in the file.** Branch 4's
+>   `-C` — the flag that decides which repository's index a commit is judged against — was
+>   still read with `sed -nE "s/.*(git<opts>) +commit.*/\1/p"`. Same three directions as the
+>   tag extractor: a false denial naming a repository the command never touches, a false
+>   denial in the other direction, and a fail-OPEN when the prose names a `-C` that does not
+>   resolve. The branch commit that claimed "the `-C` that decides which repository is judged
+>   is read the same way now" was true of the tag path and false of the commit path; it is
+>   true of both now.
+> - **The guard the note proposed would NOT have caught it**, and that is the finding.
+>   Written as the note specifies — every `grep -Eq` over `$norm` starts with `${START}` — it
+>   reads a file carrying round 8 as clean, because round 8 is a `sed`. The rule that holds is
+>   about `$norm`, not about `grep -Eq`: whatever reads the normalised command reads it
+>   through an anchored pattern, and anything needing the inside of one invocation cuts the
+>   fragment out first. Widened that way it flags round 8 exactly. This is close to the third
+>   trip-wire under "When to revisit" — *a defect the anchoring test could not have caught* —
+>   but not over it: the test as proposed could not, the test as the rule actually generalises
+>   could, and it now does.
+> - **Also fixed, pre-existing and unrelated to either:** `notes_status` built its search
+>   pattern by escaping `.` and nothing else, so a package at the legal semver `1.0.0+build.7`
+>   was refused with "never mentions 1.0.0+build.7" while the changelog said exactly that.
+
 Every number in this note was measured on the machine that produced it, not estimated.
 Where a measurement contradicted something I had already written down, the note says so.
 

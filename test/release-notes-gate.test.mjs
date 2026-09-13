@@ -74,13 +74,16 @@ function decision(result) {
   return JSON.parse(result.stdout).hookSpecificOutput;
 }
 
+/** every regex metacharacter escaped — a version is a literal here, never a pattern */
+const literal = (s) => s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+
 /** A refusal names the version and points at a file the reader can open. */
 function assertRefused(result, version) {
   const output = decision(result);
   assert.ok(output, `expected a refusal, got nothing on stdout (stderr: ${result.stderr})`);
   assert.equal(output.hookEventName, 'PreToolUse');
   assert.equal(output.permissionDecision, 'deny');
-  assert.match(output.permissionDecisionReason, new RegExp(version.replaceAll('.', '\\.')));
+  assert.match(output.permissionDecisionReason, new RegExp(literal(version)));
   assert.match(output.permissionDecisionReason, /release-notes skill/);
 }
 
@@ -293,11 +296,46 @@ test('every heading dialect a changelog generator emits is accepted', async () =
 });
 
 test('a neighbouring version does not satisfy the version being released', async () => {
-  for (const other of ['1.4.00', '1.4.0-rc.1', '11.4.0', '1.4.01']) {
+  // `1-4-0` and `1x4y0` are here because nothing else in this suite could tell an escaped
+  // dot from an unescaped one: every other near miss is rejected by the token boundary
+  // whether or not the `.` is a wildcard. Dropping the `.` from the escape set is a mutation
+  // the rest of these rows pass.
+  for (const other of ['1.4.00', '1.4.0-rc.1', '11.4.0', '1.4.01', '1-4-0', '1x4y0']) {
     const dir = await project({ notes: null });
     await writeFile(path.join(dir, 'CHANGELOG.md'), `# Changelog\n\n## ${other}\n\nwhy\n`);
     assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.4.0');
   }
+});
+
+// ---------------------------------------------------------------------------
+// The version is looked for as TEXT, not as a pattern
+//
+// `notes_status` built its search pattern by escaping the dots in the version and nothing
+// else, so every other regex metacharacter a legal version can carry stayed live. Semver's
+// build metadata is spelled with `+` — `1.0.0+build.7` — and in an ERE a `+` is a
+// quantifier, so the pattern asked for `1.0.` followed by one-or-more `0` and then `build`.
+// A note written verbatim did not match it, and the refusal said the file "never mentions
+// 1.0.0+build.7" while the file literally does. That is the false denial the header says
+// costs most, and it accuses the reader of not having written a note they are looking at.
+//
+// Both directions, on the same shape: escaping the metacharacter must not also blind the
+// check to a version that is genuinely unnoted.
+// ---------------------------------------------------------------------------
+
+for (const version of ['1.0.0+build.7', '1.0.0+21AF26D3']) {
+  test(`a version carrying a regex metacharacter (${version}) is matched as text`, async () => {
+    assertAllowed(await runGate(bashCall('npm publish', await project({ version, noted: [version] })), {}));
+    assertRefused(await runGate(bashCall('npm publish', await project({ version, noted: ['2.0.0'] })), {}), version);
+  });
+}
+
+test('escaping the version does not let a near miss satisfy it', async () => {
+  // The escape must be a LITERAL match, not merely a quieter pattern: `1.0.0+build.7` is
+  // not satisfied by a changelog that records `1.0.00+build.7`, and an unescaped `+` would
+  // have said it was.
+  const dir = await project({ version: '1.0.0+build.7', notes: null });
+  await writeFile(path.join(dir, 'CHANGELOG.md'), '# Changelog\n\n## 1.0.00+build.7\n\nwhy\n');
+  assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.0.0+build.7');
 });
 
 // ---------------------------------------------------------------------------
@@ -803,6 +841,31 @@ for (const [label, quoted, bare] of [
   });
 }
 
+test('a quoted span is still one span across the seam between the pass\'s internal pieces', async () => {
+  // The pass walks the command in fixed 4KB pieces, so the two pieces of machine state — the
+  // open quote and a pending backslash — have to cross the seam. NOTHING else in this suite
+  // is long enough to have a seam at all: every other command here is a few dozen bytes, so
+  // a version of the pass that reset its state at every piece boundary passes all of them.
+  // The consequence is a false denial on a long commit message, which is not an exotic shape.
+  const dir = await repository({ noted: ['1.3.0'] });
+  const lead = 'git commit -m "';           // 15 bytes, so the seam at 4096 lands at lead + 4081
+
+  for (const pad of [4000, 4079, 4080, 4081, 4082, 8177]) {
+    const filler = 'a'.repeat(pad);
+    // The `;` is inside a span opened before the seam: text, not structure.
+    assertAllowed(await runGate(bashCall(`${lead}${filler}; npm publish now works"`, dir), {}));
+    // ...and the same length with the separator genuinely outside the quotes is a release.
+    assertRefused(await runGate(bashCall(`git commit -m ${filler}; npm publish`, dir), {}), '1.4.0');
+  }
+
+  // A pending backslash has to cross the seam too: an escaped quote straddling it must not
+  // close the span, or everything after it reads as a command again.
+  for (const pad of [4078, 4079, 4080, 4081]) {
+    const filler = 'a'.repeat(pad);
+    assertAllowed(await runGate(bashCall(`${lead}${filler}\\" still inside; npm publish now works"`, dir), {}));
+  }
+});
+
 test('a release verb that is merely QUOTED is still the release it is', async () => {
   // The cheap repair — blank every quoted span before matching — passes every case above
   // and goes silently inert here: bash runs `npm "publish"` identically to the unquoted
@@ -1003,6 +1066,58 @@ test('every detector that reads the normalised command anchors it to a command p
   assert.equal(normDetectors(`printf '%s' "$tag" | grep -Eq '@[0-9]|^v?[0-9]'`).length, 0);
 });
 
+/**
+ * every `printf '%s' "$norm" | <cmd> <flags> <pattern>` in a shell source — detectors AND
+ * extractors, since the rule is about reading $norm at all, not about `grep -Eq`.
+ */
+function normReaders(source) {
+  const found = [];
+  const re = /printf\s+'%s'\s+"\$norm"\s*(?:\\\s*)?\|\s*([a-z]+)\s+(-[A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')/g;
+  for (let m = re.exec(source); m; m = re.exec(source)) {
+    found.push({ cmd: m[1], flags: m[2], pattern: m[3] ?? m[4], quoted: m[3] === undefined ? "'" : '"' });
+  }
+  return found;
+}
+
+test('every read of the normalised command goes through an anchored pattern, extractors included', async () => {
+  const source = await readFile(gate, 'utf8');
+  const readers = normReaders(source);
+
+  // The detector rule was written for `grep -Eq` and the EXTRACTORS went on doing what the
+  // detectors had been fixed for: branch 4 read the `-C` that picks which repository is
+  // judged with `sed -nE "s/.*(git<opts>) +commit.*/\1/p"`, a greedy whole-line read that a
+  // commit MESSAGE could satisfy. A rule scoped to `grep -Eq` reads that file as clean.
+  //
+  // So the rule is about $norm, not about one command: whatever reads the normalised command
+  // reads it through a pattern that starts at a command position. Anything that needs the
+  // inside of one invocation cuts the fragment out first and reads THAT.
+  assert.equal(readers.length, 9, `expected 9 $norm readers, found ${readers.length}`);
+  for (const { cmd, flags, pattern } of readers) {
+    assert.match(cmd, /^grep$/, `only grep reads $norm; a ${cmd} over the whole line cannot be anchored to a command position: ${pattern}`);
+    assert.match(flags, /^-E[qo]$/, `a $norm read uses -Eq or -Eo, not ${flags}: ${pattern}`);
+    assert.ok(
+      pattern.startsWith('${START}') || pattern.startsWith('$START'),
+      `a read of $norm does not begin with START, so its verb can be satisfied by prose: ${pattern}`,
+    );
+  }
+
+  // The matcher is checked against BOTH shapes that have actually shipped: the unanchored,
+  // single-quoted detector of round 6, and the greedy `sed` of round 8. A matcher that saw
+  // only double-quoted `grep -Eq` reads a file carrying either of them as clean.
+  const single = normReaders(`if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then`);
+  assert.equal(single.length, 1);
+  assert.equal(single[0].quoted, "'");
+  assert.equal(single[0].pattern.startsWith('${START}'), false);
+
+  const greedy = normReaders(`cdir="$(repo_dir_for "$(printf '%s' "$norm" | sed -nE "s/.*(git\${GIT_OPTS}) +commit.*/\\1/p")")"`);
+  assert.equal(greedy.length, 1);
+  assert.equal(greedy[0].cmd, 'sed');
+  assert.equal(greedy[0].pattern.startsWith('${START}'), false);
+
+  // ...and a continued line is still one read, which is how branch 1's extractor is written.
+  assert.equal(normReaders(`x="$(printf '%s' "$norm" \\\n        | grep -Eo "\${START}foo" \\\n        | tail -1)"`).length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // An extractor reads the invocation that matched, not the whole line
 //
@@ -1057,6 +1172,68 @@ test('a release tag is read from the invocation being run, not from its own --no
 });
 
 // ---------------------------------------------------------------------------
+// ...and the commit branch reads its `-C` the same way
+//
+// Branch 3 learned this; branch 4 did not, and it was the last greedy whole-line read left
+// in the file: `sed -nE "s/.*(git<opts>) +commit.*/\1/p"`. A leading `.*` walks to the LAST
+// `git … commit` on the line, and after the quote pass the words inside a commit MESSAGE are
+// still words — so an ordinary sentence decided which repository's index was read. Three
+// consequences, all reproduced against the unfixed file:
+//
+//   (a) FALSE DENIAL, on a minimal pair. From a session rooted in a repository with an
+//       unnoted staged bump, `git -C <clean> commit -m "explain how git commit hooks work"`
+//       was refused — naming a package in a repository the command never touches — while the
+//       byte-identical message WITHOUT those two words was allowed. The `-C` belonging to
+//       the real invocation was walked past, so the judged repository fell back to the
+//       session's own.
+//   (b) FALSE DENIAL the other way round: in a CLEAN checkout, prose naming another repo
+//       (`git commit -m "see git -C <other> commit for how"`) was judged against <other>'s
+//       staged bump, which no note in the current repository can ever satisfy.
+//   (c) FAIL-OPEN: prose naming a `-C` that does not exist made `resolve_dir` fail, and the
+//       branch exits 0 on an unresolvable directory — so a real unnoted bump walked through.
+//       That is the direction nobody notices.
+// ---------------------------------------------------------------------------
+
+/** a repository whose staged package.json bumps to 9.9.9, with no note for it */
+async function stagedBump(options) {
+  const dir = await repository({ version: '1.0.0', noted: ['1.0.0'], ...options });
+  const name = options?.name ?? '@acme/cli';
+  await writeFile(path.join(dir, 'package.json'), `${JSON.stringify({ name, version: '9.9.9' }, null, 2)}\n`);
+  git(dir, 'add', 'package.json');
+  return dir;
+}
+
+test('a commit is judged against the repository its own invocation names, not one its message mentions', async () => {
+  const dirty = await stagedBump({ name: '@acme/dirty' });
+  const clean = await repository({ version: '1.0.0', noted: ['1.0.0'], name: '@acme/clean' });
+
+  // The fixture really is dirty, so every allow below is a statement about the reading and
+  // not about a gate that has gone quiet.
+  assertRefused(await runGate(bashCall('git commit -m ordinary', dirty), {}), '9.9.9');
+
+  // (a) the minimal pair: the same commit, in the same session, differing only in four
+  // words of prose. Both land in <clean>, which has nothing staged.
+  assertAllowed(await runGate(bashCall(`git -C ${clean} commit -m "explain how git commit hooks work"`, dirty), {}));
+  assertAllowed(await runGate(bashCall(`git -C ${clean} commit -m "explain how hooks work"`, dirty), {}));
+
+  // (b) prose nominating another checkout from a clean one
+  assertAllowed(await runGate(bashCall(`git commit -m "see git -C ${dirty} commit for how"`, clean), {}));
+
+  // (c) the fail-open: an unresolvable `-C` in prose must not disarm the bump check
+  assertRefused(await runGate(bashCall('git commit -m "see git -C /nonexistent-a9f3c1 commit"', dirty), {}), '9.9.9');
+
+  // ...and a `-C` that really does belong to the commit is still honoured, in both
+  // directions: it is the whole reason this read exists.
+  assertRefused(await runGate(bashCall(`git -C ${dirty} commit -m "chore: bump"`, clean), {}), '9.9.9');
+  assertAllowed(await runGate(bashCall(`git -C ${clean} commit -m "chore: docs"`, dirty), {}));
+
+  // ...and of two real invocations the LAST one is the commit being made, which is the rule
+  // the greedy strip got right and this must preserve.
+  assertRefused(await runGate(bashCall(`git -C ${clean} commit -m a && git -C ${dirty} commit -m b`, clean), {}), '9.9.9');
+  assertAllowed(await runGate(bashCall(`git -C ${dirty} commit -m a && git -C ${clean} commit -m b`, dirty), {}));
+});
+
+// ---------------------------------------------------------------------------
 // The quote pass costs what the pass it replaced cost
 //
 // The first version walked the command one character at a time rebuilding `out = out c`,
@@ -1067,6 +1244,15 @@ test('a release tag is read from the invocation being run, not from its own --no
 // a test is a hand-maintained description of something that moves — it goes red on a loaded
 // machine and green on a fast one, and tells you nothing either way. A sixteen-fold input
 // that costs a small multiple is linear; the defect this guards cost thirty-two times.
+//
+// The multiple is PER SHAPE, and that is not a fudge. Linear means a sixteenfold input costs
+// at most sixteen times; the small multiples the first three rows assert come from the gate
+// paying its fixed cost — spawning, jq, the greps — once at each end, which dominates when
+// the shape is cheap per byte. On an expensive shape the fixed cost is a smaller share and
+// the honest linear ceiling is nearer sixteen than six. Asserting six everywhere would
+// therefore not be stricter; it would be a bound the fixed version cannot meet, which is how
+// a scaling test ends up being deleted rather than believed. Each row carries the multiple
+// its own shape can hold, with the measured numbers beside it.
 // ---------------------------------------------------------------------------
 
 test('the quote pass scales with the size of the command, not with its square', async () => {
@@ -1081,19 +1267,33 @@ test('the quote pass scales with the size of the command, not with its square', 
     return runs.sort((a, b) => a - b)[1];
   };
 
-  for (const [label, small, large] of [
-    ['inert text', `echo ${'a'.repeat(8 * 1024)}`, `echo ${'a'.repeat(128 * 1024)}`],
+  // MANY QUOTED SPANS is the shape that drives this pass, and the one this test left out
+  // while the pass was quadratic: inert text, metacharacters and many lines are all cheap
+  // per byte and all three stayed linear throughout. A quote mark is a state change, and the
+  // per-mark work is where the cost was — which is why `curl -d "{…}"` and
+  // `psql -c "INSERT …"`, ordinary commands both, were the shapes that got dear, while one
+  // huge quoted blob never did. It is the only row that needs sizes this large: below about
+  // 32KB the gate's fixed cost hides the difference, and the quadratic build passes.
+  const span = `echo "ab;cd" 'ef|gh' `;
+  const spans = (kb) => span.repeat(Math.ceil((kb * 1024) / span.length));
+  for (const [label, small, large, bound] of [
+    ['inert text', `echo ${'a'.repeat(8 * 1024)}`, `echo ${'a'.repeat(128 * 1024)}`, 6],
     // Metacharacter-dense input is the case a run-based pass could regress on its own,
     // since it is the number of state changes that drives the loop.
-    ['metacharacters', `echo ${'ab;c|d&e(f)'.repeat(744)}`, `echo ${'ab;c|d&e(f)'.repeat(11904)}`],
+    ['metacharacters', `echo ${'ab;c|d&e(f)'.repeat(744)}`, `echo ${'ab;c|d&e(f)'.repeat(11904)}`, 6],
     ['many lines', Array.from({ length: 125 }, () => `echo ${'a'.repeat(60)}`).join('\n'),
-      Array.from({ length: 2000 }, () => `echo ${'a'.repeat(60)}`).join('\n')],
+      Array.from({ length: 2000 }, () => `echo ${'a'.repeat(60)}`).join('\n'), 6],
+    // 32KB -> 512KB, measured over five trials on the machine that wrote this: 8.1-9.1 with
+    // the linear pass, 24.0-31.6 with the quadratic one. 14 sits between those with room on
+    // both sides, and is still comfortably under the sixteen that a sixteenfold input costs
+    // when the pass is perfectly linear and the fixed cost has stopped mattering.
+    ['quoted spans', spans(32), spans(512), 14],
   ]) {
     const small_ms = await median(small);
     const large_ms = await median(large);
     assert.ok(
-      large_ms < small_ms * 6,
-      `${label}: the larger command cost ${large_ms.toFixed(0)}ms against ${small_ms.toFixed(0)}ms for a sixteenth of the input — that is not linear`,
+      large_ms < small_ms * bound,
+      `${label}: the larger command cost ${large_ms.toFixed(0)}ms against ${small_ms.toFixed(0)}ms for a sixteenth of the input, ${(large_ms / small_ms).toFixed(1)}x against a bound of ${bound}x — that is not linear`,
     );
   }
 });

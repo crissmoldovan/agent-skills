@@ -138,34 +138,58 @@ norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
 # detector goes quiet for the rest of that command. The two are not alternatives; which one a
 # given heredoc gets depends on its punctuation, and neither is narrowed here.
 #
-# THE COST OF THIS PASS IS LINEAR IN THE COMMAND, and it has to be: this hook runs before
-# EVERY Bash tool call. The first version walked the command one character at a time
-# rebuilding `out = out c`, which under one-true-awk copies the whole accumulator per
-# character — quadratic, measured at 128KB as 971ms for the pass and 1025ms through the gate,
-# against 58ms for the gate that had no such pass at all. So the state machine runs over RUNS
-# rather than characters: the only bytes that can change state are `'`, `"` and `\`, so those
-# three are marked and split out, each run between them is emitted whole, and a run inside a
-# quoted span has its metacharacters blanked by one `gsub` instead of one test per byte.
-# Output goes straight to `printf` rather than into an accumulator, so nothing is recopied.
-# Measured on the same inputs, the pass alone: 128KB of inert text 9ms, 128KB of
-# metacharacters 9ms, 256KB 16ms, and 128KB made of seven thousand quoted spans 58ms — and
-# byte-identical output to the character loop on all 4054 inputs of a fuzz corpus over
-# exactly the alphabet that can change parsing state. Through the whole gate, against the
-# 0.16.0 build that had no such pass: 128KB 70ms against 59ms, 2000 lines 71ms against 61ms,
-# and the pathological quoted-span case 121ms against 63ms — the one shape still materially
-# dearer than 0.16.0, stated rather than rounded away.
+# THE COST OF THIS PASS IS LINEAR IN THE COMMAND — now, and only after being made so twice.
+# This hook runs before EVERY Bash tool call, so the claim is load-bearing and the file has
+# already once asserted it while it was false.
+#
+# Round one: the pass walked the command one character at a time rebuilding `out = out c`,
+# which under one-true-awk copies the whole accumulator per character. Quadratic; 128KB cost
+# 971ms in the pass and 1025ms through the gate, against 58ms for the gate that had no such
+# pass. The repair was to run the state machine over RUNS rather than characters — the only
+# bytes that can change state are `'`, `"` and `\`, so those three are marked with `gsub`,
+# split out, and each run between them is emitted whole. That is what the paragraph here used
+# to describe, and it claimed the result was linear on the strength of inert, metacharacter
+# and many-line inputs, which are all cheap per byte.
+#
+# Round two: on QUOTE-DENSE input it was still superlinear, and nothing in the file said so.
+# Measured on many short quoted spans, the pass alone: 128KB 97ms, 256KB 256ms, 512KB 1398ms
+# — four times the input for fourteen times the time. The driver is the number of quote
+# marks, not the size: one huge quoted blob stayed cheap throughout. Two causes, both in
+# one-true-awk rather than in the algorithm, and both needing a fix of their own:
+#
+#   `printf` allocates a scratch buffer of three times the RECORD size on EVERY call
+#   (`awkprintf`), so a per-run `printf` costs more the larger the command is — the
+#   dominant term by far. `print` with `ORS=""` writes straight through and allocates
+#   nothing, and is the same operation for a single string argument. That alone took 512KB
+#   from 1398ms to 788ms.
+#
+#   `gsub` and `split` over a regex are themselves superlinear in the number of matches on a
+#   long subject: marking 512KB of quote-dense text costs 633ms where 128KB costs 54ms. They
+#   are not superlinear on a SHORT subject, so the string is walked in fixed 4KB pieces and
+#   the machine's two carried states, `q` and `esc`, cross the seams. That took 788ms to
+#   231ms.
+#
+# Together: 128KB 60ms, 256KB 119ms, 512KB 231ms, 1MB 468ms — a straight doubling per
+# doubling, on the shape that was worst. `substr` is O(record) per call on this awk, so the
+# piece size is a balance rather than a floor; between 1KB and 16KB it makes no measurable
+# difference, and 4KB is the middle of that range.
+#
+# Equivalence was checked rather than assumed: byte-identical output to the previous pass on
+# all 5040 inputs of a fuzz corpus over exactly the alphabet that can change parsing state,
+# including 360 inputs long enough to cross a piece boundary — and identical again with the
+# piece size set to 7, which puts a seam at almost every offset.
 #
 # The marker byte is 0x01, and an input already carrying one has it replaced by `_` first.
 # Replaced, not deleted, and not replaced by a space: deleting it could JOIN two words into a
 # verb (`np<0x01>m publish`), and a space could SPLIT one word into two. `_` can do neither.
 norm="$(printf '%s' "$norm" | awk '
 function safe(c) { return (c == ";" || c == "&" || c == "|" || c == "(" || c == ")") ? " " : c }
-BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92)
-        mk = sprintf("%c", 1); state = sq dq bs }
-{
-  gsub(mk, "_")                                        # the marker is ours; a stray one is not
-  gsub(sq, mk "&" mk); gsub(dq, mk "&" mk); gsub(/\\/, mk "&" mk)
-  n = split($0, f, mk); q = ""; esc = ""
+# One piece of the command. `q` (the open quote) and `esc` (a pending backslash) are
+# deliberately NOT locals: they are the machine state, and they have to cross the seams.
+function scan(s,   n, f, j, t, one, c) {
+  gsub(mk, "_", s)                                      # the marker is ours; a stray one is not
+  gsub(sq, mk "&" mk, s); gsub(dq, mk "&" mk, s); gsub(/\\/, mk "&" mk, s)
+  n = split(s, f, mk)
   for (j = 1; j <= n; j++) {
     t = f[j]
     if (t == "") continue
@@ -173,21 +197,30 @@ BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92)
     if (esc != "") {                                    # a backslash is pending
       c = substr(t, 1, 1)
       if (esc == "u" || c == dq || c == bs || c == "$" || c == "`") {
-        printf "%s", safe(c); esc = ""; t = substr(t, 2)   # it escapes: the char is TEXT
+        print safe(c); esc = ""; t = substr(t, 2)          # it escapes: the char is TEXT
         if (t == "") continue
         one = 0
-      } else { printf "%s", bs; esc = "" }               # bash: nothing else is escapable in "..."
+      } else { print bs; esc = "" }                      # bash: nothing else is escapable in "..."
     }
     if (one) {
-      if (t == bs) { if (q == sq) printf "%s", bs; else esc = (q == "" ? "u" : "d"); continue }
+      if (t == bs) { if (q == sq) print bs; else esc = (q == "" ? "u" : "d"); continue }
       if (q == "") { q = t; continue }                   # open a span
       if (t == q) { q = ""; continue }                   # close it
-      printf "%s", t; continue                           # the other quote, inside this one
+      print t; continue                                  # the other quote, inside this one
     }
     if (q != "") gsub(/[;&|()]/, " ", t)                 # quoted: structure becomes text
-    printf "%s", t
+    print t
   }
-  if (esc == "d") printf "%s", bs                        # a trailing backslash inside "..."
+}
+# ORS="" makes `print x` exactly `printf "%s", x` — minus the scratch buffer of three times
+# the record size that one-true-awk allocates on every printf. See the cost note above.
+BEGIN { ORS = ""; sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92)
+        mk = sprintf("%c", 1); state = sq dq bs; CH = 4096 }
+{
+  q = ""; esc = ""
+  L = length($0)
+  for (i = 1; i <= L; i += CH) scan(substr($0, i, CH))
+  if (esc == "d") print bs                               # a trailing backslash inside "..."
 }')"
 
 # VERB POSITION. A gated verb counts when it starts the command or follows a shell separator.
@@ -249,8 +282,29 @@ NOTE_DIRS="docs/releases docs/release-notes changelog.d"
 # a spelling this gate must not have to know. The version string appearing in a file whose
 # job is recording releases is the floor, and the floor is all a hook can honestly enforce.
 notes_status() {
-  local dir="$1" ver="$2" esc found=1 f d
-  esc="${ver//./\\.}"
+  local dir="$1" ver="$2" esc="" ch i found=1 f d
+  # THE VERSION IS TEXT, and every ERE metacharacter in it has to be told so.
+  #
+  # This escaped `.` and stopped, which reads as "the only metacharacter a version can
+  # contain is a dot". Semver says otherwise: build metadata is spelled with `+`
+  # (`1.0.0+build.7`), and in an ERE a `+` is a quantifier — so the pattern asked for `1.0.`
+  # then one-or-more `0` then `build`, which a file saying `1.0.0+build.7` does not contain.
+  # A release whose note was written verbatim was REFUSED, and the refusal told its author
+  # the file "never mentions 1.0.0+build.7" while the file literally does. Being accused of
+  # not having written the note you are looking at is the worst shape a false denial takes.
+  #
+  # So escape the whole ERE metacharacter set rather than the one character that turned up
+  # first. One pass over the characters, because `${v//"$m"/\\"$m"}` does NOT do what it
+  # reads as — bash leaves the quotes of the REPLACEMENT in the result (`1\"."0`), which
+  # would have turned this fix into a second, quieter version of the same bug. A version is
+  # a few dozen bytes, so the loop costs nothing and cannot be misread.
+  for (( i = 0; i < ${#ver}; i++ )); do
+    ch="${ver:i:1}"
+    case "$ch" in
+      '.'|'['|']'|'('|')'|'{'|'}'|'*'|'+'|'?'|'^'|'$'|'|'|\\) esc="$esc\\$ch" ;;
+      *) esc="$esc$ch" ;;
+    esac
+  done
   # A whole token: `1.2.3` must not be satisfied by `1.2.30` or by `1.2.3-rc.1`.
   local pattern="(^|[^0-9A-Za-z.-])v?${esc}([^0-9A-Za-z.-]|\$)"
 
@@ -662,7 +716,31 @@ if printf '%s' "$norm" | grep -Eq "${START}${COMMIT_VERB}${END}"; then
   # reports the SESSION's staged files; an unnoted bump staged in repoC therefore refused an
   # unrelated commit in repoA. `-C` beats `cd` because git ignores the process cwd once given one.
   rdir="$(run_dir_for "$norm" "${START}${COMMIT_VERB}${END}")" || exit 0
-  cdir="$(repo_dir_for "$(printf '%s' "$norm" | sed -nE "s/.*(git${GIT_OPTS}) +commit.*/\1/p")")"
+  # The `-C` comes out of the invocation that matched, exactly as branch 3 reads a tag's.
+  # This was the last greedy whole-line read left in the file: `sed -nE "s/.*(git<opts>)
+  # +commit.*/\1/p"` walked its leading `.*` to the LAST `git … commit` anywhere on the line,
+  # and after the quote pass the words inside a commit MESSAGE are still words. So an
+  # ordinary sentence chose which repository's index was read, in all three directions:
+  #
+  #   `git -C <clean> commit -m "explain how git commit hooks work"` skipped past the real
+  #   `-C` to the one in the message (which has none), fell back to the session's own
+  #   repository and refused the commit with a bump staged in a repository the command never
+  #   touches — while the byte-identical message WITHOUT those two words was allowed;
+  #
+  #   `git commit -m "see git -C <other> commit for how"` did the reverse, judging a clean
+  #   checkout against <other>'s staged bump, which no note here can ever satisfy;
+  #
+  #   and `git commit -m "see git -C <nonexistent> commit"` made resolve_dir fail, which
+  #   exits this branch — so the bump check was switched off by a sentence, and a real
+  #   unnoted bump walked through. That is the direction nobody notices.
+  #
+  # `grep -Eo` with the branch's own anchored pattern cuts out one invocation, bounded at
+  # the next shell separator; `tail -1` keeps "the last invocation wins", matching both the
+  # tag extractor and run_dir_for's choice of which verb stops its scan. The strip inside
+  # the fragment is `^`-anchored, so the options can only be the ones between THIS `git` and
+  # THIS ` commit`, and a second `git commit` in the message stays argument text.
+  cseg="$(printf '%s' "$norm" | grep -Eo "${START}${COMMIT_VERB}${END}[^;&|)]*" | tail -1)"
+  cdir="$(repo_dir_for "$(printf '%s' "$cseg" | sed -nE "s/^[;&|(]?[[:space:]]*(git${GIT_OPTS}) +commit.*/\1/p")")"
   if [ -n "$cdir" ]; then cdir="$(resolve_dir "$cdir" "$rdir")" || exit 0; else cdir="$rdir"; fi
   # Then ask that repo from its ROOT. `git diff --cached --name-only` prints paths relative to the
   # root, but a pathspec and a `:path` blob ref are read relative to the CWD — so from a
