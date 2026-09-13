@@ -357,10 +357,14 @@ in an exported variable, because a hook inherits whatever environment Claude Cod
 with, and a desktop launch inherits no shell profile at all. Changing that one word to `off`
 in `settings.json` disarms the gate without uninstalling it.
 
-**What it acts on.** Four command shapes: `npm|pnpm|yarn publish` and `changeset publish`,
+**What it acts on.** Four command shapes: `npm|pnpm|yarn publish` and `changeset publish`
+(with or without the runner it is normally reached through — `npx`, `pnpm exec`, `yarn dlx`),
 `gh|glab release create <tag>`, a `git tag` whose tag looks like a release (`v1.2.3`,
-`@scope/pkg@1.2.3`), and a `git commit` that stages a `package.json` whose `version` line
-changed. For each it works out **which directory the command will actually run in** — the
+`@scope/pkg@1.2.3`), and a `git commit` that stages a `package.json` whose `version` changed —
+`HEAD`'s value against the index's, rather than a pattern over the diff text, so a manifest
+kept on one line is gated like any other. Each verb has to sit where a command starts, so a
+sentence that merely names one is not a release. For each it works out **which directory the
+command will actually run in** — the
 last top-level `cd`, a `-C`, a `--filter`/`--prefix` — rather than assuming the session's
 cwd, because a release cut against another checkout judged by this checkout's notes is a
 refusal the released repository can never satisfy. `git -C <dir> tag` in particular contains
@@ -382,8 +386,8 @@ prints says so.
 **Fail-open, and loudly so.** Three answers, not two: mentioned, missing, and *no note source
 at all* — and the third allows. A project that keeps no release notes in the tree is using a
 different convention, not committing a violation. Every unresolvable path — no `jq`, an
-unreadable `cd` target, a `--repo` naming someone else's repository, a package.json it cannot
-parse — allows as well. The consequence a user has to hear: **an armed gate that never fires
+unreadable `cd` target, a `--repo` naming a repository that is not the origin of the one the
+command runs in, a package.json it cannot parse — allows as well. The consequence a user has to hear: **an armed gate that never fires
 is the expected outcome in such a repository**, so silence is not proof it is working. Run
 `--mode observe` against a release you know has no note before trusting it.
 

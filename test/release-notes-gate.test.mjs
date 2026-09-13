@@ -543,3 +543,125 @@ test('a version-bump commit is gated wherever the verb sits in the command', asy
     assertAllowed(await runGate(bashCall(command, noted), {}));
   }
 });
+
+// ---------------------------------------------------------------------------
+// Naming a release command is not running one
+//
+// `changeset publish` was matched with a bare, unanchored `changeset +publish`, so a
+// SENTENCE containing those two words — `echo 'to ship, run changeset publish'` — was
+// refused. That is the one outcome this gate says it cannot afford: a false denial teaches
+// people to work around the guard, and a worked-around guard enforces nothing.
+//
+// The obvious repair is the other half of this pair, and it is why both halves are asserted
+// here: anchoring the verb to the start of a command alone makes `npx changeset publish` and
+// `pnpm changeset publish` — the forms people actually type, since `changeset` is a binary
+// rather than a package manager — silently inert. Trading a false denial for a silent
+// fail-open is how a gate ends up protecting nothing at all.
+// ---------------------------------------------------------------------------
+
+test('a sentence that merely NAMES the changeset publish command is not a release', async () => {
+  const dir = await repository({ noted: ['1.3.0'] });
+  for (const command of [
+    "echo 'to ship, run changeset publish'",
+    'echo "next step: changeset publish"',
+    "printf '%s\\n' 'then changeset publish'",
+  ]) {
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  }
+});
+
+test('a changeset release behind a runner prefix is still gated', async () => {
+  const commands = [
+    'changeset publish',
+    'npx changeset publish',
+    'pnpm changeset publish',
+    'pnpm exec changeset publish',
+    'yarn dlx changeset publish',
+    'bunx changeset publish',
+    'pnpm -w changeset publish --tag next',
+    'npm run build && npx changeset publish',
+  ];
+  const unnoted = await repository({ noted: ['1.3.0'] });
+  for (const command of commands) {
+    assertRefused(await runGate(bashCall(command, unnoted), {}), '1.4.0');
+  }
+  // ...and the allow half, without which the refusals above pass just as well against a
+  // gate that has simply started refusing everything.
+  const noted = await repository({ noted: ['1.4.0'] });
+  for (const command of commands) {
+    assertAllowed(await runGate(bashCall(command, noted), {}));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// `--repo` is compared against the origin of the repository being released
+//
+// The comparison read `remote.origin.url` from the HOOK's own cwd rather than the
+// directory the command runs in, so a release cut after a `cd` was measured against an
+// unrelated checkout's origin, read as foreign, and was allowed. It only ever
+// under-blocks — a coverage gap rather than a hazard — but a silent one.
+// ---------------------------------------------------------------------------
+
+test('a --repo flag is judged against the origin of the repository the command runs in', async () => {
+  const target = await repository({ noted: ['1.3.0'] });
+  git(target, 'remote', 'add', 'origin', 'https://github.com/acme/cli.git');
+  const elsewhere = await scratch('release-notes-elsewhere');
+
+  // `--repo acme/cli` names the repository this command `cd`s into. The hook is not standing
+  // in it, which is exactly the case that used to read as foreign.
+  assertRefused(
+    await runGate(bashCall(`cd ${target} && gh release create v1.4.0 --repo acme/cli`, elsewhere), {}),
+    '1.4.0',
+  );
+
+  // A genuinely foreign repository still fails open: there is no local note file to check.
+  assertAllowed(await runGate(bashCall(`cd ${target} && gh release create v1.4.0 --repo someone/else`, elsewhere), {}));
+
+  // ...and the same local release with its note written is allowed.
+  const noted = await repository({ noted: ['1.4.0'] });
+  git(noted, 'remote', 'add', 'origin', 'https://github.com/acme/cli.git');
+  assertAllowed(await runGate(bashCall(`cd ${noted} && gh release create v1.4.0 --repo acme/cli`, elsewhere), {}));
+});
+
+// ---------------------------------------------------------------------------
+// A bump is a bump whatever the package.json is formatted like
+//
+// The bump detector matched `^+ "version":` against the staged DIFF TEXT, which only ever
+// fires on a pretty-printed package.json. A repository that keeps its manifest on one line
+// bumped its version with no note and was allowed, silently.
+//
+// Loosening that pattern to "a `+` line mentioning version" would have been a false-denial
+// machine on the very layout it was meant to fix — every edit to a one-line manifest
+// rewrites the whole line, version included. The second test here is that trap.
+// ---------------------------------------------------------------------------
+
+async function compactRepository(version, noted) {
+  const dir = await repository({ version: '0.0.0', noted });
+  await writeFile(path.join(dir, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version, private: false })}\n`);
+  git(dir, 'add', 'package.json');
+  git(dir, 'commit', '-qm', 'compact manifest');
+  return dir;
+}
+
+test('a version bump in a one-line package.json is still a bump', async () => {
+  const dir = await compactRepository('1.0.0', ['1.0.0']);
+  await writeFile(path.join(dir, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '2.0.0', private: false })}\n`);
+  git(dir, 'add', 'package.json');
+  assertRefused(await runGate(bashCall('git commit -m "chore(release): 2.0.0"', dir), {}), '2.0.0');
+
+  // ...and the note staged beside it is still the right answer, in this layout too.
+  const noted = await compactRepository('1.0.0', ['1.0.0']);
+  await writeFile(path.join(noted, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '2.0.0', private: false })}\n`);
+  await writeFile(path.join(noted, 'CHANGELOG.md'), '# Releases\n\n## 2.0.0\n\nwhat / why / impact\n\n## 1.0.0\n\nwhy\n');
+  git(noted, 'add', 'package.json', 'CHANGELOG.md');
+  assertAllowed(await runGate(bashCall('git commit -m "chore(release): 2.0.0"', noted), {}));
+});
+
+test('an edit to a one-line package.json that does not touch the version is left alone', async () => {
+  // The whole line is rewritten by any edit at all, so "the staged diff mentions a version"
+  // is not the question this needs answered — "did the version CHANGE" is.
+  const dir = await compactRepository('2.0.0', ['1.0.0']);
+  await writeFile(path.join(dir, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '2.0.0', private: true })}\n`);
+  git(dir, 'add', 'package.json');
+  assertAllowed(await runGate(bashCall('git commit -m "chore: make it private"', dir), {}));
+});

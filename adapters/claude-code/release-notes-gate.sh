@@ -270,14 +270,45 @@ GIT_OPTS='( +(-C +[^ ]+|-c +[^ ]+|--git-dir[= ][^ ]+|--work-tree[= ][^ ]+|--no-p
 # alternation consumes `-C <dir>` as a pair instead of stopping at the flag and choking on its value.
 PKG_OPTS='( +(-C +[^ ]+|--dir +[^ ]+|--cwd +[^ ]+|--prefix +[^ ]+|--filter +[^ ]+|-F +[^ ]+|--workspace +[^ ]+|--?[a-zA-Z0-9=@/._-]+))*'
 
-# foreign_repo_flag <cmd-fragment> -> 0 when --repo names a repo that is not this checkout's origin.
+# RUNNER — the optional package-runner prefix in front of a verb that is a BINARY name.
+#
+# Every other gated verb starts with the binary a user types, so START/END alone put it at a
+# command boundary. `changeset publish` is the exception: `changeset` is a dependency's bin,
+# so it is almost always reached through a runner — `npx`, `pnpm`, `pnpm exec`, `yarn dlx`,
+# `bunx`. That is why it was matched with a bare, UNANCHORED `changeset +publish`, and an
+# unanchored verb is not a verb: `echo 'to ship, run changeset publish'` — a sentence naming
+# the command — was refused. A false denial is the one outcome the header says this gate
+# cannot afford, because it is the one that teaches people to route around the guard.
+#
+# Anchoring with START alone is the mirror-image mistake, and the more expensive one: it
+# would match only a bare `changeset publish` and go silently inert for `npx changeset
+# publish`, trading a visible false denial for an invisible fail-open. So the boundary is
+# kept AND the runner is allowed to sit inside it. PKG_OPTS is reused rather than a second
+# option dialect invented, so `pnpm -w changeset publish` reads the same way here as
+# `pnpm -C dir publish` does above.
+RUNNER="((npx|pnpm|yarn|bun|bunx|npm)${PKG_OPTS}( +(exec|dlx|run|x))?${PKG_OPTS} +)?"
+
+# foreign_repo_flag <cmd-fragment> [dir] -> 0 when --repo names a repo that is not the origin
+# of the repository at <dir> (the directory the command RUNS in; BASE when the caller has none).
 # Such a tag cannot be mapped to a local note file at all, so the caller fails open by design
 # rather than guessing at `.`.
+#
+# WHICH origin? The one belonging to the repository being released. Reading it with a bare
+# `git config` read THIS HOOK's own cwd instead — the same mistake branches 3 and 4 fix for
+# the index and the tag — so `cd <repo> && gh release create … --repo owner/name` compared
+# the named repo against an unrelated checkout's origin, found no match, called its own
+# release foreign and allowed it. That direction is only ever an under-block, never a false
+# denial, which is exactly what made it silent: the gate reported nothing and gated nothing.
 foreign_repo_flag() {
-  local want origin
-  want="$(printf '%s' "$1" | grep -Eo -- '--repo[= ]+[^ ]+' | head -1 | sed -E 's/--repo[= ]+//')"
+  local want origin dir="${2:-$BASE}"
+  # Trailing separators are not part of a repository name, exactly as they are not part of a
+  # tag name in branch 3. The normalisation ends every line with `;`, so `--repo owner/name`
+  # at the end of a command yielded `owner/name;` — a string no origin URL can contain, which
+  # made this check answer "foreign" for every local release written in that shape.
+  want="$(printf '%s' "$1" | grep -Eo -- '--repo[= ]+[^ ]+' | head -1 | sed -E 's/--repo[= ]+//' \
+          | tr -d "\"'" | sed -E 's/[;&|)].*$//')"
   [ -z "$want" ] && return 1
-  origin="$(git config --get remote.origin.url 2>/dev/null || true)"
+  origin="$(git -C "$dir" config --get remote.origin.url 2>/dev/null || true)"
   printf '%s' "$origin" | grep -qF "$want" && return 1
   return 0
 }
@@ -307,7 +338,7 @@ pkgdir_for_name() {
 
 # --- 1. publish (npm/pnpm/yarn/changeset) ----------------------------------
 if printf '%s' "$norm" | grep -Eq "${START}(npm|pnpm|yarn)${PKG_OPTS} +publish${END}" \
-   || printf '%s' "$norm" | grep -Eq 'changeset +publish'; then
+   || printf '%s' "$norm" | grep -Eq "${START}${RUNNER}changeset +publish${END}"; then
   # The publish runs in the directory the command `cd`s into, not in the session's cwd, and any
   # `-C`/`--dir` it names is relative to THAT. Resolve in that order; an unresolvable `cd` is
   # unknown ground, so allow.
@@ -348,13 +379,16 @@ if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
   tag="$(printf '%s' "$seg" | awk '{print $1}' | tr -d '"'"'"'')"
   ver="$(printf '%s' "$tag" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?' | tail -1)"
   if [ -n "$ver" ]; then
-    # A --repo naming a different repository has no local note file to check: fail open.
-    # This runs FIRST: when the lookup ran first, a package of the same name living in THIS
-    # monorepo claimed the release and the foreign check never got to fire, so a release of
-    # someone else's repo was judged against our notes.
-    if foreign_repo_flag "$seg"; then exit 0; fi
-    # scoped tag like @scope/name@1.2.3 -> resolve the package dir by name
+    # The run directory is needed BEFORE the foreign check, because "foreign" means "not the
+    # origin of the repository this command runs in" — see foreign_repo_flag. An unresolvable
+    # `cd` is unknown ground either way, so hoisting it changes nothing but the order.
     rdir="$(run_dir_for "$norm")" || exit 0
+    # A --repo naming a different repository has no local note file to check: fail open.
+    # This still runs FIRST of the two lookups: when the package lookup ran first, a package of
+    # the same name living in THIS monorepo claimed the release and the foreign check never got
+    # to fire, so a release of someone else's repo was judged against our notes.
+    if foreign_repo_flag "$seg" "$rdir"; then exit 0; fi
+    # scoped tag like @scope/name@1.2.3 -> resolve the package dir by name
     name="$(printf '%s' "$tag" | sed -E 's/@[0-9]+\.[0-9]+\.[0-9].*$//')"
     pdir=""; [ -n "$name" ] && pdir="$(pkgdir_for_name "$name" "$rdir" || true)"
     [ -z "$pdir" ] && pdir="$(repo_dir_for "$seg")"
@@ -418,14 +452,30 @@ if printf '%s' "$norm" | grep -Eq "${START}git${GIT_OPTS} +commit${END}"; then
   # mattered. Everything below therefore runs with `-C "$root"`.
   root="$(git -C "$cdir" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -z "$root" ] && exit 0    # not a readable checkout -> allow
-  # staged package.json files whose "version" line changed
+  # staged package.json files whose version actually changed
   while IFS= read -r pj; do
     [ -z "$pj" ] && continue
-    # did the staged diff change the version line?
-    if git -C "$root" diff --cached -- "$pj" 2>/dev/null | grep -Eq '^\+[[:space:]]*"version":'; then
+    # DID THE VERSION CHANGE? Ask the two blobs, not the diff TEXT.
+    #
+    # `^\+[[:space:]]*"version":` asked whether a line beginning with the version key was
+    # added, which is a question only a PRETTY-PRINTED package.json can answer. A manifest
+    # written on one line — `{"name":"m","version":"2.0.0"}` — puts the key mid-line, matched
+    # nothing, and bumped its version with no note at all, silently allowed. (npm, pnpm and
+    # yarn all rewrite the file pretty-printed, so this was a narrow layout; it was still an
+    # allow nobody could see.)
+    #
+    # Loosening the pattern to "a `+` line mentioning version" would have been worse than the
+    # bug: EVERY edit to a one-line manifest rewrites the whole line, so adding a dependency
+    # would have been read as a version bump and refused — a false denial, on exactly the
+    # layout the loosening was meant to rescue. Comparing HEAD's version to the staged one
+    # asks the real question and is blind to formatting. A file with no HEAD version (new, or
+    # an unreadable old blob) differs from any staged version and is gated, which is what the
+    # diff match did with an all-`+` new file too.
+    new_ver="$(git -C "$root" show ":$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
+    old_ver="$(git -C "$root" show "HEAD:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
+    if [ -n "$new_ver" ] && [ "$new_ver" != "$old_ver" ]; then
       pdir="$(dirname "$pj")"
-      ver="$(git -C "$root" show ":$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
-      [ -z "$ver" ] && continue
+      ver="$new_ver"
       # The same-commit escape hatch: a note staged in THIS commit counts, whichever of the
       # candidate files it lives in. Paths are root-relative, so they compare exactly against
       # `--name-only` output. The old substring match built "./CHANGELOG.md" for a root package
