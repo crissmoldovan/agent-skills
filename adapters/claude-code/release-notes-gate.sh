@@ -447,6 +447,57 @@ run_dir_for() {
   resolve_dir "$t" || return 1
 }
 
+# last_invocation <normalized-cmd> <anchored-verb-pattern> -> the LAST invocation of that verb,
+# WHOLE AND ALONE, or nothing.
+#
+# ONE FRAGMENT, ONE INVOCATION. Three branches cut their fragment out with the same shape:
+#
+#     grep -Eo "${START}${VERB}${END}[^;&|)]*"
+#
+# and END — `([[:space:]]|[;&|)]|$)` — can match a SEPARATOR CHARACTER. It does exactly when
+# the verb ABUTS one, which is to say for an invocation carrying no arguments; and when it
+# does, the trailing `[^;&|)]*` starts on the FAR SIDE of that separator and runs on into the
+# next invocation. One fragment then covered two. The `^`-anchored strip inside read the
+# FIRST of them, and `tail -1` had nothing left to choose from — grep had already consumed
+# both as one match — so "the last invocation wins", the rule all four branches claim and the
+# rule `tail -1` is there to keep, was broken by an argument-less invocation of the same verb
+# standing in front of the real one. All three directions, measured:
+#
+#   `gh release create;gh release create v9.9.9` yielded no version at all, branch 2 exited,
+#     and a genuinely unnoted release was ALLOWED — a fail-open in the headline verb.
+#   `git commit;git -C <other> commit -m x` read the bare `git commit`, so the SESSION's
+#     index was judged instead of <other>'s; in the other order it judged <other>'s instead
+#     of the session's, and with an unresolvable `-C` in front it disarmed branch 4 outright.
+#   `pnpm --filter <pkg> publish;pnpm publish` handed the member's `--filter` to the ROOT
+#     publish, found the MEMBER's note, and allowed the root's unnoted release. That one is
+#     in the SHIPPED gate, where every other shape of it happens to come out right.
+#
+# A cleverer pattern cannot fix it: an ERE has no way to REQUIRE a boundary without consuming
+# it, so a fragment bounded by END is one separator too long whenever the verb abuts one —
+# and consuming it is what hides the next invocation, since START then has no separator left
+# to anchor to. Cut the command into invocations FIRST and the question stops arising. A
+# separator is what ends an invocation, the quote pass above has already turned every QUOTED
+# separator into a space, so the ones still here are real: one line per invocation, each line
+# therefore beginning at a command position and containing no separator at all. The caller's
+# own anchored pattern then picks out the lines that are invocations of its verb — START's
+# `^` and END's `$` doing the work their `[;&|(]` and `[;&|)]` alternatives used to — and
+# `tail -1` takes the last, which is the one that runs.
+#
+# THE SET CUT ON IS EXACTLY START's `[;&|(]` PLUS END's `[;&|)]`, which is `;&|()` and not one
+# character fewer. The parentheses are the pair that looks droppable and is not: an unquoted
+# `OUT=$(gh release create v9.9.9)` puts the verb at a command position that a `(` opens, and
+# a fragment that does not cut there carries `OUT=$` in front of the verb — past which the
+# `^`-anchored strip inside branch 2 does not fire, so the version is never read and the
+# release goes through. Measured, not reasoned: dropping `()` from this set and nothing else
+# turns that one command from a refusal into an allow.
+#
+# Branch 3 does not go through here and does not need to: `TAG_VERB` ends in ` +`, so END
+# never sees the separator and its fragment was always one invocation. See the note there for
+# what would change that, and for the control row that would turn red when it does.
+last_invocation() {
+  printf '%s' "$1" | tr ';&|()' '\n\n\n\n\n' | grep -E "$2" | tail -1
+}
+
 # repo_dir_for <cmd-fragment> -> prints an explicitly named target directory, or nothing.
 #
 # A release command can name a repository other than the shell's cwd: `git -C <dir> tag …`, or
@@ -582,9 +633,13 @@ if printf '%s' "$norm" | grep -Eq "${START}${PUBLISH_PM}${END}" \
   # match (PKG_OPTS), its post-verb options run to the next shell separator, and nothing
   # earlier in the line can contribute either. An extraction that finds no flag leaves pdir at
   # the run directory — where the publish actually happens — which is the right default anyway.
-  pseg="$(printf '%s' "$norm" \
-          | grep -Eo "${START}${RUNNER}((npm|pnpm|yarn)${PKG_OPTS}|changeset) +publish${END}[^;&|)]*" \
-          | tail -1)"
+  #
+  # "Nothing earlier in the line" is what `last_invocation` is for, and it is why this branch
+  # no longer bounds its own fragment: written as `${END}[^;&|)]*`, an argument-less publish
+  # in front of the real one swallowed it, and `pnpm --filter <pkg> publish;pnpm publish`
+  # handed the member's package to the root's publish — the same pairing bug this paragraph
+  # describes, in the one shape the fix for it did not cover.
+  pseg="$(last_invocation "$norm" "${START}${RUNNER}((npm|pnpm|yarn)${PKG_OPTS}|changeset) +publish${END}")"
   # resolve the package dir: --filter <name>, else -C/--dir <dir>, else the run dir
   pdir=""
   fname="$(printf '%s' "$pseg" | grep -Eo -- '--filter[= ]+@?[a-zA-Z0-9@/._-]+' | head -1 | sed -E 's/--filter[= ]+//')"
@@ -639,7 +694,12 @@ if printf '%s' "$norm" | grep -Eq "${START}${RELEASE_CREATE}${END}"; then
   # reason is gone: the quote pass above already blanked that `&&` into a space, so a
   # separator surviving here is a real one, and reading a LATER command's `--repo` as this
   # release's is the pairing bug this same branch fixed for `--repo` two rounds ago.
-  seg="$(printf '%s' "$norm" | grep -Eo "${START}${RELEASE_CREATE}${END}[^;&|)]*" | tail -1 \
+  #
+  # The bound itself is `last_invocation`'s now. Written here as `${END}[^;&|)]*` it was one
+  # separator too long whenever the verb abutted one, so `gh release create;gh release create
+  # v9.9.9` read the ARGUMENT-LESS first invocation, found no version in it, and allowed an
+  # unnoted release — a fail-open in the verb this branch exists for.
+  seg="$(last_invocation "$norm" "${START}${RELEASE_CREATE}${END}" \
           | sed -E "s/^[;&|(]?[[:space:]]*${RELEASE_CREATE}[[:space:]]*//")"
   # Trailing separators are not part of a tag name here either — branch 3 already trims them,
   # and the normalisation ends every line with `;`, so a bare `gh release create v1.4.0` named
@@ -684,6 +744,19 @@ if printf '%s' "$norm" | grep -Eq "${START}${TAG_VERB}"; then
   # so a second `git tag` in the message is argument text and stays argument text. Trailing
   # separators are excluded by the bound, which is also what used to need trimming off the
   # tag name (`git tag v1.4.0; git push` once printed `v1.4.0;` in its refusal).
+  #
+  # THIS IS THE ONE FRAGMENT THAT IS NOT CUT BY `last_invocation`, and the reason is worth
+  # writing down rather than leaving to look like an oversight: `TAG_VERB` ends in ` +`, so
+  # there is no `${END}` here to match a separator, and no argument-less `git tag` for it to
+  # match one on — `git tag;` does not match the verb at all. The three branches that DO end
+  # in `${END}` each swallowed the invocation after an argument-less one; this one never
+  # could, measured before the fix and after it.
+  #
+  # It joins them the day this pattern needs an `${END}` of its own — which is the day
+  # `TAG_VERB` stops ending in ` +`, since something then has to mark where the verb stops.
+  # Checked, not assumed: making exactly that pair of edits turns the property test red on
+  # its `git tag;git tag v9.9.9` row, which is why that row is in the table as a control
+  # rather than left out as a branch with nothing wrong with it.
   tseg="$(printf '%s' "$norm" | grep -Eo "${START}${TAG_VERB}(-a +)?[^;&|)]*" | tail -1)"
   tag="$(printf '%s' "$tseg" | sed -E "s/^[;&|(]?[[:space:]]*${TAG_VERB}(-a +)?//" \
          | awk '{print $1}' | tr -d '"'"'"'')"
@@ -750,12 +823,20 @@ if printf '%s' "$norm" | grep -Eq "${START}${COMMIT_VERB}${END}"; then
   #   exits this branch — so the bump check was switched off by a sentence, and a real
   #   unnoted bump walked through. That is the direction nobody notices.
   #
-  # `grep -Eo` with the branch's own anchored pattern cuts out one invocation, bounded at
-  # the next shell separator; `tail -1` keeps "the last invocation wins", matching both the
-  # tag extractor and run_dir_for's choice of which verb stops its scan. The strip inside
-  # the fragment is `^`-anchored, so the options can only be the ones between THIS `git` and
-  # THIS ` commit`, and a second `git commit` in the message stays argument text.
-  cseg="$(printf '%s' "$norm" | grep -Eo "${START}${COMMIT_VERB}${END}[^;&|)]*" | tail -1)"
+  # `last_invocation` cuts out one invocation with the branch's own anchored pattern and
+  # keeps "the last invocation wins", matching both the tag extractor and run_dir_for's
+  # choice of which verb stops its scan. The strip inside the fragment is `^`-anchored, so
+  # the options can only be the ones between THIS `git` and THIS ` commit`, and a second
+  # `git commit` in the message stays argument text.
+  #
+  # Bounding the fragment here — `grep -Eo "…${END}[^;&|)]*"` — was one separator too long
+  # whenever the verb abutted one, which is every `git commit` written with no arguments of
+  # its own. It swallowed the invocation that followed, so `git commit;git -C <other> commit
+  # -m x` read the bare one and judged the wrong index; in the other order it judged
+  # <other>'s index instead of this one's; and with an unresolvable `-C` in front it left the
+  # branch altogether and let a real unnoted bump through. The same three directions as the
+  # greedy read above, one layer further out.
+  cseg="$(last_invocation "$norm" "${START}${COMMIT_VERB}${END}")"
   cdir="$(repo_dir_for "$(printf '%s' "$cseg" | sed -nE "s/^[;&|(]?[[:space:]]*(git${GIT_OPTS}) +commit.*/\1/p")")"
   if [ -n "$cdir" ]; then cdir="$(resolve_dir "$cdir" "$rdir")" || exit 0; else cdir="$rdir"; fi
   # Then ask that repo from its ROOT. `git diff --cached --name-only` prints paths relative to the

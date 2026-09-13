@@ -48,8 +48,9 @@ bumped, the branch is merged, and a tag carries these notes.
 as shell structure, and works out the run directory from the `cd` that runs *before* the
 release verb rather than from the last one on the line. Every detector over the normalised
 command is anchored to a command position, every extractor reads the invocation that matched
-rather than the whole line, the file measures offsets in one unit, and the quoting pass costs
-what the pass it replaced cost. `test/release-notes-gate.test.mjs` grows from 52 tests to 76.
+rather than the whole line — one invocation and no more — the file measures offsets in one
+unit, and the quoting pass costs what the pass it replaced cost.
+`test/release-notes-gate.test.mjs` grows from 52 tests to 78.
 
 **Why.** The known false refusal recorded in the 0.16.0 notes was the whole family, not one
 case. `START`/`END` matched CHARACTERS, so any `;`, `|`, `&` or `(` in front of a release verb
@@ -66,8 +67,8 @@ naming a repository with nothing to do with the release — and a `cd` written i
 message hijacked the run directory, where an unresolvable one (`git commit -m "wip; cd
 /nonexistent"`) switched the bump check off for that commit entirely.
 
-Fixing the detectors did not fix the rest of the file, and five more defects were found
-afterwards over three further rounds — three of them live in 0.16.0 as shipped. Four are the
+Fixing the detectors did not fix the rest of the file, and six more defects were found
+afterwards over four further rounds — four of them live in 0.16.0 as shipped. Five are the
 same family; the last is not, and is listed here because it is a false denial of exactly the
 kind this work exists to remove:
 
@@ -115,6 +116,27 @@ kind this work exists to remove:
   release verb costs what it did in 0.16.0, and quote-dense commands stay roughly **twice** as
   dear (512KB 478ms against 255ms, end to end). That factor is what reading quoted text as data
   costs at all, and it does not go away.
+- *A fragment could cover two invocations, so the FIRST one decided.* Each extractor cut its
+  fragment as `grep -Eo "${START}${VERB}${END}[^;&|)]*"`, and `END` accepts a separator
+  character — which it matches exactly when the verb abuts one, i.e. for an invocation with
+  no arguments of its own. The trailing `[^;&|)]*` then began on the far side of that
+  separator and ran on into the next invocation, `grep` consumed both as one match so
+  `tail -1` had nothing left to choose between, and the `^`-anchored strip inside read the
+  first. "The last invocation wins" — the rule every one of these branches claims — was
+  broken by writing an argument-less invocation of the same verb in front of the real one,
+  in all three branches that use that shape and in every direction:
+  `gh release create;gh release create v9.9.9` read no version at all, so the branch exited
+  and **an unnoted release was allowed** — a fail-open in the headline verb;
+  `git commit;git -C <other> commit -m x` judged the session's index instead of `<other>`'s,
+  the reverse order judged `<other>`'s instead of the session's, and an unresolvable `-C` in
+  front **switched the bump check off** exactly as prose naming one used to; and
+  `pnpm --filter <pkg> publish;pnpm publish` handed the member's package to the root's
+  publish, found the member's note and **allowed the root's unnoted release** — that last one
+  live in 0.16.0, where every other shape of it happens to come out right. All three now cut
+  the command into invocations first and select among whole ones, which is the one thing a
+  tokenizer would have given structurally, at four lines and no new dialect. The rule is
+  asserted as a property over all four branches rather than as three cases, with the tag
+  branch — immune because its verb pattern ends in ` +` — in the table as the control.
 - *A version carrying any regex metacharacter but `.` was matched as a pattern.* The note
   lookup escaped `.` and stopped, so a package at the legal semver `1.0.0+build.7` was refused
   with "never mentions 1.0.0+build.7" while the changelog said exactly that — being accused of

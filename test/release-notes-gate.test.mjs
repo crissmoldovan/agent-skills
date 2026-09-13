@@ -730,9 +730,13 @@ test('an edit to a one-line package.json that does not touch the version is left
 // there is, which is the invisible fail-open this file trades nothing for.
 // ---------------------------------------------------------------------------
 
-/** A workspace whose ROOT release is noted and whose member's note stops one version short. */
-async function workspace({ memberNoted = ['0.0.0'] } = {}) {
-  const dir = await repository({ name: 'mono', version: '9.9.9', noted: ['9.9.9'] });
+/**
+ * A workspace whose ROOT release is noted and whose member's note stops one version short.
+ * `rootNoted` turns that around — a root whose release is NOT noted while the member's is —
+ * which is what tells a fragment that stopped at the member's invocation from one that ran on.
+ */
+async function workspace({ memberNoted = ['0.0.0'], rootNoted = ['9.9.9'] } = {}) {
+  const dir = await repository({ name: 'mono', version: '9.9.9', noted: rootNoted });
   const member = path.join(dir, 'packages', 'a');
   await mkdir(member, { recursive: true });
   await writeFile(path.join(member, 'package.json'), `${JSON.stringify({ name: '@acme/a', version: '0.0.1' }, null, 2)}\n`);
@@ -1067,17 +1071,28 @@ test('every detector that reads the normalised command anchors it to a command p
 });
 
 /**
- * every `printf '%s' "$norm" | <cmd> <flags> <pattern>` in a shell source — detectors AND
- * extractors, since the rule is about reading $norm at all, not about `grep -Eq`.
+ * Every read of $norm in a shell source, in BOTH the shapes the gate has for one — detectors
+ * AND extractors, written inline AND handed to a helper, since the rule is about reading the
+ * normalised command at all, not about any one command that does it:
+ *
+ *   printf '%s' "$norm" | <cmd> <flags> <pattern>   — the read written where it is used
+ *   <helper> "$norm" "<pattern>"                    — the read delegated, pattern at the call site
  */
 function normReaders(source) {
   const found = [];
-  const re = /printf\s+'%s'\s+"\$norm"\s*(?:\\\s*)?\|\s*([a-z]+)\s+(-[A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')/g;
-  for (let m = re.exec(source); m; m = re.exec(source)) {
-    found.push({ cmd: m[1], flags: m[2], pattern: m[3] ?? m[4], quoted: m[3] === undefined ? "'" : '"' });
+  const inline = /printf\s+'%s'\s+"\$norm"\s*(?:\\\s*)?\|\s*([a-z]+)\s+(-[A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')/g;
+  for (let m = inline.exec(source); m; m = inline.exec(source)) {
+    found.push({ at: m.index, via: 'pipeline', cmd: m[1], flags: m[2], pattern: m[3] ?? m[4], quoted: m[3] === undefined ? "'" : '"' });
   }
-  return found;
+  const delegated = /(?:^|[\s($])([a-z_][a-z0-9_]*)\s+"\$norm"\s+(?:"([^"]*)"|'([^']*)')/gm;
+  for (let m = delegated.exec(source); m; m = delegated.exec(source)) {
+    found.push({ at: m.index, via: 'helper', cmd: m[1], flags: '', pattern: m[2] ?? m[3], quoted: m[2] === undefined ? "'" : '"' });
+  }
+  return found.sort((a, b) => a.at - b.at);
 }
+
+/** the 0-based line a source offset falls on */
+const lineOf = (source, at) => source.slice(0, at).split('\n').length - 1;
 
 test('every read of the normalised command goes through an anchored pattern, extractors included', async () => {
   const source = await readFile(gate, 'utf8');
@@ -1091,15 +1106,42 @@ test('every read of the normalised command goes through an anchored pattern, ext
   // So the rule is about $norm, not about one command: whatever reads the normalised command
   // reads it through a pattern that starts at a command position. Anything that needs the
   // inside of one invocation cuts the fragment out first and reads THAT.
-  assert.equal(readers.length, 9, `expected 9 $norm readers, found ${readers.length}`);
-  for (const { cmd, flags, pattern } of readers) {
-    assert.match(cmd, /^grep$/, `only grep reads $norm; a ${cmd} over the whole line cannot be anchored to a command position: ${pattern}`);
-    assert.match(flags, /^-E[qo]$/, `a $norm read uses -Eq or -Eo, not ${flags}: ${pattern}`);
+  //
+  // ...and "whatever reads it" includes the reads this file DELEGATES. Scoped to the inline
+  // `printf | grep` shape, this rule saw four `run_dir_for "$norm" "<pattern>"` call sites —
+  // reads of the normalised command by any reading of that sentence — as nothing at all, and
+  // it has now been narrower than its own name for two rounds running. The pattern lives at
+  // the call site in both shapes, so both are checked the same way.
+  assert.equal(readers.length, 13, `expected 13 $norm readers, found ${readers.length}`);
+  assert.equal(readers.filter((r) => r.via === 'helper').length, 7, 'expected 7 delegated reads');
+  for (const { via, cmd, flags, pattern } of readers) {
+    if (via === 'pipeline') {
+      assert.match(cmd, /^grep$/, `only grep reads $norm inline; a ${cmd} over the whole line cannot be anchored to a command position: ${pattern}`);
+      assert.match(flags, /^-E[qo]$/, `a $norm read uses -Eq or -Eo, not ${flags}: ${pattern}`);
+    } else {
+      // A delegated read is only as good as the helper it names, and a helper this file does
+      // not define is some other program being handed the whole command line.
+      assert.ok(source.includes(`${cmd}() {`), `${cmd} is handed $norm but is not a function this gate defines: ${pattern}`);
+    }
     assert.ok(
       pattern.startsWith('${START}') || pattern.startsWith('$START'),
       `a read of $norm does not begin with START, so its verb can be satisfied by prose: ${pattern}`,
     );
   }
+
+  // COMPLETENESS, which is the half that kept this guard behind the defects: a rule that
+  // only inspects the reads it already knows how to see cannot report the one it cannot.
+  // Every mention of $norm in the file is either the normalisation that BUILDS it or a read
+  // collected above — a new shape of read is a red line here, not a silent omission.
+  const seen = new Set(readers.map((r) => lineOf(source, r.at)));
+  source.split('\n').forEach((line, i) => {
+    if (!line.includes('"$norm"') || seen.has(i)) return;
+    assert.match(
+      line,
+      /^norm="\$\(/,
+      `line ${i + 1} reads $norm in a shape this rule cannot see, so nothing checks its pattern: ${line.trim()}`,
+    );
+  });
 
   // The matcher is checked against BOTH shapes that have actually shipped: the unanchored,
   // single-quoted detector of round 6, and the greedy `sed` of round 8. A matcher that saw
@@ -1114,8 +1156,23 @@ test('every read of the normalised command goes through an anchored pattern, ext
   assert.equal(greedy[0].cmd, 'sed');
   assert.equal(greedy[0].pattern.startsWith('${START}'), false);
 
-  // ...and a continued line is still one read, which is how branch 1's extractor is written.
+  // ...and a continued line is still one read, which is how branch 1's extractor used to be
+  // written.
   assert.equal(normReaders(`x="$(printf '%s' "$norm" \\\n        | grep -Eo "\${START}foo" \\\n        | tail -1)"`).length, 1);
+
+  // ...and a DELEGATED read is one too, whether it is a bare call or a substitution, with
+  // the unanchored form of it reported rather than skipped. This is the shape the rule was
+  // blind to while it said "every read of the normalised command".
+  const bare = normReaders(`  rdir="$(run_dir_for "$norm" "(gh|glab) +release +create")" || exit 0`);
+  assert.equal(bare.length, 1);
+  assert.equal(bare[0].via, 'helper');
+  assert.equal(bare[0].cmd, 'run_dir_for');
+  assert.equal(bare[0].pattern.startsWith('${START}'), false);
+  assert.equal(normReaders(`last_invocation "$norm" "\${START}\${COMMIT_VERB}\${END}"`).length, 1);
+
+  // ...and `printf '%s' "$norm"` is not a helper called `s`, which a laxer matcher for the
+  // delegated shape reads it as.
+  assert.equal(normReaders(`x="$(printf '%s' "$norm" | tail -1)"`).length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -1234,6 +1291,82 @@ test('a commit is judged against the repository its own invocation names, not on
 });
 
 // ---------------------------------------------------------------------------
+// A fragment covers exactly ONE invocation
+//
+// Three of the four extractors cut their fragment the same way:
+//
+//     grep -Eo "${START}${VERB}${END}[^;&|)]*"
+//
+// and `END` is `([[:space:]]|[;&|)]|$)`, which can match a SEPARATOR CHARACTER. It does so
+// exactly when the verb ABUTS one — an invocation with no arguments after it — and when it
+// does, the trailing `[^;&|)]*` begins on the far side of that separator and runs on into
+// the NEXT invocation. One fragment then covers two; the `^`-anchored strip inside reads the
+// FIRST of them; and `tail -1` has nothing left to choose from, because grep consumed both
+// as a single match. "The last invocation wins" — the rule every one of these branches
+// claims, and the rule `tail -1` exists to keep — is broken by an argument-less invocation
+// of the same verb standing in front of the real one.
+//
+// This is written as the PROPERTY and not as three cases on purpose. Each of the three was
+// introduced by a commit that fixed the other reading defects correctly, and four rounds of
+// review caught instances while the rule went on being missed:
+//
+//     an argument-less invocation of the same verb, and a separator, decide NOTHING about
+//     the command that follows them.
+//
+// Branch 3 is in the table as the CONTROL. `TAG_VERB` ends in ` +`, so `END` never sees the
+// separator there and that branch was green before this fix and after it. A table in which
+// every row is a known defect cannot tell a fix from a coincidence.
+// ---------------------------------------------------------------------------
+
+/**
+ * The separator forms a command actually uses. `&&` and `||` never let END swallow — the
+ * second `&`/`|` stops the `[^;&|)]*` tail — so they belong here precisely BECAUSE they are
+ * the cheap shapes: a table of only the swallowing separators states a narrower rule than
+ * the one being claimed, which is how this file got three of these.
+ */
+const SEPARATORS = [';', '&', '|', '\n', '\n  ', ' & ', ' | ', ' && '];
+
+test('an argument-less invocation of the same verb decides nothing that follows it', async () => {
+  // The ROOT release (9.9.9) is unnoted and the MEMBER's (0.0.1) is noted, so a fragment
+  // that runs on from the member's invocation into the root's finds the member's note and
+  // allows the root's unnoted release.
+  const mono = await workspace({ memberNoted: ['0.0.1'], rootNoted: ['1.0.0'] });
+  const unnoted = await repository({ noted: ['1.0.0'] });
+  const dirty = await stagedBump({ name: '@acme/dirty' });
+  const clean = await repository({ version: '1.0.0', noted: ['1.0.0'], name: '@acme/clean' });
+
+  const rows = [
+    { branch: '1 publish', cwd: mono, argless: 'pnpm --filter @acme/a publish', real: 'pnpm publish' },
+    { branch: '2 release create', cwd: unnoted, argless: 'gh release create', real: 'gh release create v9.9.9' },
+    { branch: '3 tag (control)', cwd: unnoted, argless: 'git tag ', real: 'git tag v9.9.9' },
+    { branch: '3 tag, no trailing space (control)', cwd: unnoted, argless: 'git tag', real: 'git tag v9.9.9' },
+    { branch: '4 commit, another checkout named last', cwd: clean, argless: 'git commit', real: `git -C ${dirty} commit -m x` },
+    { branch: '4 commit, this checkout named last', cwd: dirty, argless: `git -C ${clean} commit`, real: 'git commit -m x' },
+    { branch: '4 commit, an unresolvable -C first', cwd: dirty, argless: 'git -C /nonexistent-b7d2e4 commit', real: 'git commit -m x' },
+  ];
+
+  const mustRefuse = async (command, cwd, why) => {
+    const result = await runGate(bashCall(command, cwd), {});
+    const output = decision(result);
+    assert.ok(output, `${why}: expected a refusal, got an allow for ${JSON.stringify(command)}`);
+    assert.match(
+      output.permissionDecisionReason,
+      /9\.9\.9/,
+      `${why}: refused, but for the wrong release — ${output.permissionDecisionReason}`,
+    );
+  };
+
+  for (const { branch, cwd, argless, real } of rows) {
+    // The control for the row: the invocation being judged is refused on its own. Without
+    // it every row could pass by the gate having gone quiet rather than read correctly.
+    await mustRefuse(real, cwd, `${branch}: the invocation alone`);
+    for (const sep of SEPARATORS) {
+      await mustRefuse(`${argless}${sep}${real}`, cwd, `${branch}: after an argument-less one, separated by ${JSON.stringify(sep)}`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
 // The quote pass costs what the pass it replaced cost
 //
 // The first version walked the command one character at a time rebuilding `out = out c`,
@@ -1329,5 +1462,32 @@ test('a release handed to the shell as a string is under-blocked, and it is writ
   const readme = await readFile(new URL('../adapters/claude-code/README.md', import.meta.url), 'utf8');
   for (const shape of ['$(', 'backtick', 'unbalanced', 'heredoc']) {
     assert.ok(readme.includes(shape), `the adapter README does not name the ${shape} under-block`);
+  }
+});
+
+test('an UNQUOTED command substitution is a command position, and stays caught', async () => {
+  // The four shapes above are given up because the quote pass reads what is inside the
+  // quotes as text. UNQUOTED, a `(` and a `)` are the shell structure they look like: they
+  // open and close a command position, which is why `START` accepts one and `END` the other.
+  // So an invocation can begin after a `$(` that is not at the start of the command, and a
+  // fragment has to be cut at those characters like any other separator — `OUT=$(gh release
+  // create v9.9.9)` is a release, and the `OUT=$` in front of it is no part of the
+  // invocation that runs.
+  //
+  // Every one of these is refused by the shipped gate as well. What turns red here is a
+  // fragment rule that covers `;`, `&` and `|` and quietly forgets the parentheses: the
+  // strip inside branch 2 is `^`-anchored, so a fragment carrying `OUT=$` in front of the
+  // verb yields no version at all and the release goes through.
+  const dir = await repository({ version: '1.4.0', noted: ['1.0.0'] });
+  for (const [command, version] of [
+    ['OUT=$(gh release create v9.9.9)', '9.9.9'],
+    ['(gh release create v9.9.9)', '9.9.9'],
+    ['(cd . && gh release create v9.9.9)', '9.9.9'],
+    ['echo $(npm publish)', '1.4.0'],
+    ['(npm publish)', '1.4.0'],
+    ['x=$(git tag v9.9.9)', '9.9.9'],
+    ['(git tag v9.9.9)', '9.9.9'],
+  ]) {
+    assertRefused(await runGate(bashCall(command, dir), {}), version);
   }
 });
