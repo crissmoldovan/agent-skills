@@ -74,6 +74,49 @@
 >   pattern by escaping `.` and nothing else, so a package at the legal semver `1.0.0+build.7`
 >   was refused with "never mentions 1.0.0+build.7" while the changelog said exactly that.
 
+> **[THIRD FOLLOW-UP, same day — round 9]** One root cause at three call sites, and it TRIPS
+> the third trip-wire below. That is the finding; the rest is measurement.
+>
+> - **The defect.** Every extractor bounded its fragment as `grep -Eo
+>   "${START}${VERB}${END}[^;&|)]*"`. `END` accepts a separator character, and matches one
+>   exactly when the verb ABUTS it — an invocation with no arguments of its own. The trailing
+>   `[^;&|)]*` then starts on the far side of that separator and runs on into the NEXT
+>   invocation; `grep` consumes both as one match, so `tail -1` has nothing left to choose
+>   between, and the `^`-anchored strip inside reads the FIRST. "The last invocation wins" —
+>   the rule all four branches claim — is broken by writing an argument-less invocation of the
+>   same verb in front of the real one. Measured over 7 shapes × 9 separator forms, cells
+>   wrong: **0.16.0 5, base 5, HEAD 25, fixed 0**. Every one of the five at 0.16.0 is branch
+>   1, so the `pseg` shape is not merely a latent hole in the shipped gate — the previous
+>   round's brief had it as "happens to get the right answer", which is true of the shapes it
+>   measured and false of `pnpm --filter <pkg> publish;pnpm publish`, where the member's note
+>   excuses the root's unnoted release. Correction recorded rather than quietly fixed.
+> - **The trip-wire is tripped, on its own terms.** "A defect appears that the anchoring test
+>   could not have caught and is still a command-position confusion." Round 9 is exactly that:
+>   every pattern involved was anchored and stayed anchored, the guard was green throughout,
+>   and the confusion is about a second command position being read as the first one's
+>   arguments. The note said the evidence for the rewrite would then be complete. What that
+>   evidence bought here is worth stating beside it: the fix IS the tokenizer's first stage —
+>   cut the command into invocations, then match within one — and it cost **four lines** and
+>   no new dialect, because the quote pass had already made the remaining separators real.
+>   Whether that discharges the trip-wire or merely defers it is a judgement, and it is not
+>   this note's to make alone; what is recorded is that the condition was met.
+> - **The guard was narrower than its name again, for the second round running.** Round 8
+>   widened the rule from `grep -Eq` to "whatever reads `$norm`", and it still read only the
+>   inline `printf '%s' "$norm" | …` shape — so the four `run_dir_for "$norm" "<pattern>"`
+>   call sites, reads of the normalised command by any reading of that sentence, were invisible
+>   to it. Verified rather than asserted: un-anchoring one of those patterns leaves the round-8
+>   matcher reporting **0 un-anchored reads**. The rule now covers delegated reads too, and
+>   asserts COMPLETENESS — every mention of `$norm` in the file is either the normalisation
+>   that builds it or a read the rule can see, so a new SHAPE of read is a red line rather
+>   than a silent omission. That third property is the one that would have caught rounds 8 and
+>   9 both, and it is what "narrower than its name" kept meaning in practice.
+> - **The performance claim is unaffected, by construction and by measurement.** The quote
+>   pass is byte-identical (40 lines, no diff), and end to end the fixed gate is within noise
+>   of HEAD on every shape: no verb 25ms/25ms, ordinary commit 44ms/48ms, quote-dense 128KB
+>   124ms/120ms, 512KB 418ms/417ms, `curl -d "{JSON}"` 512KB 567ms/565ms, 2000 lines 37ms/39ms.
+>   The pass alone on 512KB quote-dense costs 190ms against the 231ms recorded above, on a
+>   quieter machine. The cliff past ~1.25MB is untouched and still not chased.
+
 Every number in this note was measured on the machine that produced it, not estimated.
 Where a measurement contradicted something I had already written down, the note says so.
 
