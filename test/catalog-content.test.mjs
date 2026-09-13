@@ -29,6 +29,7 @@ const visualiseBlastArea = await read('skills/visualise-blast-area/SKILL.md');
 const landComplexChange = await read('skills/land-complex-change/SKILL.md');
 const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
 const newUxDiscovery = await read('skills/new-ux-discovery/SKILL.md');
+const releaseNotes = await read('skills/release-notes/SKILL.md');
 
 // A description may be a double-quoted scalar containing apostrophes, a single-quoted
 // scalar, or a bare value; all three forms yield the exact published description.
@@ -57,17 +58,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.14.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.14.0');
-  assert.equal(rootLock.version, '0.14.0');
-  assert.equal(rootLock.packages[''].version, '0.14.0');
+test('v0.15.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.15.0');
+  assert.equal(rootLock.version, '0.15.0');
+  assert.equal(rootLock.packages[''].version, '0.15.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 23);
+  assert.equal(skillNames.length, 24);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-three skills/i);
-  assert.match(composition, /catalog ships twenty-three skills/i);
+  assert.match(architecture, /now ships twenty-four skills/i);
+  assert.match(composition, /catalog ships twenty-four skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -84,7 +85,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-three public, portable Agent Skills/i);
+  assert.match(readme, /twenty-four public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -101,7 +102,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -195,7 +196,7 @@ test('update-agent-skills maintains communication and every local plane', () => 
 });
 
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
-  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['visualise-blast-area', visualiseBlastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery]]) {
+  for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['visualise-blast-area', visualiseBlastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery], ['release-notes', releaseNotes]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
     const description = descriptionOf(source);
     assert.ok(description.length > 0 && description.length <= 1024);
@@ -293,6 +294,20 @@ test('new-ux-discovery gates every candidate and keeps the dropped ones on recor
   assert.match(newUxDiscovery, /references\/gates\.md/);
   assert.match(newUxDiscovery, /references\/documenting-the-run\.md/);
   assert.doesNotMatch(newUxDiscovery, /\bCUE\b|\bRGC\b/);
+});
+
+test('release-notes owns the semver call, the destinations, and the limits of its gate', () => {
+  assert.match(releaseNotes, /What.*Why.*Impact/s);
+  assert.match(releaseNotes, /breaking → major|additive → minor/);
+  assert.match(releaseNotes, /dist-tag/);
+  assert.match(releaseNotes, /every place the project records releases/i);
+  assert.match(releaseNotes, /describe-changes/);
+  assert.match(releaseNotes, /release-ledger/);
+  // The gate is documented as a floor, and as something only a user installs.
+  assert.match(releaseNotes, /adapters\/claude-code\/release-notes-gate\.sh/);
+  assert.match(releaseNotes, /off until a user installs it/);
+  assert.match(releaseNotes, /It is a floor\./);
+  assert.doesNotMatch(releaseNotes, /\bCUE\b|\bRGC\b/);
 });
 
 const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];

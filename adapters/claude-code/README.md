@@ -8,10 +8,11 @@ piece that calls it from a real Claude Code session. Task 3 (Plan 7) is what
 makes it also *speak* into a session: until then, every hook here only
 observed and wrote.
 
-This directory also carries a **second, unrelated hook** — the progress-report
-gate, which shares none of the journal's code, configuration, or installation.
-Everything from here to "Authoring floors" is about the journal hook only; the
-gate has its own section below, and nothing about it is on by default.
+This directory also carries **two further, unrelated hooks** — the
+progress-report gate and the release-notes gate — which share none of the
+journal's code, configuration, or installation, and none of each other's.
+Everything from here to "Authoring floors" is about the journal hook only; each
+gate has its own section below, and nothing about either is on by default.
 
 **Everything this file claims about payload shapes and event names comes from
 [`../NOTES.md`](../NOTES.md)**, produced by capturing real hook payloads from
@@ -51,6 +52,18 @@ output side"). Same rule: it outranks this file if they ever disagree.
 - `install-report-progress-gate.mjs` — writes and removes that pair of hooks in
   a settings file. `--mode observe|block`, `--remove`, atomic tmp+rename, and a
   refusal to touch a hook wearing the gate's name that it did not write itself.
+- `release-notes-gate.sh` — the release-notes gate: a `PreToolUse` hook on `Bash`
+  that refuses a publish, a `gh`/`glab release create`, a release-looking `git
+  tag`, or a version-bump commit when the version being released is not mentioned
+  in any file that records releases. Bash rather than Node because every decision
+  it makes is over a command string and a few files, and `jq` — which it needs for
+  the payload and for `package.json` — is already the dependency that gates it.
+  Nothing to do with the journal or with the progress gate: separate install,
+  separate flag, separate settings entry. See "The release-notes gate" below.
+- `install-release-notes-gate.mjs` — writes and removes that one hook in a
+  settings file. Same contract as the installer above: `--mode observe|block`,
+  `--remove`, atomic tmp+rename, and a refusal to touch a hook wearing the gate's
+  name that it did not write itself.
 
 ## Installing it
 
@@ -306,6 +319,80 @@ cannot support the second. It never prints `hookSpecificOutput.additionalContext
 on `Stop`: that channel was observed to force continuations exactly like a block
 does, so its stand-down notice goes to stderr, which Claude Code does not deliver
 to the model at exit 0. Every path exits 0.
+
+## The release-notes gate (separate hook, off by default)
+
+The mechanical half of the `release-notes` skill. The skill can be skipped in exactly the
+moment it matters — a release is being cut, the note is the last thing between here and
+`npm publish`, and nobody is reading. This is the half that is not instructions.
+
+```sh
+# try it without risking a release: reports what it would have refused, stops nothing.
+# this is what `--mode` defaults to when it is left off.
+node adapters/claude-code/install-release-notes-gate.mjs --mode observe
+
+# arm it
+node adapters/claude-code/install-release-notes-gate.mjs --mode block
+
+# take it back out; nothing is left behind
+node adapters/claude-code/install-release-notes-gate.mjs --remove
+```
+
+It writes **one** entry into `~/.claude/settings.json` (or the `--settings` file you name):
+`PreToolUse`, matcher `Bash`. One is enough because the release command is itself the
+trigger — there is no earlier event to arm a marker on, and nothing is kept between calls.
+Scoped to `Bash` so the hook is not invoked on `Read`, `Edit` or anything else.
+
+Re-running the installer replaces whatever it wrote last time rather than stacking a second
+copy beside it. A hook wearing the gate's filename that this installer did not write is
+refused, not overwritten: somebody else put it there, and it is theirs to remove. It is
+deliberately not in `settings-fragment.json`, for the same reason the progress gate is not —
+that fragment is the journal hook's and is meant to be copied wholesale, and a hook that can
+refuse a tool call must never arrive that way.
+
+**Off unless armed.** `release-notes-gate.sh` exits without reading its input unless
+`AGENT_SKILLS_RELEASE_NOTES_GATE` is `block` or `observe` in its environment, and the
+installer is what puts that assignment in the command it writes — in the command rather than
+in an exported variable, because a hook inherits whatever environment Claude Code launched
+with, and a desktop launch inherits no shell profile at all. Changing that one word to `off`
+in `settings.json` disarms the gate without uninstalling it.
+
+**What it acts on.** Four command shapes: `npm|pnpm|yarn publish` and `changeset publish`,
+`gh|glab release create <tag>`, a `git tag` whose tag looks like a release (`v1.2.3`,
+`@scope/pkg@1.2.3`), and a `git commit` that stages a `package.json` whose `version` line
+changed. For each it works out **which directory the command will actually run in** — the
+last top-level `cd`, a `-C`, a `--filter`/`--prefix` — rather than assuming the session's
+cwd, because a release cut against another checkout judged by this checkout's notes is a
+refusal the released repository can never satisfy. `git -C <dir> tag` in particular contains
+no `git tag` substring, and before that was handled the branch never ran at all: a
+cross-repository tag went completely ungated.
+
+**What it checks.** That the version string appears in a file whose job is recording
+releases: `CHANGELOG.md` and its usual spellings, `CHANGES.md`, `HISTORY.md`, `NEWS.md`,
+`docs/releases.md`, files under `docs/releases/` or `changelog.d/`, or a pending
+`.changeset/` entry (which carries a bump type and no version at all, so its presence is the
+only thing checkable). Deliberately weaker than "has a `## <version>` heading": that match
+rejected `## [1.2.3] - 2026-01-01`, the most widespread convention there is, and every
+heading dialect a changelog generator emits is a spelling this gate must not have to know.
+
+**What it cannot check.** Anything the skill is about. A heading with a git-message body
+under it satisfies this gate completely. It is a floor, not a grade, and every string it
+prints says so.
+
+**Fail-open, and loudly so.** Three answers, not two: mentioned, missing, and *no note source
+at all* — and the third allows. A project that keeps no release notes in the tree is using a
+different convention, not committing a violation. Every unresolvable path — no `jq`, an
+unreadable `cd` target, a `--repo` naming someone else's repository, a package.json it cannot
+parse — allows as well. The consequence a user has to hear: **an armed gate that never fires
+is the expected outcome in such a repository**, so silence is not proof it is working. Run
+`--mode observe` against a release you know has no note before trusting it.
+
+**Its channels are DOCUMENTED, not OBSERVED.** The `hookSpecificOutput.permissionDecision`
+shape block mode returns comes from the schema dump in `../HOOK-OUTPUT-NOTES.md`, whose probe
+states plainly that it did not exercise the decision channel; and nothing in this pack has
+observed whether a `PreToolUse` hook's stderr reaches a user at exit 0, which is the whole of
+observe mode's output. Both remain NOT OBSERVED until somebody probes them and writes it into
+that file. Every path exits 0.
 
 ## What this costs, honestly
 

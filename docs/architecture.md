@@ -22,7 +22,7 @@ The public product started with exactly two planned skills:
 - `agent-lifecycle`: automatic delegated-work visibility.
 
 No further skill belongs in the catalog without a deliberate product decision. The catalog
-now ships twenty-three skills, each admitted by such a decision and each recorded in the
+now ships twenty-four skills, each admitted by such a decision and each recorded in the
 repository README and in [releases](releases.md).
 
 ## Verification boundary
@@ -44,6 +44,13 @@ the conversation, in a hook the user wired into their own harness.
   `report-progress` skill: a `PostToolUse` marker writer plus a `Stop` hook that can hold a
   turn open when a report is owed and missing, installed and removed by
   `install-report-progress-gate.mjs`. It is covered by `test/report-progress-gate.test.mjs`.
+- `adapters/claude-code/release-notes-gate.sh` is the mechanical half of the `release-notes`
+  skill: a `PreToolUse` hook on `Bash` that refuses a publish, a forge release-create, a
+  release-looking tag, or a version-bump commit when the version being released is not
+  mentioned in any file that records releases, installed and removed by
+  `install-release-notes-gate.mjs`. It is covered by `test/release-notes-gate.test.mjs`. It
+  enforces presence only, and it allows every case it cannot resolve — including a project
+  with no release-note file at all, where an armed gate correctly never fires.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.

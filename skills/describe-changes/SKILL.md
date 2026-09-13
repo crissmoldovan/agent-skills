@@ -36,9 +36,8 @@ a since-you-were-away ledger and consumes these descriptions as its entries, and
 Do not use it to review a change — it describes what happened, it does not judge
 whether it should have. Do not use it to cut a release: a version's notes are a
 different artefact, and the semver call, the version bump, the changelog heading,
-the tag and the destinations belong to `release-notes` — a skill outside this
-pack, installed alongside it — which takes a description like this one as the
-*what*. Do not use it to write a commit message before the work is done; it
+the tag and the destinations belong to `release-notes`, in this pack, which takes
+a description like this one as the *what*. Do not use it to write a commit message before the work is done; it
 reads a completed diff. Do not use it as a summariser for a body of
 text with no diff behind it; the entire value here is that claims are anchored,
 and with nothing to anchor to you have a paraphrase.
