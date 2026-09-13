@@ -746,3 +746,97 @@ test('a refusal names the tag, not the separator that followed it', async () => 
   assertRefused(result, '1.4.0');
   assert.doesNotMatch(decision(result).permissionDecisionReason, /v1\.4\.0[;&|)]/);
 });
+
+// ---------------------------------------------------------------------------
+// A quoted string is data, not shell structure
+//
+// `START`/`END` matched CHARACTERS rather than shell structure, so any `;`, `|`, `&` or `(`
+// sitting in front of a release verb put that verb at what the gate read as a command
+// position — even when every one of those characters was inside a quoted string:
+//
+//     git commit -m "fixes the crash; npm publish now works"   -> REFUSED
+//     git commit -m "see README (npm publish)"                 -> REFUSED
+//
+// A commit message that mentions a publish step is completely ordinary, so this fired on
+// real work, and a false denial is the one outcome this gate's header says it cannot
+// afford. `echo "build; npm publish"` escaped only because the CLOSING quote happens not
+// to be in END's character class — which is the proof that the old behaviour was
+// incidental rather than designed.
+//
+// Both halves are asserted for every shape. The refuse half is what fails against a gate
+// that has simply stopped looking inside quotes at ALL — which would be the cheap repair,
+// and which would take `npm "publish"` (a real release, quoted) with it.
+// ---------------------------------------------------------------------------
+
+for (const [label, command] of [
+  ['a semicolon', 'git commit -m "fixes the crash; npm publish now works"'],
+  ['parentheses', 'git commit -m "see README (npm publish)"'],
+  ['a pipe', 'git commit -m "chore: docs | npm publish step"'],
+  ['a newline', 'git commit -m "fixes the crash\nnpm publish now works"'],
+  ['an issue comment body', 'gh issue comment -b "workaround: (pnpm publish)"'],
+  ['an echoed sentence', 'echo "build; npm publish"'],
+]) {
+  test(`a release verb quoted behind ${label} is not a release`, async () => {
+    // Nothing is staged here, so the `git commit` branch has no bump to find either: any
+    // refusal can only have come from reading the quoted text as a command.
+    const dir = await repository({ noted: ['1.3.0'] });
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  });
+}
+
+test('a release verb that is merely QUOTED is still the release it is', async () => {
+  // The cheap repair — blank every quoted span before matching — passes every case above
+  // and goes silently inert here: bash runs `npm "publish"` identically to the unquoted
+  // form, and a quoted tag is the ordinary way to write one. Quoting removes a character's
+  // power to act as shell STRUCTURE; it does not turn a command into a comment.
+  const unnoted = await repository({ noted: ['1.3.0'] });
+  for (const command of ['npm "publish"', "npm 'publish'", 'git tag "v1.4.0"']) {
+    assertRefused(await runGate(bashCall(command, unnoted), {}), '1.4.0');
+  }
+  const noted = await repository({ noted: ['1.4.0'] });
+  for (const command of ['npm "publish"', "npm 'publish'", 'git tag "v1.4.0"']) {
+    assertAllowed(await runGate(bashCall(command, noted), {}));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The run directory is the one in effect WHEN THE VERB RUNS
+//
+// `run_dir_for` took the last top-level `cd` on the line whatever its position, which
+// contradicts its own comment. Two consequences, both downstream of the same root cause as
+// the quoting bug — reading shell text as characters rather than as structure:
+//
+//   (a) `npm publish && cd <other-repo>` was judged against <other-repo>, so a release whose
+//       note IS written was refused, naming a repository that has nothing to do with it.
+//   (b) A `cd` named inside a quoted string hijacked the run directory, and an unresolvable
+//       one switched the gate off entirely: `git commit -m "wip; cd /nonexistent"` allowed a
+//       version bump with no note at all. Fail-open, so the safe direction — but a sentence
+//       in a commit message could disarm the bump check.
+// ---------------------------------------------------------------------------
+
+test('a cd that runs AFTER the release verb is not the directory the verb runs in', async () => {
+  const noted = await repository({ noted: ['1.4.0'] });
+  const other = await repository({ noted: ['0.1.0'], name: '@acme/other' });
+  assertAllowed(await runGate(bashCall(`npm publish && cd ${other}`, noted), {}));
+  assertAllowed(await runGate(bashCall(`git tag v1.4.0 && cd ${other}`, noted), {}));
+
+  // ...and the allow half is not the whole story: a `cd` BEFORE the verb still decides,
+  // which is the behaviour this branch exists to provide.
+  const unnoted = await repository({ noted: ['1.3.0'], name: '@acme/other' });
+  assertRefused(await runGate(bashCall(`cd ${unnoted} && npm publish`, noted), {}), '1.4.0');
+});
+
+test('a cd inside a quoted string neither hijacks the run directory nor disarms the gate', async () => {
+  // (b), the fail-open half: an unresolvable `cd` is unknown ground and allows, so a `cd`
+  // read out of a commit message turned the bump check off for that commit.
+  const bump = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  await writeFile(path.join(bump, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '1.1.0' }, null, 2)}\n`);
+  git(bump, 'add', 'package.json');
+  assertRefused(await runGate(bashCall('git commit -m "wip; cd /nonexistent"', bump), {}), '1.1.0');
+
+  // (b), the false-denial half: a resolvable `cd` named in quoted text judged the release
+  // by the wrong repository's notes.
+  const noted = await repository({ noted: ['1.4.0'] });
+  const unnoted = await repository({ noted: ['1.3.0'], name: '@acme/other' });
+  assertAllowed(await runGate(bashCall(`echo "see ${unnoted}; cd ${unnoted}" && npm publish`, noted), {}));
+});

@@ -66,6 +66,67 @@ cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null |
 norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
         | awk '{ if (sub(/\\[[:space:]]*$/, "")) printf "%s ", $0; else printf "%s;", $0 }')"
 
+# QUOTED TEXT IS DATA. This pass is the difference between reading shell STRUCTURE and
+# reading CHARACTERS, and reading characters is what made this gate refuse ordinary work:
+#     git commit -m "fixes the crash; npm publish now works"
+#     git commit -m "see README (npm publish)"
+#     gh issue comment -b "workaround: (pnpm publish)"
+# Every one of those was DENIED, because the `;`, `(` or `|` inside the message satisfied
+# START's character class and put the next word at what the gate read as a command
+# position. A commit message that mentions a publish step is completely ordinary, so this
+# fired on real work — and a false denial is the one outcome the header says this guard
+# cannot afford. (`echo "build; npm publish"` escaped only because the CLOSING quote is not
+# in END's class: the old behaviour was incidental, not designed.) The same reading is why a
+# `cd` named inside a commit message could hijack the run directory, and why an unresolvable
+# one switched the bump check off for that commit.
+#
+# So inside a quoted span, a shell metacharacter becomes a space: it is text, and text opens
+# no command position. The quote CHARACTERS are then dropped, which is deliberate and is the
+# line between this and the cheap repair. Blanking quoted spans wholesale would pass every
+# case above and lose the releases that are merely quoted — bash runs `npm "publish"` exactly
+# as it runs `npm publish`, and `git tag "v1.4.0"` is an ordinary way to write a tag. Quoting
+# removes a character's power to act as structure; it does not turn a command into a comment.
+# (`packages/agent-journal`'s consequence matcher learned the same thing from the other
+# direction: stripping quoted spans there made `wrangler secret "put" API_KEY` invisible.)
+#
+# WHAT THIS GIVES UP, stated rather than discovered: a release that reaches the shell as a
+# quoted ARGUMENT — `sh -c "npm publish"`, `bash -lc "npm publish"`, `ssh host "npm publish"`
+# — is under-blocked, because after this pass the verb sits mid-command rather than at a
+# command position. Measured against the shipped gate, most of that was under-blocked
+# already: `sh -c "npm publish"` allowed there too, for the accidental reason above (the verb
+# ends at the closing quote, which END does not accept). Exactly one shape is genuinely lost
+# — a separator AND more text on both sides of the verb inside the string, as in
+#     sh -c "build; npm publish --tag next"
+# which the shipped gate refused. It refused it for the SAME reading that refused the commit
+# messages, so one cannot be kept without the other, and the header decides which way that
+# goes: a false denial costs more than a miss. This joins the under-block list the adapter
+# README publishes (`sudo npm publish`, `time npm publish`, `NPM_CONFIG_TAG=next npm
+# publish`, `git tag -f`, `gh release create --draft`) rather than going unsaid.
+#
+# It is the mirror of the trade already accepted in the other direction, and left standing
+# here: a heredoc BODY line still reads as a command, because the normalisation above turns
+# its newlines into separators. That one over-blocks, which the header tolerates less
+# happily — but a heredoc whose body begins with a release verb is rare enough, and visible
+# enough when it fires, that narrowing it is a separate change with its own evidence.
+norm="$(printf '%s' "$norm" | awk '
+function safe(c) { return (c == ";" || c == "&" || c == "|" || c == "(" || c == ")") ? " " : c }
+BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
+{
+  out = ""; q = ""; n = length($0)
+  for (i = 1; i <= n; i++) {
+    c = substr($0, i, 1)
+    if (q == "" && (c == sq || c == dq)) { q = c; continue }         # open a span
+    if (q != "" && c == q) { q = ""; continue }                      # close it
+    if (c == bs && q == "") { i++; if (i <= n) out = out safe(substr($0, i, 1)); continue }
+    if (c == bs && q == dq) {                                        # bash: only these five
+      e = (i < n) ? substr($0, i + 1, 1) : ""                        # are escapable in "..."
+      if (e == dq || e == bs || e == "$" || e == "`") { i++; out = out safe(e); continue }
+    }
+    out = out (q == "" ? c : safe(c))
+  }
+  printf "%s", out
+}')"
+
 # VERB POSITION. A gated verb counts when it starts the command or follows a shell separator.
 # `^` alone missed an indented line (`  npm publish` inside a script block), which the
 # newline-to-`;` normalisation above now produces for every indented multi-line call.
@@ -211,8 +272,8 @@ resolve_dir() {
   ( cd "$d" 2>/dev/null && pwd -P ) || return 1
 }
 
-# run_dir_for <normalized-cmd> -> prints the directory the command actually runs in
-# (BASE when it has no `cd`), or FAILS when a `cd` target cannot be resolved.
+# run_dir_for <normalized-cmd> [verb-pattern] -> prints the directory the command actually
+# runs in (BASE when it has no `cd`), or FAILS when a `cd` target cannot be resolved.
 #
 # `cd <dir> && <release action>` is the normal way to act on another package or another
 # checkout, and this hook does NOT run in that directory — it runs in the session's cwd. Reading
@@ -222,13 +283,31 @@ resolve_dir() {
 # `cd packages/cli && npm publish` was judged against the ROOT package and the ROOT notes,
 # naming the wrong package and the wrong file in the refusal.
 #
-# The LAST top-level `cd` wins, because that is the one in effect when the verb runs. A `cd`
-# that only applies inside a subshell — `(cd a && build) && npm publish` — is over-attributed
-# here; it stays harmless because callers fail open whenever the resulting directory has no
-# package.json or no note source, and for git commits both directories usually share one repo root.
+# The LAST top-level `cd` BEFORE THE VERB wins, because that is the one in effect when the
+# verb runs — and the second half of that sentence is what the code used to leave out. Taking
+# the last `cd` on the whole line read a `cd` that runs AFTERWARDS as the release's directory:
+# `npm publish && cd <other-repo>` — publish here, then go somewhere else — was judged against
+# <other-repo>'s notes and REFUSED, naming a repository that has nothing to do with the
+# release, from a repository whose note was in fact written. So callers pass the pattern of
+# the verb they matched, and everything from that verb onwards is cut away before the scan.
+# `grep -Eob` gives the byte offset of the LAST match, which is the same "last invocation
+# wins" rule the tag and publish extractors already use; a verb at offset 0 leaves nothing to
+# scan, which is correct — nothing ran before it.
+#
+# A `cd` that only applies inside a subshell — `(cd a && build) && npm publish` — is still
+# over-attributed here; it stays harmless because callers fail open whenever the resulting
+# directory has no package.json or no note source, and for git commits both directories
+# usually share one repo root.
 run_dir_for() {
-  local t
-  t="$(printf '%s' "$1" \
+  local t seg="$1" off
+  if [ -n "${2:-}" ]; then
+    off="$(printf '%s' "$seg" | grep -Eob "$2" 2>/dev/null | tail -1 | cut -d: -f1)"
+    # A grep without `-b` prints nothing here, and anything that is not a plain offset is not
+    # one: either way the scan falls back to the whole line rather than erroring. Fail open.
+    case "$off" in ''|*[!0-9]*) off="" ;; esac
+    [ -n "$off" ] && seg="${seg:0:$off}"
+  fi
+  t="$(printf '%s' "$seg" \
         | grep -Eo "${START}cd[[:space:]]+[^;&|)]+" \
         | tail -1 | sed -E 's/.*cd[[:space:]]+//; s/[[:space:]]+$//' | tr -d "\"'")"
   [ -z "$t" ] && { printf '%s' "$BASE"; return 0; }
@@ -288,6 +367,15 @@ PKG_OPTS='( +(-C +[^ ]+|--dir +[^ ]+|--cwd +[^ ]+|--prefix +[^ ]+|--filter +[^ ]
 # `pnpm -C dir publish` does above.
 RUNNER="((npx|pnpm|yarn|bun|bunx|npm)${PKG_OPTS}( +(exec|dlx|run|x))?${PKG_OPTS} +)?"
 
+# THE GATED VERBS, named once. Each branch below matches on its own, and each also hands its
+# pattern to run_dir_for, which needs to know where the verb SITS in order to ignore a `cd`
+# that only runs after it. Written inline in two places they drifted; named here they cannot.
+PUBLISH_PM="(npm|pnpm|yarn)${PKG_OPTS} +publish"
+PUBLISH_CS="${RUNNER}changeset +publish"
+RELEASE_CREATE="(gh|glab) +release +create"
+TAG_VERB="git${GIT_OPTS} +tag +"
+COMMIT_VERB="git${GIT_OPTS} +commit"
+
 # foreign_repo_flag <cmd-fragment> [dir] -> 0 when --repo names a repo that is not the origin
 # of the repository at <dir> (the directory the command RUNS in; BASE when the caller has none).
 # Such a tag cannot be mapped to a local note file at all, so the caller fails open by design
@@ -337,12 +425,13 @@ pkgdir_for_name() {
 }
 
 # --- 1. publish (npm/pnpm/yarn/changeset) ----------------------------------
-if printf '%s' "$norm" | grep -Eq "${START}(npm|pnpm|yarn)${PKG_OPTS} +publish${END}" \
-   || printf '%s' "$norm" | grep -Eq "${START}${RUNNER}changeset +publish${END}"; then
+if printf '%s' "$norm" | grep -Eq "${START}${PUBLISH_PM}${END}" \
+   || printf '%s' "$norm" | grep -Eq "${START}${PUBLISH_CS}${END}"; then
   # The publish runs in the directory the command `cd`s into, not in the session's cwd, and any
   # `-C`/`--dir` it names is relative to THAT. Resolve in that order; an unresolvable `cd` is
-  # unknown ground, so allow.
-  rdir="$(run_dir_for "$norm")" || exit 0
+  # unknown ground, so allow. A `cd` AFTER the publish is not the publish's directory, so the
+  # verb pattern goes along to say where the scan has to stop.
+  rdir="$(run_dir_for "$norm" "${START}(${PUBLISH_PM}|${PUBLISH_CS})${END}")" || exit 0
   # WHICH invocation's flags? Only the publishing one's.
   #
   # `--filter` and `-C/--dir/--cwd/--prefix` were read from the WHOLE line with `head -1`,
@@ -384,7 +473,7 @@ if printf '%s' "$norm" | grep -Eq "${START}(npm|pnpm|yarn)${PKG_OPTS} +publish${
 fi
 
 # --- 2. gh/glab release create <tag> ---------------------------------------
-if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
+if printf '%s' "$norm" | grep -Eq "${RELEASE_CREATE}"; then
   # Everything this branch reads must come from the SAME invocation. The tag extractor is greedy,
   # so `gh release create v1 --repo them/other && gh release create @acme/cli@0.1.0` takes the tag
   # from the LAST invocation — while `head -1` over the whole line read `--repo` from the FIRST.
@@ -395,7 +484,7 @@ if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
   # The tail is deliberately NOT truncated at the next `;`/`&&`: a later command contributing a
   # stray `--repo` only makes this branch fail OPEN, whereas truncating could drop a real `--repo`
   # that sits behind a quoted `--notes "a && b"` and turn a foreign release into a local refusal.
-  seg="$(printf '%s' "$norm" | sed -E 's/.*(gh|glab) +release +create +//')"
+  seg="$(printf '%s' "$norm" | sed -E "s/.*${RELEASE_CREATE} +//")"
   # Trailing separators are not part of a tag name here either — branch 3 already trims them,
   # and the normalisation ends every line with `;`, so a bare `gh release create v1.4.0` named
   # the tag `v1.4.0;` in the refusal it printed.
@@ -405,7 +494,7 @@ if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
     # The run directory is needed BEFORE the foreign check, because "foreign" means "not the
     # origin of the repository this command runs in" — see foreign_repo_flag. An unresolvable
     # `cd` is unknown ground either way, so hoisting it changes nothing but the order.
-    rdir="$(run_dir_for "$norm")" || exit 0
+    rdir="$(run_dir_for "$norm" "${RELEASE_CREATE}")" || exit 0
     # A --repo naming a different repository has no local note file to check: fail open.
     # This still runs FIRST of the two lookups: when the package lookup ran first, a package of
     # the same name living in THIS monorepo claimed the release and the foreign check never got
@@ -423,10 +512,10 @@ if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
 fi
 
 # --- 3. git tag <release-tag> ----------------------------------------------
-if printf '%s' "$norm" | grep -Eq "${START}git${GIT_OPTS} +tag +"; then
+if printf '%s' "$norm" | grep -Eq "${START}${TAG_VERB}"; then
   # Trailing separators are not part of a tag name: `git tag v1.4.0; git push` otherwise
   # named the tag `v1.4.0;` in the refusal it printed.
-  tag="$(printf '%s' "$norm" | sed -E "s/.*git${GIT_OPTS} +tag +(-a +)?//" | awk '{print $1}' | tr -d '"'"'"'' | sed -E 's/[;&|)].*$//')"
+  tag="$(printf '%s' "$norm" | sed -E "s/.*${TAG_VERB}(-a +)?//" | awk '{print $1}' | tr -d '"'"'"'' | sed -E 's/[;&|)].*$//')"
   ver="$(printf '%s' "$tag" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?' | tail -1)"
   # only gate tags that look like a release (v1.2.3 or scope/name@1.2.3)
   if [ -n "$ver" ] && printf '%s' "$tag" | grep -Eq '@[0-9]|^v?[0-9]'; then
@@ -445,7 +534,8 @@ if printf '%s' "$norm" | grep -Eq "${START}git${GIT_OPTS} +tag +"; then
     #
     # A relative `-C`, and a tag cut with no `-C` at all, are relative to the directory the
     # command RUNS in — `cd <repo> && git tag v1.2.3` is another checkout's release, not this one's.
-    rdir="$(run_dir_for "$norm")" || exit 0
+    # A `cd` that runs after the tag is cut is not the tag's directory either, hence the pattern.
+    rdir="$(run_dir_for "$norm" "${START}${TAG_VERB}")" || exit 0
     cdir="$(repo_dir_for "$(printf '%s' "$norm" | sed -nE "s/.*(git${GIT_OPTS}) +tag +.*/\1/p")")"
     if [ -n "$cdir" ]; then cdir="$(resolve_dir "$cdir" "$rdir")" || exit 0; else cdir="$rdir"; fi
     name="$(printf '%s' "$tag" | sed -E 's/@[0-9]+\.[0-9]+\.[0-9].*$//')"
@@ -459,12 +549,12 @@ fi
 
 # --- 4. version-bump commit ------------------------------------------------
 # A commit that stages a package.json "version" bump must also carry the note.
-if printf '%s' "$norm" | grep -Eq "${START}git${GIT_OPTS} +commit${END}"; then
+if printf '%s' "$norm" | grep -Eq "${START}${COMMIT_VERB}${END}"; then
   # WHICH index? Not this hook's — the one the commit will actually write. `cd <repoA> && git
   # commit` and `git -C <repoA> commit` both land in repoA, while a bare `git diff --cached` here
   # reports the SESSION's staged files; an unnoted bump staged in repoC therefore refused an
   # unrelated commit in repoA. `-C` beats `cd` because git ignores the process cwd once given one.
-  rdir="$(run_dir_for "$norm")" || exit 0
+  rdir="$(run_dir_for "$norm" "${START}${COMMIT_VERB}${END}")" || exit 0
   cdir="$(repo_dir_for "$(printf '%s' "$norm" | sed -nE "s/.*(git${GIT_OPTS}) +commit.*/\1/p")")"
   if [ -n "$cdir" ]; then cdir="$(resolve_dir "$cdir" "$rdir")" || exit 0; else cdir="$rdir"; fi
   # Then ask that repo from its ROOT. `git diff --cached --name-only` prints paths relative to the

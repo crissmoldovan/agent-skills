@@ -363,9 +363,13 @@ in `settings.json` disarms the gate without uninstalling it.
 `@scope/pkg@1.2.3`), and a `git commit` that stages a `package.json` whose `version` changed —
 `HEAD`'s value against the index's, rather than a pattern over the diff text, so a manifest
 kept on one line is gated like any other. Each verb has to sit where a command starts, so a
-sentence that merely names one is not a release. For each it works out **which directory the
-command will actually run in** — the
-last top-level `cd`, a `-C`, a `--filter`/`--prefix` carried by the release invocation itself
+sentence that merely names one is not a release — and **a quoted string is data, not shell
+structure**: a `;`, `|`, `&` or `(` inside quotes opens no command position, so `git commit -m
+"fixes the crash; npm publish now works"` is a commit message rather than a release. The
+quotes themselves are then dropped, so a release that is merely quoted — `npm "publish"`,
+`git tag "v1.4.0"` — is still the release it is. For each it works out **which directory the
+command will actually run in** — the last top-level `cd` *that runs before the verb*, a `-C`,
+a `--filter`/`--prefix` carried by the release invocation itself
 rather than by some earlier step in the same line — rather than assuming the session's
 cwd, because a release cut against another checkout judged by this checkout's notes is a
 refusal the released repository can never satisfy. `git -C <dir> tag` in particular contains
@@ -392,6 +396,18 @@ command runs in, a package.json it cannot parse — allows as well. The conseque
 to hear: **an armed gate that never fires
 is the expected outcome in such a repository**, so silence is not proof it is working. Run
 `--mode observe` against a release you know has no note before trusting it.
+
+**What it deliberately does not block**, stated so nobody has to discover it: `sudo npm
+publish`, `time npm publish`, a leading env assignment such as `NPM_CONFIG_TAG=next npm
+publish`, `git tag -f`, `gh release create --draft` — and, since quoted text is read as data,
+a release handed to another shell as a string: `sh -c "npm publish"`, `bash -lc "npm
+publish"`, `ssh host "npm publish"`. That last one is the price of the quoting rule above, and
+it is paid on purpose. Almost all of it was already unblocked; the shape genuinely given up is
+`sh -c "build; npm publish --tag next"`, which an earlier build refused — for exactly the
+reading that also refused ordinary commit messages, so the two could not be separated. The
+header's rule decided it: a false denial teaches people to route around the guard, and a
+routed-around guard enforces nothing. The trade runs the other way for a heredoc, whose body
+lines still read as commands.
 
 **Its channels are DOCUMENTED, not OBSERVED.** The `hookSpecificOutput.permissionDecision`
 shape block mode returns comes from the schema dump in `../HOOK-OUTPUT-NOTES.md`, whose probe

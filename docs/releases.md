@@ -44,6 +44,45 @@ in, and hands over to `land-complex-change` once that tree is right. Both are us
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+**What.** `adapters/claude-code/release-notes-gate.sh` reads quoted text as data rather than
+as shell structure, and works out the run directory from the `cd` that runs *before* the
+release verb rather than from the last one on the line. `test/release-notes-gate.test.mjs`
+grows from 52 tests to 61.
+
+**Why.** The known false refusal recorded in the 0.16.0 notes was the whole family, not one
+case. `START`/`END` matched CHARACTERS, so any `;`, `|`, `&` or `(` in front of a release verb
+put that verb at what the gate read as a command position — including when every one of those
+characters sat inside a quoted string. `git commit -m "fixes the crash; npm publish now
+works"`, `git commit -m "see README (npm publish)"` and `gh issue comment -b "workaround:
+(pnpm publish)"` were all DENIED in `block` mode, as was any commit whose message ran to a
+second line with a release verb on it. A commit message that mentions a publish step is
+ordinary work, and a false denial is the one outcome this gate's header says it cannot afford.
+
+The same character-reading produced two more defects in `run_dir_for`, both now closed:
+`npm publish && cd <other-repo>` was judged against `<other-repo>` — a second false denial,
+naming a repository with nothing to do with the release — and a `cd` written inside a commit
+message hijacked the run directory, where an unresolvable one (`git commit -m "wip; cd
+/nonexistent"`) switched the bump check off for that commit entirely.
+
+**Impact.** **Additive, no migration**; nobody has to do anything. The gate ships off, the
+installer is unchanged, and an armed install simply stops refusing work it should never have
+refused. Two things are worth knowing:
+
+- *What this gives up, on purpose:* a release handed to another shell as a string — `sh -c
+  "npm publish"`, `bash -lc "npm publish"`, `ssh host "npm publish"` — is under-blocked, and
+  joins the list the adapter README publishes beside `sudo npm publish`, `time npm publish`,
+  `NPM_CONFIG_TAG=next npm publish`, `git tag -f` and `gh release create --draft`. Measured
+  against 0.16.0 almost all of that was already unblocked; the one shape genuinely lost is
+  `sh -c "build; npm publish --tag next"`, which 0.16.0 refused — for precisely the reading
+  that refused the commit messages above, so the two could not be kept apart. The gate's own
+  header decides which way that goes.
+- *What it does not give up:* the cheap repair — blanking quoted spans before matching — would
+  have passed every case above and lost the releases that are merely quoted. `npm "publish"`
+  and `git tag "v1.4.0"` are gated, and `npm "publish"` is in fact newly gated, because
+  quoting removes a character's power to act as structure without turning a command into a
+  comment. The opposite trade already in this file is left standing: a heredoc body line still
+  reads as a command.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
