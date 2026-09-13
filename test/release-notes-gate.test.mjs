@@ -39,6 +39,14 @@ function runGate(payload, { mode = 'block', env = {} } = {}) {
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.on('close', (status) => resolve({ status, stdout, stderr }));
+    // An UNARMED gate exits without ever draining stdin, so this write can lose its
+    // reader mid-flight and raise EPIPE — a race that reddened roughly one full-suite
+    // run in six while the gate itself was behaving exactly as specified. Losing the
+    // reader is the correct behaviour here, not a failure, so it is not reported as
+    // one. Nothing is masked by this: every armed case below asserts on the DECISION,
+    // so a payload that genuinely failed to arrive shows up as an allow where a deny
+    // is expected.
+    child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify(payload));
   });
 }
