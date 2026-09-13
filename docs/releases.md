@@ -46,7 +46,7 @@ bumped, the branch is merged, and a tag carries these notes.
 
 ### `release-notes` joins the pack, with the gate that stops an unnoted release
 
-**What changed.** The catalogue version moves to **0.15.0** — minor, by this repository's own
+**What changed.** The catalogue version moves to **0.16.0** — minor, by this repository's own
 rule that a new skill is a minor. A twenty-fourth skill, `release-notes`, plus its mechanical half:
 `adapters/claude-code/release-notes-gate.sh` and `install-release-notes-gate.mjs`. The skill
 writes the note for one version — what shipped, why it shipped, and an impact analysis a
