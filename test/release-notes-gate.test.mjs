@@ -1491,3 +1491,84 @@ test('an UNQUOTED command substitution is a command position, and stays caught',
     assertRefused(await runGate(bashCall(command, dir), {}), version);
   }
 });
+
+// ---------------------------------------------------------------------------
+// A COMPOUND COMMAND THAT RELEASES TWICE IS CHECKED ONCE, AND THE ONE IS THE LAST.
+//
+// "The last invocation wins" is the rule every branch here claims, and the rule the fragment
+// work above exists to make true. Stated fully, it has a second half that nothing in this
+// file said out loud: a command carrying TWO real releases is judged on the second, so the
+// first goes unchecked. That half is not new — measured against the shipped 0.16.0 gate,
+// `gh release create v9.9.9 && gh release create v1.3.0` and the same shape on `git tag`
+// allow there exactly as they allow here, because the greedy strip it used also read the
+// last one. Rows (a) and (b) pin both directions of it.
+//
+// Row (c) is what IS new, and it is the one trade this round makes in the under-blocking
+// direction. When the LAST invocation of `gh|glab release create` carries no arguments it
+// names no version, so branch 2 reads nothing and exits — where 0.16.0's greedy strip
+// stepped over the argument-less invocation and scavenged the version out of the earlier
+// one. Measured on both builds, in all eight separator forms:
+// `gh release create v9.9.9 && gh release create` was REFUSED at 0.16.0 and is ALLOWED here.
+// It is the same greedy read that produced the twelve wrong verdicts this branch removes, so
+// it could not be kept for this shape and dropped for those; what it can be is written down.
+//
+// Row (d) is why that is confined to branch 2. `git tag` and `npm|pnpm|yarn publish` name
+// what they act on without needing an argument, so an argument-less one of those is itself a
+// release and is read as one — in every separator form, on both builds.
+//
+// Row (e) is the exception inside row (d), and it belongs here so nobody reads (d) as wider
+// than it is: `git tag ` written WITH a trailing space matches TAG_VERB, yields an empty tag,
+// and silences branch 3. That is true of the shipped gate too — unchanged, not this round's,
+// and not narrowed here.
+//
+// Narrowing (c) means checking EVERY gated invocation in a command instead of the last, which
+// is a different design with its own false-denial risk. This test exists so that decision is
+// made against a fact in the suite rather than a sentence in a file.
+// ---------------------------------------------------------------------------
+
+test('a compound command is judged on its LAST gated invocation, and the trade is written down', async () => {
+  const dir = await repository({ version: '1.4.0', noted: ['1.3.0'] });
+
+  // The control for every row below: each invocation, on its own, is refused.
+  assertRefused(await runGate(bashCall('gh release create v9.9.9', dir), {}), '9.9.9');
+  assertRefused(await runGate(bashCall('git tag v9.9.9', dir), {}), '9.9.9');
+  assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.4.0');
+
+  // (a) two real releases, the NOTED one last: allowed — and allowed by 0.16.0 too.
+  for (const command of [
+    'gh release create v9.9.9 && gh release create v1.3.0',
+    'gh release create v9.9.9;gh release create v1.3.0',
+    'git tag v9.9.9 && git tag v1.3.0',
+    'git tag v9.9.9;git tag v1.3.0',
+  ]) {
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  }
+
+  // (b) two real releases, the UNNOTED one last: refused, on the version that runs last.
+  for (const command of [
+    'gh release create v1.3.0 && gh release create v9.9.9',
+    'git tag v1.3.0 && git tag v9.9.9',
+  ]) {
+    assertRefused(await runGate(bashCall(command, dir), {}), '9.9.9');
+  }
+
+  for (const sep of SEPARATORS) {
+    const where = JSON.stringify(sep);
+    // (c) THE TRADE: an argument-less release-create LAST silences branch 2.
+    assertAllowed(await runGate(bashCall(`gh release create v9.9.9${sep}gh release create`, dir), {}));
+    // (d) the other branches keep their teeth in exactly that shape.
+    assertRefused(await runGate(bashCall(`git tag v9.9.9${sep}git tag`, dir), {}), '9.9.9');
+    assertRefused(await runGate(bashCall(`npm publish${sep}npm publish`, dir), {}), '1.4.0');
+    // (e) ...except `git tag ` with a trailing space, which 0.16.0 also lets through.
+    assert.equal(
+      (await runGate(bashCall(`git tag v9.9.9${sep}git tag `, dir), {})).stdout.trim(),
+      '',
+      `a trailing-space \`git tag \` after ${where} refused where the shipped gate allowed`,
+    );
+  }
+
+  // (f) the trade is written where a user reads, not only here.
+  const readme = await readFile(new URL('../adapters/claude-code/README.md', import.meta.url), 'utf8');
+  assert.match(readme, /last gated invocation/i, 'the adapter README does not state the last-invocation rule');
+  assert.match(readme, /argument-less/i, 'the adapter README does not name the argument-less trade');
+});

@@ -121,14 +121,23 @@ norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
 # 2 and 3 are the ones worth saying out loud, because they are the shapes where bash really
 # does run the publish: inside `"..."` a `$( )` re-enters command context. This pass does not
 # follow it back in, and a gate that claimed only `sh -c` was lost would be understating what
-# it costs. Measured against the shipped gate, most of 1 was under-blocked there too (the verb
-# ends at the closing quote, which END does not accept); the shape genuinely lost is a
-# separator AND text on both sides of the verb inside the string, as in
-# `sh -c "build; npm publish --tag next"`, which the shipped gate refused — for the SAME
-# reading that refused the commit messages, so one cannot be kept without the other, and the
-# header decides which way that goes: a false denial costs more than a miss. All four join the
-# under-block list the adapter README publishes (`sudo npm publish`, `time npm publish`,
-# `NPM_CONFIG_TAG=next npm publish`, `git tag -f`, `gh release create --draft`).
+# it costs.
+#
+# HOW MUCH OF IT IS NEWLY LOST was itself understated here for two rounds, and the correction
+# is a measurement rather than a rereading. Driving the shipped 0.16.0 build and this one with
+# the same fixtures: 3 really was already unblocked, and so are the forms of 1 that carry no
+# separator inside the string (`sh -c "npm publish"`, `ssh host "npm publish"`). Everything
+# else in this list was REFUSED by 0.16.0 and is allowed here — not just
+# `sh -c "build; npm publish --tag next"` (1 with a separator AND text on both sides, the one
+# shape this paragraph used to name) but the whole of 2 — `echo "$(npm publish)"`,
+# `OUT="$(npm publish --tag next)"`, `printf "%s" "$(git tag v1.4.0)"`,
+# `echo "$(gh release create v1.4.0)"` — and the whole of 4 — `echo it's fine; npm publish`,
+# `echo don't; git tag v1.4.0`. Every one of them is the SAME reading that refused the commit
+# messages, so none can be kept without keeping those, and the header decides which way that
+# goes: a false denial costs more than a miss. All four join the under-block list the adapter
+# README publishes (`sudo npm publish`, `time npm publish`, `NPM_CONFIG_TAG=next npm publish`,
+# `git tag -f`, `gh release create --draft v1.4.0`), where the cost is now written with the
+# comparison rather than without it.
 #
 # THE HEREDOC TRADE NOW RUNS BOTH WAYS, and both halves belong in the same paragraph. A
 # heredoc BODY line still reads as a command, because the normalisation above turns its
@@ -176,19 +185,30 @@ norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
 #
 # LINEAR IS A SHAPE, NOT A PRICE, and both halves of that belong here because an earlier
 # version of this paragraph carried the comparison and the rewrite dropped it. Measured end to
-# end and interleaved against the 0.16.0 build that has no such pass, on a second machine: a
-# command with no verb is unchanged (40ms against 41ms) and an ordinary commit message costs
-# 61ms against 48ms, while every quote-dense shape stays roughly twice as dear — 128KB 138ms
-# against 82ms, 512KB 478ms against 255ms, and at 512KB the real shapes this pass exists for,
-# `curl -d "{JSON}"` 616ms against 260ms and `psql -c "INSERT …"` 555ms against 232ms. A
-# constant factor of two is a different thing from the fourteenfold above, and it is what
-# reading quoted text as data costs at all; it is not going to zero.
+# end and interleaved against the 0.16.0 build that has no such pass, median of five, on one
+# machine (macOS 14.5 arm64, one-true-awk 20200816, bash 3.2), at 512KB: no quotes at all
+# 265ms against 189ms (1.3x), many short quoted spans 425ms against 235ms (1.8x),
+# `psql -c "INSERT …"` 404ms against 217ms (1.9x), `curl -d '{JSON}'` 755ms against 204ms
+# (3.7x), and the same JSON body with its inner quotes backslash-escaped 927ms against 210ms
+# (4.4x). An ordinary commit message costs 44ms against 30ms.
+#
+# "ROUGHLY TWICE" IS WHAT THIS PARAGRAPH USED TO SAY, and it was measured on the cheap half of
+# the range. The factor is not one number: it tracks how many `'`, `"` and `\` marks the
+# command carries, so it is near 1.3x on prose and near 4x on exactly the shapes this pass
+# exists for — a JSON or SQL body full of quotes. Both figures stay linear in the input, which
+# is the property being claimed; a factor between 1.3 and 4.4 is a different thing from the
+# fourteenfold above, and it is what reading quoted text as data costs at all. It is not going
+# to zero, and quoting a single ratio hides the shape it actually depends on.
 #
 # THE RANGE THE CLAIM WAS CHECKED OVER is 128KB to 1MB, and it does not extend indefinitely:
 # past roughly 1.25MB of quote-dense input this awk falls off a cliff that is nothing to do
 # with the algorithm — the pass alone goes 700ms at 1.25MB to 3.1s at 1.5MB, at every piece
 # size between 4KB and 64KB, and the previous pass falls off the same cliff in the same place.
-# A 1.5MB Bash command is not a shape this hook meets, so it is recorded rather than chased.
+# End to end that reads 1.25MB 1063ms and 1.5MB 2724ms, against a 0.16.0 build that has no
+# such pass and stays linear right through it at 703ms — so the cliff arrives with this work
+# rather than being inherited from anywhere, and saying "this awk" without saying that would
+# be hiding behind the tool. A 1.5MB Bash command is not a shape this hook meets, so it is
+# recorded rather than chased.
 #
 # Equivalence was checked rather than assumed: byte-identical output to the previous pass on
 # all 5040 inputs of a fuzz corpus over exactly the alphabet that can change parsing state,
@@ -699,6 +719,27 @@ if printf '%s' "$norm" | grep -Eq "${START}${RELEASE_CREATE}${END}"; then
   # separator too long whenever the verb abutted one, so `gh release create;gh release create
   # v9.9.9` read the ARGUMENT-LESS first invocation, found no version in it, and allowed an
   # unnoted release — a fail-open in the verb this branch exists for.
+  #
+  # THE TRADE THAT LEAVES, AND THE ONLY SHAPE THIS FILE BLOCKS LESS THAN 0.16.0 DID. "The last
+  # invocation wins" is obeyed exactly now, which cuts both ways: when the LAST
+  # `gh|glab release create` in a command carries no arguments it names no version, so this
+  # branch reads nothing and exits. `gh release create v9.9.9 && gh release create` was
+  # REFUSED by 0.16.0 — whose greedy strip stepped over the argument-less invocation and
+  # scavenged the version out of the earlier one — and is ALLOWED here, in all eight separator
+  # forms. It is the same greedy read that produced the twelve wrong verdicts this work
+  # removes, so it cannot be kept for this shape and dropped for those.
+  #
+  # Branches 1, 3 and 4 are untouched by it: `publish`, `git tag` and `git commit` each name
+  # what they act on without an argument, so an argument-less one of those is itself a release
+  # and is read as one. (`git tag ` with a TRAILING SPACE is the exception, and it allows on
+  # 0.16.0 too — pre-existing, unchanged, and not narrowed here.)
+  #
+  # The wider half of the same rule is older than this file: a command carrying TWO real
+  # releases is judged on the second. `gh release create v9.9.9 && gh release create v1.3.0`
+  # allows here and allowed at 0.16.0, because the greedy strip also read the last one.
+  # Narrowing either half means checking EVERY gated invocation instead of the last, which is
+  # a different design with its own false-denial risk; both halves are pinned by the property
+  # test rather than left to be rediscovered.
   seg="$(last_invocation "$norm" "${START}${RELEASE_CREATE}${END}" \
           | sed -E "s/^[;&|(]?[[:space:]]*${RELEASE_CREATE}[[:space:]]*//")"
   # Trailing separators are not part of a tag name here either — branch 3 already trims them,
