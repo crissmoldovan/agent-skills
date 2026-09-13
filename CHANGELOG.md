@@ -5,6 +5,69 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.15.0
+
+**What.** The `decision-journal` CLI installs on Node.js 22. `MIN_NODE_MAJOR` in
+`skills/decision-journal/scripts/install-cli.mjs` drops from 24 to 22, the esbuild target of the
+bundle it installs moves from `node24` to `node22` to match, `packages/agent-journal`'s
+`engines.node` becomes `>=22.7.0`, and the skill's `compatibility` line now reads Node.js 22+. A
+second CI job runs the package and the committed bundle on Node 22. No skill was added, removed or
+renamed; the catalogue still ships twenty-three.
+
+**Why.** Below 24 the installer wrote no command and exited 1. On a machine whose `node` is v22.x
+the `agent-journal` CLI was therefore absent from PATH entirely, and the authoring-floor hook that
+calls it could not be armed at all — while that same Node ran every subcommand of the bundle
+without complaint. The skill was refusing to install itself on a runtime it works on.
+
+The 24 was inherited, not measured. It had been copied from `packages/agent-journal`'s `engines`,
+which answers a different question: `engines` is a floor on *developing the TypeScript sources*,
+which `npm test` runs under `--experimental-strip-types`, while `MIN_NODE_MAJOR` is a floor on
+*running the built JavaScript*, which never meets the type stripper. Nothing had ever run the built
+program below 24, so there was no evidence behind the number that excluded those users.
+
+There is now. The bundle was rebuilt at esbuild target `node22` and came out **byte-identical** to
+the `node24` build — the target had never been emitting anything 22 could not parse. Runtime
+dependencies are `{}`, so no transitive engine claim sits underneath it. And v22.0.0, v22.7.0,
+v22.14.0, v22.18.0, v22.22.1 and v22.22.3 each drove the shipped bundle through `record`,
+`observe`, `show`, `coverage`, `claims`, `digest`, `trace`, `decay`, `floor`, `invalidate`,
+`tombstone` and `compact`, with redaction holding and exit statuses matching Node 24.
+
+Three floors in this repository are deliberately different, and each now says which question it
+answers rather than being kept numerically in step:
+
+| Floor | Value | Question |
+| --- | --- | --- |
+| `MIN_NODE_MAJOR` (installer) | 22 | Can a user *run* the shipped bundle? |
+| `packages/agent-journal` `engines` | `>=22.7.0` | Can a contributor *develop* the TypeScript sources? |
+| Repository root `engines` | `>=24` | Can `npm run verify` run here? |
+
+The package floor is stricter than the installer's on purpose: v22.6.0's type stripper mangles a
+`readonly #field` declaration into a SyntaxError before a single test executes, and no user of the
+bundle can reach that path. The repository root stays `>=24` because root `verify` genuinely fails
+on 22 — `workspace-governance` has a process-group test that does not pass there.
+
+**Impact.** **Additive, no migration.** No export, flag, command or return shape changed, and no
+runtime dependency was added.
+
+- *Who must do something:* **anyone whose `node` is v22.x and who was turned away when they tried to
+  install the `decision-journal` CLI.** Re-run `node skills/decision-journal/scripts/install-cli.mjs`
+  (or the installed skill's copy) and it will now write the `agent-journal` wrapper and put it on
+  PATH. There was nothing to migrate, because the previous attempt installed nothing.
+- *Runtime behavior:* unchanged on Node 24. The emitted bundle is byte-identical to the one 0.14.0
+  shipped, so an existing install that already works keeps behaving exactly as it did.
+- *Blast radius:* limited to the `decision-journal` CLI installer and `agent-journal`'s development
+  floor. Twenty-two other skills are untouched. The skill's frontmatter `description` did not
+  change, so nothing an agent selects on moved.
+- *Contributors:* unaffected either way. `npm run verify` at the repository root still requires
+  Node.js 24 or newer, as `CONTRIBUTING.md` and the release checklist state.
+- *Distribution:* the Skills CLI resolves this repository's default branch, so the update reaches
+  users through `npx skills update --global --yes` with no dist-tag to manage.
+- *CI:* a new `journal-node-floor` job runs on Node 22 and does two things the Node-24 `verify` job
+  cannot see — it runs `agent-journal`'s own verify against the **sources**, catching a 24-only API
+  a contributor might reach for, and it drives the **committed bundle** through record, observe,
+  show, digest and coverage, which is what a user actually runs. That second gap is how this floor
+  came to be 24 unmeasured in the first place.
+
 ## 0.14.0
 
 **What.** Fourteen skill descriptions rewritten to name the situation an agent finds itself in
