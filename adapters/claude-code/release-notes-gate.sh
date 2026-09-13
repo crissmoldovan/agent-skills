@@ -38,6 +38,23 @@
 # Every path exits 0. A gate's own failure is never the session's.
 set -uo pipefail
 
+# ONE UNIT FOR THE WHOLE FILE: bytes.
+#
+# `run_dir_for` takes an offset from `grep -Eob`, which counts BYTES, and applies it with
+# `${seg:0:$off}`, which bash counts in CHARACTERS whenever LC_CTYPE is multibyte. The two
+# agree on ASCII and diverge on anything else, so the cut that stops the scan at the release
+# verb landed PAST the verb once enough non-ASCII sat in front of it — measured at 18 CJK
+# characters, 12 emoji or 14 em dashes — and the `cd` that runs AFTER the release came back
+# into view. The fix for that silently reverted, and reverted only under a UTF-8 locale,
+# which is the locale most interactive shells actually run: it worked for whoever tested it.
+#
+# Pinning the locale removes the CLASS rather than that instance. Every pattern in this file
+# is ASCII, nothing here collates or case-folds anything but ASCII, and `grep`/`sed`/`awk`
+# read the command as the byte string it is — so making bash measure in bytes too costs
+# nothing and leaves no second unit to get wrong. It is also one fewer process than guarding
+# the arithmetic at the one call site that has it today.
+export LC_ALL=C
+
 # --- arming ----------------------------------------------------------------
 # `block` (or `1`) refuses; `observe` reports and refuses nothing. Anything else — unset,
 # blank, `0`, `true`, `off` — is off, which is what an unarmed copy of this file always is.
@@ -89,42 +106,88 @@ norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
 # (`packages/agent-journal`'s consequence matcher learned the same thing from the other
 # direction: stripping quoted spans there made `wrangler secret "put" API_KEY` invisible.)
 #
-# WHAT THIS GIVES UP, stated rather than discovered: a release that reaches the shell as a
-# quoted ARGUMENT — `sh -c "npm publish"`, `bash -lc "npm publish"`, `ssh host "npm publish"`
-# — is under-blocked, because after this pass the verb sits mid-command rather than at a
-# command position. Measured against the shipped gate, most of that was under-blocked
-# already: `sh -c "npm publish"` allowed there too, for the accidental reason above (the verb
-# ends at the closing quote, which END does not accept). Exactly one shape is genuinely lost
-# — a separator AND more text on both sides of the verb inside the string, as in
-#     sh -c "build; npm publish --tag next"
-# which the shipped gate refused. It refused it for the SAME reading that refused the commit
-# messages, so one cannot be kept without the other, and the header decides which way that
-# goes: a false denial costs more than a miss. This joins the under-block list the adapter
-# README publishes (`sudo npm publish`, `time npm publish`, `NPM_CONFIG_TAG=next npm
-# publish`, `git tag -f`, `gh release create --draft`) rather than going unsaid.
+# WHAT THIS GIVES UP, stated rather than discovered, and stated in FULL — the first version
+# of this paragraph named one shape and there are four. A release that reaches the shell as a
+# quoted ARGUMENT is under-blocked, because after this pass the verb sits mid-command rather
+# than at a command position:
 #
-# It is the mirror of the trade already accepted in the other direction, and left standing
-# here: a heredoc BODY line still reads as a command, because the normalisation above turns
-# its newlines into separators. That one over-blocks, which the header tolerates less
-# happily — but a heredoc whose body begins with a release verb is rare enough, and visible
-# enough when it fires, that narrowing it is a separate change with its own evidence.
+#   1. handed to another shell:  sh -c "build; npm publish"   bash -lc "..."   ssh host "..."
+#   2. a command substitution inside double quotes: echo "$(npm publish)",
+#      OUT="$(npm publish --tag next)", printf "%s" "$(git tag v1.4.0)"
+#   3. backticks: echo `npm publish`
+#   4. an UNBALANCED quote: echo it's fine; npm publish — an odd apostrophe opens a span that
+#      never closes, so every detector is disarmed for the rest of that command.
+#
+# 2 and 3 are the ones worth saying out loud, because they are the shapes where bash really
+# does run the publish: inside `"..."` a `$( )` re-enters command context. This pass does not
+# follow it back in, and a gate that claimed only `sh -c` was lost would be understating what
+# it costs. Measured against the shipped gate, most of 1 was under-blocked there too (the verb
+# ends at the closing quote, which END does not accept); the shape genuinely lost is a
+# separator AND text on both sides of the verb inside the string, as in
+# `sh -c "build; npm publish --tag next"`, which the shipped gate refused — for the SAME
+# reading that refused the commit messages, so one cannot be kept without the other, and the
+# header decides which way that goes: a false denial costs more than a miss. All four join the
+# under-block list the adapter README publishes (`sudo npm publish`, `time npm publish`,
+# `NPM_CONFIG_TAG=next npm publish`, `git tag -f`, `gh release create --draft`).
+#
+# THE HEREDOC TRADE NOW RUNS BOTH WAYS, and both halves belong in the same paragraph. A
+# heredoc BODY line still reads as a command, because the normalisation above turns its
+# newlines into separators — that one OVER-blocks, and the header tolerates it less happily.
+# What this pass added is the opposite failure on the same construct: a heredoc body carrying
+# an odd number of apostrophes (`it's`, `don't` — ordinary prose) is case 4 above, so every
+# detector goes quiet for the rest of that command. The two are not alternatives; which one a
+# given heredoc gets depends on its punctuation, and neither is narrowed here.
+#
+# THE COST OF THIS PASS IS LINEAR IN THE COMMAND, and it has to be: this hook runs before
+# EVERY Bash tool call. The first version walked the command one character at a time
+# rebuilding `out = out c`, which under one-true-awk copies the whole accumulator per
+# character — quadratic, measured at 128KB as 971ms for the pass and 1025ms through the gate,
+# against 58ms for the gate that had no such pass at all. So the state machine runs over RUNS
+# rather than characters: the only bytes that can change state are `'`, `"` and `\`, so those
+# three are marked and split out, each run between them is emitted whole, and a run inside a
+# quoted span has its metacharacters blanked by one `gsub` instead of one test per byte.
+# Output goes straight to `printf` rather than into an accumulator, so nothing is recopied.
+# Measured on the same inputs, the pass alone: 128KB of inert text 9ms, 128KB of
+# metacharacters 9ms, 256KB 16ms, and 128KB made of seven thousand quoted spans 58ms — and
+# byte-identical output to the character loop on all 4054 inputs of a fuzz corpus over
+# exactly the alphabet that can change parsing state. Through the whole gate, against the
+# 0.16.0 build that had no such pass: 128KB 70ms against 59ms, 2000 lines 71ms against 61ms,
+# and the pathological quoted-span case 121ms against 63ms — the one shape still materially
+# dearer than 0.16.0, stated rather than rounded away.
+#
+# The marker byte is 0x01, and an input already carrying one has it replaced by `_` first.
+# Replaced, not deleted, and not replaced by a space: deleting it could JOIN two words into a
+# verb (`np<0x01>m publish`), and a space could SPLIT one word into two. `_` can do neither.
 norm="$(printf '%s' "$norm" | awk '
 function safe(c) { return (c == ";" || c == "&" || c == "|" || c == "(" || c == ")") ? " " : c }
-BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
+BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92)
+        mk = sprintf("%c", 1); state = sq dq bs }
 {
-  out = ""; q = ""; n = length($0)
-  for (i = 1; i <= n; i++) {
-    c = substr($0, i, 1)
-    if (q == "" && (c == sq || c == dq)) { q = c; continue }         # open a span
-    if (q != "" && c == q) { q = ""; continue }                      # close it
-    if (c == bs && q == "") { i++; if (i <= n) out = out safe(substr($0, i, 1)); continue }
-    if (c == bs && q == dq) {                                        # bash: only these five
-      e = (i < n) ? substr($0, i + 1, 1) : ""                        # are escapable in "..."
-      if (e == dq || e == bs || e == "$" || e == "`") { i++; out = out safe(e); continue }
+  gsub(mk, "_")                                        # the marker is ours; a stray one is not
+  gsub(sq, mk "&" mk); gsub(dq, mk "&" mk); gsub(/\\/, mk "&" mk)
+  n = split($0, f, mk); q = ""; esc = ""
+  for (j = 1; j <= n; j++) {
+    t = f[j]
+    if (t == "") continue
+    one = (length(t) == 1 && index(state, t) > 0)       # a marked quote or backslash
+    if (esc != "") {                                    # a backslash is pending
+      c = substr(t, 1, 1)
+      if (esc == "u" || c == dq || c == bs || c == "$" || c == "`") {
+        printf "%s", safe(c); esc = ""; t = substr(t, 2)   # it escapes: the char is TEXT
+        if (t == "") continue
+        one = 0
+      } else { printf "%s", bs; esc = "" }               # bash: nothing else is escapable in "..."
     }
-    out = out (q == "" ? c : safe(c))
+    if (one) {
+      if (t == bs) { if (q == sq) printf "%s", bs; else esc = (q == "" ? "u" : "d"); continue }
+      if (q == "") { q = t; continue }                   # open a span
+      if (t == q) { q = ""; continue }                   # close it
+      printf "%s", t; continue                           # the other quote, inside this one
+    }
+    if (q != "") gsub(/[;&|()]/, " ", t)                 # quoted: structure becomes text
+    printf "%s", t
   }
-  printf "%s", out
+  if (esc == "d") printf "%s", bs                        # a trailing backslash inside "..."
 }')"
 
 # VERB POSITION. A gated verb counts when it starts the command or follows a shell separator.
@@ -473,18 +536,41 @@ if printf '%s' "$norm" | grep -Eq "${START}${PUBLISH_PM}${END}" \
 fi
 
 # --- 2. gh/glab release create <tag> ---------------------------------------
-if printf '%s' "$norm" | grep -Eq "${RELEASE_CREATE}"; then
-  # Everything this branch reads must come from the SAME invocation. The tag extractor is greedy,
-  # so `gh release create v1 --repo them/other && gh release create @acme/cli@0.1.0` takes the tag
-  # from the LAST invocation — while `head -1` over the whole line read `--repo` from the FIRST.
-  # That pairing declared the local tag "foreign" and exited: the branch went inert for exactly the
-  # release it exists to gate. (Branch 3 had the mirror-image bug; this is the same fix.) So cut the
-  # line at the last `release create` and read the tag AND its flags from that tail alone.
+#
+# ANCHORED, like branches 1, 3 and 4. It was not, and the omission is the same one
+# `changeset publish` shipped with three rounds earlier: an unanchored verb is not a verb,
+# it is four words, and this branch refused them wherever they appeared —
+# `echo "then run gh release create v9.9.9 to ship"` denied, naming a version nobody is
+# releasing and no note can ever satisfy. That is the outcome the header says costs most.
+#
+# The second direction is worse and was invisible. This branch runs BEFORE the version-bump
+# check and `exit 0`s whether or not it refuses, so a commit message containing those four
+# words handed branch 2 a version its notes DO mention, and the bump check never ran:
+# `git commit -m "chore: bump; then gh release create v1.0.0"` cut an unnoted 1.1.0 while
+# the byte-identical commit without those four words was correctly refused. Anchoring closes
+# both, because a verb inside a message is no longer at a command position at all.
+if printf '%s' "$norm" | grep -Eq "${START}${RELEASE_CREATE}${END}"; then
+  # Everything this branch reads must come from the SAME invocation, and from an invocation
+  # that is actually being RUN. The strip here was `sed -E "s/.*${RELEASE_CREATE} +//"` —
+  # greedy and unanchored, so it read past every earlier occurrence to the last one anywhere
+  # on the line, quoted text included. The detectors learned that quoted text is data; this
+  # extractor had not, and it failed in both directions on one line of code:
+  # `gh release create v1.0.0 --notes "supersedes gh release create v9.9.9"` refused v9.9.9,
+  # and `gh release create v9.9.9 --notes "replaces gh release create v1.0.0"` read v1.0.0,
+  # found its note, and cut an unnoted release.
   #
-  # The tail is deliberately NOT truncated at the next `;`/`&&`: a later command contributing a
-  # stray `--repo` only makes this branch fail OPEN, whereas truncating could drop a real `--repo`
-  # that sits behind a quoted `--notes "a && b"` and turn a foreign release into a local refusal.
-  seg="$(printf '%s' "$norm" | sed -E "s/.*${RELEASE_CREATE} +//")"
+  # So the fragment is CUT OUT by the anchored detector pattern — the last invocation that
+  # sits at a real command position, bounded at the next shell separator — and the strip is
+  # `^`-anchored inside it, where a second copy of the verb is argument text and stays there.
+  # `tail -1` keeps the "last invocation wins" rule the tag extractor also uses.
+  #
+  # Bounding at the separator is a change from the rule this branch inherited ("deliberately
+  # NOT truncated ... a real `--repo` could sit behind a quoted `--notes \"a && b\"`"). That
+  # reason is gone: the quote pass above already blanked that `&&` into a space, so a
+  # separator surviving here is a real one, and reading a LATER command's `--repo` as this
+  # release's is the pairing bug this same branch fixed for `--repo` two rounds ago.
+  seg="$(printf '%s' "$norm" | grep -Eo "${START}${RELEASE_CREATE}${END}[^;&|)]*" | tail -1 \
+          | sed -E "s/^[;&|(]?[[:space:]]*${RELEASE_CREATE}[[:space:]]*//")"
   # Trailing separators are not part of a tag name here either — branch 3 already trims them,
   # and the normalisation ends every line with `;`, so a bare `gh release create v1.4.0` named
   # the tag `v1.4.0;` in the refusal it printed.
@@ -494,7 +580,7 @@ if printf '%s' "$norm" | grep -Eq "${RELEASE_CREATE}"; then
     # The run directory is needed BEFORE the foreign check, because "foreign" means "not the
     # origin of the repository this command runs in" — see foreign_repo_flag. An unresolvable
     # `cd` is unknown ground either way, so hoisting it changes nothing but the order.
-    rdir="$(run_dir_for "$norm" "${RELEASE_CREATE}")" || exit 0
+    rdir="$(run_dir_for "$norm" "${START}${RELEASE_CREATE}${END}")" || exit 0
     # A --repo naming a different repository has no local note file to check: fail open.
     # This still runs FIRST of the two lookups: when the package lookup ran first, a package of
     # the same name living in THIS monorepo claimed the release and the foreign check never got
@@ -513,9 +599,24 @@ fi
 
 # --- 3. git tag <release-tag> ----------------------------------------------
 if printf '%s' "$norm" | grep -Eq "${START}${TAG_VERB}"; then
-  # Trailing separators are not part of a tag name: `git tag v1.4.0; git push` otherwise
-  # named the tag `v1.4.0;` in the refusal it printed.
-  tag="$(printf '%s' "$norm" | sed -E "s/.*${TAG_VERB}(-a +)?//" | awk '{print $1}' | tr -d '"'"'"'' | sed -E 's/[;&|)].*$//')"
+  # Read the tag out of the invocation that is being RUN — the last one sitting at a real
+  # command position — not out of the whole line. The strip was `sed -E "s/.*${TAG_VERB}..."`,
+  # greedy and unanchored, so the LAST version-looking token anywhere on the line won
+  # whatever it was doing there. Quoted prose therefore decided the verdict, both ways:
+  # `git tag v1.4.0 -m "supersedes the old git tag v9.9.9 line"` refused v9.9.9 — a version
+  # nobody is releasing and no note can ever satisfy — and `git tag v9.9.9 -m "replaces
+  # git tag v1.0.0"` read v1.0.0, found its note, and cut an unnoted release. The second is
+  # the one nobody would have noticed.
+  #
+  # `grep -Eo` with the branch's own anchored pattern cuts out one invocation, bounded at the
+  # next shell separator; `tail -1` keeps "the last invocation wins", which is what the greedy
+  # strip got RIGHT and this has to preserve. The strip inside the fragment is `^`-anchored,
+  # so a second `git tag` in the message is argument text and stays argument text. Trailing
+  # separators are excluded by the bound, which is also what used to need trimming off the
+  # tag name (`git tag v1.4.0; git push` once printed `v1.4.0;` in its refusal).
+  tseg="$(printf '%s' "$norm" | grep -Eo "${START}${TAG_VERB}(-a +)?[^;&|)]*" | tail -1)"
+  tag="$(printf '%s' "$tseg" | sed -E "s/^[;&|(]?[[:space:]]*${TAG_VERB}(-a +)?//" \
+         | awk '{print $1}' | tr -d '"'"'"'')"
   ver="$(printf '%s' "$tag" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?' | tail -1)"
   # only gate tags that look like a release (v1.2.3 or scope/name@1.2.3)
   if [ -n "$ver" ] && printf '%s' "$tag" | grep -Eq '@[0-9]|^v?[0-9]'; then
@@ -525,18 +626,24 @@ if printf '%s' "$norm" | grep -Eq "${START}${TAG_VERB}"; then
     # The named dir is also the search root for a scoped monorepo tag: without it pkgdir_for_name
     # walks the session's repo and re-creates the same unsatisfiable refusal.
     #
-    # The directory has to come from the SAME invocation the tag came from. The extractor
-    # above is greedy, so `git -C a tag v1 && git -C b tag v2` reads v2 — while scanning the
-    # whole line for `-C` returns `a`, the FIRST one. That pairing checked a's notes for
-    # b's version and refused a release whose note WAS written: the cross-repo false block this
-    # branch exists to remove, re-created in compound form. So re-match the line and keep the
-    # `git <global-opts>` run that owns the last ` tag `, then read `-C` from that alone.
+    # The directory has to come from the SAME invocation the tag came from, so it is read out
+    # of the SAME fragment: `git -C a tag v1 && git -C b tag v2` must read v2 with b, and
+    # scanning the whole line for `-C` returned `a`, the FIRST one. That pairing checked a's
+    # notes for b's version and refused a release whose note WAS written — the cross-repo
+    # false block this branch exists to remove, re-created in compound form.
+    #
+    # The `^`-anchored strip matters as much as the fragment does: `git${GIT_OPTS}` read with
+    # a leading `.*` walked forward to the LAST `git … tag` on the line, so a `-C` written
+    # inside a commit message — `git tag v9.9.9 -m "see git -C <other> tag v1.0.0"` — chose
+    # the repository the release was judged against, and pointed it at a checkout whose notes
+    # can say anything at all. Anchored, the options can only be the ones between THIS `git`
+    # and THIS ` tag `.
     #
     # A relative `-C`, and a tag cut with no `-C` at all, are relative to the directory the
     # command RUNS in — `cd <repo> && git tag v1.2.3` is another checkout's release, not this one's.
     # A `cd` that runs after the tag is cut is not the tag's directory either, hence the pattern.
     rdir="$(run_dir_for "$norm" "${START}${TAG_VERB}")" || exit 0
-    cdir="$(repo_dir_for "$(printf '%s' "$norm" | sed -nE "s/.*(git${GIT_OPTS}) +tag +.*/\1/p")")"
+    cdir="$(repo_dir_for "$(printf '%s' "$tseg" | sed -nE "s/^[;&|(]?[[:space:]]*(git${GIT_OPTS}) +tag +.*/\1/p")")"
     if [ -n "$cdir" ]; then cdir="$(resolve_dir "$cdir" "$rdir")" || exit 0; else cdir="$rdir"; fi
     name="$(printf '%s' "$tag" | sed -E 's/@[0-9]+\.[0-9]+\.[0-9].*$//')"
     pdir=""; printf '%s' "$name" | grep -q '/' && pdir="$(pkgdir_for_name "$name" "$cdir" || true)"

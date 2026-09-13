@@ -46,8 +46,10 @@ bumped, the branch is merged, and a tag carries these notes.
 
 **What.** `adapters/claude-code/release-notes-gate.sh` reads quoted text as data rather than
 as shell structure, and works out the run directory from the `cd` that runs *before* the
-release verb rather than from the last one on the line. `test/release-notes-gate.test.mjs`
-grows from 52 tests to 61.
+release verb rather than from the last one on the line. Every detector over the normalised
+command is anchored to a command position, every extractor reads the invocation that matched
+rather than the whole line, the file measures offsets in one unit, and the quoting pass costs
+what the pass it replaced cost. `test/release-notes-gate.test.mjs` grows from 52 tests to 70.
 
 **Why.** The known false refusal recorded in the 0.16.0 notes was the whole family, not one
 case. `START`/`END` matched CHARACTERS, so any `;`, `|`, `&` or `(` in front of a release verb
@@ -64,24 +66,65 @@ naming a repository with nothing to do with the release — and a `cd` written i
 message hijacked the run directory, where an unresolvable one (`git commit -m "wip; cd
 /nonexistent"`) switched the bump check off for that commit entirely.
 
+Fixing the detectors did not fix the rest of the file, and four more defects of the same
+family were found afterwards — two of them live in 0.16.0 as shipped:
+
+- *`gh|glab release create` was matched with no anchor at all*, while every other branch
+  anchored — the same omission `changeset publish` shipped with, three rounds earlier. It
+  refused prose (`echo "then run gh release create v9.9.9 to ship"`, a false denial in
+  0.16.0 too) and, because that branch runs before the version-bump check and exits either
+  way, it also **allowed an unnoted version bump** whenever the commit message happened to
+  contain those four words. The byte-identical commit without them was correctly refused.
+- *The tag and release-tag extractors read versions out of quoted prose.* A greedy,
+  unanchored strip took the last version-looking token anywhere on the line: `git tag v1.4.0
+  -m "supersedes the old git tag v9.9.9 line"` refused v9.9.9 — a version nobody is releasing
+  and no note can ever satisfy — and `git tag v9.9.9 -m "replaces git tag v1.0.0"` read
+  v1.0.0, found its note, and **cut an unnoted release**. Both are live in 0.16.0. The `-C`
+  that decides which repository is judged was read the same way and is now bounded too.
+- *A byte offset was applied as a character substring.* The cut that stops the run-directory
+  scan at the release verb took its offset from `grep -Eob` (bytes) and applied it with
+  `${seg:0:$off}` (characters, under a multibyte `LC_CTYPE`), so past roughly 18 CJK
+  characters, 12 emoji or 14 em dashes in front of the verb the fix above silently reverted —
+  and reverted **only under a UTF-8 locale**, which is the locale most interactive shells
+  run. The file now pins `LC_ALL=C`, so both are measured in bytes by construction.
+- *The new quoting pass was quadratic.* Rebuilding the command one character at a time cost
+  1025ms on a 128KB command against 58ms for 0.16.0, on a hook that runs before **every**
+  Bash tool call. It now runs over runs rather than characters: 128KB back to 70ms, 2000
+  lines to 70ms, and identical output to the character loop on all 4054 inputs of a fuzz
+  corpus over the alphabet that can change parsing state.
+
 **Impact.** **Additive, no migration**; nobody has to do anything. The gate ships off, the
 installer is unchanged, and an armed install simply stops refusing work it should never have
-refused. Two things are worth knowing:
+refused. Four things are worth knowing:
 
-- *What this gives up, on purpose:* a release handed to another shell as a string — `sh -c
-  "npm publish"`, `bash -lc "npm publish"`, `ssh host "npm publish"` — is under-blocked, and
-  joins the list the adapter README publishes beside `sudo npm publish`, `time npm publish`,
+- *What this gives up, on purpose:* a release that reaches the shell as a **string** is
+  under-blocked, in four shapes — `sh -c "build; npm publish"` and its `bash -lc` / `ssh host`
+  cousins; a command substitution inside double quotes, `echo "$(npm publish)"` and
+  `OUT="$(npm publish --tag next)"`; backticks; and any command carrying an **unbalanced**
+  quote, such as a heredoc body containing `it's`, which disarms every detector for the rest
+  of that command. The middle two are the ones an earlier draft of these notes left unsaid,
+  and they are the ones where bash genuinely runs the publish. All four join the list the
+  adapter README publishes beside `sudo npm publish`, `time npm publish`,
   `NPM_CONFIG_TAG=next npm publish`, `git tag -f` and `gh release create --draft`. Measured
-  against 0.16.0 almost all of that was already unblocked; the one shape genuinely lost is
+  against 0.16.0 almost all of that was already unblocked; the shape genuinely lost is
   `sh -c "build; npm publish --tag next"`, which 0.16.0 refused — for precisely the reading
   that refused the commit messages above, so the two could not be kept apart. The gate's own
   header decides which way that goes.
+- *The heredoc trade now runs both ways.* A heredoc body line still reads as a command, so a
+  body beginning with a release verb over-blocks; a body containing an ordinary apostrophe
+  under-blocks the rest of the command. Which one a given heredoc gets depends on its
+  punctuation. Both are now written down in the same paragraph, in the gate and in the
+  adapter README, and neither is narrowed here.
+- *One behaviour change beyond the bug fixes:* the `gh|glab release create` fragment is now
+  cut at the next shell separator, where 0.16.0 deliberately read to end of line so a `--repo`
+  hiding behind a quoted `--notes "a && b"` would not be lost. That reason is gone — the
+  quoting pass blanks that `&&` before any of this runs — and reading a later command's
+  `--repo` as this release's is the pairing bug the same branch already fixed once.
 - *What it does not give up:* the cheap repair — blanking quoted spans before matching — would
   have passed every case above and lost the releases that are merely quoted. `npm "publish"`
   and `git tag "v1.4.0"` are gated, and `npm "publish"` is in fact newly gated, because
   quoting removes a character's power to act as structure without turning a command into a
-  comment. The opposite trade already in this file is left standing: a heredoc body line still
-  reads as a command.
+  comment.
 
 ## Release checklist
 

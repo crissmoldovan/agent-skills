@@ -399,15 +399,34 @@ is the expected outcome in such a repository**, so silence is not proof it is wo
 
 **What it deliberately does not block**, stated so nobody has to discover it: `sudo npm
 publish`, `time npm publish`, a leading env assignment such as `NPM_CONFIG_TAG=next npm
-publish`, `git tag -f`, `gh release create --draft` — and, since quoted text is read as data,
-a release handed to another shell as a string: `sh -c "npm publish"`, `bash -lc "npm
-publish"`, `ssh host "npm publish"`. That last one is the price of the quoting rule above, and
-it is paid on purpose. Almost all of it was already unblocked; the shape genuinely given up is
-`sh -c "build; npm publish --tag next"`, which an earlier build refused — for exactly the
-reading that also refused ordinary commit messages, so the two could not be separated. The
-header's rule decided it: a false denial teaches people to route around the guard, and a
-routed-around guard enforces nothing. The trade runs the other way for a heredoc, whose body
-lines still read as commands.
+publish`, `git tag -f`, `gh release create --draft`.
+
+Since quoted text is read as data, a release that reaches the shell as a **string** is also
+unblocked, in four shapes rather than the one an earlier version of this paragraph named:
+
+| shape | example |
+| --- | --- |
+| handed to another shell | `sh -c "build; npm publish"`, `bash -lc "…"`, `ssh host "…"` |
+| a command substitution inside double quotes | `echo "$(npm publish)"`, `OUT="$(npm publish --tag next)"` |
+| backticks | ``echo `npm publish` `` |
+| an **unbalanced** quote | `echo it's fine; npm publish` |
+
+The middle two matter most, and were the ones left unsaid: inside `"…"` a `$( )` re-enters
+command context, so bash really does run that publish while the gate reads it as text. The
+last is any command carrying an odd number of apostrophes — the span opens and never closes,
+so every detector goes quiet for the rest of that command. This is the price of the quoting
+rule above and it is paid on purpose: almost all of it was already unblocked, and the shape
+genuinely given up is `sh -c "build; npm publish --tag next"`, which an earlier build refused
+— for exactly the reading that also refused ordinary commit messages, so the two could not be
+separated. The header's rule decided it: a false denial teaches people to route around the
+guard, and a routed-around guard enforces nothing.
+
+**The heredoc trade runs both ways**, and both halves are stated here because which one you
+get depends on the punctuation in the body. A heredoc body line still reads as a command, so
+a body beginning with a release verb **over**-blocks; a body containing an ordinary
+apostrophe (`it's`, `don't`) is the unbalanced-quote row above and **under**-blocks the rest
+of the command. Neither is narrowed: narrowing either needs real command-context tracking,
+which is a different design with its own evidence.
 
 **Its channels are DOCUMENTED, not OBSERVED.** The `hookSpecificOutput.permissionDecision`
 shape block mode returns comes from the schema dump in `../HOOK-OUTPUT-NOTES.md`, whose probe
