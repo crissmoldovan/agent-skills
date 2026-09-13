@@ -62,8 +62,27 @@ function isEntrypoint(moduleUrl) {
 export const COMMAND = 'agent-journal';
 /** In every wrapper this script writes; how it knows a file is its own. */
 export const MARKER = '# installed-by: decision-journal install-cli.mjs';
-/** The CLI's own floor, from packages/agent-journal's engines; the bundle is built for it. */
-export const MIN_NODE_MAJOR = 24;
+/**
+ * The oldest Node the bundle beside this file has actually been run on.
+ *
+ * Observed 2026-09-13: at 24 this refused to install on a machine whose `node` is
+ * v22.22.3. It wrote no command, so `agent-journal` was absent from PATH and the
+ * skill's authoring-floor hook could not be armed at all — while that same Node ran
+ * every subcommand of the bundle. The number had been taken from the package's
+ * engines, which is a floor on developing the TypeScript sources, not on running the
+ * built program.
+ *
+ * 22 is verified, not assumed: v22.0.0, v22.7.0, v22.14.0, v22.18.0, v22.22.1 and
+ * v22.22.3 each drove the bundle through record, observe, show, coverage, claims,
+ * digest, trace, decay, floor, invalidate, tombstone and compact, with redaction
+ * holding. Raising this again is a claim about the bundle: run the bundle first.
+ *
+ * A major, because a major is all `process.versions.node` is compared on below.
+ * packages/agent-journal's engines floor is higher (>=22.7.0) and answers a
+ * different question — v22.6.0 mis-strips this source's `readonly #field` and dies
+ * with a SyntaxError, which no user of the bundle can reach.
+ */
+export const MIN_NODE_MAJOR = 22;
 
 const USAGE = `Usage: install-cli.mjs [--bin-dir <dir>]
        install-cli.mjs --remove [--bin-dir <dir>]

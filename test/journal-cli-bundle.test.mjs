@@ -7,7 +7,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  BUNDLER_PATH,
   BUNDLE_PATH,
+  PACKAGE_JSON_PATH,
   SOURCE_DIR,
   checkBundle,
   parseBundle,
@@ -16,6 +18,7 @@ import {
 } from '../scripts/verify-journal-bundle.mjs';
 import {
   COMMAND,
+  MIN_NODE_MAJOR,
   buildWrapper,
   isOurs,
   main as installMain,
@@ -30,6 +33,7 @@ import {
 // names, and that the installer putting it on PATH never takes what isn't its.
 
 const SOURCE_BIN = path.join(SOURCE_DIR, 'bin.ts');
+const SKILL_DIR = path.join(SOURCE_DIR, '..', '..', '..', 'skills', 'decision-journal');
 
 function runNode(args, env = {}) {
   return spawnSync(process.execPath, args, { encoding: 'utf8', env: { ...process.env, ...env } });
@@ -149,8 +153,9 @@ async function carriedBundleAt(dir) {
   return file;
 }
 
-// nodeVersion is pinned so these tests do not inherit the runner's Node: on Node 22 the
-// installer's own floor would refuse every install and fail tests about something else.
+// nodeVersion is pinned so these tests do not inherit the runner's Node: below the
+// installer's floor every install refuses, and tests about something else fail for a
+// reason none of them names.
 async function install(argv, { home, bundlePath, PATH = '', nodeVersion = '24.0.0', ...context }) {
   const out = sink();
   const err = sink();
@@ -268,14 +273,49 @@ test('an older Node.js is refused at install time, not discovered at first use â
   const home = await scratch('journal-install-');
   const bundlePath = await carriedBundleAt(path.join(home, 'skill'));
   const binDir = path.join(home, 'bin');
-  const old = await install(['--bin-dir', binDir], { home, bundlePath, nodeVersion: '22.11.0' });
+  const old = await install(['--bin-dir', binDir], { home, bundlePath, nodeVersion: '20.19.5' });
   assert.equal(old.code, 1);
-  assert.match(old.err, /Node\.js 24 or newer, and this is 22\.11\.0/);
+  assert.match(old.err, new RegExp(`Node\\.js ${MIN_NODE_MAJOR} or newer, and this is 20\\.19\\.5`));
   await assert.rejects(stat(path.join(binDir, COMMAND)), { code: 'ENOENT' });
 
   assert.equal((await install(['--bin-dir', binDir], { home, bundlePath, nodeVersion: '24.0.0' })).code, 0);
-  const removed = await install(['--remove', '--bin-dir', binDir], { home, bundlePath, nodeVersion: '22.11.0' });
+  const removed = await install(['--remove', '--bin-dir', binDir], { home, bundlePath, nodeVersion: '20.19.5' });
   assert.equal(removed.code, 0, removed.err);
+});
+
+// Observed 2026-09-13 on a machine whose PATH `node` is v22.22.3: the installer
+// wrote nothing and exited 1, so the `agent-journal` command was never on PATH and
+// the skill's authoring-floor hook could not be armed at all â€” on a Node that runs
+// every one of the CLI's subcommands. The floor had been set to the version the
+// repository develops on, not the oldest one the shipped bundle was run on.
+test('the Node the bundle was verified on installs, instead of being refused', async () => {
+  const home = await scratch('journal-install-');
+  const bundlePath = await carriedBundleAt(path.join(home, 'skill'));
+  const binDir = path.join(home, 'bin');
+  for (const nodeVersion of ['22.0.0', '22.22.3']) {
+    const result = await install(['--bin-dir', binDir], { home, bundlePath, nodeVersion });
+    assert.equal(result.code, 0, `${nodeVersion}: ${result.err}`);
+  }
+  const ran = spawnSync(path.join(binDir, COMMAND), ['help'], { encoding: 'utf8' });
+  assert.equal(ran.status, 0, ran.stderr);
+});
+
+// The same number is written out in four files that cannot import one another: the
+// installer ships inside the skill, the bundler and the manifest stay in the package,
+// and SKILL.md is what a reader is told before any of it runs. Nothing ties them
+// together, and this repository has already had two copies of one fact drift apart.
+// A bundler target above the installer's floor is the silent one: esbuild would emit
+// syntax the Node the installer just approved cannot parse, and the first failure a
+// user sees is a SyntaxError from a command that installed cleanly.
+test('every statement of the Node floor names the same major', () => {
+  const engines = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8')).engines.node;
+  assert.match(engines, new RegExp(`^>=${MIN_NODE_MAJOR}\\.`), `packages/agent-journal engines is ${engines}`);
+
+  const bundler = readFileSync(BUNDLER_PATH, 'utf8');
+  assert.match(bundler, new RegExp(`target: 'node${MIN_NODE_MAJOR}'`), 'the esbuild target is not the installer\'s floor');
+
+  const skill = readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8');
+  assert.match(skill, new RegExp(`Node\\.js ${MIN_NODE_MAJOR}\\+`), 'SKILL.md advertises a different floor');
 });
 
 test('Windows is refused, with the way to run the CLI directly instead', async () => {

@@ -17,3 +17,34 @@ jobs:
         with:
           node-version: 24
       - run: npm run verify
+
+  # The verify job above runs on 24, and the agent-journal CLI is not installed on the
+  # machine that built it: skills/decision-journal/scripts/install-cli.mjs puts the
+  # bundled copy on PATH behind whatever `node` the user already has, down to major 22.
+  # Nothing above tests that. A Node-24-only API reaching src/ would pass every check
+  # here and then throw on the first machine that installed the skill — which is how
+  # this floor came to be 24 in the first place, unmeasured. Both halves matter: the
+  # sources, which is what a contributor changes, and the committed bundle, which is
+  # what a user actually runs.
+  journal-node-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci --prefix packages/agent-journal --ignore-scripts --no-audit --no-fund
+      - run: npm --prefix packages/agent-journal run verify
+      - name: the committed bundle records and reads back on this Node
+        env:
+          AGENT_JOURNAL_ROOT: ${{ runner.temp }}/journal
+          AGENT_JOURNAL_SESSION: ci
+        run: |
+          set -eu
+          cli=skills/decision-journal/scripts/agent-journal.mjs
+          node "$cli" record --workspace ci --kind decision --question q --chosen c \
+            --rationale r --reversibility trivial --blastRadius none --confidence high
+          node "$cli" observe --workspace ci --kind environment
+          node "$cli" show --workspace ci | grep -q '"kind": "decision"'
+          node "$cli" digest --workspace ci --level team | grep -q '# Decision digest'
+          node "$cli" coverage --workspace ci

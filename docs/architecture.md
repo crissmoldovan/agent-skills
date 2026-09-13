@@ -67,7 +67,7 @@ Three rules hold for anything here:
 
 ## Automation
 
-GitHub Actions runs the same verifier using Node.js 24. Dependabot maintains GitHub Actions updates. CODEOWNERS routes changes in policy, automation, and skill content to maintainers.
+GitHub Actions runs the same verifier using Node.js 24. A second job runs `agent-journal` on Node.js 22, because that is the floor its shipped CLI installs behind and the 24 job cannot see a 24-only API reaching those sources. Dependabot maintains GitHub Actions updates. CODEOWNERS routes changes in policy, automation, and skill content to maintainers.
 
 ## Future architecture
 
