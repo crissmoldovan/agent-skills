@@ -363,9 +363,13 @@ in `settings.json` disarms the gate without uninstalling it.
 `@scope/pkg@1.2.3`), and a `git commit` that stages a `package.json` whose `version` changed —
 `HEAD`'s value against the index's, rather than a pattern over the diff text, so a manifest
 kept on one line is gated like any other. Each verb has to sit where a command starts, so a
-sentence that merely names one is not a release. For each it works out **which directory the
-command will actually run in** — the
-last top-level `cd`, a `-C`, a `--filter`/`--prefix` carried by the release invocation itself
+sentence that merely names one is not a release — and **a quoted string is data, not shell
+structure**: a `;`, `|`, `&` or `(` inside quotes opens no command position, so `git commit -m
+"fixes the crash; npm publish now works"` is a commit message rather than a release. The
+quotes themselves are then dropped, so a release that is merely quoted — `npm "publish"`,
+`git tag "v1.4.0"` — is still the release it is. For each it works out **which directory the
+command will actually run in** — the last top-level `cd` *that runs before the verb*, a `-C`,
+a `--filter`/`--prefix` carried by the release invocation itself
 rather than by some earlier step in the same line — rather than assuming the session's
 cwd, because a release cut against another checkout judged by this checkout's notes is a
 refusal the released repository can never satisfy. `git -C <dir> tag` in particular contains
@@ -392,6 +396,80 @@ command runs in, a package.json it cannot parse — allows as well. The conseque
 to hear: **an armed gate that never fires
 is the expected outcome in such a repository**, so silence is not proof it is working. Run
 `--mode observe` against a release you know has no note before trusting it.
+
+**What it deliberately does not block**, stated so nobody has to discover it: `sudo npm
+publish`, `time npm publish`, a leading env assignment such as `NPM_CONFIG_TAG=next npm
+publish`, `git tag -f`, and `gh release create --draft v1.4.0` — the flag-first form, where the
+tag is not the first word after the verb. (`gh release create v1.4.0 --draft` **is** gated, on
+v0.16.0 and here alike; an earlier revision of this line named the shape less precisely than
+it behaves.)
+
+**A compound command is judged on its last gated invocation.** That is the rule that stops one
+invocation's `--filter`, `-C` or `--repo` being read as another's, and it has a second half:
+a command that releases **twice** is checked once. `gh release create v9.9.9 && gh release
+create v1.3.0` and `git tag v9.9.9 && git tag v1.3.0` check only the second — v0.16.0 did the
+same, so that is not new. One boundary case is, and it is the only shape this version blocks
+*less* than v0.16.0: when the last `gh|glab release create` in a command is **argument-less**
+it names no version, so that branch reads nothing and allows. `gh release create v9.9.9 && gh
+release create` was refused by v0.16.0 and is allowed here, in all eight separator forms. It
+is the same greedy read that produced the false refusals this release removes, so it could not
+be kept for this shape and dropped for those. `git tag`, `npm|pnpm|yarn publish` and `git
+commit` are unaffected — each names what it acts on without an argument, so an argument-less
+one of those is itself a release — with one exception that is also v0.16.0's: `git tag ` with
+a **trailing space** matches the verb, yields an empty tag, and allows. Narrowing any of this
+means checking every gated invocation instead of the last, which is a different design with
+its own false-denial risk.
+
+Since quoted text is read as data, a release that reaches the shell as a **string** is also
+unblocked, in four shapes rather than the one an earlier version of this paragraph named:
+
+| shape | example |
+| --- | --- |
+| handed to another shell | `sh -c "build; npm publish"`, `bash -lc "…"`, `ssh host "…"` |
+| a command substitution inside double quotes | `echo "$(npm publish)"`, `OUT="$(npm publish --tag next)"` |
+| backticks | ``echo `npm publish` `` |
+| an **unbalanced** quote | `echo it's fine; npm publish` |
+
+The middle two matter most, and were the ones left unsaid: inside `"…"` a `$( )` re-enters
+command context, so bash really does run that publish while the gate reads it as text. The
+last is any command carrying an odd number of apostrophes — the span opens and never closes,
+so every detector goes quiet for the rest of that command.
+
+This is the price of the quoting rule above and it is paid on purpose. How much of it is
+newly given up was understated until this release, and the measurement is the correction:
+rows 2 and 4 were **not** already unblocked. Driven against the v0.16.0 build and this one
+with the same fixtures, `echo "$(npm publish)"`, `OUT="$(npm publish --tag next)"`,
+`printf "%s" "$(git tag v1.4.0)"`, `echo "$(gh release create v1.4.0)"`, `echo it's fine; npm
+publish` and `echo don't; git tag v1.4.0` were every one of them **refused** by v0.16.0 and
+are allowed here. Genuinely unblocked already: backticks, and the row-1 forms carrying no
+separator inside the string (`sh -c "npm publish"`, `ssh host "npm publish"`). What changes in
+row 1 is the form with a separator **and** text on both sides of the verb, `sh -c "build; npm
+publish --tag next"`. The header's rule decided all of it: every one of these is the same
+reading that refused ordinary commit messages, so they could not be separated, and a false
+denial teaches people to route around the guard.
+
+**The heredoc trade runs both ways**, and both halves are stated here because which one you
+get depends on the punctuation in the body. A heredoc body line still reads as a command, so
+a body beginning with a release verb **over**-blocks; a body containing an ordinary
+apostrophe (`it's`, `don't`) is the unbalanced-quote row above and **under**-blocks the rest
+of the command. Neither is narrowed: narrowing either needs real command-context tracking,
+which is a different design with its own evidence.
+
+**What reading quoted text as data costs.** This hook runs before *every* Bash tool call, so
+the number belongs here and not only in the script's header. The quoting pass is linear in the
+size of the command, and it is dearer than v0.16.0, which has no such pass. Median of five,
+end to end through the hook, the two builds interleaved on one machine (macOS 14.5 arm64,
+one-true-awk 20200816, bash 3.2), on a 512KB command: no quotes at all 265ms against 189ms
+(1.3x), many short quoted spans 425ms against 235ms (1.8x), a `psql -c "INSERT …"` body 404ms
+against 217ms (1.9x), a `curl -d '{JSON}'` body 755ms against 204ms (3.7x), and the same body
+with its inner quotes backslash-escaped 927ms against 210ms (4.4x). The driver is how many
+`'`, `"` and `\` marks the command carries, not its byte count, so the worst shapes are the
+ones this pass exists for. It doubles per doubling of the input from 128KB to roughly 1.25MB;
+past that this awk falls off a cliff that has nothing to do with the algorithm (1.25MB 1063ms,
+1.5MB 2724ms, where v0.16.0 stays linear at 703ms) — recorded rather than chased, because a
+1.5MB Bash command is not a shape this hook meets. An ordinary command pays a few milliseconds
+more than it used to: a commit message measured 44ms against 30ms here. Measure it on the
+machine this actually runs on rather than trusting these numbers.
 
 **Its channels are DOCUMENTED, not OBSERVED.** The `hookSpecificOutput.permissionDecision`
 shape block mode returns comes from the schema dump in `../HOOK-OUTPUT-NOTES.md`, whose probe

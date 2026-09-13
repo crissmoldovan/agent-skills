@@ -74,13 +74,16 @@ function decision(result) {
   return JSON.parse(result.stdout).hookSpecificOutput;
 }
 
+/** every regex metacharacter escaped — a version is a literal here, never a pattern */
+const literal = (s) => s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+
 /** A refusal names the version and points at a file the reader can open. */
 function assertRefused(result, version) {
   const output = decision(result);
   assert.ok(output, `expected a refusal, got nothing on stdout (stderr: ${result.stderr})`);
   assert.equal(output.hookEventName, 'PreToolUse');
   assert.equal(output.permissionDecision, 'deny');
-  assert.match(output.permissionDecisionReason, new RegExp(version.replaceAll('.', '\\.')));
+  assert.match(output.permissionDecisionReason, new RegExp(literal(version)));
   assert.match(output.permissionDecisionReason, /release-notes skill/);
 }
 
@@ -293,11 +296,46 @@ test('every heading dialect a changelog generator emits is accepted', async () =
 });
 
 test('a neighbouring version does not satisfy the version being released', async () => {
-  for (const other of ['1.4.00', '1.4.0-rc.1', '11.4.0', '1.4.01']) {
+  // `1-4-0` and `1x4y0` are here because nothing else in this suite could tell an escaped
+  // dot from an unescaped one: every other near miss is rejected by the token boundary
+  // whether or not the `.` is a wildcard. Dropping the `.` from the escape set is a mutation
+  // the rest of these rows pass.
+  for (const other of ['1.4.00', '1.4.0-rc.1', '11.4.0', '1.4.01', '1-4-0', '1x4y0']) {
     const dir = await project({ notes: null });
     await writeFile(path.join(dir, 'CHANGELOG.md'), `# Changelog\n\n## ${other}\n\nwhy\n`);
     assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.4.0');
   }
+});
+
+// ---------------------------------------------------------------------------
+// The version is looked for as TEXT, not as a pattern
+//
+// `notes_status` built its search pattern by escaping the dots in the version and nothing
+// else, so every other regex metacharacter a legal version can carry stayed live. Semver's
+// build metadata is spelled with `+` — `1.0.0+build.7` — and in an ERE a `+` is a
+// quantifier, so the pattern asked for `1.0.` followed by one-or-more `0` and then `build`.
+// A note written verbatim did not match it, and the refusal said the file "never mentions
+// 1.0.0+build.7" while the file literally does. That is the false denial the header says
+// costs most, and it accuses the reader of not having written a note they are looking at.
+//
+// Both directions, on the same shape: escaping the metacharacter must not also blind the
+// check to a version that is genuinely unnoted.
+// ---------------------------------------------------------------------------
+
+for (const version of ['1.0.0+build.7', '1.0.0+21AF26D3']) {
+  test(`a version carrying a regex metacharacter (${version}) is matched as text`, async () => {
+    assertAllowed(await runGate(bashCall('npm publish', await project({ version, noted: [version] })), {}));
+    assertRefused(await runGate(bashCall('npm publish', await project({ version, noted: ['2.0.0'] })), {}), version);
+  });
+}
+
+test('escaping the version does not let a near miss satisfy it', async () => {
+  // The escape must be a LITERAL match, not merely a quieter pattern: `1.0.0+build.7` is
+  // not satisfied by a changelog that records `1.0.00+build.7`, and an unescaped `+` would
+  // have said it was.
+  const dir = await project({ version: '1.0.0+build.7', notes: null });
+  await writeFile(path.join(dir, 'CHANGELOG.md'), '# Changelog\n\n## 1.0.00+build.7\n\nwhy\n');
+  assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.0.0+build.7');
 });
 
 // ---------------------------------------------------------------------------
@@ -692,9 +730,13 @@ test('an edit to a one-line package.json that does not touch the version is left
 // there is, which is the invisible fail-open this file trades nothing for.
 // ---------------------------------------------------------------------------
 
-/** A workspace whose ROOT release is noted and whose member's note stops one version short. */
-async function workspace({ memberNoted = ['0.0.0'] } = {}) {
-  const dir = await repository({ name: 'mono', version: '9.9.9', noted: ['9.9.9'] });
+/**
+ * A workspace whose ROOT release is noted and whose member's note stops one version short.
+ * `rootNoted` turns that around — a root whose release is NOT noted while the member's is —
+ * which is what tells a fragment that stopped at the member's invocation from one that ran on.
+ */
+async function workspace({ memberNoted = ['0.0.0'], rootNoted = ['9.9.9'] } = {}) {
+  const dir = await repository({ name: 'mono', version: '9.9.9', noted: rootNoted });
   const member = path.join(dir, 'packages', 'a');
   await mkdir(member, { recursive: true });
   await writeFile(path.join(member, 'package.json'), `${JSON.stringify({ name: '@acme/a', version: '0.0.1' }, null, 2)}\n`);
@@ -745,4 +787,788 @@ test('a refusal names the tag, not the separator that followed it', async () => 
   const result = await runGate(bashCall('gh release create v1.4.0', dir), {});
   assertRefused(result, '1.4.0');
   assert.doesNotMatch(decision(result).permissionDecisionReason, /v1\.4\.0[;&|)]/);
+});
+
+// ---------------------------------------------------------------------------
+// A quoted string is data, not shell structure
+//
+// `START`/`END` matched CHARACTERS rather than shell structure, so any `;`, `|`, `&` or `(`
+// sitting in front of a release verb put that verb at what the gate read as a command
+// position — even when every one of those characters was inside a quoted string:
+//
+//     git commit -m "fixes the crash; npm publish now works"   -> REFUSED
+//     git commit -m "see README (npm publish)"                 -> REFUSED
+//
+// A commit message that mentions a publish step is completely ordinary, so this fired on
+// real work, and a false denial is the one outcome this gate's header says it cannot
+// afford. `echo "build; npm publish"` escaped only because the CLOSING quote happens not
+// to be in END's character class — which is the proof that the old behaviour was
+// incidental rather than designed.
+//
+// Both halves are asserted for every shape. The refuse half is what fails against a gate
+// that has simply stopped looking inside quotes at ALL — which would be the cheap repair,
+// and which would take `npm "publish"` (a real release, quoted) with it.
+// ---------------------------------------------------------------------------
+
+// Each shape is asserted BOTH ways, on ONE fixture, and the pair is the point: the two
+// commands differ only in whether the separator is inside the quotes. An ALLOW-only test here
+// says nothing — it passes against a gate that has stopped reading commands at all, and the
+// last row is the proof of that: `echo "build; npm publish"` was allowed by the 0.16.0 gate
+// too, for the incidental reason the header records (the closing quote is not in END's class).
+// Its allow half is a regression guard; only the pair is evidence.
+for (const [label, quoted, bare] of [
+  ['a semicolon',
+    'git commit -m "fixes the crash; npm publish now works"',
+    'git commit -m fixes; npm publish'],
+  ['parentheses',
+    'git commit -m "see README (npm publish)"',
+    'git commit -m see; (npm publish)'],
+  ['a pipe',
+    'git commit -m "chore: docs | npm publish step"',
+    'git commit -m docs | npm publish'],
+  ['a newline',
+    'git commit -m "fixes the crash\nnpm publish now works"',
+    'git commit -m fixes\nnpm publish'],
+  ['an issue comment body',
+    'gh issue comment -b "workaround: (pnpm publish)"',
+    'gh issue comment -b workaround && (pnpm publish)'],
+  ['an echoed sentence',
+    'echo "build; npm publish"',
+    'echo build; npm publish'],
+]) {
+  test(`a release verb quoted behind ${label} is not a release, and unquoted it is`, async () => {
+    // Nothing is staged here, so the `git commit` branch has no bump to find either: any
+    // refusal can only have come from reading the quoted text as a command.
+    const dir = await repository({ noted: ['1.3.0'] });
+    assertAllowed(await runGate(bashCall(quoted, dir), {}));
+    assertRefused(await runGate(bashCall(bare, dir), {}), '1.4.0');
+  });
+}
+
+test('a quoted span is still one span across the seam between the pass\'s internal pieces', async () => {
+  // The pass walks the command in fixed 4KB pieces, so the two pieces of machine state — the
+  // open quote and a pending backslash — have to cross the seam. NOTHING else in this suite
+  // is long enough to have a seam at all: every other command here is a few dozen bytes, so
+  // a version of the pass that reset its state at every piece boundary passes all of them.
+  // The consequence is a false denial on a long commit message, which is not an exotic shape.
+  const dir = await repository({ noted: ['1.3.0'] });
+  const lead = 'git commit -m "';           // 15 bytes, so the seam at 4096 lands at lead + 4081
+
+  for (const pad of [4000, 4079, 4080, 4081, 4082, 8177]) {
+    const filler = 'a'.repeat(pad);
+    // The `;` is inside a span opened before the seam: text, not structure.
+    assertAllowed(await runGate(bashCall(`${lead}${filler}; npm publish now works"`, dir), {}));
+    // ...and the same length with the separator genuinely outside the quotes is a release.
+    assertRefused(await runGate(bashCall(`git commit -m ${filler}; npm publish`, dir), {}), '1.4.0');
+  }
+
+  // A pending backslash has to cross the seam too: an escaped quote straddling it must not
+  // close the span, or everything after it reads as a command again.
+  for (const pad of [4078, 4079, 4080, 4081]) {
+    const filler = 'a'.repeat(pad);
+    assertAllowed(await runGate(bashCall(`${lead}${filler}\\" still inside; npm publish now works"`, dir), {}));
+  }
+});
+
+test('a release verb that is merely QUOTED is still the release it is', async () => {
+  // The cheap repair — blank every quoted span before matching — passes every case above
+  // and goes silently inert here: bash runs `npm "publish"` identically to the unquoted
+  // form, and a quoted tag is the ordinary way to write one. Quoting removes a character's
+  // power to act as shell STRUCTURE; it does not turn a command into a comment.
+  const unnoted = await repository({ noted: ['1.3.0'] });
+  for (const command of ['npm "publish"', "npm 'publish'", 'git tag "v1.4.0"']) {
+    assertRefused(await runGate(bashCall(command, unnoted), {}), '1.4.0');
+  }
+  const noted = await repository({ noted: ['1.4.0'] });
+  for (const command of ['npm "publish"', "npm 'publish'", 'git tag "v1.4.0"']) {
+    assertAllowed(await runGate(bashCall(command, noted), {}));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The run directory is the one in effect WHEN THE VERB RUNS
+//
+// `run_dir_for` took the last top-level `cd` on the line whatever its position, which
+// contradicts its own comment. Two consequences, both downstream of the same root cause as
+// the quoting bug — reading shell text as characters rather than as structure:
+//
+//   (a) `npm publish && cd <other-repo>` was judged against <other-repo>, so a release whose
+//       note IS written was refused, naming a repository that has nothing to do with it.
+//   (b) A `cd` named inside a quoted string hijacked the run directory, and an unresolvable
+//       one switched the gate off entirely: `git commit -m "wip; cd /nonexistent"` allowed a
+//       version bump with no note at all. Fail-open, so the safe direction — but a sentence
+//       in a commit message could disarm the bump check.
+// ---------------------------------------------------------------------------
+
+test('a cd that runs AFTER the release verb is not the directory the verb runs in', async () => {
+  const noted = await repository({ noted: ['1.4.0'] });
+  const other = await repository({ noted: ['0.1.0'], name: '@acme/other' });
+  assertAllowed(await runGate(bashCall(`npm publish && cd ${other}`, noted), {}));
+  assertAllowed(await runGate(bashCall(`git tag v1.4.0 && cd ${other}`, noted), {}));
+
+  // ...and the allow half is not the whole story: a `cd` BEFORE the verb still decides,
+  // which is the behaviour this branch exists to provide.
+  const unnoted = await repository({ noted: ['1.3.0'], name: '@acme/other' });
+  assertRefused(await runGate(bashCall(`cd ${unnoted} && npm publish`, noted), {}), '1.4.0');
+
+  // "Where does the verb sit" is asked with the branch's own ANCHORED pattern, so prose that
+  // merely names the verb cannot move the boundary. Unanchored, the scan stops at the words
+  // inside the `echo` — which are AFTER the `cd` — and the release is judged against a
+  // repository the command only passed through.
+  assertAllowed(await runGate(
+    bashCall(`gh release create v1.4.0 && cd ${other} && echo "gh release create v1.4.0"`, noted),
+    {},
+  ));
+});
+
+test('a cd inside a quoted string neither hijacks the run directory nor disarms the gate', async () => {
+  // (b), the fail-open half: an unresolvable `cd` is unknown ground and allows, so a `cd`
+  // read out of a commit message turned the bump check off for that commit.
+  const bump = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  await writeFile(path.join(bump, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '1.1.0' }, null, 2)}\n`);
+  git(bump, 'add', 'package.json');
+  assertRefused(await runGate(bashCall('git commit -m "wip; cd /nonexistent"', bump), {}), '1.1.0');
+
+  // (b), the false-denial half: a resolvable `cd` named in quoted text judged the release
+  // by the wrong repository's notes.
+  const noted = await repository({ noted: ['1.4.0'] });
+  const unnoted = await repository({ noted: ['1.3.0'], name: '@acme/other' });
+  assertAllowed(await runGate(bashCall(`echo "see ${unnoted}; cd ${unnoted}" && npm publish`, noted), {}));
+});
+
+// ---------------------------------------------------------------------------
+// A byte offset is not a character offset
+//
+// `run_dir_for` cuts the line at the verb so that a `cd` running AFTER the release is not
+// read as the release's directory. The cut took its offset from `grep -Eob`, which counts
+// BYTES, and applied it with `${seg:0:$off}`, which bash counts in CHARACTERS whenever
+// LC_CTYPE is multibyte. Once enough non-ASCII sat in front of the verb the cut landed
+// PAST it, the trailing `cd` came back into view, and the fix silently reverted to the
+// false denial — or, as here, to a fail-open — for everyone whose shell is UTF-8, which is
+// most shells. A locale-conditional defect is the worst kind to leave: it works for
+// whoever tests it.
+//
+// Asserted in BOTH locales, with an ASCII control that isolates multibyte input as the
+// cause rather than the shape of the command.
+// ---------------------------------------------------------------------------
+
+const MULTIBYTE = '（'.repeat(40);
+
+for (const locale of ['C', 'en_US.UTF-8']) {
+  test(`a cd after the verb stays after the verb under LC_ALL=${locale}`, async () => {
+    const env = { LC_ALL: locale, LANG: locale };
+
+    // The verb is preceded by 40 multibyte characters (80 bytes), and followed by a `cd`
+    // into a directory with no package.json — so reading that `cd` as the run directory
+    // turns the refusal into an allow.
+    const unnoted = await repository({ noted: ['1.3.0'] });
+    assertRefused(await runGate(bashCall(`echo "${MULTIBYTE}" && npm publish && cd /`, unnoted), { env }), '1.4.0');
+
+    // The control: the same shape in ASCII must behave identically. When these two differ,
+    // the cause is the unit the offset is measured in and nothing else.
+    assertRefused(await runGate(bashCall(`echo "${'x'.repeat(40)}" && npm publish && cd /`, unnoted), { env }), '1.4.0');
+
+    // ...and the allow half on the same shape, so this pair still fails against a gate that
+    // has started refusing everything.
+    const noted = await repository({ noted: ['1.4.0'] });
+    assertAllowed(await runGate(bashCall(`echo "${MULTIBYTE}" && npm publish && cd /`, noted), { env }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Branch 2 anchors like every other branch
+//
+// `(gh|glab) +release +create` was matched with no START/END around it while branches 1, 3
+// and 4 all anchored — the same omission that made `changeset publish` refuse a sentence
+// three rounds earlier. It fails in BOTH directions at once:
+//
+//   (a) false denial: `echo "then run gh release create v9.9.9 to ship"` — prose naming a
+//       release — was refused, naming a version nobody is releasing.
+//   (b) fail-OPEN: branch 2 matched a commit message, found a version its notes DO mention,
+//       and `exit 0`d before the version-bump check ever ran. A staged, unnoted bump whose
+//       commit message happens to contain those four words was ALLOWED, while the
+//       byte-identical commit without them was correctly refused.
+// ---------------------------------------------------------------------------
+
+test('prose that merely NAMES a release-create command is not a release', async () => {
+  const dir = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  for (const command of [
+    'echo "then run gh release create v9.9.9 to ship"',
+    "echo 'next: glab release create v9.9.9'",
+    'git commit -m "docs: explain gh release create v9.9.9"',
+  ]) {
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  }
+  // ...and the release itself, on the same fixture, is still refused. Without this half the
+  // test above passes against a gate that has stopped looking at branch 2 altogether.
+  assertRefused(await runGate(bashCall('gh release create v9.9.9', dir), {}), '9.9.9');
+});
+
+test('a commit message naming a release does not switch the bump check off', async () => {
+  // The pair that matters: the only difference between these two commands is four words
+  // inside a commit message, and the commit that says what it is doing must not be the one
+  // that escapes the check.
+  const spoken = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  await writeFile(path.join(spoken, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '1.1.0' }, null, 2)}\n`);
+  git(spoken, 'add', 'package.json');
+  assertRefused(await runGate(bashCall('git commit -m "chore: bump; then gh release create v1.0.0"', spoken), {}), '1.1.0');
+
+  const silent = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  await writeFile(path.join(silent, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '1.1.0' }, null, 2)}\n`);
+  git(silent, 'add', 'package.json');
+  assertRefused(await runGate(bashCall('git commit -m "chore: bump"', silent), {}), '1.1.0');
+});
+
+// ---------------------------------------------------------------------------
+// Every detector over $norm is anchored — asserted over the gate's own source
+//
+// The detectors learned that quoted text is data. What they kept forgetting is the anchor:
+// `changeset publish` shipped unanchored and refused a sentence (round 1), and
+// `(gh|glab) release create` shipped unanchored and refused a sentence again (round 6),
+// three rounds apart. The fix for one did not protect the other, because nothing said the
+// rule out loud in a place that turns red.
+//
+// This does. It reads the gate's source and asserts the property no branch may forget,
+// which is the one thing a tokenizer would have bought structurally and the only reason
+// this file does not have one.
+// ---------------------------------------------------------------------------
+
+/** every `printf '%s' "$norm" | grep -Eq <pattern>` in a shell source, with its pattern */
+function normDetectors(source) {
+  const found = [];
+  const re = /printf\s+'%s'\s+"\$norm"\s*\|\s*grep\s+-Eq\s+(?:"([^"]*)"|'([^']*)')/g;
+  for (let m = re.exec(source); m; m = re.exec(source)) {
+    found.push({ pattern: m[1] ?? m[2], quoted: m[1] === undefined ? "'" : '"' });
+  }
+  return found;
+}
+
+test('every detector that reads the normalised command anchors it to a command position', async () => {
+  const source = await readFile(gate, 'utf8');
+  const detectors = normDetectors(source);
+
+  // A parser that finds nothing would pass this test vacuously, so the count is asserted
+  // too: four branches, and branch 1 matches its two publish dialects separately.
+  assert.equal(detectors.length, 5, `expected 5 $norm detectors, found ${detectors.length}`);
+  for (const { pattern } of detectors) {
+    assert.ok(
+      pattern.startsWith('${START}') || pattern.startsWith('$START'),
+      `a detector over $norm does not begin with START, so naming its verb in prose is a release: ${pattern}`,
+    );
+  }
+
+  // ...and the matcher itself is checked against the shape that has actually shipped twice:
+  // an unanchored, SINGLE-quoted pattern. A double-quote-only matcher reads this file as
+  // clean while the defect is live, which is exactly how round 6 reached a release.
+  const single = normDetectors(`if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then`);
+  assert.equal(single.length, 1);
+  assert.equal(single[0].quoted, "'");
+  assert.equal(single[0].pattern.startsWith('${START}'), false);
+
+  // Nothing that reads something OTHER than $norm is in scope: `$tag` is already a single
+  // extracted token and has no command position to anchor to.
+  assert.equal(normDetectors(`printf '%s' "$tag" | grep -Eq '@[0-9]|^v?[0-9]'`).length, 0);
+});
+
+/**
+ * Every read of $norm in a shell source, in BOTH the shapes the gate has for one — detectors
+ * AND extractors, written inline AND handed to a helper, since the rule is about reading the
+ * normalised command at all, not about any one command that does it:
+ *
+ *   printf '%s' "$norm" | <cmd> <flags> <pattern>   — the read written where it is used
+ *   <helper> "$norm" "<pattern>"                    — the read delegated, pattern at the call site
+ */
+function normReaders(source) {
+  const found = [];
+  const inline = /printf\s+'%s'\s+"\$norm"\s*(?:\\\s*)?\|\s*([a-z]+)\s+(-[A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')/g;
+  for (let m = inline.exec(source); m; m = inline.exec(source)) {
+    found.push({ at: m.index, via: 'pipeline', cmd: m[1], flags: m[2], pattern: m[3] ?? m[4], quoted: m[3] === undefined ? "'" : '"' });
+  }
+  const delegated = /(?:^|[\s($])([a-z_][a-z0-9_]*)\s+"\$norm"\s+(?:"([^"]*)"|'([^']*)')/gm;
+  for (let m = delegated.exec(source); m; m = delegated.exec(source)) {
+    found.push({ at: m.index, via: 'helper', cmd: m[1], flags: '', pattern: m[2] ?? m[3], quoted: m[2] === undefined ? "'" : '"' });
+  }
+  return found.sort((a, b) => a.at - b.at);
+}
+
+/** the 0-based line a source offset falls on */
+const lineOf = (source, at) => source.slice(0, at).split('\n').length - 1;
+
+test('every read of the normalised command goes through an anchored pattern, extractors included', async () => {
+  const source = await readFile(gate, 'utf8');
+  const readers = normReaders(source);
+
+  // The detector rule was written for `grep -Eq` and the EXTRACTORS went on doing what the
+  // detectors had been fixed for: branch 4 read the `-C` that picks which repository is
+  // judged with `sed -nE "s/.*(git<opts>) +commit.*/\1/p"`, a greedy whole-line read that a
+  // commit MESSAGE could satisfy. A rule scoped to `grep -Eq` reads that file as clean.
+  //
+  // So the rule is about $norm, not about one command: whatever reads the normalised command
+  // reads it through a pattern that starts at a command position. Anything that needs the
+  // inside of one invocation cuts the fragment out first and reads THAT.
+  //
+  // ...and "whatever reads it" includes the reads this file DELEGATES. Scoped to the inline
+  // `printf | grep` shape, this rule saw four `run_dir_for "$norm" "<pattern>"` call sites —
+  // reads of the normalised command by any reading of that sentence — as nothing at all, and
+  // it has now been narrower than its own name for two rounds running. The pattern lives at
+  // the call site in both shapes, so both are checked the same way.
+  assert.equal(readers.length, 13, `expected 13 $norm readers, found ${readers.length}`);
+  assert.equal(readers.filter((r) => r.via === 'helper').length, 7, 'expected 7 delegated reads');
+  for (const { via, cmd, flags, pattern } of readers) {
+    if (via === 'pipeline') {
+      assert.match(cmd, /^grep$/, `only grep reads $norm inline; a ${cmd} over the whole line cannot be anchored to a command position: ${pattern}`);
+      assert.match(flags, /^-E[qo]$/, `a $norm read uses -Eq or -Eo, not ${flags}: ${pattern}`);
+    } else {
+      // A delegated read is only as good as the helper it names, and a helper this file does
+      // not define is some other program being handed the whole command line.
+      assert.ok(source.includes(`${cmd}() {`), `${cmd} is handed $norm but is not a function this gate defines: ${pattern}`);
+    }
+    assert.ok(
+      pattern.startsWith('${START}') || pattern.startsWith('$START'),
+      `a read of $norm does not begin with START, so its verb can be satisfied by prose: ${pattern}`,
+    );
+  }
+
+  // COMPLETENESS, which is the half that kept this guard behind the defects: a rule that
+  // only inspects the reads it already knows how to see cannot report the one it cannot.
+  // Every mention of $norm in the file is either the normalisation that BUILDS it or a read
+  // collected above — a new shape of read is a red line here, not a silent omission.
+  const seen = new Set(readers.map((r) => lineOf(source, r.at)));
+  source.split('\n').forEach((line, i) => {
+    if (!line.includes('"$norm"') || seen.has(i)) return;
+    assert.match(
+      line,
+      /^norm="\$\(/,
+      `line ${i + 1} reads $norm in a shape this rule cannot see, so nothing checks its pattern: ${line.trim()}`,
+    );
+  });
+
+  // The matcher is checked against BOTH shapes that have actually shipped: the unanchored,
+  // single-quoted detector of round 6, and the greedy `sed` of round 8. A matcher that saw
+  // only double-quoted `grep -Eq` reads a file carrying either of them as clean.
+  const single = normReaders(`if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then`);
+  assert.equal(single.length, 1);
+  assert.equal(single[0].quoted, "'");
+  assert.equal(single[0].pattern.startsWith('${START}'), false);
+
+  const greedy = normReaders(`cdir="$(repo_dir_for "$(printf '%s' "$norm" | sed -nE "s/.*(git\${GIT_OPTS}) +commit.*/\\1/p")")"`);
+  assert.equal(greedy.length, 1);
+  assert.equal(greedy[0].cmd, 'sed');
+  assert.equal(greedy[0].pattern.startsWith('${START}'), false);
+
+  // ...and a continued line is still one read, which is how branch 1's extractor used to be
+  // written.
+  assert.equal(normReaders(`x="$(printf '%s' "$norm" \\\n        | grep -Eo "\${START}foo" \\\n        | tail -1)"`).length, 1);
+
+  // ...and a DELEGATED read is one too, whether it is a bare call or a substitution, with
+  // the unanchored form of it reported rather than skipped. This is the shape the rule was
+  // blind to while it said "every read of the normalised command".
+  const bare = normReaders(`  rdir="$(run_dir_for "$norm" "(gh|glab) +release +create")" || exit 0`);
+  assert.equal(bare.length, 1);
+  assert.equal(bare[0].via, 'helper');
+  assert.equal(bare[0].cmd, 'run_dir_for');
+  assert.equal(bare[0].pattern.startsWith('${START}'), false);
+  assert.equal(normReaders(`last_invocation "$norm" "\${START}\${COMMIT_VERB}\${END}"`).length, 1);
+
+  // ...and `printf '%s' "$norm"` is not a helper called `s`, which a laxer matcher for the
+  // delegated shape reads it as.
+  assert.equal(normReaders(`x="$(printf '%s' "$norm" | tail -1)"`).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// An extractor reads the invocation that matched, not the whole line
+//
+// The detectors learned that quoted text is data; the extractors did not. Both the tag and
+// the release-create extractors stripped with a greedy, unanchored `sed -E "s/.*<verb>//"`,
+// so they read the LAST version-looking token on the line wherever it came from — including
+// out of a quoted message. Both error directions again, on one line of code:
+//
+//   (a) false denial: `git tag v1.4.0 -m "supersedes the old git tag v9.9.9 line"` refused,
+//       naming v9.9.9 — a version nobody is releasing and no note can ever satisfy.
+//   (b) fail-OPEN: `git tag v9.9.9 -m "replaces git tag v1.0.0"` read v1.0.0, found its
+//       note, and cut an unnoted release. That is the direction nobody notices.
+// ---------------------------------------------------------------------------
+
+test('a tag is read from the invocation being run, not from a message that mentions one', async () => {
+  const noted = await repository({ noted: ['1.4.0'] });
+  assertAllowed(await runGate(bashCall('git tag v1.4.0 -m "supersedes the old git tag v9.9.9 line"', noted), {}));
+
+  // The fail-open half, on a fixture that notes 1.0.0 and nothing else: the tag actually
+  // being cut is 9.9.9, whatever the message says afterwards.
+  const dir = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  assertRefused(await runGate(bashCall('git tag v9.9.9 -m "replaces git tag v1.0.0"', dir), {}), '9.9.9');
+
+  // ...and the rule the greedy strip got right and must keep: of two real invocations, the
+  // LAST one is the release being cut.
+  assertRefused(await runGate(bashCall('git tag v1.0.0 && git tag v9.9.9', dir), {}), '9.9.9');
+
+  // The `-C` that decides WHICH repository is judged is read from the same invocation, by the
+  // same rule. Read with a leading `.*` it walked to the last `git … tag` on the line, so a
+  // message could nominate a checkout whose notes happen to mention the version — and here
+  // that turns the refusal into an allow.
+  const alibi = await repository({ version: '9.9.9', noted: ['9.9.9'], name: '@acme/alibi' });
+  assertRefused(await runGate(bashCall(`git tag v9.9.9 -m "see git -C ${alibi} tag v1.0.0"`, dir), {}), '9.9.9');
+  // ...and a `-C` that really does belong to the tag is still honoured.
+  assertAllowed(await runGate(bashCall(`git -C ${alibi} tag v9.9.9`, dir), {}));
+});
+
+test('a release tag is read from the invocation being run, not from its own --notes', async () => {
+  const dir = await repository({ version: '1.0.0', noted: ['1.0.0'] });
+  assertAllowed(await runGate(bashCall('gh release create v1.0.0 --notes "supersedes gh release create v9.9.9"', dir), {}));
+  assertRefused(await runGate(bashCall('gh release create v9.9.9 --notes "replaces gh release create v1.0.0"', dir), {}), '9.9.9');
+
+  // Bounding the fragment at the next shell separator is a behaviour change from the
+  // "deliberately not truncated" rule this branch inherited, so it gets its own assertion:
+  // a `--repo` belonging to the release is still inside the fragment and still read, and a
+  // later command's flags are not.
+  const target = await repository({ noted: ['1.3.0'] });
+  git(target, 'remote', 'add', 'origin', 'https://github.com/acme/cli.git');
+  assertRefused(await runGate(bashCall('gh release create v1.4.0 --repo acme/cli', target), {}), '1.4.0');
+  assertAllowed(await runGate(bashCall('gh release create v1.4.0 --repo someone/else', target), {}));
+  assertAllowed(await runGate(bashCall('gh release create v1.4.0 --repo someone/else && echo --repo acme/cli', target), {}));
+});
+
+// ---------------------------------------------------------------------------
+// ...and the commit branch reads its `-C` the same way
+//
+// Branch 3 learned this; branch 4 did not, and it was the last greedy whole-line read left
+// in the file: `sed -nE "s/.*(git<opts>) +commit.*/\1/p"`. A leading `.*` walks to the LAST
+// `git … commit` on the line, and after the quote pass the words inside a commit MESSAGE are
+// still words — so an ordinary sentence decided which repository's index was read. Three
+// consequences, all reproduced against the unfixed file:
+//
+//   (a) FALSE DENIAL, on a minimal pair. From a session rooted in a repository with an
+//       unnoted staged bump, `git -C <clean> commit -m "explain how git commit hooks work"`
+//       was refused — naming a package in a repository the command never touches — while the
+//       byte-identical message WITHOUT those two words was allowed. The `-C` belonging to
+//       the real invocation was walked past, so the judged repository fell back to the
+//       session's own.
+//   (b) FALSE DENIAL the other way round: in a CLEAN checkout, prose naming another repo
+//       (`git commit -m "see git -C <other> commit for how"`) was judged against <other>'s
+//       staged bump, which no note in the current repository can ever satisfy.
+//   (c) FAIL-OPEN: prose naming a `-C` that does not exist made `resolve_dir` fail, and the
+//       branch exits 0 on an unresolvable directory — so a real unnoted bump walked through.
+//       That is the direction nobody notices.
+// ---------------------------------------------------------------------------
+
+/** a repository whose staged package.json bumps to 9.9.9, with no note for it */
+async function stagedBump(options) {
+  const dir = await repository({ version: '1.0.0', noted: ['1.0.0'], ...options });
+  const name = options?.name ?? '@acme/cli';
+  await writeFile(path.join(dir, 'package.json'), `${JSON.stringify({ name, version: '9.9.9' }, null, 2)}\n`);
+  git(dir, 'add', 'package.json');
+  return dir;
+}
+
+test('a commit is judged against the repository its own invocation names, not one its message mentions', async () => {
+  const dirty = await stagedBump({ name: '@acme/dirty' });
+  const clean = await repository({ version: '1.0.0', noted: ['1.0.0'], name: '@acme/clean' });
+
+  // The fixture really is dirty, so every allow below is a statement about the reading and
+  // not about a gate that has gone quiet.
+  assertRefused(await runGate(bashCall('git commit -m ordinary', dirty), {}), '9.9.9');
+
+  // (a) the minimal pair: the same commit, in the same session, differing only in four
+  // words of prose. Both land in <clean>, which has nothing staged.
+  assertAllowed(await runGate(bashCall(`git -C ${clean} commit -m "explain how git commit hooks work"`, dirty), {}));
+  assertAllowed(await runGate(bashCall(`git -C ${clean} commit -m "explain how hooks work"`, dirty), {}));
+
+  // (b) prose nominating another checkout from a clean one
+  assertAllowed(await runGate(bashCall(`git commit -m "see git -C ${dirty} commit for how"`, clean), {}));
+
+  // (c) the fail-open: an unresolvable `-C` in prose must not disarm the bump check
+  assertRefused(await runGate(bashCall('git commit -m "see git -C /nonexistent-a9f3c1 commit"', dirty), {}), '9.9.9');
+
+  // ...and a `-C` that really does belong to the commit is still honoured, in both
+  // directions: it is the whole reason this read exists.
+  assertRefused(await runGate(bashCall(`git -C ${dirty} commit -m "chore: bump"`, clean), {}), '9.9.9');
+  assertAllowed(await runGate(bashCall(`git -C ${clean} commit -m "chore: docs"`, dirty), {}));
+
+  // ...and of two real invocations the LAST one is the commit being made, which is the rule
+  // the greedy strip got right and this must preserve.
+  assertRefused(await runGate(bashCall(`git -C ${clean} commit -m a && git -C ${dirty} commit -m b`, clean), {}), '9.9.9');
+  assertAllowed(await runGate(bashCall(`git -C ${dirty} commit -m a && git -C ${clean} commit -m b`, dirty), {}));
+});
+
+// ---------------------------------------------------------------------------
+// A fragment covers exactly ONE invocation
+//
+// Three of the four extractors cut their fragment the same way:
+//
+//     grep -Eo "${START}${VERB}${END}[^;&|)]*"
+//
+// and `END` is `([[:space:]]|[;&|)]|$)`, which can match a SEPARATOR CHARACTER. It does so
+// exactly when the verb ABUTS one — an invocation with no arguments after it — and when it
+// does, the trailing `[^;&|)]*` begins on the far side of that separator and runs on into
+// the NEXT invocation. One fragment then covers two; the `^`-anchored strip inside reads the
+// FIRST of them; and `tail -1` has nothing left to choose from, because grep consumed both
+// as a single match. "The last invocation wins" — the rule every one of these branches
+// claims, and the rule `tail -1` exists to keep — is broken by an argument-less invocation
+// of the same verb standing in front of the real one.
+//
+// This is written as the PROPERTY and not as three cases on purpose. Each of the three was
+// introduced by a commit that fixed the other reading defects correctly, and four rounds of
+// review caught instances while the rule went on being missed:
+//
+//     an argument-less invocation of the same verb, and a separator, decide NOTHING about
+//     the command that follows them.
+//
+// Branch 3 is in the table as the CONTROL. `TAG_VERB` ends in ` +`, so `END` never sees the
+// separator there and that branch was green before this fix and after it. A table in which
+// every row is a known defect cannot tell a fix from a coincidence.
+// ---------------------------------------------------------------------------
+
+/**
+ * The separator forms a command actually uses. `&&` and `||` never let END swallow — the
+ * second `&`/`|` stops the `[^;&|)]*` tail — so they belong here precisely BECAUSE they are
+ * the cheap shapes: a table of only the swallowing separators states a narrower rule than
+ * the one being claimed, which is how this file got three of these.
+ */
+const SEPARATORS = [';', '&', '|', '\n', '\n  ', ' & ', ' | ', ' && '];
+
+test('an argument-less invocation of the same verb decides nothing that follows it', async () => {
+  // The ROOT release (9.9.9) is unnoted and the MEMBER's (0.0.1) is noted, so a fragment
+  // that runs on from the member's invocation into the root's finds the member's note and
+  // allows the root's unnoted release.
+  const mono = await workspace({ memberNoted: ['0.0.1'], rootNoted: ['1.0.0'] });
+  const unnoted = await repository({ noted: ['1.0.0'] });
+  const dirty = await stagedBump({ name: '@acme/dirty' });
+  const clean = await repository({ version: '1.0.0', noted: ['1.0.0'], name: '@acme/clean' });
+
+  const rows = [
+    { branch: '1 publish', cwd: mono, argless: 'pnpm --filter @acme/a publish', real: 'pnpm publish' },
+    { branch: '2 release create', cwd: unnoted, argless: 'gh release create', real: 'gh release create v9.9.9' },
+    { branch: '3 tag (control)', cwd: unnoted, argless: 'git tag ', real: 'git tag v9.9.9' },
+    { branch: '3 tag, no trailing space (control)', cwd: unnoted, argless: 'git tag', real: 'git tag v9.9.9' },
+    { branch: '4 commit, another checkout named last', cwd: clean, argless: 'git commit', real: `git -C ${dirty} commit -m x` },
+    { branch: '4 commit, this checkout named last', cwd: dirty, argless: `git -C ${clean} commit`, real: 'git commit -m x' },
+    { branch: '4 commit, an unresolvable -C first', cwd: dirty, argless: 'git -C /nonexistent-b7d2e4 commit', real: 'git commit -m x' },
+  ];
+
+  const mustRefuse = async (command, cwd, why) => {
+    const result = await runGate(bashCall(command, cwd), {});
+    const output = decision(result);
+    assert.ok(output, `${why}: expected a refusal, got an allow for ${JSON.stringify(command)}`);
+    assert.match(
+      output.permissionDecisionReason,
+      /9\.9\.9/,
+      `${why}: refused, but for the wrong release — ${output.permissionDecisionReason}`,
+    );
+  };
+
+  for (const { branch, cwd, argless, real } of rows) {
+    // The control for the row: the invocation being judged is refused on its own. Without
+    // it every row could pass by the gate having gone quiet rather than read correctly.
+    await mustRefuse(real, cwd, `${branch}: the invocation alone`);
+    for (const sep of SEPARATORS) {
+      await mustRefuse(`${argless}${sep}${real}`, cwd, `${branch}: after an argument-less one, separated by ${JSON.stringify(sep)}`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The quote pass costs what the pass it replaced cost
+//
+// The first version walked the command one character at a time rebuilding `out = out c`,
+// which under one-true-awk is quadratic: 128KB took 1025ms against the shipped gate's 58ms,
+// on a hook that runs before EVERY Bash tool call.
+//
+// The assertion is on SCALING, not on a millisecond budget. A fixed wall-clock threshold in
+// a test is a hand-maintained description of something that moves — it goes red on a loaded
+// machine and green on a fast one, and tells you nothing either way. A sixteen-fold input
+// that costs a small multiple is linear; the defect this guards cost thirty-two times.
+//
+// The multiple is PER SHAPE, and that is not a fudge. Linear means a sixteenfold input costs
+// at most sixteen times; the small multiples the first three rows assert come from the gate
+// paying its fixed cost — spawning, jq, the greps — once at each end, which dominates when
+// the shape is cheap per byte. On an expensive shape the fixed cost is a smaller share and
+// the honest linear ceiling is nearer sixteen than six. Asserting six everywhere would
+// therefore not be stricter; it would be a bound the fixed version cannot meet, which is how
+// a scaling test ends up being deleted rather than believed. Each row carries the multiple
+// its own shape can hold, with the measured numbers beside it.
+// ---------------------------------------------------------------------------
+
+test('the quote pass scales with the size of the command, not with its square', async () => {
+  const dir = await repository({ noted: ['1.3.0'] });
+  const median = async (command) => {
+    const runs = [];
+    for (let i = 0; i < 3; i += 1) {
+      const started = performance.now();
+      await runGate(bashCall(command, dir), {});
+      runs.push(performance.now() - started);
+    }
+    return runs.sort((a, b) => a - b)[1];
+  };
+
+  // MANY QUOTED SPANS is the shape that drives this pass, and the one this test left out
+  // while the pass was quadratic: inert text, metacharacters and many lines are all cheap
+  // per byte and all three stayed linear throughout. A quote mark is a state change, and the
+  // per-mark work is where the cost was — which is why `curl -d "{…}"` and
+  // `psql -c "INSERT …"`, ordinary commands both, were the shapes that got dear, while one
+  // huge quoted blob never did. It is the only row that needs sizes this large: below about
+  // 32KB the gate's fixed cost hides the difference, and the quadratic build passes.
+  const span = `echo "ab;cd" 'ef|gh' `;
+  const spans = (kb) => span.repeat(Math.ceil((kb * 1024) / span.length));
+  for (const [label, small, large, bound] of [
+    ['inert text', `echo ${'a'.repeat(8 * 1024)}`, `echo ${'a'.repeat(128 * 1024)}`, 6],
+    // Metacharacter-dense input is the case a run-based pass could regress on its own,
+    // since it is the number of state changes that drives the loop.
+    ['metacharacters', `echo ${'ab;c|d&e(f)'.repeat(744)}`, `echo ${'ab;c|d&e(f)'.repeat(11904)}`, 6],
+    ['many lines', Array.from({ length: 125 }, () => `echo ${'a'.repeat(60)}`).join('\n'),
+      Array.from({ length: 2000 }, () => `echo ${'a'.repeat(60)}`).join('\n'), 6],
+    // 32KB -> 512KB, measured over five trials on the machine that wrote this: 8.1-9.1 with
+    // the linear pass, 24.0-31.6 with the quadratic one. 14 sits between those with room on
+    // both sides, and is still comfortably under the sixteen that a sixteenfold input costs
+    // when the pass is perfectly linear and the fixed cost has stopped mattering.
+    ['quoted spans', spans(32), spans(512), 14],
+  ]) {
+    const small_ms = await median(small);
+    const large_ms = await median(large);
+    assert.ok(
+      large_ms < small_ms * bound,
+      `${label}: the larger command cost ${large_ms.toFixed(0)}ms against ${small_ms.toFixed(0)}ms for a sixteenth of the input, ${(large_ms / small_ms).toFixed(1)}x against a bound of ${bound}x — that is not linear`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The under-blocks, asserted rather than only described
+//
+// Reading quoted text as data gives up every release that reaches the shell as a STRING.
+// The adapter README named one shape of that (`sh -c "npm publish"`); there are four, and
+// two of them arrive through `$( )` and backticks, where bash really does re-enter command
+// context and really does run the publish. An unbalanced quote is the fourth, and it is a
+// regression this branch introduced: everything after an odd apostrophe reads as quoted, so
+// a heredoc body containing one disarms every detector for the rest of the command.
+//
+// Each is paired with the release the same fixture DOES refuse, so this is a statement
+// about these shapes rather than about a gate that stopped working.
+// ---------------------------------------------------------------------------
+
+test('a release handed to the shell as a string is under-blocked, and it is written down', async () => {
+  const dir = await repository({ noted: ['1.3.0'] });
+  assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.4.0');
+
+  for (const command of [
+    'echo "$(npm publish)"',
+    'OUT="$(npm publish --tag next)"',
+    'echo `npm publish`',
+    'sh -c "build; npm publish"',
+    "cat <<EOF > notes.txt\nit's shipping\nEOF\nnpm publish",
+  ]) {
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  }
+
+  const readme = await readFile(new URL('../adapters/claude-code/README.md', import.meta.url), 'utf8');
+  for (const shape of ['$(', 'backtick', 'unbalanced', 'heredoc']) {
+    assert.ok(readme.includes(shape), `the adapter README does not name the ${shape} under-block`);
+  }
+});
+
+test('an UNQUOTED command substitution is a command position, and stays caught', async () => {
+  // The four shapes above are given up because the quote pass reads what is inside the
+  // quotes as text. UNQUOTED, a `(` and a `)` are the shell structure they look like: they
+  // open and close a command position, which is why `START` accepts one and `END` the other.
+  // So an invocation can begin after a `$(` that is not at the start of the command, and a
+  // fragment has to be cut at those characters like any other separator — `OUT=$(gh release
+  // create v9.9.9)` is a release, and the `OUT=$` in front of it is no part of the
+  // invocation that runs.
+  //
+  // Every one of these is refused by the shipped gate as well. What turns red here is a
+  // fragment rule that covers `;`, `&` and `|` and quietly forgets the parentheses: the
+  // strip inside branch 2 is `^`-anchored, so a fragment carrying `OUT=$` in front of the
+  // verb yields no version at all and the release goes through.
+  const dir = await repository({ version: '1.4.0', noted: ['1.0.0'] });
+  for (const [command, version] of [
+    ['OUT=$(gh release create v9.9.9)', '9.9.9'],
+    ['(gh release create v9.9.9)', '9.9.9'],
+    ['(cd . && gh release create v9.9.9)', '9.9.9'],
+    ['echo $(npm publish)', '1.4.0'],
+    ['(npm publish)', '1.4.0'],
+    ['x=$(git tag v9.9.9)', '9.9.9'],
+    ['(git tag v9.9.9)', '9.9.9'],
+  ]) {
+    assertRefused(await runGate(bashCall(command, dir), {}), version);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A COMPOUND COMMAND THAT RELEASES TWICE IS CHECKED ONCE, AND THE ONE IS THE LAST.
+//
+// "The last invocation wins" is the rule every branch here claims, and the rule the fragment
+// work above exists to make true. Stated fully, it has a second half that nothing in this
+// file said out loud: a command carrying TWO real releases is judged on the second, so the
+// first goes unchecked. That half is not new — measured against the shipped 0.16.0 gate,
+// `gh release create v9.9.9 && gh release create v1.3.0` and the same shape on `git tag`
+// allow there exactly as they allow here, because the greedy strip it used also read the
+// last one. Rows (a) and (b) pin both directions of it.
+//
+// Row (c) is what IS new, and it is the one trade this round makes in the under-blocking
+// direction. When the LAST invocation of `gh|glab release create` carries no arguments it
+// names no version, so branch 2 reads nothing and exits — where 0.16.0's greedy strip
+// stepped over the argument-less invocation and scavenged the version out of the earlier
+// one. Measured on both builds, in all eight separator forms:
+// `gh release create v9.9.9 && gh release create` was REFUSED at 0.16.0 and is ALLOWED here.
+// It is the same greedy read that produced the twelve wrong verdicts this branch removes, so
+// it could not be kept for this shape and dropped for those; what it can be is written down.
+//
+// Row (d) is why that is confined to branch 2. `git tag` and `npm|pnpm|yarn publish` name
+// what they act on without needing an argument, so an argument-less one of those is itself a
+// release and is read as one — in every separator form, on both builds.
+//
+// Row (e) is the exception inside row (d), and it belongs here so nobody reads (d) as wider
+// than it is: `git tag ` written WITH a trailing space matches TAG_VERB, yields an empty tag,
+// and silences branch 3. That is true of the shipped gate too — unchanged, not this round's,
+// and not narrowed here.
+//
+// Narrowing (c) means checking EVERY gated invocation in a command instead of the last, which
+// is a different design with its own false-denial risk. This test exists so that decision is
+// made against a fact in the suite rather than a sentence in a file.
+// ---------------------------------------------------------------------------
+
+test('a compound command is judged on its LAST gated invocation, and the trade is written down', async () => {
+  const dir = await repository({ version: '1.4.0', noted: ['1.3.0'] });
+
+  // The control for every row below: each invocation, on its own, is refused.
+  assertRefused(await runGate(bashCall('gh release create v9.9.9', dir), {}), '9.9.9');
+  assertRefused(await runGate(bashCall('git tag v9.9.9', dir), {}), '9.9.9');
+  assertRefused(await runGate(bashCall('npm publish', dir), {}), '1.4.0');
+
+  // (a) two real releases, the NOTED one last: allowed — and allowed by 0.16.0 too.
+  for (const command of [
+    'gh release create v9.9.9 && gh release create v1.3.0',
+    'gh release create v9.9.9;gh release create v1.3.0',
+    'git tag v9.9.9 && git tag v1.3.0',
+    'git tag v9.9.9;git tag v1.3.0',
+  ]) {
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  }
+
+  // (b) two real releases, the UNNOTED one last: refused, on the version that runs last.
+  for (const command of [
+    'gh release create v1.3.0 && gh release create v9.9.9',
+    'git tag v1.3.0 && git tag v9.9.9',
+  ]) {
+    assertRefused(await runGate(bashCall(command, dir), {}), '9.9.9');
+  }
+
+  for (const sep of SEPARATORS) {
+    const where = JSON.stringify(sep);
+    // (c) THE TRADE: an argument-less release-create LAST silences branch 2.
+    assertAllowed(await runGate(bashCall(`gh release create v9.9.9${sep}gh release create`, dir), {}));
+    // (d) the other branches keep their teeth in exactly that shape.
+    assertRefused(await runGate(bashCall(`git tag v9.9.9${sep}git tag`, dir), {}), '9.9.9');
+    assertRefused(await runGate(bashCall(`npm publish${sep}npm publish`, dir), {}), '1.4.0');
+    // (e) ...except `git tag ` with a trailing space, which 0.16.0 also lets through.
+    assert.equal(
+      (await runGate(bashCall(`git tag v9.9.9${sep}git tag `, dir), {})).stdout.trim(),
+      '',
+      `a trailing-space \`git tag \` after ${where} refused where the shipped gate allowed`,
+    );
+  }
+
+  // (f) the trade is written where a user reads, not only here.
+  const readme = await readFile(new URL('../adapters/claude-code/README.md', import.meta.url), 'utf8');
+  assert.match(readme, /last gated invocation/i, 'the adapter README does not state the last-invocation rule');
+  assert.match(readme, /argument-less/i, 'the adapter README does not name the argument-less trade');
 });
