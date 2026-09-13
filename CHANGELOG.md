@@ -5,6 +5,129 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.16.1
+
+**What.** `adapters/claude-code/release-notes-gate.sh` — the optional Claude Code `PreToolUse`
+hook that shipped with `release-notes` in 0.16.0 — now reads quoted text as **data** rather
+than as shell structure, and reads the invocation that is actually being run rather than the
+whole command line. Every detector over the normalised command is anchored to a command
+position, every extractor reads the invocation that matched, the file measures offsets in one
+unit (`LC_ALL=C`, so bytes), and the quoting pass is linear in the size of the command.
+`test/release-notes-gate.test.mjs` grows from 52 tests to 79. No skill changed, nothing was
+added or removed from the catalogue, and no export, flag, command or return shape moved:
+twenty-four skills stay twenty-four, which is why this is a patch.
+
+**Why.** The known false refusal recorded in the 0.16.0 notes was a whole family, not one
+case. `START`/`END` matched **characters**, so any `;`, `|`, `&` or `(` in front of a release
+verb put that verb at what the gate read as a command position — including when every one of
+those characters sat inside a quoted string. Eight defects were found over five rounds. All
+eight are live in 0.16.0 as shipped; each was measured against that build and against this one
+with the same fixtures, and each is named here by the command that exhibits it.
+
+*False refusals, now removed.* A false denial is the one outcome this gate's own header says
+it cannot afford, because it is the one that teaches people to route around the guard.
+
+- `git commit -m "fixes the crash; npm publish now works"` — a `;` inside a commit message.
+- `gh issue comment -b "workaround: (pnpm publish)"` — a `(` inside a quoted argument.
+- `git commit -m "line one` / `npm publish later"` — a release verb starting the second line
+  of a message.
+- `echo "then run gh release create v9.9.9 to ship"` — prose naming a release command. The
+  `gh|glab release create` branch was matched with **no anchor at all**, the same omission
+  `changeset publish` shipped with three rounds earlier.
+- `git tag v1.0.0 -m "supersedes the old git tag v9.9.9 line"` — refused v9.9.9, a version
+  nobody is releasing and no note can ever satisfy.
+- `npm publish && cd <other-repo>` — judged against the repository the command leaves for
+  *afterwards*, naming a project with nothing to do with the release.
+- `git -C <clean> commit -m "explain how git commit hooks work"` — the `-C` that decides whose
+  index is read was taken from the message, so an unrelated commit was refused for a bump
+  staged in a repository the command never touches. The byte-identical message without those
+  two words was allowed.
+- `npm publish` in a package at the legal semver `1.0.0+build.7`, whose changelog said exactly
+  that — the `+` was read as a regex quantifier and the refusal claimed the file "never
+  mentions 1.0.0+build.7". Being accused of not having written the note you are looking at is
+  the worst shape a false denial takes.
+
+*Releases that went through unchecked, now refused.* These are the quieter half — nobody
+reports a guard that fails to fire.
+
+- `git tag v9.9.9 -m "replaces git tag v1.0.0"` read v1.0.0, found its note, and cut an
+  unnoted release.
+- `git commit -m "see git -C /nonexistent commit"` made the directory unresolvable, which
+  exits the branch — so a sentence switched the version-bump check off and a real unnoted
+  bump walked through.
+- `pnpm --filter @acme/a publish;pnpm publish` handed the member's package to the root's
+  publish, found the member's note, and allowed the root's unnoted release; so did
+  `npm publish;pnpm --filter @acme/a build` and `npm publish;npm --prefix packages/a run
+  build`, where a bare publish took a later build step's package selector.
+- `npm "publish"` is newly gated. Quoting removes a character's power to act as structure; it
+  does not turn a command into a comment.
+
+**Impact.** **Additive, no migration**, and nobody has to do anything. The gate still ships
+**off**, the installer is unchanged, and an armed install simply stops refusing work it should
+never have refused. Six things are worth knowing before you rely on it.
+
+- *Landing this does not update an installed copy.* Nothing here reaches a machine on its own.
+  Re-run the installer from a checkout of this repository: `node
+  adapters/claude-code/install-release-notes-gate.mjs --mode observe` to watch it,
+  `--mode block` to arm it, `--remove` to take it out. If you wired this gate into your Claude
+  Code settings **by hand** before 0.16.0, delete that entry yourself first — the installer
+  refuses to overwrite a hook wearing its name that it did not write, and exits 1 rather than
+  clobbering your version. And if you repoint an existing hand-wired entry at the repository
+  copy, carry the `AGENT_SKILLS_RELEASE_NOTES_GATE=block|observe` assignment with it: without
+  it the hook is **silently inert**, armed-looking and doing nothing.
+- *What is given up, on purpose, and by how much.* A release that reaches the shell as a
+  **string** is under-blocked in four shapes: handed to another shell (`sh -c "build; npm
+  publish"`, `bash -lc`, `ssh host`); a command substitution inside double quotes
+  (`echo "$(npm publish)"`, `OUT="$(npm publish --tag next)"`); backticks; and any command
+  carrying an **unbalanced** quote, such as a heredoc body containing `it's`, which disarms
+  every detector for the rest of that command. An earlier draft of these notes said almost all
+  of that was already unblocked in 0.16.0 and only `sh -c "build; npm publish --tag next"` was
+  newly lost. **That was wrong, and the measurement is the correction.** Genuinely unblocked
+  already: backticks, and the `sh -c` forms carrying no separator inside the string. Newly
+  unblocked: that `sh -c` form *and the whole command-substitution row* — `echo "$(npm
+  publish)"`, `OUT="$(npm publish --tag next)"`, `printf "%s" "$(git tag v1.4.0)"`,
+  `echo "$(gh release create v1.4.0)"` — *and the whole unbalanced-quote row*, `echo it's
+  fine; npm publish` and `echo don't; git tag v1.4.0`. Every one of those is the same reading
+  that refused the commit messages above, so they cannot be separated; the header decides
+  which way it goes.
+- *One shape is blocked less than 0.16.0 blocked it, and it is not a false-denial fix.* A
+  compound command is judged on its **last** gated invocation. When that last invocation is
+  `gh|glab release create` with **no arguments**, it names no version, so the branch reads
+  nothing and allows: `gh release create v9.9.9 && gh release create` was refused by 0.16.0
+  and is allowed here, in all eight separator forms. 0.16.0 refused it by scavenging the
+  version out of the *earlier* invocation — the same greedy read that produced the eight
+  defects above, so it could not be kept for this shape and dropped for those. `git tag`,
+  `npm|pnpm|yarn publish` and `git commit` are unaffected, each naming what it acts on without
+  an argument. Unchanged from 0.16.0 and stated so it is not mistaken for new: a command that
+  performs **two** real releases is checked for one (`gh release create v9.9.9 && gh release
+  create v1.3.0` allows on both builds), and `git tag ` written with a trailing space allows on
+  both. All of it is pinned by a property test rather than left to be rediscovered.
+- *It costs more than 0.16.0 on large quoted input.* This hook runs before **every** Bash tool
+  call. The quoting pass is linear in the size of the command — it was quadratic when first
+  written, and superlinear after the first repair — but linear is a shape, not a price.
+  Median of five, end to end, the two builds interleaved on one machine (macOS 14.5 arm64,
+  one-true-awk 20200816, bash 3.2), at a 512KB command: no quotes at all 265ms against 189ms
+  (1.3x), many short quoted spans 425ms against 235ms (1.8x), a `psql -c "INSERT …"` body
+  404ms against 217ms (1.9x), a `curl -d '{JSON}'` body 755ms against 204ms (3.7x), and the
+  same body with its inner quotes backslash-escaped 927ms against 210ms (4.4x). The driver is
+  how many `'`, `"` and `\` marks a command carries, not its byte count, so the dearest shapes
+  are the ones the pass exists for. An ordinary commit message measured 44ms against 30ms.
+  Past roughly 1.25MB of quote-dense input this awk falls off a cliff — 1.25MB 1063ms, 1.5MB
+  2724ms, where 0.16.0 stays linear at 703ms — which arrives with this work rather than being
+  inherited. A 1.5MB Bash command is not a shape this hook meets, so it is recorded rather
+  than chased. Measure it on the machine it runs on rather than trusting these numbers.
+- *The heredoc trade runs both ways*, and both halves are now written in the same paragraph in
+  the gate and in the adapter README. A heredoc body line still reads as a command, so a body
+  beginning with a release verb **over**-blocks; a body carrying an ordinary apostrophe
+  **under**-blocks the rest of the command. Which one a given heredoc gets depends on its
+  punctuation. Neither is narrowed here.
+- *Two smaller behaviour changes.* The `gh|glab release create` fragment is now cut at the next
+  shell separator, where 0.16.0 deliberately read to end of line so a `--repo` hiding behind a
+  quoted `--notes "a && b"` would not be lost — that reason is gone, because the quoting pass
+  blanks that `&&` before any of this runs. And `gh release create --draft v1.4.0` is
+  unblocked while `gh release create v1.4.0 --draft` is gated, on both builds; the adapter
+  README used to name that less precisely than it behaves.
+
 ## 0.16.0
 
 **What.** A twenty-fourth skill, `release-notes`, and the mechanical half that keeps it from
