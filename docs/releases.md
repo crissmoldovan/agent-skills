@@ -39,19 +39,6 @@ in, and hands over to `land-complex-change` once that tree is right. Both are us
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-**decision-journal now installs on Node.js 22.** `scripts/install-cli.mjs` demanded
-Node 24 and, below it, wrote no command and exited 1 — so on a machine whose `node` is
-v22.x the skill's `agent-journal` CLI could not be installed at all, and the
-authoring-floor hook that calls it could not be armed. The number had been copied from
-the package's `engines`, which is a floor on developing the TypeScript sources, not on
-running the built program; nothing had ever run the built program below 24. It runs:
-v22.0.0, v22.7.0, v22.14.0, v22.18.0, v22.22.1 and v22.22.3 each drove the shipped
-bundle through record, observe, show, coverage, claims, digest, trace, decay, floor,
-invalidate, tombstone and compact, redaction holding, and the emitted bundle is
-byte-identical at esbuild target `node22` and `node24`. Users on Node 24 see no change.
-The repository's own `npm run verify` still requires Node.js 24 — `workspace-governance`
-has a process-group test that fails on 22 — so contributors are unaffected either way.
-
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
