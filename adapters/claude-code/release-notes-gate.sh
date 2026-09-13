@@ -174,6 +174,22 @@ norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
 # piece size is a balance rather than a floor; between 1KB and 16KB it makes no measurable
 # difference, and 4KB is the middle of that range.
 #
+# LINEAR IS A SHAPE, NOT A PRICE, and both halves of that belong here because an earlier
+# version of this paragraph carried the comparison and the rewrite dropped it. Measured end to
+# end and interleaved against the 0.16.0 build that has no such pass, on a second machine: a
+# command with no verb is unchanged (40ms against 41ms) and an ordinary commit message costs
+# 61ms against 48ms, while every quote-dense shape stays roughly twice as dear — 128KB 138ms
+# against 82ms, 512KB 478ms against 255ms, and at 512KB the real shapes this pass exists for,
+# `curl -d "{JSON}"` 616ms against 260ms and `psql -c "INSERT …"` 555ms against 232ms. A
+# constant factor of two is a different thing from the fourteenfold above, and it is what
+# reading quoted text as data costs at all; it is not going to zero.
+#
+# THE RANGE THE CLAIM WAS CHECKED OVER is 128KB to 1MB, and it does not extend indefinitely:
+# past roughly 1.25MB of quote-dense input this awk falls off a cliff that is nothing to do
+# with the algorithm — the pass alone goes 700ms at 1.25MB to 3.1s at 1.5MB, at every piece
+# size between 4KB and 64KB, and the previous pass falls off the same cliff in the same place.
+# A 1.5MB Bash command is not a shape this hook meets, so it is recorded rather than chased.
+#
 # Equivalence was checked rather than assumed: byte-identical output to the previous pass on
 # all 5040 inputs of a fuzz corpus over exactly the alphabet that can change parsing state,
 # including 360 inputs long enough to cross a piece boundary — and identical again with the

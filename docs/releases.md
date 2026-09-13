@@ -49,7 +49,7 @@ as shell structure, and works out the run directory from the `cd` that runs *bef
 release verb rather than from the last one on the line. Every detector over the normalised
 command is anchored to a command position, every extractor reads the invocation that matched
 rather than the whole line, the file measures offsets in one unit, and the quoting pass costs
-what the pass it replaced cost. `test/release-notes-gate.test.mjs` grows from 52 tests to 70.
+what the pass it replaced cost. `test/release-notes-gate.test.mjs` grows from 52 tests to 76.
 
 **Why.** The known false refusal recorded in the 0.16.0 notes was the whole family, not one
 case. `START`/`END` matched CHARACTERS, so any `;`, `|`, `&` or `(` in front of a release verb
@@ -66,8 +66,10 @@ naming a repository with nothing to do with the release — and a `cd` written i
 message hijacked the run directory, where an unresolvable one (`git commit -m "wip; cd
 /nonexistent"`) switched the bump check off for that commit entirely.
 
-Fixing the detectors did not fix the rest of the file, and four more defects of the same
-family were found afterwards — two of them live in 0.16.0 as shipped:
+Fixing the detectors did not fix the rest of the file, and five more defects were found
+afterwards over three further rounds — three of them live in 0.16.0 as shipped. Four are the
+same family; the last is not, and is listed here because it is a false denial of exactly the
+kind this work exists to remove:
 
 - *`gh|glab release create` was matched with no anchor at all*, while every other branch
   anchored — the same omission `changeset publish` shipped with, three rounds earlier. It
@@ -80,18 +82,44 @@ family were found afterwards — two of them live in 0.16.0 as shipped:
   -m "supersedes the old git tag v9.9.9 line"` refused v9.9.9 — a version nobody is releasing
   and no note can ever satisfy — and `git tag v9.9.9 -m "replaces git tag v1.0.0"` read
   v1.0.0, found its note, and **cut an unnoted release**. Both are live in 0.16.0. The `-C`
-  that decides which repository is judged was read the same way and is now bounded too.
+  that decides which repository is judged was read the same way. An earlier revision of this
+  note said that one was "bounded too"; it was bounded on the tag path only, and the commit
+  path — the `-C` that picks whose index a version-bump commit is judged against — stayed a
+  greedy whole-line read for one more round. It failed in all three directions, all live in
+  0.16.0: `git -C <clean> commit -m "explain how git commit hooks work"` walked past the real
+  `-C` and refused the commit against a bump staged in a repository the command never touches,
+  while the byte-identical message without those two words was allowed; `git commit -m "see
+  git -C <other> commit for how"` judged a clean checkout against `<other>`'s staged bump; and
+  prose naming a `-C` that does not exist made the directory unresolvable, which exits the
+  branch — so **a real unnoted bump walked through**. Both paths read their `-C` out of the
+  invocation that matched now.
 - *A byte offset was applied as a character substring.* The cut that stops the run-directory
   scan at the release verb took its offset from `grep -Eob` (bytes) and applied it with
   `${seg:0:$off}` (characters, under a multibyte `LC_CTYPE`), so past roughly 18 CJK
   characters, 12 emoji or 14 em dashes in front of the verb the fix above silently reverted —
   and reverted **only under a UTF-8 locale**, which is the locale most interactive shells
   run. The file now pins `LC_ALL=C`, so both are measured in bytes by construction.
-- *The new quoting pass was quadratic.* Rebuilding the command one character at a time cost
-  1025ms on a 128KB command against 58ms for 0.16.0, on a hook that runs before **every**
-  Bash tool call. It now runs over runs rather than characters: 128KB back to 70ms, 2000
-  lines to 70ms, and identical output to the character loop on all 4054 inputs of a fuzz
-  corpus over the alphabet that can change parsing state.
+- *The new quoting pass was quadratic, and the first repair did not finish the job.*
+  Rebuilding the command one character at a time cost 1025ms on a 128KB command against 58ms
+  for 0.16.0, on a hook that runs before **every** Bash tool call. Running over runs rather
+  than characters fixed that for inert, metacharacter and many-line input — the three shapes
+  the scaling test drove — and left the pass **still superlinear on the shape it exists for**:
+  many short quoted spans cost 128KB 97ms, 256KB 256ms, 512KB 1398ms, four times the input for
+  fourteen times the time, which at 512KB made `curl -d "{JSON}"` 5747ms against 204ms for
+  0.16.0. Neither cause was in the algorithm. Writing each run with `print` under `ORS=""`
+  instead of `printf`, and walking the record in fixed 4KB pieces with the parser's two
+  carried states crossing the seams, give 128KB 60ms, 256KB 119ms, 512KB 231ms, 1MB 468ms — a
+  doubling per doubling — with byte-identical output to the previous pass on all 5040 inputs of
+  a fuzz corpus over the alphabet that can change parsing state, including inputs long enough
+  to cross a piece boundary. What remains, stated rather than rounded away: a command with no
+  release verb costs what it did in 0.16.0, and quote-dense commands stay roughly **twice** as
+  dear (512KB 478ms against 255ms, end to end). That factor is what reading quoted text as data
+  costs at all, and it does not go away.
+- *A version carrying any regex metacharacter but `.` was matched as a pattern.* The note
+  lookup escaped `.` and stopped, so a package at the legal semver `1.0.0+build.7` was refused
+  with "never mentions 1.0.0+build.7" while the changelog said exactly that — being accused of
+  not having written the note you are looking at is the worst shape a false denial takes. Live
+  in 0.16.0. The whole metacharacter set is escaped now.
 
 **Impact.** **Additive, no migration**; nobody has to do anything. The gate ships off, the
 installer is unchanged, and an armed install simply stops refusing work it should never have
