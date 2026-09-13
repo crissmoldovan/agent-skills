@@ -70,9 +70,9 @@ contracts, the failure modes at each boundary, and the sequences in text form.
 - A ledger exists partially — capture but no analysis, entries but no per-user
   watermark — and you need to know which stage to finish next.
 
-Do not use it to write the notes for one version; that is `release-notes` — a
-skill outside this pack, installed alongside it — which makes the semver call,
-writes the changelog entry and cuts the release itself. This skill has none of
+Do not use it to write the notes for one version; that is `release-notes`, in
+this pack, which makes the semver call, writes the changelog entry and cuts the
+release itself. This skill has none of
 that machinery. Do not use it to build a curated marketing changelog — a ledger
 is derived from merged work, and a page nobody derives is a CMS, not this. Do not use it to notify users of incidents or outages; those need
 a status surface with different latency guarantees.

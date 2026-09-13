@@ -7,10 +7,11 @@ Thanks for helping build a safe, portable public catalog.
 This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `request-blocks-review`, `secure-credential-setup`, `derive-codebase-context`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
-`describe-changes`, `investigate-codebase`, `blast-area`, `visualise-blast-area`,
-`land-complex-change`, `resolve-problem-report`, `new-ux-discovery`,
-`decision-journal`, `delphi-ground`, `delphi-imagine`, `workspace-governance`,
-`report-progress`, and `work-in-external-repo` — twenty-three in all. Routing
+`describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
+`visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
+`new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
+`workspace-governance`, `report-progress`, and `work-in-external-repo` —
+twenty-four in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -21,7 +22,9 @@ ladder; `resolve-problem-report` owns the arc from a report to a resolution;
 `new-ux-discovery` owns gated UX opportunity discovery; `decision-journal` owns the
 record of why a decision was made; `delphi-ground` owns the verified-facts briefing
 and `delphi-imagine` the perspective review built on one; `workspace-governance`
-owns declared-catalog placement and inherited policy; `report-progress` owns the
+owns declared-catalog placement and inherited policy; `release-notes` owns the note for one version — the semver call, the three-part
+note, and its placement in every destination a project records releases in;
+`report-progress` owns the
 shape of what a reader is told while long work runs; and `work-in-external-repo`
 owns which repository a change belongs in and the tree it happens in. A new skill
 must state which of these it does not duplicate.
@@ -52,7 +55,8 @@ Keep local links relative to the skill directory. Do not link to files outside t
 ## Adapters and hooks
 
 `adapters/` holds harness-specific code that runs outside the conversation — today
-the Claude Code journal hook and the `report-progress` gate. None of it is a skill:
+the Claude Code journal hook, the `report-progress` gate, and the `release-notes`
+gate. None of it is a skill:
 it is not discovered, `npx skills add` does not install it, and
 `scripts/verify-skills.mjs` does not validate it. It carries its own rules instead.
 
@@ -78,7 +82,7 @@ it is not discovered, `npx skills add` does not install it, and
   to say so — a guard that is over-trusted is worse than no guard.
 
 Hooks are tested from the root suite (`test/report-progress-gate.test.mjs`,
-`test/freshness-hook-install.test.mjs`) or from the package they feed
+`test/release-notes-gate.test.mjs`, `test/freshness-hook-install.test.mjs`) or from the package they feed
 (`packages/agent-journal/test/adapter-claude-code.test.ts`). `npm run verify` runs
 both.
 

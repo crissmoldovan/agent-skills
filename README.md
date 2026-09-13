@@ -1,10 +1,10 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-three public, portable Agent Skills for agent operations, reviews, releases,
-  codebase context, secure setup, change delivery, repository governance, progress
-  reporting, work in other repositories, and evidence-backed investigation of what a
-  change would touch.
+  Twenty-four public, portable Agent Skills for agent operations, reviews, releases
+  and the notes that carry them, codebase context, secure setup, change delivery,
+  repository governance, progress reporting, work in other repositories, and
+  evidence-backed investigation of what a change would touch.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -26,6 +26,7 @@ harnesses, and tested as part of one release catalogue.
 | `release-ledger` | Build a what's-new feature into a product: capture merged work, categorise it nightly, and show each signed-in user only what shipped since they last looked, plus a digest and hand-written announcements. Symptoms: what's-new popup, in-app changelog for users, since-you-were-away digest, tell logged-in users what changed, product updates feed. This writes tables, jobs and UI into an app; it does not write the notes for one version — that is release-notes. | [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md) |
 | `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) |
 | `describe-changes` | Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) |
+| `release-notes` | Write the note for one version and put it everywhere the project records releases — what shipped, why it shipped, and what it means for a reader deciding whether to adopt it. Symptoms: ship/cut a release, publish to npm, bump the version, changeset, release notes, CHANGELOG entry, tag a version, patch/minor/major release, create a GitHub/GitLab Release. It writes and places the note and makes the semver call; for describing a change that already landed use describe-changes, and for a what's-new feature inside a product use release-ledger. | [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs) |
 | `investigate-codebase` | Answer a question about a codebase with evidence a reader can re-run: path and line, command output, and searched negatives reported as searched rather than as absence. Symptoms: how does X actually work, does anything still call this, is this dead code, where does this value come from, two sources disagree (a doc against the code, a registry against the runtime), I need to be sure before I delete it. For a failing test or a live bug use systematic debugging; this answers questions rather than repairing behaviour. | [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md) |
 | `blast-area` | Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) |
 | `visualise-blast-area` | Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into. | [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md) |
@@ -42,7 +43,9 @@ harnesses, and tested as part of one release catalogue.
 The pack contains distinct procedures, not one monolithic workflow. Compose only
 what the task needs. `model-routing` and `agent-lifecycle` cover economical,
 observable delegation; `request-blocks-review` uses `blocks`; `release-ledger`
-can compose with `github-webhooks` for capture and `describe-changes` for entries;
+can compose with `github-webhooks` for capture and `describe-changes` for entries,
+and `release-notes` writes and places the note for one version — the artefact
+neither of those produces;
 a target-specific private publisher/updater may fully override the generic public
 workflow.
 
@@ -98,8 +101,8 @@ npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
 # Verified publication and all-plane updates
 npx skills add crissmoldovan/agent-skills --skill publish-agent-skill update-agent-skills
 
-# Release-ledger capture and change descriptions
-npx skills add crissmoldovan/agent-skills --skill release-ledger github-webhooks describe-changes
+# Release-ledger capture, change descriptions, and the note for one version
+npx skills add crissmoldovan/agent-skills --skill release-ledger github-webhooks describe-changes release-notes
 
 # Evidence-backed code answers and change mapping
 npx skills add crissmoldovan/agent-skills --skill investigate-codebase blast-area visualise-blast-area
@@ -132,7 +135,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-three public skills from crissmoldovan/agent-skills.
+Install or update the twenty-four public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -242,6 +245,18 @@ entry from its diff in short, medium, and detailed registers.
 ```
 
 ```text
+Use release-notes before you publish this. Run the impact analysis rather than guessing at
+it, settle the semver bump against what that analysis says instead of against the plan, and
+write what / why / impact — then find every place this project records releases and put the
+note in all of them before the tag goes up.
+```
+
+`release-notes` also has a mechanical half, and it is not that prompt: an optional Claude
+Code `PreToolUse` hook that refuses a release whose version no release-note file mentions.
+It is off until a human installs it, and no agent may install it on your behalf — see
+[Optional hooks](#optional-hooks-adapters).
+
+```text
 Use investigate-codebase for this question. Score it before spending anything, announce
 the band and what it buys, run searches with controls so an empty result means something,
 and tell me plainly what was not searched.
@@ -303,10 +318,10 @@ the skill does not install the CLI; the v0.1 candidate is unpublished.
 
 ## Optional hooks (adapters)
 
-Two skills have a **mechanical half**: a hook that runs outside the conversation, where no
-model sits in the enforcement path. Both are off until a human installs one, both are
-removed by the same installer that wrote them, and no skill and no agent may install either
-on a user's behalf. They live in [`adapters/`](adapters/), beside the payload captures they
+Three skills have a **mechanical half**: a hook that runs outside the conversation, where no
+model sits in the enforcement path. Each is off until a human installs it, each is
+removed by the same installer that wrote it, and no skill and no agent may install any of
+them on a user's behalf. They live in [`adapters/`](adapters/), beside the payload captures they
 were built against — [`adapters/NOTES.md`](adapters/NOTES.md) for the shapes Claude Code
 sends, [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md) for what a hook can
 print back and have the harness act on. Where a document and those notes disagree, the notes
@@ -350,6 +365,47 @@ Three limits, stated here because a guard that is misread is worse than no guard
   the marker behind, so the next turn in that session pays one block for a dispatch it did
   not make. One block, then cleared.
 
+### The `release-notes` gate — Claude Code `PreToolUse`
+
+It reads Bash commands and acts on four shapes: `npm|pnpm|yarn publish` and `changeset
+publish`, `gh|glab release create <tag>`, a release-looking `git tag`, and a `git commit`
+that stages a `package.json` version bump. For each it resolves the package and the version
+being released, then looks for that version in the project's release-note files. In `block`
+mode a version nothing mentions gets a permission denial; in `observe` mode — the default,
+and the one to live with first — it writes what it would have refused to stderr and stops
+nothing.
+
+Like the gate above it ships with **this repository** rather than with the installed skill,
+so arming it means running the installer from a checkout of this repo.
+
+```bash
+# say what it would have refused, on stderr; never stops a release. This is the default.
+node adapters/claude-code/install-release-notes-gate.mjs --mode observe
+
+# refuse the release instead
+node adapters/claude-code/install-release-notes-gate.mjs --mode block
+
+# take it back out; nothing is left behind
+node adapters/claude-code/install-release-notes-gate.mjs --remove
+```
+
+Three limits, stated here because a guard that is misread is worse than no guard:
+
+- **It checks that a note is present, never what it says.** It looks for the version string
+  in a file whose job is recording releases — `CHANGELOG.md` and its usual spellings,
+  `docs/releases.md`, files under `docs/releases/`, a pending `.changeset/` entry. A heading
+  with a git-message body under it satisfies the gate completely and fails the skill.
+- **It allows everything it cannot resolve confidently,** including a project that keeps no
+  release-note file at all. In such a repository an armed gate never fires, and that is the
+  design rather than a failed installation — so do not read silence as proof it is working.
+  Confirm with a run in `observe` mode against a release you know has no note.
+- **Its decision channel is documented rather than observed.** The `permissionDecision`
+  shape block mode returns is in the harness schema captured in
+  [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), whose probe deliberately
+  did not exercise the decision channel; nor has this pack observed whether a `PreToolUse`
+  hook's stderr reaches you at exit 0. Both are marked NOT OBSERVED there, and this gate
+  does not upgrade them by being installed.
+
 ### The `update-agent-skills` freshness hook — Claude Code `SessionStart`
 
 This one is carried by the skill itself, so an installed copy has it:
@@ -381,6 +437,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
+- [`adapters/claude-code/release-notes-gate.sh`](adapters/claude-code/release-notes-gate.sh) — the release-note presence gate, and the note sources it recognises.
 - [`adapters/`](adapters/) — the optional hooks above, and the observed hook-payload and hook-output records they were built against.
 
 The [`routed-delegation` Hermes bundle](hermes-bundles/routed-delegation.yaml) is
