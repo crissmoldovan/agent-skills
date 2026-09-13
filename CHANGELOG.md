@@ -5,6 +5,87 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.16.0
+
+**What.** A twenty-fourth skill, `release-notes`, and the mechanical half that keeps it from
+being only instructions. `skills/release-notes/SKILL.md` writes the note for one version — what
+shipped, why it shipped, and an impact analysis a reader can act on — makes the semver call, and
+places the note in every destination the project records releases in.
+`adapters/claude-code/release-notes-gate.sh` is an optional Claude Code `PreToolUse` hook on
+`Bash` that refuses a release whose version no release-note file mentions, across four shapes:
+`npm|pnpm|yarn publish` and `changeset publish`, `gh|glab release create <tag>`, a release-looking
+`git tag`, and a `git commit` that stages a `package.json` version bump.
+`adapters/claude-code/install-release-notes-gate.mjs` installs and removes it, and
+`test/release-notes-gate.test.mjs` drives the real script with real hook payloads in 52 tests.
+`release-ledger` and `describe-changes` each change one sentence. Minor, by this repository's
+rule that a new skill is a minor: twenty-three skills become twenty-four.
+
+**Why.** Two skills already in this pack named `release-notes` in their own text as the owner of
+the job neither of them does — `release-ledger` ("it does not write the notes for one version —
+that is release-notes") and `describe-changes` ("it does not cut a release … for that use
+release-notes"). Both described it as *a skill outside this pack, installed alongside it*, which
+was true and is no longer worth being true: it lived in one directory on one machine and was in
+no git repository at all. Those two sentences now point inside the pack, which is the only reason
+this is a catalogue change rather than a file move.
+
+The gate exists because the skill is instructions, and instructions are skippable in exactly the
+moment this one matters: the note is the last thing between here and `publish`, and nobody is
+reading. It carries a scar. `git -C <dir> tag v1.2.3` contains no `git tag` substring, so the
+detector missed it entirely and every tag cut against another checkout went completely ungated —
+which is how a version once got tagged with no note at all.
+
+**Impact.** **Additive, no migration.** No export, flag, command or return shape changed, no
+runtime dependency was added, and nothing was renamed or removed. Existing installs keep working
+unchanged whether or not anyone touches the gate.
+
+- *Who must do something:* **nobody, unless they want the gate.** This release does **not** run
+  the installer, and nothing in the skill may run it on a user's behalf. It ships off. A user who
+  wants it runs, from a checkout of this repository, `node
+  adapters/claude-code/install-release-notes-gate.mjs --mode observe` to watch it for a day,
+  `--mode block` to arm it, and `--remove` to take it back out.
+- *Off until armed:* the hook reads `AGENT_SKILLS_RELEASE_NOTES_GATE`, which takes `observe` or
+  `block`. **Unset means off**, and unset is what a fresh checkout has. This is the pack's rule for
+  any hook that can end a turn: it ships off and a user arms it.
+- *If you already hand-wired this gate into your Claude Code settings, delete that entry by hand
+  first.* The installer refuses to overwrite a hook wearing its name that it did not write, and
+  exits 1 rather than clobbering your version.
+- *And if you repoint an existing hand-wired entry at the repository copy, carry the env
+  assignment with it* — without it the hook is silently inert, armed-looking and doing nothing.
+  The installer writes the assignment into the command itself for exactly this reason: a desktop
+  launch inherits no shell profile, so an exported variable from a terminal never reaches it.
+- *Start in `observe`:* the deny path is verified against the hook schema and against fixtures,
+  but it has **not** been observed ending a real turn in a live harness. `observe` writes what it
+  would have refused to stderr and stops nothing, which is the honest way to find out what it
+  would do to your own release commands before it can do it.
+- *What it can and cannot check:* it checks that the version string is **present** in a file whose
+  job is recording releases — `CHANGELOG.md` and its usual spellings, `docs/releases.md`, files
+  under `docs/releases/`, a pending `.changeset/` entry. It cannot check whether what is written
+  there says why the release happened or what it breaks, so a heading with a git-message body
+  passes the gate and fails the skill. **It is a floor; the skill's contract is the grade.**
+- *It is fail-open by design,* and shapes it does not recognise proceed: `sudo npm publish`, `time
+  npm publish`, a leading env assignment such as `NPM_CONFIG_TAG=next npm publish`, `git tag -f`,
+  and `gh release create --draft` all pass an armed gate today. A project with no release-note file
+  at all is allowed silently, so **an armed gate that never fires is the expected outcome there**
+  rather than proof the installation worked.
+- *One known false refusal:* a release verb inside a quoted string is read as a command when a
+  `;`, `|`, `&` or `(` precedes it, so `git commit -m "fixes the crash; npm publish now works"` is
+  refused in `block` mode. Masking quoted regions is a redesign of the matching substrate and is
+  deliberately not in this release. It is the strongest reason to live in `observe` first.
+- *Blast radius:* the two sentences in `release-ledger` and `describe-changes` that pointed
+  outside the pack, and nothing else. Twenty-one other skills are untouched, and neither of those
+  two changed its frontmatter `description`, so nothing an agent selects on moved.
+- *Contributors:* `npm run verify` at the repository root still requires Node.js 24 or newer. Five
+  defects in the gate were found and fixed before this shipped — a changeset publish behind a
+  runner prefix going ungated, `gh release create --repo owner/name` resolved against the wrong
+  repository, a version bump invisible in a one-line `package.json`, a build step's `--filter`
+  read as the publish's package, and a trailing `;` printed in a refusal message — each with a
+  test that reddens when only that fix is reverted. A sixth, in the test harness rather than the
+  gate, was found while cutting this release: the unarmed-gate case raced its own stdin write and
+  reddened roughly one full-suite run in six, because an unarmed gate exits without draining
+  stdin and the resulting EPIPE had no handler. The gate was correct every time it fired.
+- *Distribution:* the Skills CLI resolves this repository's default branch, so the update reaches
+  users through `npx skills update --global --yes` with no dist-tag to manage.
+
 ## 0.15.0
 
 **What.** The `decision-journal` CLI installs on Node.js 22. `MIN_NODE_MAJOR` in
