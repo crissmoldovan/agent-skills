@@ -343,12 +343,32 @@ if printf '%s' "$norm" | grep -Eq "${START}(npm|pnpm|yarn)${PKG_OPTS} +publish${
   # `-C`/`--dir` it names is relative to THAT. Resolve in that order; an unresolvable `cd` is
   # unknown ground, so allow.
   rdir="$(run_dir_for "$norm")" || exit 0
+  # WHICH invocation's flags? Only the publishing one's.
+  #
+  # `--filter` and `-C/--dir/--cwd/--prefix` were read from the WHOLE line with `head -1`,
+  # which is precisely the pairing bug branches 2 and 3 already fix for themselves — and the
+  # comment on repo_dir_for already warns about ("callers pass a FRAGMENT holding a single
+  # invocation, not the whole line"). Branch 1 was the one that never got the fix. So
+  # `pnpm --filter @acme/a build && pnpm publish` handed the BUILD step's package to the
+  # publish: the gate read `@acme/a`'s version, checked `@acme/a`'s changelog, and REFUSED a
+  # root release whose note was in fact written — a false denial, on the commonest monorepo
+  # release line there is, in the shape (`--filter <pkg> build && publish`) that npm, pnpm and
+  # yarn all encourage. `pnpm -C packages/a build && pnpm publish` and
+  # `npm --prefix packages/a run build && npm publish` did the same thing.
+  #
+  # So cut the invocation that OWNS the last `publish`: its pre-verb options sit inside the
+  # match (PKG_OPTS), its post-verb options run to the next shell separator, and nothing
+  # earlier in the line can contribute either. An extraction that finds no flag leaves pdir at
+  # the run directory — where the publish actually happens — which is the right default anyway.
+  pseg="$(printf '%s' "$norm" \
+          | grep -Eo "${START}${RUNNER}((npm|pnpm|yarn)${PKG_OPTS}|changeset) +publish${END}[^;&|)]*" \
+          | tail -1)"
   # resolve the package dir: --filter <name>, else -C/--dir <dir>, else the run dir
   pdir=""
-  fname="$(printf '%s' "$norm" | grep -Eo -- '--filter[= ]+@?[a-zA-Z0-9@/._-]+' | head -1 | sed -E 's/--filter[= ]+//')"
+  fname="$(printf '%s' "$pseg" | grep -Eo -- '--filter[= ]+@?[a-zA-Z0-9@/._-]+' | head -1 | sed -E 's/--filter[= ]+//')"
   if [ -n "$fname" ]; then pdir="$(pkgdir_for_name "$fname" "$rdir" || true)"; fi
   if [ -z "$pdir" ]; then
-    cdir="$(printf '%s' "$norm" | grep -Eo -- '(-C|--dir|--cwd|--prefix)[= ]+[^ ]+' | head -1 | sed -E 's/^(-C|--dir|--cwd|--prefix)[= ]+//')"
+    cdir="$(printf '%s' "$pseg" | grep -Eo -- '(-C|--dir|--cwd|--prefix)[= ]+[^ ]+' | head -1 | sed -E 's/^(-C|--dir|--cwd|--prefix)[= ]+//')"
     if [ -n "$cdir" ]; then
       pdir="$(resolve_dir "$cdir" "$rdir")" || exit 0
     else
@@ -376,7 +396,10 @@ if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
   # stray `--repo` only makes this branch fail OPEN, whereas truncating could drop a real `--repo`
   # that sits behind a quoted `--notes "a && b"` and turn a foreign release into a local refusal.
   seg="$(printf '%s' "$norm" | sed -E 's/.*(gh|glab) +release +create +//')"
-  tag="$(printf '%s' "$seg" | awk '{print $1}' | tr -d '"'"'"'')"
+  # Trailing separators are not part of a tag name here either — branch 3 already trims them,
+  # and the normalisation ends every line with `;`, so a bare `gh release create v1.4.0` named
+  # the tag `v1.4.0;` in the refusal it printed.
+  tag="$(printf '%s' "$seg" | awk '{print $1}' | tr -d '"'"'"'' | sed -E 's/[;&|)].*$//')"
   ver="$(printf '%s' "$tag" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?' | tail -1)"
   if [ -n "$ver" ]; then
     # The run directory is needed BEFORE the foreign check, because "foreign" means "not the

@@ -365,7 +365,8 @@ in `settings.json` disarms the gate without uninstalling it.
 kept on one line is gated like any other. Each verb has to sit where a command starts, so a
 sentence that merely names one is not a release. For each it works out **which directory the
 command will actually run in** — the
-last top-level `cd`, a `-C`, a `--filter`/`--prefix` — rather than assuming the session's
+last top-level `cd`, a `-C`, a `--filter`/`--prefix` carried by the release invocation itself
+rather than by some earlier step in the same line — rather than assuming the session's
 cwd, because a release cut against another checkout judged by this checkout's notes is a
 refusal the released repository can never satisfy. `git -C <dir> tag` in particular contains
 no `git tag` substring, and before that was handled the branch never ran at all: a
@@ -387,7 +388,8 @@ prints says so.
 at all* — and the third allows. A project that keeps no release notes in the tree is using a
 different convention, not committing a violation. Every unresolvable path — no `jq`, an
 unreadable `cd` target, a `--repo` naming a repository that is not the origin of the one the
-command runs in, a package.json it cannot parse — allows as well. The consequence a user has to hear: **an armed gate that never fires
+command runs in, a package.json it cannot parse — allows as well. The consequence a user has
+to hear: **an armed gate that never fires
 is the expected outcome in such a repository**, so silence is not proof it is working. Run
 `--mode observe` against a release you know has no note before trusting it.
 

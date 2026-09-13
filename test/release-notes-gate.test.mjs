@@ -665,3 +665,76 @@ test('an edit to a one-line package.json that does not touch the version is left
   git(dir, 'add', 'package.json');
   assertAllowed(await runGate(bashCall('git commit -m "chore: make it private"', dir), {}));
 });
+
+// ---------------------------------------------------------------------------
+// A flag belongs to the invocation that carries it
+//
+// The publish branch read `--filter` / `-C` / `--prefix` from the WHOLE command line with
+// `head -1`, so a BUILD step's package was handed to the publish that followed it:
+// `pnpm --filter @acme/a build && pnpm publish` read @acme/a's version, checked @acme/a's
+// changelog, and REFUSED a root release whose note was in fact written. A false denial, on
+// the commonest monorepo release line there is.
+//
+// This is the same pairing bug branches 2 and 3 already fix for themselves, and that
+// `repo_dir_for`'s own comment warns about — "callers pass a FRAGMENT holding a single
+// invocation, not the whole line". Branch 1 was the one that never got the fix.
+//
+// Both halves are asserted, because the cheap repair — dropping the flag lookup altogether —
+// passes the allow half and goes silently inert for every `pnpm --filter <pkg> publish`
+// there is, which is the invisible fail-open this file trades nothing for.
+// ---------------------------------------------------------------------------
+
+/** A workspace whose ROOT release is noted and whose member's note stops one version short. */
+async function workspace({ memberNoted = ['0.0.0'] } = {}) {
+  const dir = await repository({ name: 'mono', version: '9.9.9', noted: ['9.9.9'] });
+  const member = path.join(dir, 'packages', 'a');
+  await mkdir(member, { recursive: true });
+  await writeFile(path.join(member, 'package.json'), `${JSON.stringify({ name: '@acme/a', version: '0.0.1' }, null, 2)}\n`);
+  const body = memberNoted.map((v) => `## ${v}\n\nwhat / why / impact\n`).join('\n');
+  await writeFile(path.join(member, 'CHANGELOG.md'), `# Releases\n\n${body}`);
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'workspace member');
+  return dir;
+}
+
+const PUBLISH_OWNS_THE_FLAG = [
+  'pnpm --filter @acme/a publish',
+  'pnpm publish --filter @acme/a',
+  'pnpm -C packages/a publish',
+  'npm --prefix packages/a publish',
+  'cd packages/a && npm publish',
+];
+
+test("a build step's --filter is not the publishing invocation's package", async () => {
+  // The ROOT release is noted (9.9.9); the member's changelog deliberately stops at 0.0.0, so
+  // any of these that reaches the member refuses a release whose note is written.
+  const dir = await workspace();
+  for (const command of [
+    'pnpm --filter @acme/a build && pnpm publish',
+    'pnpm -C packages/a build && pnpm publish',
+    'npm --prefix packages/a run build && npm publish',
+    'pnpm run --filter @acme/a lint; pnpm publish',
+  ]) {
+    assertAllowed(await runGate(bashCall(command, dir), {}));
+  }
+});
+
+test('a --filter that really does belong to the publish is still honoured', async () => {
+  const unnoted = await workspace();
+  for (const command of PUBLISH_OWNS_THE_FLAG) {
+    assertRefused(await runGate(bashCall(command, unnoted), {}), '0.0.1');
+  }
+  const noted = await workspace({ memberNoted: ['0.0.1', '0.0.0'] });
+  for (const command of PUBLISH_OWNS_THE_FLAG) {
+    assertAllowed(await runGate(bashCall(command, noted), {}));
+  }
+});
+
+test('a refusal names the tag, not the separator that followed it', async () => {
+  // The normalisation ends every line with `;`, and branch 3 already trims it off a tag name.
+  // The `gh release create` branch did not, so a bare release printed `Creating release v1.4.0;`.
+  const dir = await repository({ noted: ['1.3.0'] });
+  const result = await runGate(bashCall('gh release create v1.4.0', dir), {});
+  assertRefused(result, '1.4.0');
+  assert.doesNotMatch(decision(result).permissionDecisionReason, /v1\.4\.0[;&|)]/);
+});
