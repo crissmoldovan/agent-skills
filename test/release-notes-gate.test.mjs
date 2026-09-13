@@ -242,6 +242,15 @@ test('a per-release file under docs/releases/ is found', async () => {
   await mkdir(path.join(dir, 'docs', 'releases'), { recursive: true });
   await writeFile(path.join(dir, 'docs', 'releases', '2026-01-01-wave.md'), '# Wave\n\n## 1.4.0\n\nwhy\n');
   assertAllowed(await runGate(bashCall('npm publish', dir), {}));
+
+  // The refuse half, and this test proves nothing without it: a gate that had never heard
+  // of `docs/releases/` would read this layout as "no note source at all", which ALLOWS —
+  // so the allow half above passes just as well against a gate that cannot see the
+  // directory. Only a refusal shows the directory was actually read.
+  const stale = await project({ notes: null });
+  await mkdir(path.join(stale, 'docs', 'releases'), { recursive: true });
+  await writeFile(path.join(stale, 'docs', 'releases', '2026-01-01-wave.md'), '# Wave\n\n## 1.3.0\n\nwhy\n');
+  assertRefused(await runGate(bashCall('npm publish', stale), {}), '1.4.0');
 });
 
 test('a pending changeset counts as the note, and an empty .changeset does not', async () => {
@@ -482,5 +491,55 @@ test('the two skills that hand over to release-notes no longer place it outside 
       /release-notes`[\s\S]{0,80}outside this\s*\n?pack/,
       `${name} still describes release-notes as living outside this pack`,
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Verb position — where in the command the release verb actually sits
+//
+// The normalisation collapsed newlines to spaces, so a two-line tool call
+//     npm run build
+//     npm publish
+// arrived as `npm run build npm publish` and put the verb in the middle of a line.
+// Every detector anchors to start-of-command or a shell separator, so none matched:
+// `npm run build && npm publish` was refused while the same thing written over two
+// lines was waved through, and a multi-line Bash call is the commonest shape a
+// release takes. The trailing boundary had the mirror-image hole — `npm publish;`,
+// `npm publish&` and `(npm publish)` all failed to match a boundary of whitespace
+// or end-of-line — which would have swallowed EVERY line once newlines became `;`.
+//
+// Each shape is asserted BOTH ways on purpose. The refuse half is what fails against
+// a gate that cannot see the verb; the allow half is what fails against a gate that
+// has started refusing indiscriminately.
+// ---------------------------------------------------------------------------
+
+for (const [label, command] of [
+  ['a second line', 'npm run build\nnpm publish'],
+  ['an indented line', '  cd .\n  npm publish'],
+  ['a trailing semicolon', 'npm publish; echo done'],
+  ['a backgrounding ampersand', 'npm publish&'],
+  ['a subshell', '(npm publish)'],
+  ['a line continuation', 'npm publish \\\n  --access public'],
+  ['a second line, tag form', 'echo cutting\ngit tag v1.4.0'],
+]) {
+  test(`a release verb in ${label} is gated`, async () => {
+    assertRefused(await runGate(bashCall(command, await repository({ noted: ['1.3.0'] })), {}), '1.4.0');
+    assertAllowed(await runGate(bashCall(command, await repository({ noted: ['1.4.0'] })), {}));
+  });
+}
+
+test('a version-bump commit is gated wherever the verb sits in the command', async () => {
+  for (const command of ['git commit -m rel; echo done', 'git add -A\ngit commit -m rel', '(git commit -m rel)']) {
+    const unnoted = await repository({ version: '1.0.0', notes: 'CHANGELOG.md', noted: ['1.0.0'] });
+    await writeFile(path.join(unnoted, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '1.1.0' }, null, 2)}\n`);
+    git(unnoted, 'add', 'package.json');
+    assertRefused(await runGate(bashCall(command, unnoted), {}), '1.1.0');
+
+    // ...and the same shape with the note staged beside the bump is still the right answer.
+    const noted = await repository({ version: '1.0.0', notes: 'CHANGELOG.md', noted: ['1.0.0'] });
+    await writeFile(path.join(noted, 'package.json'), `${JSON.stringify({ name: '@acme/cli', version: '1.1.0' }, null, 2)}\n`);
+    await writeFile(path.join(noted, 'CHANGELOG.md'), '# Releases\n\n## 1.1.0\n\nwhat / why / impact\n\n## 1.0.0\n\nwhy\n');
+    git(noted, 'add', 'package.json', 'CHANGELOG.md');
+    assertAllowed(await runGate(bashCall(command, noted), {}));
   }
 });

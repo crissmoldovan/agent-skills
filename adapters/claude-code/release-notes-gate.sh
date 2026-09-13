@@ -53,8 +53,27 @@ command -v jq >/dev/null 2>&1 || exit 0   # no jq -> cannot parse -> allow
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
 [ -z "$cmd" ] && exit 0
 
-# Collapse newlines/continuations for matching.
-norm="$(printf '%s' "$cmd" | tr '\n\t' '  ')"
+# Collapse continuations, and keep every other newline as the SEPARATOR it is.
+#
+# `tr '\n' ' '` was the bug that made this gate inert for the commonest shape a release
+# command actually takes. A tool call carrying
+#     npm run build
+#     npm publish
+# became `npm run build npm publish`, which puts `npm publish` in the middle of a line
+# instead of at the start of a command — so every detector below, each of which anchors to
+# start-of-line or a shell separator, missed it and the release was waved through. Newlines
+# become `;` for the same reason bash treats them that way. A trailing `\` still joins.
+norm="$(printf '%s' "$cmd" | tr '\t' ' ' \
+        | awk '{ if (sub(/\\[[:space:]]*$/, "")) printf "%s ", $0; else printf "%s;", $0 }')"
+
+# VERB POSITION. A gated verb counts when it starts the command or follows a shell separator.
+# `^` alone missed an indented line (`  npm publish` inside a script block), which the
+# newline-to-`;` normalisation above now produces for every indented multi-line call.
+START='(^|[;&|(])[[:space:]]*'
+# ...and it ends at whitespace, at a separator, or at the end. `([[:space:]]|$)` alone missed
+# `npm publish; git push` and `(npm publish)` — and, after the fix above, would have missed
+# EVERY multi-line command, since each line now ends in `;`.
+END='([[:space:]]|[;&|)]|$)'
 
 refuse() {
   # $1 = reason. In observe mode this is the whole effect: say it on stderr, refuse nothing.
@@ -210,7 +229,7 @@ resolve_dir() {
 run_dir_for() {
   local t
   t="$(printf '%s' "$1" \
-        | grep -Eo '(^|[;&|(][[:space:]]*)cd[[:space:]]+[^;&|)]+' \
+        | grep -Eo "${START}cd[[:space:]]+[^;&|)]+" \
         | tail -1 | sed -E 's/.*cd[[:space:]]+//; s/[[:space:]]+$//' | tr -d "\"'")"
   [ -z "$t" ] && { printf '%s' "$BASE"; return 0; }
   resolve_dir "$t" || return 1
@@ -287,7 +306,7 @@ pkgdir_for_name() {
 }
 
 # --- 1. publish (npm/pnpm/yarn/changeset) ----------------------------------
-if printf '%s' "$norm" | grep -Eq "(^|[;&|(] *)(npm|pnpm|yarn)${PKG_OPTS} +publish([[:space:]]|\$)" \
+if printf '%s' "$norm" | grep -Eq "${START}(npm|pnpm|yarn)${PKG_OPTS} +publish${END}" \
    || printf '%s' "$norm" | grep -Eq 'changeset +publish'; then
   # The publish runs in the directory the command `cd`s into, not in the session's cwd, and any
   # `-C`/`--dir` it names is relative to THAT. Resolve in that order; an unresolvable `cd` is
@@ -347,8 +366,10 @@ if printf '%s' "$norm" | grep -Eq '(gh|glab) +release +create'; then
 fi
 
 # --- 3. git tag <release-tag> ----------------------------------------------
-if printf '%s' "$norm" | grep -Eq "(^|[;&|(] *)git${GIT_OPTS} +tag +"; then
-  tag="$(printf '%s' "$norm" | sed -E "s/.*git${GIT_OPTS} +tag +(-a +)?//" | awk '{print $1}' | tr -d '"'"'"'')"
+if printf '%s' "$norm" | grep -Eq "${START}git${GIT_OPTS} +tag +"; then
+  # Trailing separators are not part of a tag name: `git tag v1.4.0; git push` otherwise
+  # named the tag `v1.4.0;` in the refusal it printed.
+  tag="$(printf '%s' "$norm" | sed -E "s/.*git${GIT_OPTS} +tag +(-a +)?//" | awk '{print $1}' | tr -d '"'"'"'' | sed -E 's/[;&|)].*$//')"
   ver="$(printf '%s' "$tag" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?' | tail -1)"
   # only gate tags that look like a release (v1.2.3 or scope/name@1.2.3)
   if [ -n "$ver" ] && printf '%s' "$tag" | grep -Eq '@[0-9]|^v?[0-9]'; then
@@ -381,7 +402,7 @@ fi
 
 # --- 4. version-bump commit ------------------------------------------------
 # A commit that stages a package.json "version" bump must also carry the note.
-if printf '%s' "$norm" | grep -Eq "(^|[;&|(] *)git${GIT_OPTS} +commit( |\$)"; then
+if printf '%s' "$norm" | grep -Eq "${START}git${GIT_OPTS} +commit${END}"; then
   # WHICH index? Not this hook's — the one the commit will actually write. `cd <repoA> && git
   # commit` and `git -C <repoA> commit` both land in repoA, while a bare `git diff --cached` here
   # reports the SESSION's staged files; an unnoted bump staged in repoC therefore refused an
