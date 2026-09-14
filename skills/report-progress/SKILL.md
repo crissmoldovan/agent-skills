@@ -48,7 +48,7 @@ Claude Code `Stop` hook carried in this pack's adapter directory
 off until a user installs it, and gone when they run that installer with `--remove`. How wide
 it arms is a level the user chooses with `--coverage 1|2`: a new install gets `1`, and
 re-running the installer to update keeps whatever level is already installed, so updating the
-pack never changes what the gate enforces. The paragraphs above are unchanged by it: this file
+pack never changes that level. The paragraphs above are unchanged by it: this file
 still executes nothing, and nothing in this skill can install the gate or arm it on a user's
 behalf.
 

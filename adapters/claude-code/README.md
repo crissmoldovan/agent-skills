@@ -364,7 +364,7 @@ so re-running it to pick up a new version silently widened any coverage-1 gate. 
 prints which happened: `Kept coverage N (already installed in this file)`, `Set
 coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. If an
 update also changes the mode — `--mode` still defaults to `observe` — it says that
-too.
+too, and so does one that drops a `--skills` list it did not repeat.
 
 **A new install gets coverage 1**, because coverage 2 holds more turns and has more
 ways to arm a turn again after it has blocked, including a register change that needs

@@ -128,6 +128,7 @@ import {
   isEntrypoint,
   resolveCoverage,
   resolveMode,
+  resolveWatchedSkills,
 } from './report-progress-gate.mjs';
 
 /** Every hook this script writes carries the gate's filename in its command. */
@@ -179,7 +180,9 @@ block    hold the turn for one more round when an armed turn ends without a prog
 --coverage 2  arm on a subagent of any kind starting, on a skill named in --skills, and on
               a change in the harness's own list of background work.
          With no --coverage, re-running this script keeps the level of the gate already
-         in the settings file, so updating the pack never changes what the gate enforces.
+         in the settings file, so updating the pack never changes that level. --mode and
+         --skills are not carried over: a re-run that changes the mode or drops a skill
+         list says so.
 
 --skills a comma-separated list of skill names to treat as external agents, matched by
          EXACT name (e.g. --skills codex,gpt-researcher). Coverage 2 only. Empty by
@@ -582,12 +585,15 @@ export function readInstalledGate(settings, { adopt = false } = {}) {
         else continue;
         const level = readAssignment(hook.command, COVERAGE_ENV_FLAG);
         const mode = readAssignment(hook.command, GATE_ENV_FLAG);
+        const watched = readAssignment(hook.command, SKILLS_ENV_FLAG);
         candidates.push({
           event,
           matcher: group.matcher,
           adopted,
           coverage: level.legible ? resolveCoverage({ [COVERAGE_ENV_FLAG]: level.value }) : null,
           mode: mode.legible ? resolveMode({ [GATE_ENV_FLAG]: mode.value }) : null,
+          // Read only to say, on a re-run that names no --skills, which list it is dropping.
+          skills: watched.legible && watched.value !== undefined ? resolveWatchedSkills({ [SKILLS_ENV_FLAG]: watched.value }) : [],
         });
       }
     }
@@ -605,7 +611,8 @@ export function readInstalledGate(settings, { adopt = false } = {}) {
   } else if (levels.size > 1) {
     unknown = `its hooks run at different levels: ${candidates.map((entry) => `${hookLabel(entry)} at ${entry.coverage}`).join(', ')}`;
   }
-  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown };
+  const skills = [...new Set(candidates.flatMap((entry) => entry.skills))];
+  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown, skills };
 }
 
 /** One line naming where the level came from. A silent level is the defect this replaced. */
@@ -666,7 +673,7 @@ async function writeSettings(settingsPath, settings) {
 }
 
 function parseArguments(argv) {
-  const options = { mode: null, modeGiven: false, coverage: null, settingsPath: null, skills: [], remove: false, adopt: false, help: false };
+  const options = { mode: null, modeGiven: false, coverage: null, settingsPath: null, skills: [], skillsGiven: false, remove: false, adopt: false, help: false };
   let skillsGiven = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -686,6 +693,7 @@ function parseArguments(argv) {
     } else if (argument === '--skills') {
       index += 1;
       skillsGiven = true;
+      options.skillsGiven = true;
       options.skills = normaliseSkills(argv[index] ?? '');
     } else if (argument === '--remove') options.remove = true;
     else if (argument === '--adopt') options.adopt = true;
@@ -793,6 +801,12 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stdout.write(`${describeLevel({ named: options.coverage, existing, coverage })}\n`);
     const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
     if (modeChange) stdout.write(`${modeChange}\n`);
+    // Like the mode, a skill list is not carried over, so an update that drops one says so rather
+    // than narrowing what arms the gate in silence.
+    if (!options.skillsGiven && existing && existing.skills.length > 0) {
+      const count = existing.skills.length;
+      stdout.write(`Skill list not kept — the gate already in this file treated ${existing.skills.join(', ')} as external agent${count === 1 ? '' : 's'}, and this run named no --skills. Pass --skills ${existing.skills.join(',')}${coverage === 1 ? ' --coverage 2' : ''} to keep ${count === 1 ? 'it' : 'them'}.\n`);
+    }
     stdout.write((coverage === 1 ? [
       '',
       'ARMED ON ONE THING, and on nothing else:',

@@ -1934,3 +1934,27 @@ test('neither level can promise one block per turn: re-arming after a block bloc
     assert.match(installed.stdout, /stop_hook_active is what stops/);
   }
 });
+
+test('an update that drops a skill list says so, and one that repeats the list says nothing', async () => {
+  // The usage text promised that updating "never changes what the gate enforces", while a bare
+  // re-run over a coverage-2 install with --skills removed the Skill hook and printed nothing
+  // about it (v0.18.0 did the same, silently).
+  const directory = await scratch('gate-skills-notice');
+  const settingsPath = path.join(directory, 'settings.json');
+  assert.equal((await runInstaller(['--mode', 'block', '--coverage', '2', '--skills', 'codex,gpt-researcher', '--settings', settingsPath])).status, 0);
+
+  const repeated = await runInstaller(['--mode', 'block', '--skills', 'codex,gpt-researcher', '--settings', settingsPath]);
+  assert.equal(repeated.status, 0, repeated.stderr);
+  assert.doesNotMatch(repeated.stdout, /Skill list not kept/);
+  assert.ok(hasOurHook(await readJson(settingsPath), 'PostToolUse', 'Skill'));
+
+  const bare = await runInstaller(['--mode', 'block', '--settings', settingsPath]);
+  assert.equal(bare.status, 0, bare.stderr);
+  assert.match(bare.stdout, /Skill list not kept/);
+  assert.match(bare.stdout, /Pass --skills codex,gpt-researcher to keep them/);
+  assert.equal(hasOurHook(await readJson(settingsPath), 'PostToolUse', 'Skill'), false);
+
+  const again = await runInstaller(['--mode', 'block', '--settings', settingsPath]);
+  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /Skill list not kept/, 'a list that was already gone was reported as dropped');
+});
