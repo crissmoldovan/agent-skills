@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 
 import { classifyHook, leadingAssignments, shellCommands } from '../adapters/claude-code/hook-ownership.mjs';
@@ -30,7 +31,9 @@ const PROGRESS = Object.freeze({
     'AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK',
     'AGENT_SKILLS_PROGRESS_GATE_SKILLS',
   ]),
-  interpreter: Object.freeze({ quotedPathTo: 'node' }),
+  // A released installer wrote `process.execPath`: `node` on most machines, `nodejs` from Debian and Ubuntu's own
+  // package, `node.exe` on Windows — and, whatever it is called, the binary running the installer now.
+  interpreter: Object.freeze({ quotedPathTo: Object.freeze([...new Set(['node', 'nodejs', 'node.exe', path.basename(process.execPath)])]) }),
 });
 const RELEASE = Object.freeze({
   envFlag: 'AGENT_SKILLS_RELEASE_NOTES_GATE',
@@ -86,6 +89,9 @@ test('every shape a released version of either installer wrote is its own, and s
     `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1 ${turn} ${program}`,
     `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${turn} ${skills} ${program}`,
     "AGENT_SKILLS_PROGRESS_GATE=off AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1 '/bin/node' '/pack/report-progress-gate.mjs'",
+    // process.execPath under the names node is installed as: Debian and Ubuntu's nodejs package, and Windows.
+    "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/bin/nodejs' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block 'C:\\Program Files\\nodejs\\node.exe' '/pack/report-progress-gate.mjs'",
   ]) {
     assert.equal(classifyHook(hook(command), PROGRESS), 'ours', command);
   }
@@ -124,8 +130,7 @@ test('only the exact shape is owned: anything before, around or after it makes a
     'AGENT_SKILLS_PROGRESS_GATE="block" \'/bin/node\' \'/pack/report-progress-gate.mjs\'',
     "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=${LEVEL:-2} '/bin/node' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block node '/pack/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/bin/nodejs' '/pack/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block 'C:\\node\\node.exe' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/local/bin/bun' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block '/bin/node' /pack/report-progress-gate.mjs",
     // The gate's own variables without the arming one.
     "AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/bin/node' '/pack/report-progress-gate.mjs'",
@@ -144,6 +149,19 @@ test('only the exact shape is owned: anything before, around or after it makes a
   ]) {
     assert.equal(classifyHook(hook(command), RELEASE), 'adoptable', command);
   }
+});
+
+test('the interpreter an installer writes is the binary that ran it, whatever that binary is called', () => {
+  // A released installer wrote process.execPath. Where that binary is called something this reader does not know as an
+  // interpreter — a versioned `node-22` — the command it wrote is still exactly its shape, and it is still its own.
+  const ranUnder = { ...PROGRESS, interpreter: { quotedPathTo: ['node-22'] } };
+  const command = "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/bin/node-22' '/pack/report-progress-gate.mjs'";
+  assert.equal(classifyHook(hook(command), ranUnder), 'ours');
+  assert.equal(classifyHook(hook(command, { describe: `${PROGRESS.describePrefix} (block): …` }), ranUnder), 'ours');
+  assert.equal(classifyHook(hook(command, { describe: 'theirs' }), ranUnder), 'foreign');
+  assert.equal(classifyHook(hook(`${command} && true`), ranUnder), 'unclear');
+  // Under an installer that did not run as `node-22`, nothing says that program runs the gate.
+  assert.equal(classifyHook(hook(command), { ...PROGRESS, interpreter: { quotedPathTo: ['node'] } }), 'unclear');
 });
 
 test('the basename must be exactly the gate file: a command that merely contains its name does not run it', () => {

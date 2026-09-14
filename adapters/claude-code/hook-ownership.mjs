@@ -24,12 +24,15 @@
  * either installer has emitted — is:
  *   1. one or more assignments, each to one of the installer's own `variables`, none twice, the
  *      arming `envFlag` among them, each value either literal characters or exactly single-quoted;
- *   2. the interpreter: for `{ quotedPathTo: 'node' }`, one single-quoted word whose basename is
- *      exactly `node`; for `{ word: 'bash' }`, the bare word `bash` and nothing else;
+ *   2. the interpreter: for `{ quotedPathTo: [names] }`, one single-quoted word whose basename is
+ *      exactly one of those names; for `{ word: 'bash' }`, the bare word `bash` and nothing else;
  *   3. the gate path: one single-quoted word whose basename is exactly `gateFile`;
  *   4. nothing more — no further word, operator, redirection, comment or expansion.
  * Each installer's `HOOK_IDENTITY` lists the shapes its released versions wrote. Claude Code keeps the
- * command byte for byte, so the shape an installer emitted is the shape it finds again.
+ * command byte for byte, so the shape an installer emitted is the shape it finds again. A command in that
+ * shape runs the gate by construction, so it is not read again for whether it does: the interpreter an
+ * installer wrote is the binary that ran it, and a name this reader does not know as an interpreter (a
+ * versioned `node-22`) must not turn the installer's own hook unclear.
  *
  * RUNS THE GATE is structural, over the command's simple commands as `sh` splits them. In some simple
  * command, past its leading assignments, the reserved words `! { } if then else elif fi do done while
@@ -456,7 +459,7 @@ function installerWords(command) {
  * True only when the whole command is exactly the installer's shape: see THE EXACT SHAPE in the header.
  *
  * @param {string} command
- * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quotedPathTo?: string, word?: string } }} identity
+ * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quotedPathTo?: string | readonly string[], word?: string } }} identity
  */
 export function isInstallerShape(command, { envFlag, gateFile, variables = [envFlag], interpreter } = {}) {
   const words = installerWords(command);
@@ -474,11 +477,12 @@ export function isInstallerShape(command, { envFlag, gateFile, variables = [envF
   }
   if (!assigned.has(envFlag) || words.length - index !== 2) return false;
   const [program, gate] = words.slice(index);
+  const names = [interpreter.quotedPathTo].flat().filter((name) => typeof name === 'string' && name !== '');
   const interpreterMatches = typeof interpreter.word === 'string'
     ? program.raw === interpreter.word
-    : typeof interpreter.quotedPathTo === 'string'
+    : names.length > 0
       && program.raw === singleQuoted(program.value)
-      && basename(program.value) === interpreter.quotedPathTo;
+      && names.includes(basename(program.value));
   return interpreterMatches && gate.raw === singleQuoted(gate.value) && basename(gate.value) === gateFile;
 }
 
@@ -491,13 +495,15 @@ export function isInstallerShape(command, { envFlag, gateFile, variables = [envF
  */
 export function classifyHook(hook, identity) {
   if (!plainObject(hook) || typeof hook.command !== 'string' || !plainObject(identity)) return null;
-  const use = gateUse(hook.command, identity.gateFile);
+  // The installer's own shape runs the gate by construction (see THE EXACT SHAPE in the header).
+  const own = isInstallerShape(hook.command, identity);
+  const use = own ? RUNS : gateUse(hook.command, identity.gateFile);
   if (use === NONE) return null;
   const describedByAnother = Object.hasOwn(hook, 'describe')
     && !(typeof hook.describe === 'string' && hook.describe.startsWith(identity.describePrefix));
   if (describedByAnother) return 'foreign';
   if (use === UNCLEAR) return 'unclear';
-  return isInstallerShape(hook.command, identity) ? 'ours' : 'adoptable';
+  return own ? 'ours' : 'adoptable';
 }
 
 /**

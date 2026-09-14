@@ -410,8 +410,9 @@ that means, word for word:
    `AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK`, `AGENT_SKILLS_PROGRESS_GATE_SKILLS` — none
    twice, `AGENT_SKILLS_PROGRESS_GATE` among them, each value bare (`block`, `2`) or
    single-quoted;
-2. the node binary the installer ran under, single-quoted, whose basename is exactly
-   `node`;
+2. the node binary the installer ran under, single-quoted, whose basename is `node`,
+   `nodejs` or `node.exe`, or is the name of the node binary running the installer now
+   (a versioned `node-22`, say) — the installer writes that binary's own path;
 3. the gate, single-quoted, whose basename is exactly `report-progress-gate.mjs`;
 4. nothing else — no argument, `&&`, redirection or comment after it, and no `env`,
    `cd … &&` or other variable before it.
@@ -426,13 +427,14 @@ any other way is no longer recognised as this installer's own.
 
 A hook that **runs** the gate in any other shape is a hand-wiring. It runs the gate
 when, in some simple command of it, the gate file is the program, or is the word
-straight after an interpreter (`node`, `nodejs`, `bun`, `sh`, `bash`, `zsh`, `dash`,
-`ksh`, `.`, `source`), or runs inside a `sh -c` script or a `$(…)` substitution. Such a
+straight after an interpreter given no options (`node`, `nodejs`, `node.exe`, `bun`,
+`sh`, `bash`, `zsh`, `dash`, `ksh`, `sh.exe`, `bash.exe`, `.`, `source`), or runs inside a
+`sh -c` script or a `$(…)`, backtick or `<(…)` substitution. Such a
 hook is refused, not overwritten, and `--remove` names it, by event and matcher, rather
 than reporting the gate gone: it exits 1 while any hook still runs the gate. (It used to
 print "No report-progress gate was installed … Nothing changed." over two such hooks.)
 **`--adopt`** takes such a hook — a hand-wiring, a `cd … &&` or an `env` in front, a
-node binary named `nodejs` — as this installer's own: `--remove` removes it and an
+bare unquoted `node` — as this installer's own: `--remove` removes it and an
 install replaces it, keeping the level its command runs at when no `--coverage` is
 named, and both say how many they adopted. A command this installer cannot read the
 level from (one that sets the level after `env`, `cd … &&` or `export`, or from an

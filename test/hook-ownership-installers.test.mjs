@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -219,7 +219,7 @@ const HAND_WIRINGS = Object.freeze({
     `NODE_OPTIONS=--no-warnings ${OWN_PROGRESS}`,
     `AGENT_SKILLS_PROGRESS_GATE="block" ${q(NODE)} ${q(PACKED_PROGRESS)}`,
     `AGENT_SKILLS_PROGRESS_GATE=block node ${q(PACKED_PROGRESS)}`,
-    `AGENT_SKILLS_PROGRESS_GATE=block ${q('/usr/bin/nodejs')} ${q(PACKED_PROGRESS)}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block ${q('/usr/local/bin/bun')} ${q(PACKED_PROGRESS)}`,
     `AGENT_SKILLS_PROGRESS_GATE=block ${q(NODE)} ${PACKED_PROGRESS}`,
   ],
   release: [
@@ -289,6 +289,9 @@ test('every command a released version of either installer wrote is recognised w
   const cases = [
     ...progressShapes(NODE, PACKED_PROGRESS).map((command) => ['progress', command]),
     ...progressShapes("/opt/my node's/bin/node", "/srv/it's a pack/report-progress-gate.mjs").map((command) => ['progress', command]),
+    // process.execPath under the names node is installed as: Debian and Ubuntu's nodejs package, and Windows.
+    ...progressShapes('/usr/bin/nodejs', PACKED_PROGRESS).map((command) => ['progress', command]),
+    ...progressShapes('C:\\Program Files\\nodejs\\node.exe', PACKED_PROGRESS).map((command) => ['progress', command]),
     ...releaseShapes(PACKED_RELEASE).map((command) => ['release', command]),
     ...releaseShapes("/srv/it's a pack/release-notes-gate.sh").map((command) => ['release', command]),
   ];
@@ -412,4 +415,55 @@ test('the live shape of both gates, describe stripped, is recognised by a re-run
     assert.doesNotMatch(`${removed.stdout}${removed.stderr}`, /--adopt|not gone/);
   }
   assert.deepEqual(await readJson(file), { model: 'opus', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [UNRELATED] }], Stop: [{ hooks: [UNRELATED] }] } });
+});
+
+// ---------------------------------------------------------------------------
+// The node binary an installer writes is process.execPath, and not every machine calls it `node`: Debian and Ubuntu's
+// own package installs `nodejs`, and a versioned binary carries its version. Run under such a binary, the exact-shape
+// rule once refused the hooks the installer had just written, describe and all, and `--remove` exited 1 over them,
+// where 0.19.0 took them by their describe.
+// ---------------------------------------------------------------------------
+
+/** The running node binary under another name: a hard link where the file system allows one, a copy where not. */
+async function nodeCalled(home, name) {
+  const binary = path.join(home, 'bin', name);
+  await mkdir(path.dirname(binary), { recursive: true });
+  try {
+    await link(process.execPath, binary);
+  } catch {
+    await copyFile(process.execPath, binary);
+    await chmod(binary, 0o755);
+  }
+  return binary;
+}
+
+test('an installer run under a node binary with another name recognises the hooks it wrote, describe or not', async () => {
+  for (const strip of [false, true]) {
+    const home = await scratch('ownership-renamed-node');
+    const node = await nodeCalled(home, 'node-22-renamed');
+    const file = path.join(home, 'settings.json');
+    const run = (args) => spawnCollect(node, [INSTALLERS.progress.script, ...args, '--settings', file], { env: childEnv({ HOME: home }) });
+    const stripFile = async () => {
+      if (strip) await writeFile(file, JSON.stringify(stripDescribes(await readJson(file)), null, 2));
+    };
+
+    const installed = await run(['--mode', 'block', '--coverage', '2']);
+    assert.equal(installed.status, 0, installed.stderr);
+    const [stop] = commandsOf(await readJson(file), 'Stop', '*');
+    // process.execPath is the resolved path: /var/folders is /private/var/folders on macOS.
+    assert.ok(stop.includes(` ${q(await realpath(node))} `), `strip=${strip}: the command does not run the binary the installer ran under: ${stop}`);
+    await stripFile();
+
+    const rerun = await run(['--mode', 'block']);
+    assert.equal(rerun.status, 0, `strip=${strip}: a re-run refused the hooks it wrote: ${rerun.stderr}`);
+    assert.match(rerun.stdout, /Kept coverage 2 \(already installed in this file\)/);
+    assert.doesNotMatch(`${rerun.stdout}${rerun.stderr}`, /refusing|--adopt|Adopted|cannot tell whether/);
+    assert.equal(commandsOf(await readJson(file), 'Stop', '*').length, 1, `strip=${strip}: the re-run stacked a second gate`);
+    await stripFile();
+
+    const removed = await run(['--remove']);
+    assert.equal(removed.status, 0, `strip=${strip}: --remove left the hooks it wrote: ${removed.stderr}`);
+    assert.doesNotMatch(`${removed.stdout}${removed.stderr}`, /--adopt|not gone/);
+    assert.deepEqual(await readJson(file), {}, `strip=${strip}: --remove left the hooks it wrote`);
+  }
 });

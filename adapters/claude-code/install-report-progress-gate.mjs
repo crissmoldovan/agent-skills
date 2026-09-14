@@ -117,9 +117,9 @@
  * flag, only when its WHOLE command is exactly a shape some released version of it wrote (`HOOK_IDENTITY`
  * below, checked by `./hook-ownership.mjs`): leading assignments to this gate's own variables only,
  * `AGENT_SKILLS_PROGRESS_GATE` among them and none twice; then the node binary, single-quoted, whose
- * basename is exactly `node`; then the gate path, single-quoted, whose basename is exactly
- * `report-progress-gate.mjs`; and nothing after it. The harness keeps the command byte for byte, so
- * that shape survives every rewrite. A `describe` written by anything else is a statement of
+ * basename is `node`, `nodejs` or `node.exe`, or that of the node binary running this installer; then the
+ * gate path, single-quoted, whose basename is exactly `report-progress-gate.mjs`; and nothing after it.
+ * The harness keeps the command byte for byte, so that shape survives every rewrite. A `describe` written by anything else is a statement of
  * ownership, and that hook is never taken, with or without a flag.
  *
  * ADOPTION is for a hook that RUNS this gate in any other shape — a hand-wiring, a `cd … &&` or an
@@ -180,16 +180,20 @@ export const MODES = GATE_MODES;
  *   v0.17.0–v0.18.0  …=<mode> AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 [AGENT_SKILLS_PROGRESS_GATE_SKILLS='<list>'] '<node>' '<gate>'
  *   v0.19.0          …=<mode> AGENT_SKILLS_PROGRESS_GATE_COVERAGE=<level> [… _SKILLS='<list>'] '<node>' '<gate>'
  *   this version     …=<mode> … _COVERAGE=<level> AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit [… _SKILLS='<list>'] '<node>' '<gate>'
- * `<node>` is `process.execPath` and `<gate>` this file's sibling, each through `shellQuote`. A node
- * binary under any other basename (`nodejs`, `node.exe`) is outside that shape: such a hook runs the
- * gate and is a hand-wiring, which `--adopt` takes.
+ * `<node>` is `process.execPath` and `<gate>` this file's sibling, each through `shellQuote`. That path ends
+ * in whatever the binary that ran the installer is called: `node` on most machines, `nodejs` from Debian and
+ * Ubuntu's own package, `node.exe` on Windows, and a versioned name elsewhere. So the shape takes those three
+ * names and the name of the binary running this installer now, which is the one that wrote any hook it is
+ * about to read back. With `node` alone, an installer run as `nodejs` refused the hooks it had just written,
+ * describe and all, and one run as `node-22` could not even adopt them — where 0.19.0 took both by their
+ * describe (measured). Each of those names runs the gate file as a script.
  */
 export const HOOK_IDENTITY = Object.freeze({
   envFlag: GATE_ENV_FLAG,
   gateFile: HOOK_MARKER,
   describePrefix: DESCRIBE_PREFIX,
   variables: Object.freeze([GATE_ENV_FLAG, COVERAGE_ENV_FLAG, TURN_HOOK_ENV_FLAG, SKILLS_ENV_FLAG]),
-  interpreter: Object.freeze({ quotedPathTo: 'node' }),
+  interpreter: Object.freeze({ quotedPathTo: Object.freeze([...new Set(['node', 'nodejs', 'node.exe', path.basename(process.execPath)])]) }),
 });
 const IDENTITY = HOOK_IDENTITY;
 /** How an unowned hook's line describes the shape it is not. */

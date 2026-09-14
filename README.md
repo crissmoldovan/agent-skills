@@ -399,8 +399,9 @@ that; the same writes keep each hook's command byte for byte
 removing a gate the harness has rewritten needs no flag, and a hook is this installer's own only
 when its whole command is exactly what some version of the installer wrote: assignments to the
 gate's own `AGENT_SKILLS_PROGRESS_GATE…` variables (the arming one among them, none twice), then the
-node binary and then the gate, each single-quoted, with basenames exactly `node` and
-`report-progress-gate.mjs`, and nothing after. `--adopt` takes a hook that runs the gate in any other
+node binary and then the gate, each single-quoted, and nothing after. The binary's basename is `node`,
+`nodejs`, `node.exe`, or the name of the node binary running the installer; the gate's is exactly
+`report-progress-gate.mjs`. `--adopt` takes a hook that runs the gate in any other
 shape: the gate file as the program, or straight after an interpreter such as `node` or `bash`. A
 hook that only mentions the file, as `echo`, `cat` or `rm` do, is not the gate, and nothing touches
 it. A hook where the installer cannot tell whether the gate runs (the file as an argument of a
