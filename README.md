@@ -402,13 +402,14 @@ that; the same writes keep each hook's command byte for byte
 removing a gate the harness has rewritten needs no flag. The installer's exact shape is
 assignments to the gate's own `AGENT_SKILLS_PROGRESS_GATE…` variables (the arming one among them,
 none twice), then one interpreter, then the gate single-quoted with a basename of exactly
-`report-progress-gate.mjs`, and nothing after. A command in that shape is never unclear. It is the
-installer's own when the interpreter is a single-quoted path whose name is a Node-compatible
-runtime — `node`, `nodejs` or `bun`, with an optional version (`node-20`, `node22`) and an optional
-`.exe` — or the name of the node binary running the installer. The installer writes the path of
-whatever binary runs it, so that name changes from one machine, and one upgrade, to the next. With
-any other interpreter the same shape is named, and `--adopt` takes it; with one that only prints or
-reads files, such as `'/bin/echo'`, it is nobody's. Where the harness has not dropped it, the
+`report-progress-gate.mjs`, and nothing after. A command in that shape is read by its interpreter
+alone. It is the installer's own when the interpreter is a single-quoted path whose name is a
+Node-compatible runtime — `node`, `nodejs` or `bun`, with an optional version (`node-20`, `node22`)
+and an optional `.exe` — or the name of the node binary running the installer. The installer writes
+the path of whatever binary runs it, so that name changes from one machine, and one upgrade, to the
+next. With any other program in that place the same shape is named, and `--adopt` takes it; with one
+that only prints, reads or deletes files, such as `'/bin/echo'` or `unlink`, it is nobody's. Where
+the harness has not dropped it, the
 installer's own `describe` on a hook that runs the gate, in any shape, makes that hook its own too,
 as it did through 0.19.0. `--adopt` takes any other hook that runs the gate: the gate file as the
 program, or straight after an interpreter such as `node` or `bash`. That holds past the wrappers
@@ -420,16 +421,19 @@ manual gives on both macOS and Linux; the table is in
 **A plain re-run never takes a hook the installer cannot fully read**, with or without its
 `describe`: `--remove` names it and exits 1, and an install refuses. That covers a wrapper option or
 form it does not recognise (`nice -10`, `timeout -p 5`, `sudo -i`), which it never guesses past; the
-file as an argument of `xargs`, `time` or a wrapper script; the file after `node --check`; the file a
-command reads on stdin; and a pipe or a variable. **`--adopt` can take such a hook** when its leading
-assignments set the gate's own `AGENT_SKILLS_PROGRESS_GATE` and one of its words is the gate path,
-and it says when it did, naming each hook:
+file as an argument of `xargs`, `time` or a wrapper script, or as an option's value; the file after
+`node --check`; the file a command reads on stdin; a pipe or a variable; its own shape run by a
+program it does not know; and its own `describe` over a command that never names the gate file.
+**`--adopt` takes such a hook over**, whatever leads the command and wherever the gate path sits, as
+0.19.0 did, unless the hook also writes to the gate file; and it says when it did, naming each hook:
 `Took over 1 hook this installer could not fully read: Stop (matcher *).`
 The installer could not tell whether such a hook runs the gate, so check it before you pass
-`--adopt`. A hook that only mentions the file, as `echo`, `cat` or `rm` do, or only writes to
-it through a redirection, is not the gate and is never taken, with any flag, whatever its `describe`
-says; nor is a hook under a `describe` something else wrote. The release-notes gate's installer below
-recognises its hook the same way.
+`--adopt`. A hook that only mentions the file, as `echo`, `cat`, `rm` or `unlink` do, only writes to
+it through a redirection, or names a different file whose name contains the gate file's, is not the
+gate and is never taken, with any flag, whatever its `describe` says; nor is a hook under a
+`describe` something else wrote. `--remove` names every hook it leaves that names the gate file,
+with why, and never says no gate was installed while one is there. The release-notes gate's
+installer below recognises its hook the same way.
 
 Six limits, stated here because a guard that is misread is worse than no guard:
 
@@ -512,13 +516,14 @@ Like the progress gate's, this installer recognises its hook by the command it w
 file Claude Code has rewritten needs no flag: a hook is its own when the whole command is exactly
 `AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<path>/release-notes-gate.sh'`, with nothing after it,
 or when it runs the gate under this installer's own `describe`. `--adopt` takes a hook that runs the
-gate in any other shape, including that one with another interpreter in place of `bash` (`/bin/bash`,
-`sh`). A plain re-run never takes a hook it cannot fully read. `--adopt` can, when the hook's leading
-assignments set `AGENT_SKILLS_RELEASE_NOTES_GATE` and one of its words is the gate path, and it prints
-each hook it took that way. A hook that only mentions the gate file (`echo`, `cat`, `shellcheck`), or
-only writes to it, is never taken, with any flag. `--remove` exits 1 while any hook still runs the
-gate, or may. Re-running it with no `--mode` keeps the mode already installed, `off` included, and
-says so.
+gate in any other shape, including that one with another shell in place of `bash` (`/bin/bash`,
+`sh`). A plain re-run never takes a hook it cannot fully read. `--adopt` takes it over, whatever leads
+the command and wherever the gate path sits, unless it writes to the gate file, and prints each hook
+it took that way. A hook that only mentions the gate file (`echo`, `cat`, `unlink`, `shellcheck`), only
+writes to it, or names a different file whose name contains it, is never taken, with any flag.
+`--remove` exits 1 while any hook still runs the gate, or may, and names every hook it leaves that
+names the gate file, with why. Re-running it with no `--mode` keeps the mode already installed, `off`
+included, and says so.
 
 Three limits, stated here because a guard that is misread is worse than no guard:
 

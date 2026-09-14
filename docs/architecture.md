@@ -60,32 +60,40 @@ the conversation, in a hook the user wired into their own harness.
 - `adapters/claude-code/hook-ownership.mjs` is how both gate installers recognise their own
   hooks: by the command, because Claude Code drops `describe` whenever it writes a settings file
   and keeps the command byte for byte. A command in an installer's exact shape — its own
-  assignments, one interpreter word, the single-quoted gate, nothing after — is never unclear. It is
-  the installer's own when that interpreter is one the installer writes: for the report-progress
-  gate, a single-quoted path whose name is a Node-compatible runtime (`node`, `nodejs` or `bun`,
-  with an optional version and `.exe`) or the name of the binary running the installer; for the
-  release-notes gate, the bare word `bash`. It is nobody's when that word only prints or reads
-  files, and `--adopt` takes it otherwise. Where the harness has not dropped it, the installer's own
-  `describe` makes any hook that runs the gate its own, as it did through 0.19.0. Any other hook
-  that runs the gate is taken only under `--adopt`. It reads past the wrappers `timeout`, `nice`,
-  `nohup`, `env`, `command`, `exec`, `caffeinate` and `sudo`, nested or not, each only in the forms
-  its manual gives on both macOS and Linux (`WRAPPER_GRAMMARS`). A wrapper option or form outside
-  that table makes a hook it cannot fully read, never guessed past; `time`, `stdbuf`, `ionice`,
-  `chrt`, `taskset`, `xargs`, `watch` and `parallel` are not read as wrappers at all. A plain re-run
-  never takes a hook it cannot fully read. `--adopt` can, when the hook's leading assignments set
-  the gate's own variable and one of its words is the gate path, and the installer then prints each
-  hook it took that way, by event and matcher. A hook that only mentions the gate file, or only
-  writes to it through a redirection, is never taken, with any flag. A re-run with no `--mode`
-  keeps the mode already installed, as the report-progress installer keeps its level. It is covered
-  by `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
+  assignments, one interpreter word, the single-quoted gate, nothing after — is read by that
+  interpreter alone. It is the installer's own when that interpreter is one the installer writes:
+  for the report-progress gate, a single-quoted path whose name is a Node-compatible runtime
+  (`node`, `nodejs` or `bun`, with an optional version and `.exe`) or the name of the binary
+  running the installer; for the release-notes gate, the bare word `bash`. It runs the gate, and
+  `--adopt` takes it, when that word is such a runtime, or for the release-notes gate a shell,
+  written another way; it is nobody's when that word only prints, reads or deletes files (`cat`,
+  `unlink`, `xxd`, `du`); and it is one the reader cannot fully read when that word is any other
+  program. Where the harness has not dropped it, the installer's own `describe` makes any hook that
+  runs the gate its own, as it did through 0.19.0. Any other hook that runs the gate is taken only
+  under `--adopt`. It reads past the wrappers `timeout`, `nice`, `nohup`, `env`, `command`, `exec`,
+  `caffeinate` and `sudo`, nested or not, each only in the forms its manual gives on both macOS and
+  Linux (`WRAPPER_GRAMMARS`). A wrapper option or form outside that table makes a hook it cannot
+  fully read, never guessed past; `time`, `stdbuf`, `ionice`, `chrt`, `taskset`, `xargs`, `watch` and
+  `parallel` are not read as wrappers at all. A plain re-run never takes a hook it cannot fully
+  read. `--adopt` takes every one over — whatever leads its command, wherever the gate path sits,
+  option values included, and a hook under the installer's own `describe` whose command never names
+  the gate file — unless it writes to the gate file, and the installer prints each hook it took that
+  way, by event and matcher. A hook that only mentions the gate file, only writes to it, names a
+  different file whose name contains the gate file's, or carries another tool's `describe` is never
+  taken, with any flag. `--remove` exits 1 while it leaves a hook that runs the gate, or may, and
+  names every hook it leaves that names the gate file, with why. A re-run with no `--mode` keeps the
+  mode already installed, as the report-progress installer keeps its level. It is covered by
+  `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
   `test/hook-ownership-v0.19.0.test.mjs`. That last test runs 0.19.0's installers beside this
-  version's on identical settings files and holds every row to the release bar. A run with no flag
-  never takes a hook the reader cannot fully read. Whatever 0.19.0 took or removed, this version
-  takes or removes with the same flags, or with `--adopt` added; 0.19.0's release-notes installer
-  has no `--adopt`, so those rows are compared with its nearest equivalent run. Mentions and write
-  targets are never taken. The release-notes `--remove` exits 1 while it leaves a hook that runs the
-  gate, or may. Whether a start hook runs the gate is established by firing it against a stand-in
-  gate, not written by hand.
+  version's on identical settings files — release-notes hooks under events 0.19.0 never read among
+  them — and holds every row to the release bar's four points in precedence order. A run with no
+  flag never takes a hook the reader cannot fully read. Mentions, write targets, different files and
+  another tool's `describe` are never taken, with any flag. Whatever else 0.19.0 took or removed,
+  this version takes or removes with the same flags, or with `--adopt` added; 0.19.0's release-notes
+  installer has no `--adopt`, so those rows are compared with its nearest equivalent run. `--remove`
+  exits 1 while it leaves a hook that runs the gate, or may, and never says no gate was installed
+  while a hook names the gate file. Whether a start hook runs the gate is established by firing it
+  against a stand-in gate, not written by hand.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.
