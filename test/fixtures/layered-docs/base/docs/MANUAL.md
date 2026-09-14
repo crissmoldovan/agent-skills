@@ -22,7 +22,7 @@ change with the pull request that needs it.
 
 | Command | What it does |
 |---|---|
-| `npm start` | Starts the service on port 8080 |
+| `npm start` | Starts the service on `PORT`, 8080 when unset |
 | `npm test` | Runs the test files under `test/` |
 | `npm run build` | Writes `generated/registry.json` |
 | `npm run deploy` | Deploys; takes `--env` and `--dry-run` |
@@ -33,6 +33,7 @@ change with the pull request that needs it.
 |---|---|
 | `WIDGET_API_URL` | `src/config.js` |
 | `WIDGET_API_TOKEN` | `src/config.js` |
+| `PORT` | `src/server.js` |
 
 ## Docs map
 
