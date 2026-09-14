@@ -62,18 +62,23 @@
  * names the gate file is UNCLEAR: an argument of any other program (`xargs`, `watch`, a wrapper
  * script), a wrapper form the table below does not pin, a word after an interpreter's options
  * (`node --check`), a mention whose output is piped on, a variable's value, a here-document's body, a
- * substitution the gate does not run in, and every command in a text that defines a function.
+ * file a redirection reads from (`<`, `<>`, a here-string, a here-document's delimiter: what arrives on
+ * stdin an interpreter may run), a substitution the gate does not run in, and every command in a text that
+ * defines a function. A file a redirection WRITES to is not a word of the command and runs nothing:
+ * `timeout 5 >'<gate>' node x` runs `node x` and truncates the gate, so it is nobody's hook.
  *
  * WRAPPERS are commands whose documented form is `wrapper [options] [operands] COMMAND [args]` and which
  * execute COMMAND. The reader strips each by the grammar pinned for it in `WRAPPER_GRAMMARS`, as many times
  * as they nest (`sudo -u x timeout 5 node <gate>`), and reads what is left by the rules above. Each grammar
  * is the part of the manual that macOS and Linux (GNU coreutils; sudo, the same 1.9.13 on both) share, and
  * every form was run under macOS 14's /bin/sh and zsh and under dash with coreutils 9.1 and 9.4 before it
- * went in — all but sudo's, which needs a password, and caffeinate's, which only macOS has:
+ * went in — all but sudo's, which needs a password here and was run as root under Debian 12's dash with sudo 1.9.13p3
+ * instead, and caffeinate's, which only macOS has:
  *   command     `-p`, `--` — only first in the command, where the shell reads it (`-v` and `-V` print)
  *   exec        no option, not even `--`, which dash refuses — only first in the command
  *   nohup       `--`
- *   nice        `-n N` for an integer N, `--`
+ *   nice        `-n N` for an integer N from -2147483648 to 2147483647, `--`: BSD nice refuses any other N
+ *               ("invalid nice value", macOS 14) and runs nothing, where GNU nice takes it
  *   env         `-i`, `-`, `-v`, `-u NAME`, `-S` with a string of plain words, which it splits and reads as
  *               if written out, `--`, then `NAME=value` words
  *   timeout     `-v`, `-k DURATION`, `-s SIGNAL`, `--verbose`, `--foreground`, `--preserve-status`,
@@ -81,7 +86,9 @@
  *               d: the options coreutils 9.1, 9.4 and 9.11 share
  *   caffeinate  `-d -i -m -s -u`, `-t N`, `-w N`, `--`
  *   sudo        `-B -H -n -P`, `-u USER`, `-g GROUP`, `-p PROMPT` and their long names, each value once, `--`,
- *               then `NAME=value` words before any `--`
+ *               then `NAME=value` words before any `--`; a value with `$`, a backtick or `* ? [ ] { } ~` in it is
+ *               refused, because the shell may split it, glob it or make it vanish, and then the option takes the
+ *               next word: `sudo -n -u $U node <gate>` with U unset, as it is in a hook, runs nothing (sudo 1.9.13p3)
  * Short options cluster and take a value attached or as the next word, as getopt reads them. ANY OTHER
  * OPTION OR FORM IS UNCLEAR, and the reader never guesses past it: an abbreviated long option, `timeout -p`
  * (coreutils 9.11 only), `env -C` (GNU only), `nice -10`, `sudo -i`, `-s`, `-E`, `-b`, `-S`, `-A` or `-D`, a
@@ -201,8 +208,11 @@ function readHeredocBodies(text, start, pending) {
  * double quotes honour `\"`, `\\`, `\$`, `` \` `` and a backslash-newline; an unquoted backslash escapes
  * one character; a `#` that begins a word starts a comment. A `$(…)`, backtick or `<(…)` substitution
  * stays in the word it belongs to, as the literal text it is written as, because nothing here evaluates
- * anything. `&>`, `>&`, `<&` and `>|` redirect; a here-document's body is data; `name=(…)` is one word.
- * An unbalanced quote or substitution runs to the end of the text.
+ * anything. A redirection's target is not a word of the command: it is kept apart as a file the command
+ * reads from (`<`, `<&`, `<>`, `<<<`, a here-document's delimiter) or writes to (`>`, `>>`, `>|`, `>&`,
+ * `&>`), and an unquoted run of digits right against `<` or `>` is the descriptor it redirects, not a word
+ * either — so `timeout 5>/dev/null node x` is `timeout node x`. A here-document's body is data; `name=(…)`
+ * is one word. An unbalanced quote or substitution runs to the end of the text.
  */
 function parseShell(command) {
   const text = String(command);
@@ -210,22 +220,44 @@ function parseShell(command) {
   const pendingHeredocs = [];
   let definesFunction = false;
   let heredocDelimiter = null;
-  const fresh = () => ({ words: [], substitutions: [], heredocs: [], pipesOut: false });
+  const fresh = () => ({ words: [], substitutions: [], heredocs: [], redirections: [], pipesOut: false });
   let current = fresh();
   let word = null;
+  // Whether any of the word so far was quoted, escaped or substituted: `2>x` redirects descriptor 2, `'2'>x` does not.
+  let wordQuoted = false;
+  // `in` or `out` while the next word is a redirection's target: a file, not a word of the command.
+  let redirection = null;
 
   const endWord = () => {
     if (word === null) return;
     if (heredocDelimiter) {
       pendingHeredocs.push({ delimiter: word, stripTabs: heredocDelimiter.stripTabs, owner: current });
       heredocDelimiter = null;
+      current.redirections.push({ direction: 'in', target: word });
+    } else if (redirection) {
+      current.redirections.push({ direction: redirection, target: word });
+    } else {
+      current.words.push(word);
     }
-    current.words.push(word);
+    redirection = null;
     word = null;
+    wordQuoted = false;
+  };
+  /** At a redirection operator: an unquoted run of digits right against it is the descriptor it redirects. */
+  const startRedirection = (direction) => {
+    if (word !== null && !wordQuoted && /^\d+$/.test(word)) {
+      word = null;
+      wordQuoted = false;
+    }
+    endWord();
+    redirection = direction;
   };
   const endCommand = (pipesOut = false) => {
     endWord();
-    if (current.words.length > 0) {
+    redirection = null;
+    // A command of redirections alone is kept: a substitution in a target still runs.
+    const { words, substitutions, heredocs, redirections } = current;
+    if (words.length > 0 || substitutions.length > 0 || heredocs.length > 0 || redirections.length > 0) {
       current.pipesOut = pipesOut;
       commands.push(current);
     }
@@ -242,6 +274,7 @@ function parseShell(command) {
       const close = text.indexOf("'", index + 1);
       const stop = close === -1 ? text.length : close;
       word = (word ?? '') + text.slice(index + 1, stop);
+      wordQuoted = true;
       index = stop;
     } else if (char === '"') {
       let value = '';
@@ -266,19 +299,25 @@ function parseShell(command) {
         }
       }
       word = (word ?? '') + value;
+      wordQuoted = true;
       index = cursor;
     } else if (char === '\\') {
-      if (index + 1 < text.length && next !== '\n') word = (word ?? '') + next;
+      if (index + 1 < text.length && next !== '\n') {
+        word = (word ?? '') + next;
+        wordQuoted = true;
+      }
       index += 1;
     } else if (char === '$' && next === '(') {
       const close = closingParen(text, index + 2);
       substitution(index + 2, close);
       word = (word ?? '') + text.slice(index, close + 1);
+      wordQuoted = true;
       index = close;
     } else if (char === '`') {
       const close = closingBacktick(text, index + 1);
       substitution(index + 1, close);
       word = (word ?? '') + text.slice(index, close + 1);
+      wordQuoted = true;
       index = close;
     } else if (char === '(' && word !== null && ARRAY_ASSIGNMENT.test(word)) {
       const close = closingParen(text, index + 1);
@@ -294,13 +333,13 @@ function parseShell(command) {
       index = close;
     } else if (char === '<' && next === '<' && text[index + 2] !== '<') {
       // A here-document: the next word is its delimiter, and its body starts after the next newline.
-      endWord();
+      startRedirection('in');
       const stripTabs = text[index + 2] === '-';
       heredocDelimiter = { stripTabs };
       index += stripTabs ? 2 : 1;
     } else if (char === '<' && next === '<') {
-      // `<<<`, a here-string: the word after it is data, like any redirection's.
-      endWord();
+      // `<<<`, a here-string: the word after it is what the command reads on stdin.
+      startRedirection('in');
       index += 2;
     } else if (char === '#' && word === null) {
       const newline = text.indexOf('\n', index);
@@ -331,7 +370,8 @@ function parseShell(command) {
       }
       endCommand();
     } else if (REDIRECTION.has(char)) {
-      endWord();
+      // `<>` opens its file for reading too.
+      startRedirection(char === '<' || text[index - 1] === '<' ? 'in' : 'out');
     } else {
       word = (word ?? '') + char;
     }
@@ -398,8 +438,14 @@ const PLAIN_WORDS = /^[A-Za-z0-9_.,:\/@%+=\t -]*$/;
 const SIGNALS = new Set(['HUP', 'INT', 'QUIT', 'ILL', 'TRAP', 'ABRT', 'BUS', 'FPE', 'KILL', 'USR1', 'SEGV', 'USR2', 'PIPE', 'ALRM', 'TERM', 'CHLD', 'CONT', 'STOP', 'TSTP', 'TTIN', 'TTOU', 'URG', 'XCPU', 'XFSZ', 'VTALRM', 'PROF', 'WINCH', 'IO', 'SYS']);
 const matches = (pattern) => (value) => pattern.test(value);
 const isSignal = (value) => /^(?:[1-9]|[12]\d|3[01])$/.test(value) || SIGNALS.has(value.toUpperCase().replace(/^SIG/, ''));
-const nonEmpty = (value) => value !== '';
-const anyValue = () => true;
+/** A value the wrapper receives as written: nothing the shell could expand, split, glob or make vanish. The reader sees words
+ *  after quote removal, so a quoted `$` is refused as well: an over-refusal, never a guess. Measured under Debian 12's dash
+ *  with sudo 1.9.13p3: `sudo -n -u $U node <gate>` with U unset runs nothing, and neither does `sudo -u x* node <gate>`. */
+const LITERAL_VALUE = /^[^$`*?[\]{}~]*$/;
+const literal = (value) => LITERAL_VALUE.test(value);
+const literalNonEmpty = (value) => value !== '' && literal(value);
+/** nice's adjustment, as BSD nice reads it into a C int: macOS 14's nice refuses 2147483648 and runs nothing. */
+const isNiceAdjustment = (value) => INTEGER.test(value) && Number(value) >= -2147483648 && Number(value) <= 2147483647;
 
 /**
  * The grammar of each wrapper the reader strips (WRAPPERS in the header).
@@ -417,7 +463,7 @@ const WRAPPER_GRAMMARS = Object.freeze({
   command: Object.freeze({ options: { p: null }, endOfOptions: true, shell: true }),
   exec: Object.freeze({ options: {}, shell: true }),
   nohup: Object.freeze({ options: {}, endOfOptions: true }),
-  nice: Object.freeze({ options: { n: matches(INTEGER) }, endOfOptions: true }),
+  nice: Object.freeze({ options: { n: isNiceAdjustment }, endOfOptions: true }),
   env: Object.freeze({
     options: { i: null, v: null, u: matches(VARIABLE_NAME), S: matches(PLAIN_WORDS) },
     lone: true,
@@ -446,16 +492,16 @@ const WRAPPER_GRAMMARS = Object.freeze({
       H: null,
       n: null,
       P: null,
-      u: nonEmpty,
-      g: nonEmpty,
-      p: anyValue,
+      u: literalNonEmpty,
+      g: literalNonEmpty,
+      p: literal,
       '--bell': null,
       '--set-home': null,
       '--non-interactive': null,
       '--preserve-groups': null,
-      '--user': nonEmpty,
-      '--group': nonEmpty,
-      '--prompt': anyValue,
+      '--user': literalNonEmpty,
+      '--group': literalNonEmpty,
+      '--prompt': literal,
     },
     aliases: { '--user': 'u', '--group': 'g', '--prompt': 'p' },
     once: true,
@@ -564,13 +610,15 @@ function namesGate(text, gateFile) {
 }
 
 /** RUNS, UNCLEAR or NONE for one simple command. */
-function simpleCommandGateUse({ words: parsed, substitutions, heredocs, pipesOut }, gateFile, depth) {
+function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirections, pipesOut }, gateFile, depth) {
   let words = parsed;
   let use = NONE;
   for (const inner of substitutions) {
     use = Math.max(use, gateUse(inner, gateFile, depth + 1) === RUNS ? RUNS : namesGate(inner, gateFile) ? UNCLEAR : NONE);
   }
   if (heredocs.some((body) => namesGate(body, gateFile))) use = Math.max(use, UNCLEAR);
+  // What a command reads on stdin an interpreter may run. What it writes to, it does not run.
+  if (redirections.some(({ direction, target }) => direction === 'in' && namesGate(target, gateFile))) use = Math.max(use, UNCLEAR);
   const unclearIfNamed = (list) => Math.max(use, list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
 
   let index = 0;

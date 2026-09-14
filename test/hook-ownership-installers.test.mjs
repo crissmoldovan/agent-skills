@@ -118,6 +118,8 @@ const MENTIONS = Object.freeze({
     "echo '/pack/report-progress-gate.mjs'",
     // A redirection target is written to, not run.
     'AGENT_SKILLS_PROGRESS_GATE=block echo armed &> /pack/report-progress-gate.mjs',
+    // …whatever program writes it: this runs `node -e 0` and truncates the gate.
+    "AGENT_SKILLS_PROGRESS_GATE=block timeout 5 >'/pack/report-progress-gate.mjs' node -e 0",
     // The installer's exact shape, with a program that only prints in the interpreter's place.
     "AGENT_SKILLS_PROGRESS_GATE=block '/bin/echo' '/pack/report-progress-gate.mjs'",
   ],
@@ -129,6 +131,7 @@ const MENTIONS = Object.freeze({
     'echo /pack/release-notes-gate.sh',
     'AGENT_SKILLS_RELEASE_NOTES_GATE=block echo armed >| /pack/release-notes-gate.sh',
     "AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck '/pack/release-notes-gate.sh'",
+    "AGENT_SKILLS_RELEASE_NOTES_GATE=block bash >'/pack/release-notes-gate.sh'",
   ],
 });
 
@@ -169,6 +172,10 @@ const UNCLEAR = Object.freeze({
     'cat /pack/report-progress-gate.mjs | node --input-type=module',
     'node $(echo /pack/report-progress-gate.mjs)',
     'GATE=/pack/report-progress-gate.mjs; node "$GATE"',
+    // Read on stdin, a sudo value the shell may make vanish, an adjustment BSD nice refuses.
+    'AGENT_SKILLS_PROGRESS_GATE=block timeout 5 node <<< /pack/report-progress-gate.mjs',
+    'AGENT_SKILLS_PROGRESS_GATE=block sudo -n -u $U node /pack/report-progress-gate.mjs',
+    'AGENT_SKILLS_PROGRESS_GATE=block nice -n 2147483648 node /pack/report-progress-gate.mjs',
   ],
   release: [
     'AGENT_SKILLS_RELEASE_NOTES_GATE=block /usr/local/bin/hook-wrapper /pack/release-notes-gate.sh',
@@ -176,6 +183,7 @@ const UNCLEAR = Object.freeze({
     'bash -n /pack/release-notes-gate.sh',
     "bash <<'EOF'\nbash /pack/release-notes-gate.sh\nEOF",
     'gate() { bash /pack/release-notes-gate.sh; }',
+    'AGENT_SKILLS_RELEASE_NOTES_GATE=block bash <<< /pack/release-notes-gate.sh',
   ],
 });
 

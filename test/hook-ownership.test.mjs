@@ -416,7 +416,8 @@ test('a describe somebody else wrote vetoes ownership; the installer\'s own desc
 // The reader strips each by its pinned grammar, as many times as they nest, and reads what is left by the rules above.
 // Every form below was run, not read about: under macOS 14's /bin/sh and zsh, and under dash with GNU coreutils 9.1
 // (Debian 12) and 9.4 (Ubuntu 24.04), plus coreutils 9.11 for timeout. sudo's grammar is pinned from its manual, 1.9.13 on
-// both systems, because running it needs a password; caffeinate was run on macOS, the only system that has it.
+// both systems, because running it here needs a password, and every sudo form below that runs was also run as root under
+// Debian 12's dash with sudo 1.9.13p3; caffeinate was run on macOS, the only system that has it.
 // ---------------------------------------------------------------------------
 
 const WRAPPED_NODE = "'/usr/local/bin/node'";
@@ -518,6 +519,70 @@ test('a wrapper form the reader does not pin is unclear, describe or not: it nev
   assert.equal(classifyHook(hook('timeout --no-such-option 5 node /pack/other.mjs'), PROGRESS), null);
 });
 
+// Each command below names the gate file and does not run it as a hook runs it — as its own entry point, with the hook's
+// payload on stdin — on every system measured: a probe gate recording how it was run, under macOS 14's /bin/sh and dash, and
+// under Debian 12's dash with coreutils 9.1 and sudo 1.9.13p3, as root with a user x. `bash <gate` runs the script with the
+// script itself on stdin, and a here-string is a syntax error under dash. The reader once read each as running the gate, so
+// --adopt, or the installer's own describe, would have deleted it.
+test('a redirection, a here-string, a wrapper value the shell may change and an adjustment nice refuses never read as running the gate', () => {
+  const G = WRAPPED_GATE;
+  const RG = WRAPPED_RELEASE_GATE;
+  // A file a redirection writes to is written, never run: the command runs what is left, and here that is not the gate.
+  for (const command of [
+    `AGENT_SKILLS_PROGRESS_GATE=block timeout 5 >${G} node -e 0`,
+    `env >${G} node -e 0`,
+    `>${G} node -e 0`,
+    `AGENT_SKILLS_PROGRESS_GATE=block node >${G}`,
+    `nohup node -e 0 2>${G}`,
+  ]) {
+    assert.equal(classifyHook(hook(command), PROGRESS), null, command);
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), null, command);
+  }
+  assert.equal(classifyHook(hook(`AGENT_SKILLS_RELEASE_NOTES_GATE=block timeout 5 >${RG} bash -c true`, releaseDescribe), RELEASE), null);
+  for (const [command, identity, describe] of [
+    // What a command reads on stdin an interpreter may run, or not: `node <gate.mjs` runs it, but not as its entry point.
+    [`node <${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATE=block node <<< ${G}`, PROGRESS, ownDescribe],
+    [`timeout 5 node <<< ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash <<< ${RG}`, RELEASE, releaseDescribe],
+    [`bash 0<${RG}`, RELEASE, releaseDescribe],
+    // A descriptor number is part of its redirection, not the operand or value the wrapper needed.
+    [`timeout 5>/dev/null node ${G}`, PROGRESS, ownDescribe],
+    [`nice -n 5>/dev/null node ${G}`, PROGRESS, ownDescribe],
+    // A sudo value the shell may split, glob or make vanish, after which the option takes the next word.
+    [`sudo -n -u $U node ${G}`, PROGRESS, ownDescribe],
+    [`sudo -p $P node ${G}`, PROGRESS, ownDescribe],
+    [`sudo -u x* node ${G}`, PROGRESS, ownDescribe],
+    [`sudo -g {a,b} node ${G}`, PROGRESS, ownDescribe],
+    [`sudo -u '~x' node ${G}`, PROGRESS, ownDescribe],
+    [`sudo --user=$U bash ${RG}`, RELEASE, releaseDescribe],
+    // An adjustment outside a C int: macOS 14's nice prints "invalid nice value" and runs nothing.
+    [`nice -n 2147483648 node ${G}`, PROGRESS, ownDescribe],
+    [`nice -n -2147483649 bash ${RG}`, RELEASE, releaseDescribe],
+    // A quoted digit is a word: this runs a program called 2.
+    [`'2'>/dev/null node ${G}`, PROGRESS, ownDescribe],
+  ]) {
+    assert.equal(classifyHook(hook(command), identity), 'unclear', command);
+    assert.equal(classifyHook(hook(command, describe), identity), 'unclear', command);
+  }
+  // Quotes are gone by the time the reader sees a word, so a quoted expansion is refused too. It runs; this is an over-refusal,
+  // which a user can undo by hand, never a guess.
+  assert.equal(classifyHook(hook(`sudo -p "$P" node ${G}`), PROGRESS), 'unclear');
+  // None of that makes a hook that does run the gate unclear.
+  for (const command of [
+    `node ${G} 2>/dev/null`,
+    `2>/dev/null node ${G}`,
+    `node ${G} </dev/null`,
+    `timeout 5 node ${G} >/dev/null 2>&1`,
+    `nice -n 2147483647 node ${G}`,
+    `nice -n -2147483648 node ${G}`,
+    `sudo -p '%p: ' -u x node ${G}`,
+  ]) {
+    assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', command);
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'ours', command);
+  }
+});
+
 test('anything that is not a hook with a string command belongs to nobody, and throws nothing', () => {
   for (const value of [null, undefined, 'x', 42, [], {}, { command: 5 }, { type: 'command' }, { command: ['a'] }]) {
     assert.equal(classifyHook(value, PROGRESS), null, JSON.stringify(value));
@@ -534,16 +599,18 @@ test('commands are split into words the way sh splits them', () => {
   assert.deepEqual(shellCommands('a\\\nb'), [['ab']], 'a backslash-newline is a line continuation');
   assert.deepEqual(shellCommands("echo 'unbalanced"), [['echo', 'unbalanced']]);
   assert.deepEqual(shellCommands('a#b "#" \'#\''), [['a#b', '#', '#']], 'a # inside a word or quotes is not a comment');
-  assert.deepEqual(shellCommands('node gate.mjs > /tmp/out'), [['node', 'gate.mjs', '/tmp/out']]);
+  // A redirection's target is a file, not a word of the command.
+  assert.deepEqual(shellCommands('node gate.mjs > /tmp/out'), [['node', 'gate.mjs']]);
   assert.deepEqual(shellCommands(''), []);
   assert.deepEqual(shellCommands('   ;; &&  '), []);
   // A substitution stays inside the word it is part of, and does not end the command.
   assert.deepEqual(shellCommands('node $(echo a; b) "x$(c)" `d e` | f'), [['node', '$(echo a; b)', 'x$(c)', '`d e`'], ['f']]);
-  // `&>`, `>&`, `>|` and `2>&1` redirect; they do not end a command.
-  assert.deepEqual(shellCommands('a &> b; c 2>&1 >| d'), [['a', 'b'], ['c', '2', '1', 'd']]);
-  // A here-document's body is data, not commands.
-  assert.deepEqual(shellCommands("cat <<'EOF'\nnot a command\nEOF\nnext"), [['cat', 'EOF'], ['next']]);
-  assert.deepEqual(shellCommands('cat <<-END\n\tnot a command\n\tEND\nnext <<< here'), [['cat', 'END'], ['next', 'here']]);
+  // `&>`, `>&`, `>|` and `2>&1` redirect; they do not end a command, and a descriptor number right against one is part of it.
+  assert.deepEqual(shellCommands('a &> b; c 2>&1 >| d'), [['a'], ['c']]);
+  assert.deepEqual(shellCommands("c '2'>x 3 >y <>z"), [['c', '2', '3']], 'a quoted digit, or one set apart, is a word');
+  // A here-document's body is data, not commands, and neither its delimiter nor a here-string is a word.
+  assert.deepEqual(shellCommands("cat <<'EOF'\nnot a command\nEOF\nnext"), [['cat'], ['next']]);
+  assert.deepEqual(shellCommands('cat <<-END\n\tnot a command\n\tEND\nnext <<< here'), [['cat'], ['next']]);
   // An array assignment is one word.
   assert.deepEqual(shellCommands('a=(x y) b'), [['a=(x y)', 'b']]);
 });
