@@ -40,19 +40,27 @@ defect in the other.
    chosen to match the result.
 2. **Take a clean clone, and a newcomer who is not the author.** A fresh checkout at the baseline
    revision with the drafted files copied in, in a directory carrying none of the drafting
-   session's context, none of its caches and none of its uncommitted files. The reader must be a
+   session's context, none of its caches and none of its uncommitted files. The clone is
+   disposable and its remote is removed before the newcomer starts — `git remote remove origin`,
+   because a clone whose origin is somebody's working copy is one `git push` away from writing into
+   it. The child is given the clone path and the task, and no write-capable tool the task does not
+   need; where the harness cannot withhold them, that is a degradation the report states. The reader must be a
    person, or a child session given only that path and the task — never the session that wrote the
    files, which cannot un-know what it left out. Drafting in the same tree makes every step pass.
-3. **Read only what the documentation routes you to**, in the order it routes you. Do not open a
+3. **Where the repository is documents rather than code, the task is still a task.** Find the home
+   of a named fact and prepare the change to it, stopping before anything is pushed. "Read the
+   documentation" is not a task, and a repository with no build to run still has a main thing
+   people come to it to do.
+4. **Read only what the documentation routes you to**, in the order it routes you. Do not open a
    spec because you know it explains the thing. Being unable to find something is the finding.
-4. **Do only what is safe.** No commit, no push, no pull request, no write to any third-party
+5. **Do only what is safe.** No commit, no push, no pull request, no write to any third-party
    system, no container, nothing that spends money or notifies a person. Where a step would do one
    of those, stop at the boundary and record that you stopped there — a step that could not be
    attempted is a result, not a pass.
-5. **Record every stop.** What the documentation said, what happened, and what you would have
+6. **Record every stop.** What the documentation said, what happened, and what you would have
    needed to know. Include the small ones: the missing example, the unexplained abbreviation, the
    "ask the owner" that does not say who the owner is.
-6. **Fix, then re-run from the same clean state.** A fix verified in the tree where it was written
+7. **Fix, then re-run from the same clean state.** A fix verified in the tree where it was written
    is not verified. Re-clone.
 
 ## What counts as a blocker
@@ -77,6 +85,8 @@ The test is worth running degraded. It is not worth **claiming** undegraded.
 | The newcomer's real permissions | Everything the reader can read | Whether the reader could have performed the step at all | "Permissions not reproduced; the access steps were read, not run." |
 | Access to a third-party system | Every local step | The half of the task that leaves the machine | "Stopped at the boundary; the remaining N steps were not attempted." |
 | A human newcomer | Most of it | Whatever a person would have found confusing but an agent would not | "Run by an agent session." |
+| A reader who had not already read the source | Routing, gaps, missing examples | Anything the reader supplies from memory of the code rather than from the documentation | "Run by a session that had already read the source." |
+| Anything drafted — an `audit` | Whether the documentation as it stands routes a reader to the answer | Any defect a draft would have introduced | "Run against the documentation as it stands; nothing was drafted." |
 
 A planned test that returned no results is not a run. Report it as not run, never as passed: in
 the pilot's first round, the test was planned, produced nothing, and the draft carried on as

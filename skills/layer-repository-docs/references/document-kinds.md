@@ -54,6 +54,10 @@ instead of a morning.
 | the status list | Working: list | the owner and any active session | `strike through and date` |
 | the build output | Generated | nobody; machines read it | `never` |
 
+One line under the table records the revision whose sources were last read for it — `sources re-read
+at <sha>` — the one freshness stamp worth carrying, because it names something a reader can check,
+and because it is where a later `update` run starts.
+
 State the repository's tier in one line of the docs map — or, at the lowest tier, in the README,
 since there is no map.
 

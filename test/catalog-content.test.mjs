@@ -29,6 +29,8 @@ const visualiseBlastArea = await read('skills/visualise-blast-area/SKILL.md');
 const landComplexChange = await read('skills/land-complex-change/SKILL.md');
 const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
 const layerRepositoryDocs = await read('skills/layer-repository-docs/SKILL.md');
+const layerRepositoryDocsEntryPoints = await read('skills/layer-repository-docs/references/entry-points.md');
+const layerRepositoryDocsEvaluation = await read('docs/layer-repository-docs/evaluation.md');
 const newUxDiscovery = await read('skills/new-ux-discovery/SKILL.md');
 const releaseNotes = await read('skills/release-notes/SKILL.md');
 
@@ -59,10 +61,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.17.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.17.0');
-  assert.equal(rootLock.version, '0.17.0');
-  assert.equal(rootLock.packages[''].version, '0.17.0');
+test('v0.18.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.18.0');
+  assert.equal(rootLock.version, '0.18.0');
+  assert.equal(rootLock.packages[''].version, '0.18.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -429,4 +431,62 @@ test('layer-repository-docs carries no organisation marks and states what it doe
   for (const sibling of ['derive-codebase-context', 'investigate-codebase', 'workspace-governance']) {
     assert.match(layerRepositoryDocs, new RegExp(sibling));
   }
+});
+
+test('layer-repository-docs states three entry points, the announcement, and the report contract', () => {
+  // A word after the skill name binds to nothing unless the body says what it selects: six graded
+  // trial runs each cut the procedure into a different subset, and two runs given the identical
+  // word produced reports that could not be compared.
+  const entryPoints = layerRepositoryDocs.slice(
+    layerRepositoryDocs.indexOf('\n## Entry points'),
+    layerRepositoryDocs.indexOf('\n## When to Use'),
+  );
+  assert.notEqual(entryPoints, '', 'SKILL.md must carry an "## Entry points" section before "## When to Use"');
+  const rows = entryPoints.split('\n').filter((line) => /^\| `/.test(line));
+  assert.equal(rows.length, 3, 'the entry-points table must carry exactly one row per entry point');
+  for (const [index, name] of ['audit', 'draft', 'update'].entries()) {
+    assert.match(rows[index], new RegExp('^\\| `' + name));
+    // Selected by, scope, what it may write, what it hands back: a row missing one of those is
+    // the guesswork the entry points exist to remove.
+    assert.equal(rows[index].split('|').filter((cell) => cell.trim() !== '').length, 5);
+  }
+  assert.match(entryPoints, /Announce the entry point in one line before the first read, and never ask which to run/);
+  assert.match(entryPoints, /\[entry points\]\(references\/entry-points\.md\)/);
+
+  // Each entry point's own section states all four, so a run knows where it must stop.
+  for (const label of ['\\*\\*Scope\\.\\*\\*', '\\*\\*May write\\.\\*\\*', '\\*\\*Runs\\.\\*\\*', '\\*\\*Hands back\\.\\*\\*']) {
+    const matches = layerRepositoryDocsEntryPoints.match(new RegExp(label, 'g')) ?? [];
+    assert.equal(matches.length, 3, `references/entry-points.md must state ${label} for each of the three entry points`);
+  }
+  for (const name of ['audit', 'draft', 'update']) {
+    assert.match(layerRepositoryDocsEntryPoints, new RegExp('^## `' + name, 'm'));
+  }
+
+  // One report shape for all three: a trial run's findings existed only as counts, and the run
+  // reported them delivered.
+  const contract = layerRepositoryDocs.slice(
+    layerRepositoryDocs.indexOf('\n## The report contract'),
+    layerRepositoryDocs.indexOf('\n## Usage Examples'),
+  );
+  assert.notEqual(contract, '', 'SKILL.md must carry a "## The report contract" section');
+  assert.match(contract, /80 lines/);
+  assert.match(contract, /If no file can be written, the four parts above go\s+inline/);
+  assert.match(contract, /a total whose rows exist nowhere is a failed run/);
+  assert.match(layerRepositoryDocs, /- \[ \] The entry point was announced in one line before the first read/);
+});
+
+test('layer-repository-docs publishes how it is evaluated, and says what is unmeasured', () => {
+  assert.doesNotMatch(layerRepositoryDocsEvaluation, /\bCUE\b|\bRGC\b/);
+  assert.doesNotMatch(layerRepositoryDocsEntryPoints, /\bCUE\b|\bRGC\b/);
+  // The catalogue's other checks never run a skill; this page is the record of one that does.
+  for (const claim of [
+    'claude plugin eval',
+    'skill-doctor',
+    'does not exist yet',
+  ]) {
+    assert.match(layerRepositoryDocsEvaluation, new RegExp(claim));
+  }
+  assert.match(readme, /\[Entry points\]\(skills\/layer-repository-docs\/references\/entry-points\.md\)/);
+  assert.match(readme, /\[its evaluation protocol\]\(docs\/layer-repository-docs\/evaluation\.md\)/);
+  assert.match(releases, /\[the evaluation page\]\(layer-repository-docs\/evaluation\.md\)/);
 });

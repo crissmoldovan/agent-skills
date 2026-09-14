@@ -23,11 +23,15 @@ is still the version on the default branch.
    qualifier per row. "Never push, and never commit unless asked" is two rows, because a draft can
    easily keep one and lose the other. Splitting too finely costs a few minutes; splitting too
    coarsely is how a qualifier disappears inside a rule that was "kept".
-4. **Give every row a verdict** from the five below, with the evidence for it.
+4. **Give every row a verdict** from those below, with the evidence for it.
 5. **Report the weakened and lost rows individually**, to the person who owns the file. A total
    ("81 rows, 2 lost") hides exactly the rows the audit exists to surface.
 
-## The five verdicts
+**Save the rows before you quote a total.** Every number in the report is counted from the table,
+and the table is a file the report can link. A total with no rows behind it cannot be checked by
+the person it is shown to, and "0 lost" is the total most worth checking.
+
+## The verdicts
 
 | Verdict | What it means | What the row must carry |
 |---|---|---|
@@ -36,6 +40,10 @@ is still the version on the default branch.
 | **dropped deliberately** | Deliberately not carried forward | The reason, in one sentence, and who it was shown to |
 | **weakened** | Present, but narrower, softer, or missing a qualifier | Both wordings, side by side |
 | **lost** | Not present anywhere, and not deliberate | The old wording, verbatim |
+
+**A sixth verdict, in an `update` run: `corrected`.** A passage the update brings back into line
+with a source that moved — the row carries both wordings and the `path:line` that moved. It exists
+so that a correction is not filed as `kept`, which would make the audit say nothing changed.
 
 **`weakened` is the verdict people skip.** It is easier to mark a row `kept` because the topic
 survived. The test is not whether the topic survived — it is whether the *same instruction* would

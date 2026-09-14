@@ -17,6 +17,9 @@ unverifiable.** Twenty-six of fifty-nine wrong or misleading, in a document whos
 sound. The errors were not careless; they were plausible. That is the failure mode of
 documentation drafted by a model, and the only defence is enumeration.
 
+**What "the draft" means when nothing was drafted.** In an `audit` the draft is the documentation
+as it stands: the same enumeration, over the files that are already there.
+
 **What counts as a checkable claim.** Any sentence naming a command, a flag, a path, a file, an
 environment variable, a count, a version, a trigger, a behaviour, or an external citation. Do not
 enumerate the prose that says what the repository is for — that is a judgement, and it belongs to
@@ -85,6 +88,10 @@ Two more that belong in this pass because nothing else catches them:
 - **A claim about another repository stated as fact.** Anything the run discovered elsewhere —
   especially a security finding — is reported with what was actually read, when, and by what
   means, and is that repository's work rather than this one's.
+
+**In an `audit`, pass two produces findings and decisions, not edits.** The five are written as
+corrections because a drafting run makes them; a run that may write nothing in the repository
+reports each one and names whose decision it is.
 
 ## Finishing honestly
 

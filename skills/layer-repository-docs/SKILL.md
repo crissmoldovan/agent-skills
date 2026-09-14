@@ -1,8 +1,8 @@
 ---
 name: layer-repository-docs
-description: "Make a repository's documentation legible when an organisation has more repos than anyone can track: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context."
+description: "Make a repository's documentation legible when an organisation has more repos than anyone can track, through three entry points — audit read-only, draft the layers, update what a change overtook: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, check whether the docs are still true, update the docs after the code moved, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context."
 license: MIT
-compatibility: "Any repository the agent can read, with git to record a baseline revision and read files at it rather than through a README. A second clean clone makes the newcomer test real; without one it degrades, and the skill says so. A forge CLI compares the README description line with the registered description; without one that check is reported as not run. Output is drafted files, a rot list, a loss audit and a verification report; nothing is committed."
+compatibility: "Any repository the agent can read, with git to record a baseline revision and read files at it rather than through a README. A second clean clone makes the newcomer test real; without one it degrades, and the skill says so. A forge CLI compares the README description line with the registered description; without one that check is reported as not run. Output depends on the entry point: always a report, plus drafted files and a loss audit where something is replaced. Nothing is committed."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
@@ -88,6 +88,34 @@ complete list of documents, and it is where the repository's tier is stated.
 
 Install the companions with `npx skills add crissmoldovan/agent-skills`.
 
+## Entry points
+
+One procedure, three ways in. They differ in what may be touched, which steps run, and what comes
+back. The word that selects one arrives however the harness delivers it — the word after the skill
+name, an `ARGUMENTS:` line appended to these instructions, or the phrasing of the request itself.
+
+| Entry point | Selected by | Scope | May write | Hands back |
+|---|---|---|---|---|
+| `audit` | `check`, `need`, `audit`, `review`; no word; any word not listed here | every tracked document at the baseline | nothing in the repository | the report, the numbered claim list, the credential scan |
+| `draft <files>` | `draft`, `ensure`, `write`, `layer`; "give it a readme and a manual" | the files named, or the layers whose triggers have fired | those files, pointer-only edits where content moved, a one-line status correction in a document the drafts route readers to | the report, every weakened and lost row, the land commands unrun |
+| `update` | `update`, `refresh`; "the code moved under the docs" | the diff from the previous baseline to `HEAD` | overtaken passages of the README and manual, working documents as a separate patch, the baseline line | a delta report |
+
+**Announce the entry point in one line before the first read, and never ask which to run.**
+
+```text
+layer-repository-docs · audit — read-only, baseline <baseline-sha>; writes nothing in the repository; report only
+```
+
+Reading git metadata — the clone, `rev-parse`, the log — comes before the announcement, because the
+line carries the baseline; reading a file for its content comes after. An `update` announces its
+range rather than a single revision.
+
+A request that names no file to produce and asks for no change is an `audit`: guessing toward
+read-only costs the reader one word, and guessing the other way costs them a diff they did not ask
+for. An unrecognised word is an `audit` whose announcement says the word was not recognised. A run
+that changes entry point announces again rather than drifting into writing. Each one's scope, steps
+and output in full are in [entry points](references/entry-points.md).
+
 ## When to Use
 
 - A repository has no README, or one so long that nobody reads past the first screen.
@@ -109,6 +137,10 @@ And do not use it on a document nobody reads: a document with no reader, or with
 is deleted rather than restructured, because version control keeps the history.
 
 ## Prerequisites
+
+A prerequisite an entry point cannot satisfy is recorded as not applicable with its reason, the same
+as a step: an `audit` replaces nothing, so it has no list of files to replace and no drafts to put in
+front of a newcomer.
 
 1. **A baseline revision, recorded before anything is read for content.** Resolve the default
    branch to a sha and write it into the draft. Every claim is checked against the files at that
@@ -141,6 +173,10 @@ is deleted rather than restructured, because version control keeps the history.
 
 ## Procedure
 
+The seven steps below are the whole method; the entry point decides which of them run. A step an
+entry point does not run is **named as not applicable, with its reason** — an unmentioned step reads
+as a step that passed.
+
 1. **Inventory what exists, and classify every document by kind.** List every tracked
    documentation file, including the ones at the root that nobody planned: session prompts,
    handover notes, conversation records. Give each one a kind, an audience and an edit rule. Then
@@ -158,17 +194,21 @@ is deleted rather than restructured, because version control keeps the history.
    document that owns it; and a credential written into prose. Report a credential by its file
    and its line **without reading, printing or copying the value**. Whether to change it is the
    owner's decision, and it is frequently another repository's work.
+   Read the repository's own standing instructions for agent sessions before this pass, not after it:
+   a subject the owner has already closed is listed apart as **held back**, with where it is closed,
+   rather than raised again as though it were new. Every finding says whether the repository already
+   tracks it or nobody has recorded it yet, because those go to different people.
    The pass itself, and the six shapes with what each costs, are in
    [one home per fact](references/one-home-per-fact.md).
-   **Complete when:** every finding names its file, its line, the source that contradicts it, and
-   which file should be its home.
+   **Complete when:** every finding names its file, its line, the source that contradicts it, which
+   file should be its home, and whether it is already tracked.
 
 3. **Draft only what the tier needs, and draft it from source.** Write the README to the quick
    start contract, the manual to the tasks-and-reference split if its trigger has fired, and
    nothing else. Every command, flag, path, environment variable, count and citation in the draft
    comes from the file that owns it at the baseline revision. Where the repository's registered
    description and the README's description line differ, say so and leave the registered one
-   alone; changing it is the owner's.
+   alone; changing it is the owner's. That comparison is not drafting: an `audit` runs it too.
    What each layer contains, in order, and what is banned from it, are in
    [layer contents](references/layer-contents.md).
    **Complete when:** each drafted file exists in full, and every claim in it can be traced to a
@@ -184,8 +224,12 @@ is deleted rather than restructured, because version control keeps the history.
    the other repository does not have, and a standing instruction that told agents a class of gap
    was deferred and **not to be chased** quietly dropped, which turns into an agent chasing the
    owner about it a week later. The method is in [the loss audit](references/loss-audit.md).
-   **Complete when:** every fact and rule in every replaced file carries one of the five
-   verdicts, and the weakened and lost rows are shown to the owner rather than buried in a total.
+   Save the rows before quoting any total, and count every total from the saved table: a run that
+   reports "0 lost" out of a number nothing can be checked against has audited nothing. An `update`
+   run adds a sixth verdict, **corrected**, for a passage it brings back into line.
+   **Complete when:** every fact and rule in every replaced file carries one of those
+   verdicts, the rows exist as a table the report can link, and the weakened and lost rows are shown
+   to the owner rather than buried in a total.
 
 5. **Run the newcomer test in a clean clone.** Someone who has not seen this repository follows
    the README, then the manual, and performs the repository's main task — in a fresh checkout,
@@ -202,13 +246,18 @@ is deleted rather than restructured, because version control keeps the history.
    other findings was a check command that printed nothing at all when run in a non-interactive
    session rather than a terminal. The protocol, and what makes a run worthless, are in
    [the newcomer test](references/newcomer-test.md).
+   In a repository that is documents rather than code, the main task is to find the home of a named
+   fact and prepare the change, stopping before anything is pushed. Any edit made later, in step 6,
+   sends this test back to a clean state and it runs again — a newcomer test whose files have since
+   changed tested a draft that no longer exists.
    **Complete when:** the main task was attempted end to end, every place the newcomer stopped is
    recorded as a defect, and each defect that was fixed has been re-run from the same clean state.
 
 6. **Check every claim against source, then check the draft for overreach.** Two separate passes,
    because they find different things. The first enumerates the checkable claims and gives each a
-   verdict against a path at the baseline revision. The second reads the draft for what it
-   *asserts about itself*: a proposal written as though already adopted, a pointer to an authority
+   verdict against a path at the baseline revision — where nothing was drafted, "the draft" is the
+   documentation as it stands. The second reads the draft for what it *asserts about itself*: a
+   proposal written as though already adopted, a pointer to an authority
    that does not exist yet, a freshness stamp claiming a review nobody performed, a conformance
    statement made while the repository fails items of its own checklist. Both are in
    [the claim check](references/claim-check.md).
@@ -219,11 +268,40 @@ is deleted rather than restructured, because version control keeps the history.
    run is worse than no draft, because it spends the reader's scepticism in the wrong place and
    they stop looking. Hand back the tier and its reasons, the inventory, the rot list, the loss
    audit, the newcomer test's blockers, each check with the result it actually produced, the
-   decisions the owner must make, and everything that could not be verified marked as unknown.
-   **Complete when:** the report distinguishes what was run from what was inferred, names every
-   unknown, and nothing has been committed.
+   decisions the owner must make, and everything that could not be verified marked as unknown — in
+   the shape the report contract below fixes, because a report nobody finishes reading was not
+   delivered.
+   **Complete when:** the report follows the contract, distinguishes what was run from what was
+   inferred, names every unknown, and nothing has been committed.
+
+## The report contract
+
+Every entry point ends the same way, in this order:
+
+1. **A verdict line with counts** — what was run, and what it found.
+2. **The ranked findings**, worst first: an id, `file:line`, what it says, the `path:line` that
+   contradicts it, the file that should own it, the verdict, and whether it is already tracked.
+3. **The owner's decisions**, each one answerable without opening a file.
+4. **What was run, what was inferred, and what is unknown**, kept apart.
+
+Cap the report at about 80 lines. Longer tables belong in files the report links, and the findings
+are ranked so that the reader can stop early. **If no file can be written, the four parts above go
+inline** and the longer tables are offered rather than pasted — a finding that reached no one was not
+a finding. Every total in the report — findings, claims, credential locations — is counted from rows
+that were saved, and a total whose rows exist nowhere is a failed run, not a short one.
 
 ## Usage Examples
+
+A bare word picks the entry point — `check` or `need` audits, `draft` or `ensure` writes the layers,
+`update` takes the delta — and the run says which it chose before it starts. In a harness with slash
+commands that is
+
+```text
+/layer-repository-docs check
+```
+
+Everything below selects an entry point by phrasing instead, which is how it reads in an agent with
+no slash commands:
 
 ```text
 This repo has grown three files at the root that all claim to explain it and none of them
@@ -287,19 +365,26 @@ every place a newcomer would get stuck. I want the weakened rules listed individ
 
 ## Verification
 
+- [ ] The entry point was announced in one line before the first read, and no run stopped to ask
+      which one to take.
+- [ ] Every step the entry point did not run is named as not applicable, with its reason.
+- [ ] The report follows the contract and its cap, or says why it had to be inline, and every total
+      in it comes from rows that were saved.
 - [ ] The baseline revision is recorded, and every claim was checked against files at it.
-- [ ] Every tracked documentation file appears in the docs map with a kind, an audience and an
-      edit rule, and the tier is stated with its reasons.
+- [ ] Every tracked documentation file was inventoried, with a kind, an audience and an edit rule,
+      and the tier is stated with its reasons — in the docs map where one is written.
 - [ ] Each rot finding names a file, a line, the source that contradicts it, and its proper home.
 - [ ] No credential value was read, printed or copied; any credential found is reported by file
       and line only.
-- [ ] Every fact and rule in every replaced file has one of the five loss-audit verdicts, and the
-      weakened and lost rows are listed individually.
-- [ ] The newcomer test ran in a clean clone, or the report says it was degraded and how.
+- [ ] (`draft`, `update`) Every fact and rule in every replaced or edited passage has one of the
+      loss-audit verdicts, and the weakened and lost rows are listed individually.
+- [ ] The newcomer test ran in a clean clone, or the report says it was degraded and how, or — on an
+      `update` where no command, path or task step changed — that it was not run, and why.
 - [ ] Every blocker the newcomer hit is recorded, and every fix was re-run from a clean state.
-- [ ] Every checkable claim in the draft has a verdict against a path at the baseline revision.
-- [ ] No drafted file claims a status, an authority, a review or a conformance that does not
-      exist, and nothing links to a document that has not been created.
+- [ ] Every checkable claim has a verdict against a path at the baseline revision — in the drafts
+      where something was drafted, in the documentation as it stands where nothing was.
+- [ ] (`draft`, `update`) No drafted file claims a status, an authority, a review or a conformance
+      that does not exist, and nothing links to a document that has not been created.
 - [ ] No count, deploy-time variable name, endpoint or real personal address appears outside its
       home without a date and a link; examples use patterns and `example.com` addresses.
 - [ ] Each proposed check was run against recent merged pull requests before being proposed as a
@@ -312,6 +397,8 @@ than left to look like the rest.
 
 ## Deeper reading
 
+- [Entry points](references/entry-points.md): the three ways in, how a request selects one without
+  a question, and the scope, permitted writes, steps and output of each.
 - [Layer contents](references/layer-contents.md): what belongs in the quick start, the manual and
   the handbook, in order; what is banned from each; and the length thresholds, marked as opinion.
 - [Document kinds](references/document-kinds.md): every kind beside the three layers with its
@@ -320,7 +407,7 @@ than left to look like the rest.
 - [One home per fact](references/one-home-per-fact.md): the fact-to-home table, the short list of
   things that may be repeated, and how to run the pass that finds violations.
 - [The loss audit](references/loss-audit.md): how to split a replaced file into facts and rules,
-  the five verdicts, and what a weakened rule costs.
+  the verdicts, and what a weakened rule costs.
 - [The newcomer test](references/newcomer-test.md): the protocol, what the newcomer is allowed to
   do, what counts as a blocker, and the shapes of defect only this pass finds.
 - [The claim check](references/claim-check.md): enumerating checkable claims, the five verdicts a
