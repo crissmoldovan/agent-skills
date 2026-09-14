@@ -58,13 +58,18 @@
  * with `--adopt` it is removed or replaced. `--remove` never reports the gate gone while any hook still runs it,
  * or may, and exits 1 when one does; and while any hook still names the gate file it never says no gate was
  * installed: it names each hook it left, with its reason and kind. NEVER TAKEN, with any flag and whatever describe it
- * wears, for exactly four reasons and no other (`neverTakenReason` in `./hook-ownership.mjs`): a MENTION, the gate file
- * named only as an argument of a program that does not run it (echo, cat, shellcheck, rm, unlink, xxd and the like), in
- * that shape or any other, only in what flows only into such programs, or only in a shell comment
- * (`true # release-notes-gate.sh`), and nowhere else in the command; a WRITE TARGET, a redirection that writes to the
- * gate file, in `sh -c`, `eval`, a here-document or a substitution too; a DIFFERENT FILE, where every path with the gate
- * file's name in it ends in another name (`release-notes-gate.sh.orig`, `/x/release-notes-gate.sh/run.sh`); and a
- * describe somebody else wrote. A hook where this installer cannot tell whether the gate
+ * wears, for exactly four reasons and no other (`neverTakenReason` in `./hook-ownership.mjs`): a MENTION, every place the
+ * gate file is named reaching only a program that does not run it (echo, cat, wc, shellcheck, rm, unlink, xxd and the
+ * like), in that shape or any other — as its argument, on its stdin via a pipe, a here-string, a here-document or a `<`
+ * redirection, or in a shell comment (`true # release-notes-gate.sh`), with nothing that program prints flowing on, and
+ * nowhere else in the command, so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions and `bash < '<gate>'` is not; a
+ * WRITE TARGET, a redirection that writes to the gate file, in `sh -c`, `eval`, a here-document or a substitution too; a
+ * DIFFERENT FILE, where every path with the gate file's name in it ends in another name (`release-notes-gate.sh.orig`,
+ * `/x/release-notes-gate.sh/run.sh`); and a describe somebody else wrote. A reason holds only when every word naming the
+ * gate is plain literal text (the CERTAINTY rule): an expansion this installer does not resolve — a parameter expansion
+ * with an operator (`${G%.bak}`), indirection, brace expansion or arithmetic, or a substitution feeding an executing
+ * program — may turn a lookalike into the gate (`G=<gate>.bak; bash "${G%.bak}"` runs it), so such a hook is unclear, not
+ * a reason. A hook where this installer cannot tell whether the gate
  * runs — the shape above run by a program it does not know, `bash5` or `/usr/bin/env` among them — is named, and a
  * run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting one
  * that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate file's
@@ -164,8 +169,10 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          hand-wiring, or its own shape run by another shell (/bin/bash, sh, zsh): --remove
          removes it, and an install replaces it. It also takes over every hook this installer
          cannot fully read — a wrapper form it does not recognise, the gate file in an
-         option's value or read on stdin, its own shape run by a program it does not know
-         (bash5, /usr/bin/env), or this installer's own describe over a command that never
+         option's value or read on the stdin of an interpreter or shell (bash < '<gate>',
+         bash <<< '<gate>'), a hook whose gate name passes through an expansion it does not
+         resolve (G=<gate>.bak; bash "\${G%.bak}"), its own shape run by a program it does not
+         know (bash5, /usr/bin/env), or this installer's own describe over a command that never
          names the gate file — and prints each one: "Took over 1 hook this installer could not
          fully read: PreToolUse (matcher Bash)." Not needed for this installer's own hook: a
          hook whose whole command is exactly what it writes — the
@@ -173,13 +180,18 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          and nothing else — is recognised with no flag, including after Claude Code has
          dropped its describe, and so is a hook that runs the gate under this installer's own
          describe. Never taken, with or without --adopt, for exactly four reasons: a mention
-         (the gate file only as an argument of a program that does not run it, as echo, cat,
-         unlink or shellcheck, only in what flows only into such programs, or only in a shell
-         comment, and nowhere else in the command); a write target (a redirection writes to
-         the gate file, in sh -c, eval, a here-document or a substitution too, even in a hook
-         that also runs it); a different file (every path with the gate file's name in it
-         ends in another name: release-notes-gate.sh.orig, /x/release-notes-gate.sh/run.sh);
-         and a describe something else wrote. Known limits: a glob that matches the gate
+         (the gate file reaching only a program that does not run it, as echo, cat, wc, unlink
+         or shellcheck do — as its argument, on its stdin via a pipe, a here-string, a
+         here-document or a < redirection, or in a shell comment, and nowhere else in the
+         command, so wc -l < '<gate>' is a mention and bash < '<gate>' is not); a write target
+         (a redirection writes to the gate file, in sh -c, eval, a here-document or a
+         substitution too, even in a hook that also runs it); a different file (every path
+         with the gate file's name in it ends in another name: release-notes-gate.sh.orig,
+         /x/release-notes-gate.sh/run.sh); and a describe something else wrote. A reason holds
+         only when every word naming the gate is plain literal text (the certainty rule): a
+         hook whose gate name passes through a parameter-expansion operator, indirection,
+         brace expansion, arithmetic or a substitution feeding a program that runs it is left
+         unclear, taken only by --adopt. Known limits: a glob that matches the gate
          without its name written out is not read as naming it; a group whose hooks is not an
          array is not read; control flow is read by structure; a write through a program's
          argument (sed -i, dd of=, curl -o) is not a write target, so --adopt may take it.

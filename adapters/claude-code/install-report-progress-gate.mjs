@@ -137,12 +137,17 @@
  * `--mode` is named.
  *
  * NEVER TAKEN, with any flag and whatever describe it wears, for exactly four reasons and no other (`neverTakenReason`
- * in `./hook-ownership.mjs`): a MENTION, the gate file named only as an argument of a program that does not run it
- * (echo, cat, rm, unlink and the like), only in what flows only into such programs, or only in a shell comment, and
- * nowhere else in the command; a WRITE TARGET, a redirection that writes to the gate file, in `sh -c`, `eval`, a
- * here-document or a substitution too; a DIFFERENT FILE, where every path with the gate file's name in it ends in
- * another name (`install-report-progress-gate.mjs`, `/x/report-progress-gate.mjs/index.mjs`); and a describe somebody
- * else wrote. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
+ * in `./hook-ownership.mjs`): a MENTION, every place the gate file is named reaching only a program that does not run it
+ * (echo, cat, wc, rm, unlink and the like) — as its argument, on its stdin via a pipe, a here-string, a here-document or a
+ * `<` redirection, or in a shell comment — with nothing that program prints flowing on, and nowhere else in the command,
+ * so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions and `node <<< '<gate>'` is not; a WRITE TARGET, a redirection
+ * that writes to the gate file, in `sh -c`, `eval`, a here-document or a substitution too; a DIFFERENT FILE, where every
+ * path with the gate file's name in it ends in another name (`install-report-progress-gate.mjs`,
+ * `/x/report-progress-gate.mjs/index.mjs`); and a describe somebody else wrote. A reason holds only when every word naming
+ * the gate is plain literal text (the CERTAINTY rule): an expansion this installer does not resolve — a parameter expansion
+ * with an operator (`${G%.bak}`), indirection, brace expansion or arithmetic, or a command substitution feeding an executing
+ * program — may turn a lookalike into the gate (`G=<gate>.bak; node "${G%.bak}"` runs it), so such a hook is unclear, not a
+ * reason. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
  * and a run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting
  * one that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate
  * file's name anywhere in a command, option values included, so it takes over every one that does not write to
@@ -301,9 +306,11 @@ block    hold the turn for one more round when an armed turn ends without a prog
          hand-wiring, or its own shape with a bare node: --remove removes it, and an install
          replaces it, keeping the level and mode its command runs at when no --coverage or
          --mode is given. It also takes over every hook this installer cannot fully read — a
-         wrapper form it does not recognise, the gate file in an option's value or read on
-         stdin, its own shape run by a program it does not know (deno, a wrapper script), or
-         this installer's own describe over a command that never names the gate file — and
+         wrapper form it does not recognise, the gate file in an option's value or read on the
+         stdin of an interpreter or shell (node <<< '<gate>', bash < '<gate>'), a hook whose
+         gate name passes through an expansion it does not resolve (G=<gate>.bak; node
+         "\${G%.bak}"), its own shape run by a program it does not know (deno, a wrapper script),
+         or this installer's own describe over a command that never names the gate file — and
          prints each one: "Took over 1 hook this installer could not fully read: Stop
          (matcher *)." Not needed for this installer's own hooks: a hook whose whole command
          is exactly what a version of it wrote — this gate's own AGENT_SKILLS_PROGRESS_GATE
@@ -312,13 +319,18 @@ block    hold the turn for one more round when an armed turn ends without a prog
          else — is recognised with no flag, including after Claude Code has dropped its
          describe, and so is a hook that runs the gate under this installer's own describe.
          Never taken, with or without --adopt, for exactly four reasons: a mention (the gate
-         file only as an argument of a program that does not run it, as echo, cat, rm or
-         unlink, only in what flows only into such programs, or only in a shell comment, and
-         nowhere else in the command); a write target (a redirection writes to the gate file,
-         in sh -c, eval, a here-document or a substitution too, even in a hook that also runs
-         it); a different file (every path with the gate file's name in it ends in another
-         name: install-report-progress-gate.mjs, /x/report-progress-gate.mjs/index.mjs); and
-         a describe something else wrote. Known limits: a glob that matches the gate without
+         file reaching only a program that does not run it, as echo, cat, wc, rm or unlink do
+         — as its argument, on its stdin via a pipe, a here-string, a here-document or a <
+         redirection, or in a shell comment, and nowhere else in the command, so wc -l <
+         '<gate>' is a mention and node <<< '<gate>' is not); a write target (a redirection
+         writes to the gate file, in sh -c, eval, a here-document or a substitution too, even
+         in a hook that also runs it); a different file (every path with the gate file's name
+         in it ends in another name: install-report-progress-gate.mjs,
+         /x/report-progress-gate.mjs/index.mjs); and a describe something else wrote. A reason
+         holds only when every word naming the gate is plain literal text (the certainty
+         rule): a hook whose gate name passes through a parameter-expansion operator,
+         indirection, brace expansion, arithmetic or a substitution feeding a program that
+         runs it is left unclear, taken only by --adopt. Known limits: a glob that matches the gate without
          its name written out is not read as naming it; a group whose hooks is not an array
          is not read; control flow is read by structure (false && node '<gate>' reads as
          running it); a write through a program's argument (sed -i, dd of=, curl -o) is not a

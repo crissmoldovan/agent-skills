@@ -422,8 +422,9 @@ manual gives on both macOS and Linux; the table is in
 `describe`: `--remove` names it and exits 1, and an install refuses. That covers a wrapper option or
 form it does not recognise (`nice -10`, `timeout -p 5`, `sudo -i`), which it never guesses past; the
 file as an argument of `xargs`, `time` or a wrapper script, or as an option's value; the file after
-`node --check`; the file a command reads on stdin; a pipe or a variable; its own shape run by a
-program it does not know; and its own `describe` over a command that never names the gate file.
+`node --check`; the gate read on the stdin of an interpreter or shell (`node <<< '<gate>'`,
+`bash < '<gate>'`); a pipe into one, or a variable; its own shape run by a program it does not know;
+and its own `describe` over a command that never names the gate file.
 **`--adopt` takes such a hook over**, whatever leads the command and wherever the gate path sits, as
 0.19.0 did, unless the hook also writes to the gate file; and it says when it did, naming each hook:
 `Took over 1 hook this installer could not fully read: Stop (matcher *).`
@@ -433,15 +434,25 @@ The installer could not tell whether such a hook runs the gate, so check it befo
 **It never takes a hook, with any flag and whatever its `describe` says, for exactly four reasons,
 and keeps a hook from `--adopt` for no other:**
 
-- **a mention** — the gate file named only as an argument of a program that does not run it (`echo`,
-  `cat`, `rm`, `unlink`), only in what flows only into such programs, or only in a shell comment, and
-  nowhere else in the command (`node '<gate>' # note` still runs the gate);
+- **a mention** — every place the gate file is named reaches only a program that does not run it
+  (`echo`, `cat`, `grep`, `wc`, `rm`, `unlink`): as its argument, on its stdin (a pipe, a here-string,
+  a here-document or a `<` redirection), or in a shell comment, with nothing that program prints
+  flowing on into anything else, and nowhere else in the command. `wc -l < '<gate>'` and
+  `cat <<< '<gate>'` are mentions; `node <<< '<gate>'` is not (an interpreter runs its stdin), and
+  `node '<gate>' # note` still runs the gate;
 - **a write target** — a redirection writes to the gate file, inside `sh -c`, `eval`, a here-document
   or a substitution too;
 - **a different file** — every path with the gate file's name in it ends in another name: a lookalike
   (`install-report-progress-gate.mjs`) or the gate file's name only as a directory
   (`/x/report-progress-gate.mjs/index.mjs`);
 - **another tool's `describe`**.
+
+A reason is returned only when every word naming the gate is plain literal text (**the certainty
+rule**): an expansion the installer does not resolve — a parameter expansion with an operator
+(`${G%.bak}`, `${G:=…}`), indirection, brace expansion or arithmetic, or a command substitution whose
+output feeds an executing program — may turn a lookalike into the gate (`G=<gate>.bak; node
+"${G%.bak}"` runs the gate) or the gate into another file, so such a hook is left unclear, which
+`--adopt` takes and `--remove` exits 1 over, never a mention or a different file.
 
 `--remove` names every hook it leaves that names the gate file, with the reason and its kind
 (`left alone: only mentions the gate file (comment)`, `left alone: names a different file (directory)`),

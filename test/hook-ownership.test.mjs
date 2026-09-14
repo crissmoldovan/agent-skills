@@ -1208,3 +1208,103 @@ test('a Node runtime normalises a trailing slash, a dot or a dot-dot in its scri
     assert.equal(takenAs(hook(command), RELEASE, { adopt: true }), null, `${command}: --adopt wrongly took a shell path that does not run`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// ONE CONSUMER ANALYSIS for the gate on stdin. A here-document body, a here-string and a `<` redirection all put the gate on the
+// program's stdin, and the same data flow spelled as a pipe (`echo '<gate>' | cat`) was already read as a mention. So the gate on
+// stdin is a mention when the program that reads it is one the reader knows does not run it and nothing it prints flows on into
+// anything else, and it is unclear when an interpreter, a shell, or an unknown program reads it — the same rule the pipe already
+// used. `wc -l < '<gate>'`, `cat <<< '<gate>'` and a here-document into `cat` become mentions; `node <<< '<gate>'`, `bash < '<gate>'`
+// and `cat '<gate>' | node` stay takeable by --adopt.
+// ---------------------------------------------------------------------------
+
+test('the gate on stdin is a mention when a program that does not run it reads it, and unclear when an interpreter or shell does', () => {
+  const { neverTakenReason, takenAs, findHooksNamingGate } = ownership;
+  const G = WRAPPED_GATE;
+  const RG = WRAPPED_RELEASE_GATE;
+  // Every stdin carrier — `<`, `<<<`, a here-document — into a program the reader knows does not run the gate is a mention: never
+  // taken with any flag, named as a mention by --remove.
+  const mentions = [
+    [`cat < ${G}`, PROGRESS],
+    [`wc -l < ${G}`, PROGRESS],
+    [`grep -c decision < ${G}`, PROGRESS],
+    [`cat <<< ${G}`, PROGRESS],
+    [`AGENT_SKILLS_PROGRESS_GATE=block grep -c x <<< ${G}`, PROGRESS],
+    ['cat <<\'EOF\'\n/pack/adapters/claude-code/report-progress-gate.mjs\nEOF', PROGRESS],
+    ['cat <<EOF\n/pack/adapters/claude-code/report-progress-gate.mjs\nEOF', PROGRESS],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block cat < ${RG}`, RELEASE],
+    [`shellcheck < ${RG}`, RELEASE],
+    [`cat <<< ${RG}`, RELEASE],
+  ];
+  for (const [command, identity] of mentions) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      assert.equal(classifyHook(hook(command, extra), identity), null, command);
+      assert.equal(neverTakenReason(hook(command, extra), identity), 'mention', command);
+      for (const adopt of [false, true]) assert.equal(takenAs(hook(command, extra), identity, { adopt }), null, `${command} adopt=${adopt}`);
+    }
+    assert.deepEqual(findHooksNamingGate({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity).map(({ why }) => why), ['mention'], command);
+  }
+  // The same carriers into an interpreter or a shell are unclear: --adopt takes them, and no flag does.
+  const unclear = [
+    [`node < ${G}`, PROGRESS],
+    [`node <<< ${G}`, PROGRESS],
+    ['node <<EOF\n/pack/adapters/claude-code/report-progress-gate.mjs\nEOF', PROGRESS],
+    [`bash < ${RG}`, RELEASE],
+    [`bash <<< ${RG}`, RELEASE],
+    [`sh < ${RG}`, RELEASE],
+    [`. < ${RG}`, RELEASE],
+    [`cat ${G} | node`, PROGRESS],
+    // An unknown program reading the gate on stdin is unclear too.
+    [`/usr/local/bin/hook-wrapper < ${G}`, PROGRESS],
+  ];
+  for (const [command, identity] of unclear) {
+    assert.equal(classifyHook(hook(command), identity), 'unclear', command);
+    assert.equal(neverTakenReason(hook(command), identity), null, command);
+    assert.equal(takenAs(hook(command), identity), null, `${command}: taken with no flag`);
+    assert.equal(takenAs(hook(command), identity, { adopt: true }), 'override', `${command}: --adopt did not take it over`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// THE CERTAINTY RULE. A never-taken reason may be returned only when every word naming the gate is plain literal text. An
+// expansion this reader does not resolve — a parameter expansion with an operator (`${G%.bak}`, `${G:=<gate>}`), indirection,
+// brace expansion or arithmetic, or a command substitution whose output feeds an executing consumer — may turn a lookalike into
+// the gate or the gate into another file. Each of these RUNS the gate (fired in test/hook-ownership-v0.19.0.test.mjs) while the
+// reader once called it a different file, so it is left unclear: refused with no flag, --adopt takes it, --remove exits 1.
+// ---------------------------------------------------------------------------
+
+test('the certainty rule: a gate-naming word through an expansion operator or a substitution feeding an executing consumer is never a reason', () => {
+  const { neverTakenReason, takenAs, findUnownedHooks } = ownership;
+  const GP = '/pack/adapters/claude-code/report-progress-gate.mjs';
+  const RGP = '/pack/adapters/claude-code/release-notes-gate.sh';
+  const notLiteral = [
+    // A command substitution whose output feeds an executing program: dirname strips the trailing segment back to the gate.
+    [`node "$(dirname '${GP}/y')"`, PROGRESS],
+    [`bash "$(dirname '${RGP}/y')"`, RELEASE],
+    // A parameter expansion with an operator over a variable that holds a lookalike, or the gate itself.
+    [`G=${GP}.bak; node "\${G%.bak}"`, PROGRESS],
+    [`G=${RGP}.bak; bash "\${G%.bak}"`, RELEASE],
+    [`node "\${G:=${GP}}"`, PROGRESS],
+    [`node "\${G/x/${GP}}"`, PROGRESS],
+    [`node "\${G:-${GP}}"`, PROGRESS],
+    // Indirection, and arithmetic that names the gate as a directory.
+    [`GATE=${GP}; VAR=GATE; node "\${!VAR}"`, PROGRESS],
+    // Brace expansion that may produce the gate.
+    [`node ${GP}{,/../report-progress-gate.mjs}`, PROGRESS],
+  ];
+  for (const [command, identity] of notLiteral) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      // A hook the reader cannot fully read stays unclear even under the installer's own describe: own-describe grants `ours` only
+      // to a hook that clearly runs the gate, and THE OVERRIDE (--adopt) is what takes an unclear one.
+      assert.equal(neverTakenReason(hook(command, extra), identity), null, `${command}: given a never-taken reason`);
+      assert.equal(classifyHook(hook(command, extra), identity), 'unclear', command);
+      assert.equal(takenAs(hook(command, extra), identity), null, `${command}: taken with no flag`);
+      assert.equal(takenAs(hook(command, extra), identity, { adopt: true }), 'override', `${command}: --adopt did not take it over`);
+    }
+    assert.deepEqual(findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity).map((entry) => entry.overridable), [true], command);
+  }
+  // A plain expansion is still literal: `${D}` and `$D` naming the gate's directory stay readable, a mention where cat reads it.
+  assert.equal(neverTakenReason(hook(`D=/pack/adapters/claude-code/; cat "\${D}report-progress-gate.mjs"`), PROGRESS), 'mention');
+  // A substitution whose output only feeds a program that reads files is still a mention.
+  assert.equal(neverTakenReason(hook(`echo "$(cat '${GP}')"`), PROGRESS), 'mention');
+});

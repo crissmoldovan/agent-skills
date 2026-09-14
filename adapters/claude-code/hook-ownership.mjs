@@ -68,20 +68,18 @@
  *     (`node --gate=<gate>` names the gate in an option, which node refuses, and runs nothing); or
  *   - the program is a shell given `-c`, and the gate runs in that script; or
  *   - the gate runs inside a `$(…)`, backtick or `<(…)` substitution.
- * A gate path that is an argument of a command that prints, reads, lists, tests, copies, moves or
- * deletes files — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`, `unlink`,
- * `xxd`, `od`, `du`, `shellcheck` and the like, and not `rg`, which runs the file its `--pre` names — is a
- * MENTION, and that command runs nothing of the gate so long as what it prints reaches nothing but other such
- * programs (`outputInert`): `cat '<gate>' | grep x` and `echo "$(cat '<gate>')"` are mentions. Whatever else
- * names the gate file is UNCLEAR: an argument of any other program (`xargs`, `watch`, a wrapper
- * script), the program word itself where the gate file's name is joined to a glob or a parameter
- * (`/pack/*release-notes-gate.sh`), an option before a shell's `-c` script (`bash --rcfile='<gate>' -c true`),
- * a wrapper form the table below does not pin, a word after an interpreter's options
- * (`node --check`), a mention whose output is piped on to any other program, a group or a subshell
- * (`cat '<gate>' | node`), a variable's value, a here-document's body, a
- * file a redirection reads from (`<`, `<>`, a here-string, a here-document's delimiter: what arrives on
- * stdin an interpreter may run), a substitution the gate does not run in, and every command in a text that
- * defines a function. A file a redirection WRITES to is not a word of the command and runs nothing:
+ * ONE CONSUMER ANALYSIS decides whether a place the gate file is named is a MENTION. The gate file may be named as an argument, on a
+ * program's stdin — a pipe, a here-string, a here-document, or a `<` redirection — or as a substitution's output that feeds a
+ * program. In every one of these the CONSUMER is the program that takes it. It is a MENTION when every consumer is a program the
+ * reader knows does not run it — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`, `unlink`, `wc`, `xxd`,
+ * `od`, `du`, `shellcheck` and the like, and not `rg`, which runs the file its `--pre` names — and nothing that consumer prints flows
+ * on into anything else (`outputInert`). So `cat '<gate>' | grep x`, `echo "$(cat '<gate>')"`, `wc -l < '<gate>'`, `cat <<< '<gate>'`
+ * and a here-document into `cat` are mentions, the same data flow spelled four ways. Any consumer that is an interpreter, a shell, or
+ * a program the reader does not know is UNCLEAR: `node <<< '<gate>'`, `bash < '<gate>'` and `cat '<gate>' | node` all stay unclear,
+ * takeable only by `--adopt`. UNCLEAR also covers the program word itself where the gate file's name is joined to a glob or a
+ * parameter (`/pack/*release-notes-gate.sh`), an option before a shell's `-c` script (`bash --rcfile='<gate>' -c true`), a wrapper
+ * form the table below does not pin, a word after an interpreter's options (`node --check`), a variable's value, a substitution the
+ * gate does not run in, and every command in a text that defines a function. A file a redirection WRITES to is not a word of the command and runs nothing:
  * `timeout 5 >'<gate>' node x` runs `node x` and truncates the gate, so it is nobody's hook. And a command that
  * WRITES TO THE GATE FILE is never read as running it, only as UNCLEAR — through a redirection of its own or of a
  * substitution in it, `>`, `>>`, `>|`, `&>`, `>&` and `<>` alike: the shell opens `>'<gate>'` before the program
@@ -143,9 +141,11 @@
  * NEVER TAKEN (`neverTakenReason`; the release bar's point 2, which beats every other rule here). A hook is never taken,
  * with any flag and whatever `describe` it wears, for exactly one of four reasons, and for no other: nothing else in this
  * file keeps a hook from `--adopt`.
- *   mention          The gate file is named ONLY as an argument of a program this reader knows does not run it (`MENTIONS`),
- *                    only in what flows only into such programs (`outputInert`), or only in a shell comment — and nowhere
- *                    else in the command. A comment never downgrades a run elsewhere: `node '<gate>' # note` runs the gate.
+ *   mention          Every place the gate file is named reaches only a program this reader knows does not run it (`MENTIONS`) —
+ *                    as its argument, on its stdin (a pipe, a here-string, a here-document or a `<` redirection), or in a shell
+ *                    comment — and nothing that consumer prints flows on into anything else (`outputInert`), and nowhere else
+ *                    in the command. `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions; a comment never downgrades a run
+ *                    elsewhere: `node '<gate>' # note` runs the gate.
  *   writeTarget      The command writes to the gate file through a redirection, inside `sh -c`, `eval`, a here-document or a
  *                    substitution too (`writesToGate`), whether or not it also runs the gate.
  *   differentFile    Every path that contains the gate file's name refers to another file: its final component is not
@@ -153,6 +153,11 @@
  *                    name only as a directory (`/x/report-progress-gate.mjs/index.mjs`). A name joined to a glob or a
  *                    parameter may be the gate (NAMING THE GATE FILE), so it is never a different file.
  *   foreignDescribe  A `describe` somebody else wrote, over a hook that runs the gate or may. 0.19.0 never took one either.
+ * CERTAINTY (`certainlyLiteral`). A mention or a different file is returned only when every word naming the gate is plain literal
+ * text. An expansion this reader does not resolve — a parameter expansion with an operator (`${V%x}`, `${V#x}`, `${V/a/b}`,
+ * `${V:=x}`, `${V:-x}`), indirection, brace expansion or arithmetic, or a command substitution whose output feeds an executing
+ * consumer — may turn a lookalike into the gate (`G=<gate>.bak; node "${G%.bak}"` runs the gate) or the gate into another file, so
+ * a command that holds one is left `unclear`, never a reason: refused with no flag, `--adopt` takes it, `--remove` exits 1.
  * Every other hook that names the gate file, `--adopt` takes. KNOWN LIMITS of this reading, none of them a reason above:
  * a glob that matches the gate file without its name written out (`[r]eport-progress-gate.mjs`) does not name it, so
  * without the installer's own describe no flag takes such a hook and `--remove` does not name it; a group whose `hooks`
@@ -817,16 +822,22 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
   };
   const use = () => Math.max(plain, substituted);
   for (const inner of substitutions) {
+    // A substitution runs its own text and feeds its OUTPUT on to the command around it. The gate runs when the text runs it; when
+    // the text only names the gate the verdict waits on the consumer of the output (`substituted`), which the return below decides —
+    // a mention where that consumer only prints or reads, unclear anywhere else. The name may sit where `namesGate` does not see it
+    // (`dirname '<gate>/y'` prints the gate's own path), so any appearance of the gate file's name inside the substitution counts.
     const innerUse = gateUse(inner, gateFile, depth + 1);
     if (innerUse === RUNS) raise(RUNS);
-    else if (namesGate(inner, gateFile)) {
+    else if (String(inner).includes(gateFile)) {
       if (innerUse === NONE) substituted = UNCLEAR;
       else raise(UNCLEAR);
     }
   }
-  if (heredocs.some((body) => namesGate(body, gateFile))) raise(UNCLEAR);
-  // What a command reads on stdin an interpreter may run. What it writes to, it does not run.
-  if (redirections.some(({ direction, target }) => direction !== 'out' && namesGate(target, gateFile))) raise(UNCLEAR);
+  // A here-document body, a here-string and a `<` redirection all put the gate on the program's stdin: one consumer, worked out with
+  // the rest of the command below (`stdinNamesGate`). A `<>` opens the gate for writing too, so it is a write target, unclear here.
+  const stdinNamesGate = heredocs.some((body) => namesGate(body, gateFile))
+    || redirections.some(({ direction, target }) => direction === 'in' && namesGate(target, gateFile));
+  if (redirections.some(({ direction, target }) => direction === 'both' && namesGate(target, gateFile))) raise(UNCLEAR);
   const unclearIfNamed = (list) => Math.max(use(), list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
 
   let index = 0;
@@ -839,14 +850,16 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
       if (namesGate(words[index], gateFile)) raise(UNCLEAR);
       index += 1;
     }
-    if (index >= words.length) return use();
+    // The command is only assignments, or leads a wrapper form the grammar does not pin — no program to read the stdin, so a gate
+    // named there could be run by whatever the reader could not follow.
+    if (index >= words.length) return Math.max(use(), stdinNamesGate ? UNCLEAR : NONE);
     const grammar = wrapperGrammar(words[index], wrapped);
     if (!wrapped && RESERVED.has(words[index])) {
       index += 1;
     } else if (grammar) {
       const inner = unwrap(grammar, words, index + 1);
       // A form the grammar does not pin: never guess what runs past it.
-      if (inner === null) return unclearIfNamed(words.slice(index));
+      if (inner === null) return Math.max(unclearIfNamed(words.slice(index)), stdinNamesGate ? UNCLEAR : NONE);
       // A value the wrapper took that names the gate file is somewhere the gate may run from.
       if (inner.values.some((value) => namesGate(value, gateFile))) raise(UNCLEAR);
       words = inner.words;
@@ -859,6 +872,11 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
 
   const program = basename(words[index]);
   const rest = words.slice(index + 1);
+  // The consumer of what a command reads on stdin is its program: an interpreter, a shell, or a program this reader does not know
+  // may run it, while a program it knows only prints, reads, lists, copies or deletes files runs nothing of it — so long as its
+  // output reaches nothing that may run it. The same rule the pipe already used: `node <<< '<gate>'` is unclear, `wc -l < '<gate>'`
+  // a mention.
+  if (stdinNamesGate && !(inert && MENTIONS.has(program))) raise(UNCLEAR);
   if (program === gateFile) return RUNS;
   // A program word that may expand to the gate file — its name joined to a glob or a parameter — may run it: `/pack/*release-notes-gate.sh`
   // runs the gate, and was read as a mention that no flag took.
@@ -1009,6 +1027,25 @@ function wearsOwnDescribe(hook, { describePrefix }) {
 export const NEVER_TAKEN_REASONS = Object.freeze(['mention', 'writeTarget', 'differentFile', 'foreignDescribe']);
 
 /**
+ * An expansion this reader does not resolve, so a word that goes through it is not plain literal text: a parameter expansion with an
+ * operator (`${V%x}`, `${V#x}`, `${V/a/b}`, `${V:=x}`, `${V:-x}`, `${V:1}`, `${V^^}`), indirection (`${!V}`) or length (`${#V}`) —
+ * anything inside `${…}` but a plain `${name}`, `${1}` or `${@}`; arithmetic (`$((…))`); or brace expansion (`{a,b}`, `{1..3}`). A
+ * command substitution `$(…)` or backtick is read where its output is consumed (`simpleCommandGateUse`), so it is not here.
+ */
+const EXPANSION_OPERATOR = /\$\{(?![A-Za-z_][A-Za-z0-9_]*\})(?![0-9]+\})(?![-@*#?$!]\})[^}]*\}|\$\(\(|(?<!\$)\{[^{}]*(?:,|\.\.)[^{}]*\}/;
+
+/**
+ * THE CERTAINTY RULE (the release bar's point 2). A never-taken reason (a mention or a different file) may be returned only when
+ * every word naming the gate is plain literal text. An expansion the reader does not resolve may turn a lookalike into the gate
+ * (`G=<gate>.bak; node "${G%.bak}"` runs the gate) or the gate into another file, so a command that holds one is never called a
+ * mention or a different file — it stays unclear, which --adopt takes and --remove exits 1 over. A write target still wins, because
+ * it keeps a hook from --adopt whatever the expansions around it.
+ */
+function certainlyLiteral(command) {
+  return !EXPANSION_OPERATOR.test(String(command));
+}
+
+/**
  * NEVER TAKEN, the closed set (in the header): `{ reason, detail }` for a hook no flag takes, or null. `use` is what the reader made
  * of the command. `reason` is one of `NEVER_TAKEN_REASONS`, and `detail` which kind, for the line `--remove` prints: a mention as an
  * `argument` or in a `comment`, a write target through a `redirection`, a different file by its `name` or with the gate file's name
@@ -1032,6 +1069,9 @@ function neverTaken(hook, own, use, gateFile) {
     return writesToGate(commands, gateFile) ? { reason: 'writeTarget', detail: 'redirection' } : null;
   }
   if (writesToGate(commands, gateFile)) return { reason: 'writeTarget', detail: 'redirection' };
+  // CERTAINTY: no mention or different file for a command an unresolved expansion could turn into the gate (or the gate into
+  // another file); it is left unclear instead (THE CERTAINTY RULE, above).
+  if (!certainlyLiteral(hook.command)) return null;
   const texts = commands.flatMap(({ words, redirections, heredocs }) => [...words, ...redirections.map(({ target }) => target), ...heredocs]);
   if (texts.some((text) => namesGate(text, gateFile))) return { reason: 'mention', detail: 'argument' };
   if (comments.some((text) => namesGate(text, gateFile))) return { reason: 'mention', detail: 'comment' };

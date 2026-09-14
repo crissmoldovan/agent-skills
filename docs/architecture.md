@@ -79,11 +79,18 @@ the conversation, in a hook the user wired into their own harness.
   option values included, and a hook under the installer's own `describe` whose command never names
   the gate file — unless it writes to the gate file, and the installer prints each hook it took that
   way, by event and matcher. No flag takes a hook for exactly four reasons, which `neverTakenReason`
-  returns and nothing else can: a mention (the gate file named only as an argument of a program known
-  not to run it, only in what flows only into such programs, or only in a shell comment, and nowhere
-  else in the command), a write target (a redirection writes to the gate file, inside `sh -c`, `eval`,
+  returns and nothing else can: a mention (every place the gate file is named reaches only a program
+  known not to run it — as its argument, on its stdin via a pipe, a here-string, a here-document or a
+  `<` redirection, or in a shell comment — with nothing that program prints flowing on, and nowhere
+  else in the command, so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions while `node <<<
+  '<gate>'` is not), a write target (a redirection writes to the gate file, inside `sh -c`, `eval`,
   a here-document or a substitution too), a different file (every path holding the gate file's name
   ends in another name: a lookalike, or the name only as a directory), and another tool's `describe`.
+  A reason holds only when every word naming the gate is plain literal text (the certainty rule): an
+  expansion the reader does not resolve — a parameter expansion with an operator (`${G%.bak}`), indirection,
+  brace expansion or arithmetic, or a command substitution feeding an executing program — may turn a
+  lookalike into the gate (`G=<gate>.bak; node "${G%.bak}"` runs it), so such a hook is left unclear,
+  taken by `--adopt`, never a reason.
   Its known limits: a glob matching the gate without its name written out is not read as naming it; a
   group whose `hooks` is not an array is not read; control flow is read by structure; a write through a
   program's argument is not a write target; and under `--adopt` a hook the installer did not write and

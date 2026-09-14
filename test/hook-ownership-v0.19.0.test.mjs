@@ -380,6 +380,15 @@ const HAND_WRITTEN = Object.freeze([
   // The gate file's name joined to a parameter that holds its directory.
   progressForm('D=<dir>/; VAR=block node "$D"<gate>', (node, gate) => `D=${q(`${path.dirname(gate)}/`)}; AGENT_SKILLS_PROGRESS_GATE=block node "$D"${path.basename(gate)}`, { keeps: UNREADABLE }),
   releaseForm('D=<dir>/; VAR=block bash "$D"<gate>', (gate) => `D=${q(`${path.dirname(gate)}/`)}; AGENT_SKILLS_RELEASE_NOTES_GATE=block bash "$D"${path.basename(gate)}`, { keeps: UNREADABLE }),
+
+  // This round's held review, the CERTAINTY forms: each reaches the ACTUAL gate through a shell evaluation the reader does not
+  // follow — a substitution that strips a trailing segment back to the gate, or a parameter-expansion operator over a variable
+  // holding a lookalike or the gate itself. The reader once called each a different file while it ran the gate; it is unclear now,
+  // and --adopt takes it, as 0.19.0's substring match did.
+  progressForm(`cert: node "$(dirname '<gate>/y')"`, (node, gate) => `node "$(dirname '${gate}/y')"`, { keeps: OFF }),
+  progressForm('cert: G=<gate>.bak; node "${G%.bak}"', (node, gate) => `G=${gate}.bak; node "\${G%.bak}"`, { keeps: OFF }),
+  releaseForm(`cert: bash "$(dirname '<gate>/y')"`, (gate) => `bash "$(dirname '${gate}/y')"`, { keeps: OFF }),
+  releaseForm('cert: G=<gate>.bak; bash "${G%.bak}"', (gate) => `G=${gate}.bak; bash "\${G%.bak}"`, { keeps: OFF }),
 ]);
 
 /**
@@ -423,6 +432,12 @@ const SINGLE = Object.freeze([
   // What a mention prints, reaching only programs that print or read.
   { kind: 'progress', category: 'mention', command: `cat ${q(packGate('progress'))} | grep -c decision` },
   { kind: 'progress', category: 'mention', command: `echo "$(cat ${q(packGate('progress'))})"` },
+  // The holds and the ruling: the gate on a `<`, a here-string or a here-document into a program that does not run it is a mention.
+  { kind: 'progress', category: 'mention', command: `${P} cat < ${q(packGate('progress'))}` },
+  { kind: 'progress', category: 'mention', command: `${P} wc -l < ${q(packGate('progress'))}` },
+  { kind: 'progress', category: 'mention', command: `${P} grep -c decision < ${q(packGate('progress'))}` },
+  { kind: 'progress', category: 'mention', command: `${P} cat <<< ${q(packGate('progress'))}` },
+  { kind: 'progress', category: 'mention', command: `AGENT_SKILLS_PROGRESS_GATE=block cat <<'EOF'\n${packGate('progress')}\nEOF` },
   { kind: 'progress', category: 'describe only', command: `AGENT_SKILLS_PROGRESS_GATE=block ${q('/opt/agent-skills-hooks/gate-wrapper')} --strict`, keeps: { mode: 'block', coverage: 1 } },
 
   { kind: 'release', category: 'mention', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck ${q(packGate('release'))}`, needs: 'shellcheck' },
@@ -445,6 +460,11 @@ const SINGLE = Object.freeze([
   { kind: 'release', category: 'mention', detail: 'comment', command: 'true # release-notes-gate.sh' },
   { kind: 'release', category: 'different file', detail: 'directory', command: `bash ${packGate('release')}/run.sh` },
   { kind: 'release', category: 'mention', command: `xxd ${q(packGate('release'))} | head -1`, needs: 'xxd' },
+  // The holds and the ruling for the release gate.
+  { kind: 'release', category: 'mention', command: `${R} cat < ${q(packGate('release'))}` },
+  { kind: 'release', category: 'mention', command: `${R} wc -l < ${q(packGate('release'))}` },
+  { kind: 'release', category: 'mention', command: `${R} cat <<< ${q(packGate('release'))}` },
+  { kind: 'release', category: 'mention', command: `${R} cat <<'EOF'\n${packGate('release')}\nEOF` },
   { kind: 'release', category: 'describe only', command: `${R} ${q('/opt/agent-skills-hooks/gate-wrapper')} --strict`, keeps: { mode: 'block' } },
 ]);
 
@@ -804,15 +824,18 @@ function readingOf(row) {
 }
 
 /** Whether --adopt may take over a hook the reader cannot fully read, stated here rather than read from the reader: it names the gate
- *  file — the gate's basename, exactly, anywhere in the command — or carries the installer's own describe, and no redirection in it
- *  writes to the gate file. */
+ *  file — the gate's basename, exactly, anywhere in the command — or carries the installer's own describe, or the gate file's name
+ *  appears where an expansion the reader does not resolve may turn it into the gate (the CERTAINTY class: `G=<gate>.bak; node
+ *  "${G%.bak}"`), and no redirection in it writes to the gate file. */
 function overrideEvidence(hook, kind) {
   const command = typeof hook.command === 'string' ? hook.command : '';
   const gate = escapeRegExp(KINDS[kind].gate);
   const names = new RegExp(`(?:^|[\\s'"=:,/(){}<>;|&$\`*])${gate}(?![A-Za-z0-9_.-])`).test(command);
   const writes = new RegExp(`(?:>{1,2}\\|?|&>|<>)\\s*'?[^\\s';|&]*/${gate}(?![A-Za-z0-9_.-])`).test(command);
   const described = typeof hook.describe === 'string' && hook.describe.startsWith(KINDS[kind].describePrefix);
-  return (names || described) && !writes;
+  // A parameter-expansion operator, indirection, arithmetic or brace expansion, over a command that holds the gate file's name at all.
+  const expansionOverGate = /\$\{[^}]*[-+=?:%#/^,!@][^}]*\}|\$\{[!#][^}]*\}|\$\(\(|\{[^{}]*(?:,|\.\.)[^{}]*\}/.test(command) && new RegExp(gate).test(command);
+  return (names || described || expansionOverGate) && !writes;
 }
 
 /** What the branch does on a row, stated as the rule rather than recorded. */
@@ -1339,6 +1362,13 @@ const REPORTED_FORMS = Object.freeze({
       `node ${PACK_DIR}/[r]eport-progress-gate.mjs`,
       // Contrived names the review listed.
       `node "${G} "`, `node ${PACK_DIR}/a=${name}`, `node x'${name}'`,
+      // The holds and the ruling: every stdin carrier into a program that does not run the gate is a mention; into node, unclear.
+      `cat < ${g}`, `wc -l < ${g}`, `grep -c decision < ${g}`, `cat <<< ${g}`, `head < ${g}`,
+      `cat <<'EOF'\n${G}\nEOF`, `cat <<EOF\n${G}\nEOF`,
+      `node < ${g}`, `node <<< ${g}`, `node <<'EOF'\n${G}\nEOF`,
+      // The certainty rule: a gate-naming word through an operator, or a substitution feeding node, runs the gate and is never a reason.
+      `node "$(dirname '${G}/y')"`, `G=${G}.bak; node "\${G%.bak}"`, `node "\${G:=${G}}"`, `node "\${G:-${G}}"`,
+      `GATE=${G}; VAR=GATE; node "\${!VAR}"`, `node ${G}{,/../${name}}`,
     ];
   },
   release: (G) => {
@@ -1352,6 +1382,12 @@ const REPORTED_FORMS = Object.freeze({
       `sudo -i bash ${g}`, `${R} unlink ${g}`, `${R} shellcheck ${g}`, `${R} nice -10 bash ${g}`,
       `cat ${g}`, `echo x > ${g}`, `bash ${q(`${G}.orig`)}`, `bash ${q(`${PACK_DIR}/my-${name}`)}`,
       `bash <<'EOF'\nbash ${G}\nEOF`, `cat <<'EOF'\n${G}\nEOF`, `. ${g}`, `false && bash ${g}`,
+      // The holds and the ruling for the release gate: every stdin carrier into a program that does not run the gate is a mention;
+      // into bash, sh or a source word, unclear.
+      `cat < ${g}`, `wc -l < ${g}`, `shellcheck < ${g}`, `cat <<< ${g}`, `cat <<EOF\n${G}\nEOF`,
+      `bash < ${g}`, `bash <<< ${g}`, `sh < ${g}`,
+      // The certainty rule.
+      `bash "$(dirname '${G}/y')"`, `G=${G}.bak; bash "\${G%.bak}"`, `bash "\${G:=${G}}"`, `bash "\${G:-${G}}"`,
     ];
   },
 });
@@ -1376,6 +1412,13 @@ const GENERATED = Object.freeze({
     (word) => `true # ${word}`,
     (word) => `${run} other.x # uses ${word}`,
     (word) => `timeout -s ${word} 5 true`,
+    // ONE CONSUMER ANALYSIS: every stdin carrier — `<`, `<<<` — into a program that does not run the gate is a mention; into the
+    // interpreter or a shell it is unclear. The pipe carrier (`cat ${word} | ${run}`) is already above.
+    (word) => `cat < ${word}`,
+    (word) => `wc -l < ${word}`,
+    (word) => `cat <<< ${word}`,
+    (word) => `${run} < ${word}`,
+    (word) => `${run} <<< ${word}`,
   ],
   leads: (flag) => ['', `${flag}=block `, `D=${PACK_DIR}/; `],
   tails: ['', ' # note', '; true'],
@@ -1619,7 +1662,51 @@ test('never taken is a closed set: every hook with the gate file\'s name in it i
   assert.equal(Object.values(outcomes).reduce((sum, count) => sum + count, 0), list.length, 'a command was neither fired nor said not to be');
   assert.ok(outcomes['did not run'] > 0 && outcomes['ran another file'] > 0, `the firing did not exercise both outcomes: ${JSON.stringify(outcomes)}`);
 
+  // THE DANGEROUS DIRECTION, as its own assertion: a command whose FIRING shows it runs the gate must never receive a never-taken
+  // reason — this is what catches a live gate called harmless. Each form below reaches the ACTUAL gate through a shell evaluation
+  // the reader does not follow — a `<` into the interpreter, a substitution that strips back to the gate, a parameter-expansion
+  // operator over a variable holding a lookalike or the gate itself — so `neverTakenReason` must return null and --adopt must take it.
+  const runsViaEval = {
+    progress: (G, g) => [
+      `node < ${g}`,
+      `node "$(dirname '${G}/y')"`,
+      `G=${G}.bak; node "\${G%.bak}"`,
+      `node "\${G:=${G}}"`,
+      `node "\${G:-${G}}"`,
+    ],
+    release: (G, g) => [
+      `bash < ${g}`,
+      `bash "$(dirname '${G}/y')"`,
+      `G=${G}.bak; bash "\${G%.bak}"`,
+      `bash "\${G:=${G}}"`,
+      `bash "\${G:-${G}}"`,
+    ],
+  };
+  const dangerous = [];
+  for (const kind of Object.keys(KINDS)) {
+    const G = packGate(kind);
+    for (const command of runsViaEval[kind](G, q(G))) dangerous.push({ kind, command, gatePath: G, needs: neededBy(command) });
+  }
+  const beforeDangerous = await gateHashes();
+  const dangerousFired = await inPool(dangerous, async (check) => ({ ...check, recording: await fireRecording(check), real: await fireRealGate(check) }));
+  assert.deepEqual(await gateHashes(), beforeDangerous, 'firing a dangerous command changed a real gate file');
+  const dangerousProblems = [];
+  let ranAndUnreasoned = 0;
+  for (const check of dangerousFired) {
+    const ran = check.recording === 'ran the gate' || check.real === 'ran';
+    if (!ran) {
+      dangerousProblems.push(`declared to run the gate through a shell evaluation, and it did not fire (recording ${check.recording}, real ${check.real}): ${check.kind} ${check.command}`);
+      continue;
+    }
+    const reason = ownership.neverTakenReason({ type: 'command', command: check.command }, OWN_IDENTITY[check.kind]);
+    if (reason !== null) dangerousProblems.push(`THE DANGEROUS DIRECTION: a hook that FIRING shows runs the gate was called ${reason}: ${check.kind} ${check.command}`);
+    else ranAndUnreasoned += 1;
+  }
+  assert.deepEqual(dangerousProblems, [], `${dangerousProblems.length} dangerous-direction problems:\n${dangerousProblems.join('\n')}`);
+  assert.equal(ranAndUnreasoned, dangerous.length, 'a dangerous form was neither shown to run nor checked for a reason');
+
   t.diagnostic(`${subjects.length} distinct subjects (added: matrix ${added.matrix}, reported ${added.reported}, generated ${added.generated}); with the gate file's name ${counts.withName}: taken under --adopt ${counts.taken}, never taken ${counts.reasoned} (${reasons.map((reason) => `${reason} ${byReason[reason]}`).join(', ')}); without it ${counts.withoutName}`);
+  t.diagnostic(`the dangerous direction: ${ranAndUnreasoned} forms that FIRING shows run the gate through a shell evaluation, each given no never-taken reason`);
   t.diagnostic(`reasons by kind: ${Object.entries(byDetail).map(([detail, count]) => `${detail} ${count}`).join(', ')}`);
   t.diagnostic(`fired ${list.length} distinct mentions and different files, each at a recording stand-in and an armed copy of the real gate: did not run ${outcomes['did not run']}, ran a copy of the gate ${outcomes['ran another file']}, not fired ${outcomes['not fired']}${notFired.size > 0 ? ` (${[...notFired].map(([why, count]) => `${why}: ${count}`).join(', ')})` : ''}; ${controls.length} controls saw a run, a copy and nothing, as expected`);
 });
