@@ -1615,7 +1615,9 @@ test('never taken is a closed set: every hook with the gate file\'s name in it i
   const controls = [
     { kind: 'progress', command: `node ${q(packGate('progress'))}`, recording: 'ran the gate', real: 'ran' },
     { kind: 'release', command: `bash ${q(packGate('release'))}`, recording: 'ran the gate', real: 'ran' },
-    { kind: 'release', command: `. ${q(packGate('release'))}`, recording: 'ran the gate', real: 'ran' },
+    // Sourced by bash, the shell the gate is written for. Sourced by /bin/sh where that is dash (Debian, Ubuntu), the gate does
+    // run, but dies at its `set -o pipefail` before it reads the payload, so the armed real gate would show nothing.
+    { kind: 'release', command: `bash -c ${q(`. ${q(packGate('release'))}`)}`, recording: 'ran the gate', real: 'ran' },
     { kind: 'progress', command: `cp ${q(packGate('progress'))} ./copy.mjs && node ./copy.mjs`, recording: 'ran another file', real: 'ran' },
     { kind: 'release', command: `cp ${q(packGate('release'))} ./copy.sh && bash ./copy.sh`, recording: 'ran another file', real: 'ran' },
     { kind: 'progress', command: `cat ${q(packGate('progress'))}`, recording: 'silent', real: 'silent' },
