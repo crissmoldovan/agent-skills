@@ -52,7 +52,7 @@ output side"). Same rule: it outranks this file if they ever disagree.
   separate install, separate flag, separate settings entries. See "The
   progress-report gate" below.
 - `install-report-progress-gate.mjs` — writes and removes those hooks in a
-  settings file. `--mode observe|block`, `--skills <names>`, `--remove`, atomic
+  settings file. `--mode observe|block`, `--coverage 1|2`, `--skills <names>`, `--remove`, atomic
   tmp+rename, removal that scans every event key rather than only the ones this
   version writes, and a refusal to touch a hook wearing the gate's name that it
   did not write itself.
@@ -251,15 +251,25 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 # arm it
 node adapters/claude-code/install-report-progress-gate.mjs --mode block
 
-# …and, optionally, treat named skills as external agents (exact names, no default)
-node adapters/claude-code/install-report-progress-gate.mjs --mode block --skills codex
+# widen what arms it — read "The coverage level" below before you do
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --coverage 2
+
+# …and, at coverage 2, treat named skills as external agents (exact names, no default)
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --coverage 2 --skills codex
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 ```
 
+**Updating keeps the level you have.** Re-running the installer with no `--coverage`
+— which is how you pick up a new version of the pack — keeps the level of the gate
+already in that settings file, and says so: `Kept coverage 1 (already installed in
+this file)`. Only `--coverage` changes it, and then the output names the change:
+`Set coverage 2 (was 1)`. A new install with no `--coverage` gets coverage 1.
+
 It writes two entries into `~/.claude/settings.json` (or the `--settings` file
-you name), and a third only if you named skills:
+you name), and which two depends on the level. At **coverage 2** they are these,
+plus a third only if you named skills:
 
 - **`SubagentStart`, matcher `*`** — arms a per-session marker when a subagent is
   started: foreground or backgrounded, of any `agent_type`. This replaced
@@ -279,11 +289,13 @@ you name), and a third only if you named skills:
   something. Arms on an exact skill name. With no list, this hook does not exist
   at all, so the default install gains no invocation on the `Skill` path.
 
-`PostToolUse` matcher `Agent` is no longer written. The gate still honours it, so
-a settings entry left by v0.16.1 keeps arming rather than sitting inert — but
-re-running the installer removes it, and removal now scans **every** event key in
-your settings for hooks this installer wrote, not just the ones this version
-happens to write. (Before that change, the moment the installer stopped writing
+At **coverage 1** the pair is `Stop` and **`PostToolUse`, matcher `Agent`** —
+v0.16.1's pair exactly — because an `Agent`-tool dispatch is the one signal the
+gate reads at that level. There is no `SubagentStart` hook and no `Skill` hook
+there, and `--skills` at coverage 1 is refused rather than written: the gate at
+that level never reads a skill list. Moving between levels replaces the pair
+rather than adding to it, and removal scans **every** event key in your settings
+for hooks this installer wrote, not just the ones the current level writes. (Before that change, the moment the installer stopped writing
 `PostToolUse`, an already-installed user's `PostToolUse` hook became unremovable
 by `--remove`.)
 
@@ -331,15 +343,36 @@ block.
 
 ### The coverage level, `AGENT_SKILLS_PROGRESS_GATE_COVERAGE`
 
-The installer writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2` into the command
-alongside the mode. Absent, `1`, or anything unrecognised is v0.16.1's behaviour
-**exactly** — one signal, `PostToolUse` with `tool_name` `Agent`, and no register
-read at all. It exists because the two new hooks cannot appear in your settings
-without you running the installer, but the register half rides on the `Stop` hook
-that is already there: without the level, updating the pack alone would widen a
+The installer writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1` or `=2` into the
+command alongside the mode. `1` — and absent, or anything unrecognised — is
+v0.16.1's behaviour **exactly**: one signal, `PostToolUse` with `tool_name`
+`Agent`, and no register read at all. `2` adds `SubagentStart`, `--skills`, and
+the register. The level exists because the register half rides on the `Stop` hook
+that is already in your settings: without it, updating the pack alone would widen a
 gate you armed under different terms. An unrecognised value falls back to `1`
 rather than to `off`, so a typo can neither widen a gate that can end a turn nor
 silently disable one you installed.
+
+**You choose it with `--coverage 1|2`, and updating never changes it.** With no
+`--coverage`, the installer reads the level out of the gate already in the settings
+file — using the gate's own resolver, so a v0.16.1 entry with no level in its command
+reads as `1` — and writes that level back. Until 0.18.0 it wrote `2` on every run,
+so re-running it to pick up a new version silently widened any coverage-1 gate. It now
+prints which happened: `Kept coverage N (already installed in this file)`, `Set
+coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. If an
+update also changes the mode — `--mode` still defaults to `observe` — it says that
+too.
+
+**A new install gets coverage 1**, because coverage 2 has a shape coverage 1 cannot
+have (below: a turn that blocks, stands down, and arms again from the register), and
+the budget that shape draws on is shared with every other `Stop` hook on the machine.
+The pack's rule is that a hook able to end a turn is off until a human arms it; the
+wider level is a thing to opt into, not to inherit.
+
+**The hooks follow the level, or keeping a level would be a lie.** Coverage 1 written
+under the coverage-2 pair (`Stop` + `SubagentStart`) was measured writing no marker
+and never blocking — installed, and off. So each level writes exactly the arming half
+it reads.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking
 a second copy beside it, so changing mode is one command. A hook wearing the

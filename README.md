@@ -354,15 +354,21 @@ the one to live with first — it writes what it would have refused to stderr an
 anything. A turn that delegated nothing and changed nothing ends exactly as it would with the
 hook absent.
 
-How wide it arms is a level the installer writes into the hook command,
-`AGENT_SKILLS_PROGRESS_GATE_COVERAGE`. Absent or `1` is the narrow original: one signal,
-`PostToolUse` with `tool_name` `Agent`. At `2` it arms on a **subagent of any kind** starting
+How wide it arms is a level you choose with `--coverage 1|2`, written into the hook command as
+`AGENT_SKILLS_PROGRESS_GATE_COVERAGE`. `1` — also what a command naming no level means — is the
+narrow original: one signal, `PostToolUse` with `tool_name` `Agent`. At `2` it arms on a **subagent of any kind** starting
 (`SubagentStart`), on a skill you named as an external agent (`--skills`, exact name, empty by
 default), and on a **change** in the harness's own register of background work between this
 turn's end and the last one — something appeared, or something that was running is no longer
 listed. A task that is merely still running arms nothing, so a dev server left in the
 background does not make every turn owe a report. It does no matching of command text
 anywhere.
+
+**Updating keeps the level you have.** Re-running the installer with no `--coverage` keeps the
+level of the gate already installed, and prints `Kept coverage N (already installed in this
+file)`; only `--coverage` changes it. A new install with no `--coverage` gets `1`: coverage 2
+can spend a second block on one turn (the second limit below), and a gate that can end a turn
+is the user's to widen, not a default to inherit.
 
 The gate ships with **this repository**, not with the installed skill: `npx skills add`
 copies `skills/report-progress/SKILL.md` and nothing else, so arming the gate means running
@@ -374,6 +380,9 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 
 # hold the turn instead
 node adapters/claude-code/install-report-progress-gate.mjs --mode block
+
+# arm on subagents of any kind, named skills and background work too
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --coverage 2
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
