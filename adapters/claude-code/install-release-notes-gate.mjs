@@ -54,17 +54,20 @@
  * anything else is a statement of ownership, and that hook is never taken, with or without a flag.
  *
  * `--adopt` is for a hook with no describe that RUNS the gate in any other shape: a hand-wiring, or the
- * shape above with another interpreter word in place of `bash` (`/bin/bash`, `sh`), which is never read
- * as unclear. It is refused on install and named on removal; with `--adopt` it is removed or replaced.
- * `--remove` never reports the gate gone while any hook still runs it, and exits 1 when one does. A hook
- * that only MENTIONS the gate file — an argument of echo, cat, shellcheck, rm and the like, in that shape
- * or any other — or only writes to it through a redirection is not the gate, and nothing here touches it,
- * with any flag, whatever describe it wears. A hook where this installer cannot tell whether the gate runs
- * is named, and a run without `--adopt` never takes it, describe or not: over-reporting a hook is
- * recoverable, and deleting one that is not the gate is not. `--adopt` is the explicit override for such a
- * hook: it takes one over when its leading assignments set `AGENT_SKILLS_RELEASE_NOTES_GATE` and one of its
- * words is the gate path, and prints each hook it took that way, by event and matcher, on a line of its own
- * (THE OVERRIDE in `./hook-ownership.mjs`).
+ * shape above run by another shell (`/bin/bash`, `sh`, `zsh`). It is refused on install and named on removal;
+ * with `--adopt` it is removed or replaced. `--remove` never reports the gate gone while any hook still runs it,
+ * or may, and exits 1 when one does; and while any hook still names the gate file it never says no gate was
+ * installed: it names each hook it left, and why. A hook that only MENTIONS the gate file — an argument of echo,
+ * cat, shellcheck, rm, unlink, xxd and the like, in that shape or any other — only writes to it through a
+ * redirection, or names a different file whose name contains the gate file's is not the gate, and nothing here
+ * takes it, with any flag, whatever describe it wears. A hook where this installer cannot tell whether the gate
+ * runs — the shape above run by a program it does not know, `bash5` or `/usr/bin/env` among them — is named, and a
+ * run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting one
+ * that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate file's
+ * name anywhere in a command, so it takes over every one that does not write to the gate file, whatever leads the
+ * command and wherever the gate path sits, and so is a hook under this installer's own describe whose command never
+ * names the gate file. It prints each hook it took that way, by event and matcher, on a line of its own (THE
+ * OVERRIDE in `./hook-ownership.mjs`).
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -74,11 +77,14 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import {
+  SHELL_SCRIPT_RUNNER,
   eventKeys,
+  findHooksNamingGate,
   findUnownedHooks,
   hookLabel,
   isReadableGroup,
   leadingAssignments,
+  leftAloneReport,
   plainObject,
   readableGroups,
   takenAs,
@@ -120,16 +126,18 @@ export const TIMEOUT_SECONDS = 10;
  *   v0.16.0–this version  AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<gate>'
  * `bash` is `buildHookEntry`'s default `shellPath`, written bare, and no release passed another, so the
  * name does not change from one machine to the next and the interpreter this installer owns is that one
- * bare word. Any other interpreter word in that shape — `/bin/bash`, `sh`, a `bash5` — is adoptable, never
- * unclear; under this installer's own describe it is its own. `<gate>` is this file's sibling through
- * `shellQuote`.
+ * bare word. Another shell in that place — `/bin/bash`, `sh`, `zsh`, as `SHELL_SCRIPT_RUNNER` names them —
+ * runs the gate: adoptable, and under this installer's own describe its own. A program that only reads or
+ * deletes files there (`cat`, `unlink`, `xxd`) runs nothing of it; any other program (`bash5`, `/usr/bin/env`)
+ * is one the reader does not know runs it, so no run without `--adopt` takes that hook. `<gate>` is this
+ * file's sibling through `shellQuote`.
  */
 export const HOOK_IDENTITY = Object.freeze({
   envFlag: GATE_ENV_FLAG,
   gateFile: HOOK_MARKER,
   describePrefix: DESCRIBE_PREFIX,
   variables: Object.freeze([GATE_ENV_FLAG]),
-  interpreter: Object.freeze({ quoted: false, names: Object.freeze(['bash']) }),
+  interpreter: Object.freeze({ quoted: false, names: Object.freeze(['bash']), runs: SHELL_SCRIPT_RUNNER }),
 });
 const IDENTITY = HOOK_IDENTITY;
 /** How an unowned hook's line describes the shape it is not. */
@@ -149,22 +157,24 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          (already installed in this file)". Only --mode changes it.
 
 --adopt  also take a hook that RUNS the gate in a shape this installer never writes — a
-         hand-wiring, or its own shape with another interpreter than bash: --remove removes
-         it, and an install replaces it. It also takes over a hook this installer cannot
-         fully read (a wrapper form it does not recognise, the gate read on stdin) when that
-         hook sets AGENT_SKILLS_RELEASE_NOTES_GATE= at its start and names the gate path as a
-         word of its own, and prints each one: "Took over 1 hook this installer could not
+         hand-wiring, or its own shape run by another shell (/bin/bash, sh, zsh): --remove
+         removes it, and an install replaces it. It also takes over every hook this installer
+         cannot fully read — a wrapper form it does not recognise, the gate file in an
+         option's value or read on stdin, its own shape run by a program it does not know
+         (bash5, /usr/bin/env), or this installer's own describe over a command that never
+         names the gate file — and prints each one: "Took over 1 hook this installer could not
          fully read: PreToolUse (matcher Bash)." Not needed for this installer's own hook: a
          hook whose whole command is exactly what it writes — the
          AGENT_SKILLS_RELEASE_NOTES_GATE= assignment, bash, and the gate path, single-quoted,
          and nothing else — is recognised with no flag, including after Claude Code has
          dropped its describe, and so is a hook that runs the gate under this installer's own
          describe. Never taken, with or without --adopt: a hook whose describe something else
-         wrote; a hook it cannot fully read that lacks that setting or that path; a hook that
-         writes to the gate file, even one that also runs it; and a hook that only mentions
-         the gate file, as echo, cat or shellcheck do, which is not the gate. Without --adopt
-         a hook it cannot fully read is never taken: --remove names every hook it left that
-         runs the gate, or may, and exits 1, and an install refuses and names them.
+         wrote; a hook that writes to the gate file, even one that also runs it; a hook that
+         only mentions the gate file, as echo, cat, unlink or shellcheck do; and a hook that
+         names a different file whose name contains the gate file's. Without --adopt a hook
+         it cannot fully read is never taken, and an install refuses and names it. --remove
+         names every hook it leaves that names the gate file, and why, and exits 1 while one
+         of them runs the gate, or may.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;
@@ -245,13 +255,13 @@ export function findUnownedGateHooks(settings) {
 
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
-  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE, { overridable: hook.overridable, envFlag: GATE_ENV_FLAG })}`);
+  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE, { why: hook.why })}`);
 }
 
 /** What `--adopt` took a hook it could not fully read on, printed under the line naming each one (THE OVERRIDE in `./hook-ownership.mjs`). */
-const OVERRIDE_BASIS = `--adopt took each because it sets ${GATE_ENV_FLAG} and names the gate path; this installer could not tell whether it ran the gate.`;
+const OVERRIDE_BASIS = '--adopt took each because this installer could not tell whether it ran the gate: it names the gate file, or carries this installer\'s own describe, and writes nothing to the gate file.';
 /** How to take such a hook over, where a run without `--adopt` left it. */
-const OVERRIDE_ADVICE = `each hook above that this installer cannot fully read but that sets ${GATE_ENV_FLAG} and names the gate path`;
+const OVERRIDE_ADVICE = 'each hook above that this installer cannot fully read and that does not write to the gate file';
 
 function countOf(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -285,8 +295,10 @@ export function readInstalledMode(settings, { adopt = false } = {}) {
       for (const hook of group.hooks) {
         const taken = takenAs(hook, IDENTITY, { adopt });
         if (taken === null) continue;
-        const assigned = leadingAssignments(hook.command).filter((entry) => entry.name === GATE_ENV_FLAG);
-        const mentions = hook.command.match(new RegExp(`(?<![A-Za-z0-9_])${GATE_ENV_FLAG}=`, 'g'))?.length ?? 0;
+        // A hook taken over by its describe alone may have no command at all.
+        const command = typeof hook.command === 'string' ? hook.command : '';
+        const assigned = leadingAssignments(command).filter((entry) => entry.name === GATE_ENV_FLAG);
+        const mentions = command.match(new RegExp(`(?<![A-Za-z0-9_])${GATE_ENV_FLAG}=`, 'g'))?.length ?? 0;
         const found = { mode: mentions === assigned.length ? gateModeOf(assigned.at(-1)?.value) : null, adopted: taken !== 'own' };
         if (taken === 'own') return found;
         adopted ??= found;
@@ -488,6 +500,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       const adoptable = unownedBefore.filter((hook) => hook.kind === 'adoptable');
       const takenOver = unownedBefore.filter((hook) => hook.overridable);
       const { settings: pruned, removed, adopted, tookOver, unowned } = removeHook(settings, { adopt: options.adopt });
+      // Every hook still naming the gate file that this installer reads as not running it: named below, so that no run calls a
+      // file clean while one is in it (LEFT ALONE in `./hook-ownership.mjs`).
+      const leftAlone = findHooksNamingGate(pruned, IDENTITY);
       // Written only when something was removed: a run that removed nothing leaves the file byte
       // for byte as it found it, and creates no file that did not exist.
       if (removed > 0) await writeSettings(settingsPath, pruned);
@@ -502,9 +517,13 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No release-notes gate
       // was installed … Nothing changed." and exited 0 while the harness-rewritten hook kept running.
       if (unowned.length === 0) {
-        report.push(removed > 0
-          ? 'No release will be refused again unless you install it back.'
-          : `No release-notes gate was installed in ${settingsPath}. Nothing changed.`);
+        if (leftAlone.length > 0) {
+          report.push(...leftAloneReport(leftAlone, { removed, settingsPath }));
+        } else {
+          report.push(removed > 0
+            ? 'No release will be refused again unless you install it back.'
+            : `No release-notes gate was installed in ${settingsPath}. Nothing changed.`);
+        }
         stdout.write(`${report.join('\n')}\n`);
         return 0;
       }
@@ -519,6 +538,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       if (unowned.some((hook) => hook.overridable)) {
         still.push(`To take over ${OVERRIDE_ADVICE}, run this script again with --remove --adopt — check first that each is the gate.`);
       }
+      still.push(...leftAloneReport(leftAlone));
       stderr.write(`${still.join('\n')}\n`);
       return 1;
     }

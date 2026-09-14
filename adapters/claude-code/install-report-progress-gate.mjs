@@ -120,9 +120,11 @@
  * basename is a Node-compatible runtime's name (`node`, `nodejs` or `bun`, an optional version, an
  * optional `.exe`) or that of the node binary running this installer; then the gate path, single-quoted,
  * whose basename is exactly `report-progress-gate.mjs`; and nothing after it. The harness keeps the
- * command byte for byte, so that shape survives every rewrite. That shape is never unclear: with any
- * other interpreter it is adoptable, and with one that only prints or reads files it is nobody's. Where
- * the harness has not dropped it, this installer's own `describe` on a hook that runs the gate, in any
+ * command byte for byte, so that shape survives every rewrite. In that shape the interpreter alone decides:
+ * with a Node-compatible runtime written any other way it is adoptable; with a program that only prints, reads
+ * or deletes files (`echo`, `unlink`, `xxd`) it is nobody's; with any other program (`deno`, a wrapper script,
+ * a name outside that pattern) it is one this installer cannot fully read, which no run without `--adopt` takes.
+ * Where the harness has not dropped it, this installer's own `describe` on a hook that runs the gate, in any
  * shape, makes that hook its own too, as it did through 0.19.0. A `describe` written by anything else is
  * a statement of ownership, and that hook is never taken, with or without a flag.
  *
@@ -134,14 +136,18 @@
  * and replaced by an install, its level and mode read out of its command when no `--coverage` or
  * `--mode` is named.
  *
- * A hook that only MENTIONS the gate file — as an argument of echo, cat, rm and the like — or only writes to
- * it through a redirection is not the gate, and nothing here touches it, with any flag, whatever describe it
- * wears. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring, and a run
- * without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting one
- * that is not the gate is not. `--adopt` is the explicit override for such a hook: it takes one over when its
- * leading assignments set `AGENT_SKILLS_PROGRESS_GATE` and one of its words is the gate path, reads the level
- * and mode out of its command as it does a hand-wiring's, and prints each hook it took that way, by event and
- * matcher, on a line of its own (THE OVERRIDE in `./hook-ownership.mjs`).
+ * A hook that only MENTIONS the gate file — as an argument of echo, cat, rm, unlink and the like — only writes to
+ * it through a redirection, or names a different file whose name contains the gate file's
+ * (`install-report-progress-gate.mjs`) is not the gate, and nothing here takes it, with any flag, whatever
+ * describe it wears. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
+ * and a run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting
+ * one that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate
+ * file's name anywhere in a command, option values included, so it takes over every one that does not write to
+ * the gate file, whatever leads the command and wherever the gate path sits, and so is a hook under this
+ * installer's own describe whose command never names the gate file. It reads the level and mode out of the
+ * command as it does a hand-wiring's, and prints each hook it took that way, by event and matcher, on a line of
+ * its own (THE OVERRIDE in `./hook-ownership.mjs`). `--remove` names every hook it leaves that names the gate
+ * file, and why, and never says no gate was installed while one is in the file.
  *
  * THE MODE IS KEPT THE WAY THE LEVEL IS. With no `--mode`, a re-run writes the mode of the gate already in
  * the file — `off` too, for a gate disarmed by hand — and says so; only `--mode` changes it, and only a new
@@ -171,10 +177,12 @@ import {
 import {
   NODE_RUNTIME_NAME,
   eventKeys,
+  findHooksNamingGate,
   findUnownedHooks,
   hookLabel,
   isReadableGroup,
   leadingAssignments,
+  leftAloneReport,
   plainObject,
   readableGroups,
   takenAs,
@@ -211,15 +219,17 @@ export const DEFAULT_MODE = 'observe';
  * optional `.exe`; its own comment says why that pattern — or is the name of the binary running this
  * installer now, which wrote any hook it is about to read back. Measured before this: hooks written under
  * `node-20` and re-read under `node-22` were unclear, which no flag takes, and hooks written under `bun`
- * needed `--adopt`, where 0.19.0 took both by their describe. Any other interpreter in that shape is
- * adoptable, and under this installer's own describe its own.
+ * needed `--adopt`, where 0.19.0 took both by their describe. A Node-compatible runtime written another way in
+ * that shape (bare `node`) runs the gate: adoptable, and under this installer's own describe its own. A program
+ * that only reads or deletes files there runs nothing of it; any other program is one the reader does not know
+ * runs it (`runs` below), so no run without `--adopt` takes that hook.
  */
 export const HOOK_IDENTITY = Object.freeze({
   envFlag: GATE_ENV_FLAG,
   gateFile: HOOK_MARKER,
   describePrefix: DESCRIBE_PREFIX,
   variables: Object.freeze([GATE_ENV_FLAG, COVERAGE_ENV_FLAG, TURN_HOOK_ENV_FLAG, SKILLS_ENV_FLAG]),
-  interpreter: Object.freeze({ quoted: true, pattern: NODE_RUNTIME_NAME, names: Object.freeze([path.basename(process.execPath)]) }),
+  interpreter: Object.freeze({ quoted: true, pattern: NODE_RUNTIME_NAME, names: Object.freeze([path.basename(process.execPath)]), runs: NODE_RUNTIME_NAME }),
 });
 const IDENTITY = HOOK_IDENTITY;
 /** How an unowned hook's line describes the shape it is not. */
@@ -285,24 +295,26 @@ block    hold the turn for one more round when an armed turn ends without a prog
          matching of command text here, for any binary, ever.
 
 --adopt  also take a hook that RUNS this gate in a shape this installer never writes — a
-         hand-wiring, or its own shape under an interpreter it does not know by name: --remove
-         removes it, and an install replaces it, keeping the level and mode its command runs
-         at when no --coverage or --mode is given. It also takes over a hook this installer
-         cannot fully read (a wrapper form it does not recognise, the gate read on stdin) when
-         that hook sets AGENT_SKILLS_PROGRESS_GATE= at its start and names the gate path as a
-         word of its own, and prints each one: "Took over 1 hook this installer could not
-         fully read: Stop (matcher *)." Not needed for this installer's own hooks: a hook
-         whose whole command is exactly what a version of it wrote — this gate's own
-         AGENT_SKILLS_PROGRESS_GATE assignments, a Node-compatible runtime (node, nodejs or
-         bun, versioned or .exe, or the binary running this script) and the gate path, each
-         single-quoted, and nothing else — is recognised with no flag, including after Claude
-         Code has dropped its describe, and so is a hook that runs the gate under this
-         installer's own describe. Never taken, with or without --adopt: a hook whose describe
-         something else wrote; a hook it cannot fully read that lacks that setting or that
-         path; a hook that writes to the gate file, even one that also runs it; and a hook that
-         only mentions the gate file, as echo, cat or rm do, which is not the gate. Without
-         --adopt a hook it cannot fully read is never taken: --remove names every hook it left
-         that runs the gate, or may, and exits 1, and an install refuses and names them.
+         hand-wiring, or its own shape with a bare node: --remove removes it, and an install
+         replaces it, keeping the level and mode its command runs at when no --coverage or
+         --mode is given. It also takes over every hook this installer cannot fully read — a
+         wrapper form it does not recognise, the gate file in an option's value or read on
+         stdin, its own shape run by a program it does not know (deno, a wrapper script), or
+         this installer's own describe over a command that never names the gate file — and
+         prints each one: "Took over 1 hook this installer could not fully read: Stop
+         (matcher *)." Not needed for this installer's own hooks: a hook whose whole command
+         is exactly what a version of it wrote — this gate's own AGENT_SKILLS_PROGRESS_GATE
+         assignments, a Node-compatible runtime (node, nodejs or bun, versioned or .exe, or
+         the binary running this script) and the gate path, each single-quoted, and nothing
+         else — is recognised with no flag, including after Claude Code has dropped its
+         describe, and so is a hook that runs the gate under this installer's own describe.
+         Never taken, with or without --adopt: a hook whose describe something else wrote; a
+         hook that writes to the gate file, even one that also runs it; a hook that only
+         mentions the gate file, as echo, cat, rm or unlink do; and a hook that names a
+         different file whose name contains the gate file's, such as
+         install-report-progress-gate.mjs. Without --adopt a hook it cannot fully read is never
+         taken, and an install refuses and names it. --remove names every hook it leaves that
+         names the gate file, and why, and exits 1 while one of them runs the gate, or may.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;
@@ -440,13 +452,13 @@ export function findUnownedGateHooks(settings) {
 
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
-  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE, { overridable: hook.overridable, envFlag: GATE_ENV_FLAG })}`);
+  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE, { why: hook.why })}`);
 }
 
 /** What `--adopt` took a hook it could not fully read on, printed under the line naming each one (THE OVERRIDE in `./hook-ownership.mjs`). */
-const OVERRIDE_BASIS = `--adopt took each because it sets ${GATE_ENV_FLAG} and names the gate path; this installer could not tell whether it ran the gate.`;
+const OVERRIDE_BASIS = '--adopt took each because this installer could not tell whether it ran the gate: it names the gate file, or carries this installer\'s own describe, and writes nothing to the gate file.';
 /** How to take such a hook over, where a run without `--adopt` left it. */
-const OVERRIDE_ADVICE = `each hook above that this installer cannot fully read but that sets ${GATE_ENV_FLAG} and names the gate path`;
+const OVERRIDE_ADVICE = 'each hook above that this installer cannot fully read and that does not write to the gate file';
 
 function countOf(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -792,6 +804,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       const adoptable = unownedBefore.filter((hook) => hook.kind === 'adoptable');
       const takenOver = unownedBefore.filter((hook) => hook.overridable);
       const { settings: pruned, removed, adopted, tookOver, unowned } = removeHooks(settings, { adopt: options.adopt });
+      // Every hook still naming the gate file that this installer reads as not running it: named below, so that no run calls a
+      // file clean while one is in it (LEFT ALONE in `./hook-ownership.mjs`).
+      const leftAlone = findHooksNamingGate(pruned, IDENTITY);
       // Written only when something was removed: a run that removed nothing leaves the file byte
       // for byte as it found it.
       if (removed > 0) await writeSettings(settingsPath, pruned);
@@ -808,9 +823,13 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       // of describe kept running the gate. So every hook left running it is named, with what can be done about it,
       // and the run fails: what was asked for — the gate out of this file — did not happen.
       if (unowned.length === 0) {
-        report.push(removed > 0
-          ? 'No turn will be held again unless you install it back.'
-          : `No report-progress gate was installed in ${settingsPath}. Nothing changed.`);
+        if (leftAlone.length > 0) {
+          report.push(...leftAloneReport(leftAlone, { removed, settingsPath }));
+        } else {
+          report.push(removed > 0
+            ? 'No turn will be held again unless you install it back.'
+            : `No report-progress gate was installed in ${settingsPath}. Nothing changed.`);
+        }
         stdout.write(`${report.join('\n')}\n`);
         return 0;
       }
@@ -825,6 +844,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       if (unowned.some((hook) => hook.overridable)) {
         still.push(`To take over ${OVERRIDE_ADVICE}, run this script again with --remove --adopt — check first that each is the gate.`);
       }
+      still.push(...leftAloneReport(leftAlone));
       stderr.write(`${still.join('\n')}\n`);
       return 1;
     }

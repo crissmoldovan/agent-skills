@@ -12,22 +12,28 @@
  *   ours       It runs the gate, no `describe` somebody else wrote sits on it, and either its WHOLE command
  *              is the installer's exact shape with an interpreter that installer writes (`installerShape`),
  *              or it carries that installer's own `describe`. Taken with no flag.
- *   adoptable  It runs the gate and has no `describe`, in any other shape: the exact shape with any other
- *              interpreter, or a command that RUNS the gate (`gateUse`). Named and refused; taken only
- *              under `--adopt`.
- *   unclear    Outside the exact shape, it names the gate file where this reader cannot tell whether the
- *              gate runs. Named, and never taken by a run without `--adopt`, with or without the installer's
- *              describe: over-reporting a hook is recoverable, and deleting one that is not the gate is not.
- *              `--adopt` takes one over only by THE OVERRIDE, below, and the installer says so.
+ *   adoptable  It runs the gate and has no `describe`, in any other shape: the exact shape with another program
+ *              known to run that gate's file, or a command that RUNS the gate (`gateUse`). Named and refused; taken
+ *              only under `--adopt`.
+ *   unclear    It names the gate file where this reader cannot tell whether the gate runs: outside the exact
+ *              shape, anywhere the structural reading below cannot follow; in it, a program in the interpreter's
+ *              place that this reader does not know runs the gate. Or it carries the installer's own `describe`
+ *              over a command that never names the gate file, which a script of the user's may still run. Named,
+ *              and never taken by a run without `--adopt`, with or without the installer's describe: over-reporting
+ *              a hook is recoverable, and deleting one that is not the gate is not. `--adopt` takes one over by THE
+ *              OVERRIDE, below, and the installer says so.
  *   foreign    It runs the gate, or may, under a `describe` somebody else wrote. Named, never taken.
- *   null       It does not run the gate: it never names the gate file, only MENTIONS it, or only writes to
- *              it — whatever `describe` it wears. No flag takes it.
+ *   null       It does not run the gate: it never names the gate file, only MENTIONS it, only writes to it, or
+ *              names only a DIFFERENT FILE whose name contains the gate file's — whatever `describe` it wears. No
+ *              flag takes it, and `findHooksNamingGate` says which of those it is, so that `--remove` names it
+ *              (LEFT ALONE, below).
  *
  * THE INSTALLER'S OWN DESCRIBE. Claude Code drops `describe` when it rewrites the file, but where it has not,
  * a describe that starts with the installer's `describePrefix` is that installer's statement that it wrote
- * the hook. 0.19.0 took every hook wearing it with no flag, so a hook that still wears it and runs the gate,
- * in any shape, is the installer's own. A hook that only mentions the gate file is not taken under it (0.19.0
- * took one), and neither is one where whether the gate runs cannot be told: that one needs `--adopt`.
+ * the hook. 0.19.0 took every hook wearing it with no flag, whatever its command, so a hook that still wears it
+ * and runs the gate, in any shape, is the installer's own. A hook that only mentions the gate file, only writes to
+ * it or names a different file is not taken under it (0.19.0 took each), and neither is one where whether the gate
+ * runs cannot be told, nor one whose command never names the gate file: those two need `--adopt`.
  *
  * THE EXACT SHAPE. The command, read as blank-separated words made only of literal characters
  * (letters, digits and `_ . , : / @ % + = -`) and single-quoted runs joined by `\'` — the only quoting
@@ -37,16 +43,20 @@
  *   2. ONE interpreter word, either literal characters or exactly single-quoted;
  *   3. the gate path: one single-quoted word whose basename is exactly `gateFile`;
  *   4. nothing more — no further word, operator, redirection, comment or expansion.
- * Everything in it is pinned but the interpreter, so a command in that shape is read by its interpreter alone,
- * and it is NEVER unclear:
+ * Everything in it is pinned but the interpreter, so a command in that shape is read by its interpreter alone:
  *   - it is the installer's own when the interpreter is written the way that installer writes one, as its
  *     `HOOK_IDENTITY.interpreter` says: `{ quoted: true, pattern, names }` is single-quoted with a basename that
  *     matches `pattern` or is exactly one of `names`; `{ quoted: false, names }` is exactly one of `names`, bare;
- *   - it is nobody's when the interpreter is a program in `MENTIONS`: `'/bin/echo' '<gate>'` prints a path;
- *   - it is adoptable otherwise. The interpreter is the one thing in it that differs from what the installer
- *     wrote, and a user who passes `--adopt` over it has made that call. What must not happen is what did: an
- *     installer run as `node-22` read the hooks it had written as `node-20` as unclear, which no flag takes,
- *     where 0.19.0 took them.
+ *   - it runs the gate, and is adoptable, when the interpreter's basename is a program that runs that gate's kind of
+ *     file, as `interpreter.runs` says — a Node-compatible runtime (`NODE_RUNTIME_NAME`) for the report-progress
+ *     gate, a shell (`SHELL_SCRIPT_RUNNER`) for the release-notes gate — written any other way, or is the gate itself;
+ *   - it is nobody's when the interpreter is a program in `MENTIONS`: `'/bin/echo' '<gate>'` prints a path, and
+ *     `'/bin/unlink' '<gate>'` deletes it;
+ *   - it is UNCLEAR otherwise. `unlink`, `xxd` and `du` in that place were once read as running the gate, so the
+ *     installer's own describe made a plain re-run take them silently: a program this reader does not know runs the
+ *     gate is not one it may say does. What must not happen either is what did before: an installer run as `node-22`
+ *     read the hooks it had written as `node-20` as a hook no flag takes, where 0.19.0 took them. `node-20` is a
+ *     Node-compatible runtime's name, and `--adopt` takes over any unclear hook (THE OVERRIDE).
  * Claude Code keeps the command byte for byte, so the shape an installer emitted is the shape it finds again.
  *
  * RUNS THE GATE is structural, over the command's simple commands as `sh` splits them. In some simple
@@ -58,8 +68,9 @@
  *   - the program is a shell given `-c`, and the gate runs in that script; or
  *   - the gate runs inside a `$(…)`, backtick or `<(…)` substitution.
  * A gate path that is an argument of a command that prints, reads, lists, tests, copies, moves or
- * deletes files — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`,
- * `shellcheck` and the like — is a MENTION, and that command runs nothing of the gate. Whatever else
+ * deletes files — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`, `unlink`,
+ * `xxd`, `od`, `du`, `shellcheck` and the like, and not `rg`, which runs the file its `--pre` names — is a
+ * MENTION, and that command runs nothing of the gate. Whatever else
  * names the gate file is UNCLEAR: an argument of any other program (`xargs`, `watch`, a wrapper
  * script), a wrapper form the table below does not pin, a word after an interpreter's options
  * (`node --check`), a mention whose output is piped on, a variable's value, a here-document's body, a
@@ -106,25 +117,29 @@
  *
  * THE OVERRIDE (`takenAs`). A reader that never guesses always refuses some hook that does run the gate — a
  * wrapper form nobody pinned (`nice -10`, `timeout -p 5`, `sudo -i`), the gate read on stdin — and 0.19.0 took
- * such hooks, by its describe with no flag or under the report-progress installer's `--adopt`. Pinning one more
- * form at a time never ends, so `--adopt` is the explicit override: it takes an `unclear` hook, describe or not,
- * when all of these hold:
- *   1. the command's leading assignments, as `leadingAssignments` reads them, set this gate's own arming
- *      variable, `envFlag`;
- *   2. a word of one of its simple commands, or a file one of its redirections reads, is the gate path: its
- *      basename is exactly `gateFile`, and it is not an option (`-…`) and holds no `=` and no shell operator,
- *      so `--gate=<path>`, `GATE=<path>`, a `$(…)` and a `sh -c` script holding an operator are not it. A word
- *      may hold blanks — a checkout path with a space in it — so a quoted phrase, or a `sh -c` script with no
- *      operator, whose last path segment is the gate file counts;
- *   3. nothing in it writes to a file named like the gate: none of its redirections, nor one in a substitution in
- *      it, `<>` included.
- * The installer names every hook it took this way, by event and matcher, on a line of its own (`tookOverLine`):
- * a silent override is the defect this replaced. Without `--adopt` nothing changes. And a hook this reader can
- * read and knows runs nothing of the gate — a mention, a write target — is `null`, not `unclear`: no flag takes it.
+ * such hooks, by its describe with no flag or under the report-progress installer's `--adopt`, wherever the gate
+ * file's name appeared in the command, option values (`--gate=<gate>`) included. Pinning one more form at a time
+ * never ends, so `--adopt` is the explicit override: it takes over every `unclear` hook, describe or not, except one
+ * that WRITES TO THE GATE FILE — through any of its redirections or one in a substitution in it, `<>` included —
+ * which may empty the gate or change it around the run. It asks nothing of what leads the command and nothing of
+ * where the gate path sits: an unclear hook names the gate file, as a word, inside a quoted argument or inside an
+ * option value, or carries the installer's own describe. What it never reaches is what this reader has read and
+ * knows is not the gate — a mention, a write target and a different file are `null` — and a hook under a describe
+ * somebody else wrote, which is `foreign`. The installer names every hook it took this way, by event and matcher,
+ * on a line of its own (`tookOverLine`): a silent override is the defect this replaced. Without `--adopt` nothing
+ * changes.
  *
  * NAMING THE GATE FILE means a word, or a piece of one split at blanks, quotes, `= : ,`, `$`, parens,
  * braces and shell operators, whose basename is exactly the gate file. So
- * `install-report-progress-gate.mjs` and `report-progress-gate.mjs.bak` never name it.
+ * `install-report-progress-gate.mjs` and `report-progress-gate.mjs.bak` never name it: each is a DIFFERENT FILE,
+ * which 0.19.0's substring match took and nothing here takes.
+ *
+ * LEFT ALONE (`findHooksNamingGate`, `leftAloneReport`). `--remove` never reports the gate gone while a hook that
+ * runs it, or may, is left (`findUnownedHooks`), and it never says no gate was installed while any hook in the file
+ * still names the gate file: each `null` hook whose command names the gate file, or contains its name, is found
+ * with why it was left — a mention, a write target or a different file — and named. A mention that copies the gate
+ * and runs the copy (`cp '<gate>' x && bash x`) is still a mention: this reader does not follow copies, and the
+ * installer says it left the hook rather than calling the file clean.
  *
  * This reads shell text, and it is the kind of reading that has gone wrong in this repository before,
  * so its scope is small on purpose: whether a command runs a file, and whether it is exactly what an
@@ -438,12 +453,22 @@ const SOURCING = new Set(['.', 'source']);
 const isInterpreter = (program) => SOURCING.has(program) || NODE_RUNTIME_NAME.test(program);
 /** Shells: the next word is the script they run, and `-c` hands them a script as text. */
 const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'sh.exe', 'bash.exe']);
-/** Programs that print, read, list, test, copy, move or delete a file and never run it. */
+/**
+ * The name of a program that runs a shell script given as its first argument: a shell in `SHELLS`, or `.` or `source`. In the
+ * release-notes installer's exact shape these are the programs that run its gate, as `NODE_RUNTIME_NAME` is for the
+ * report-progress gate's; any other program there is one this reader does not know runs the gate (THE EXACT SHAPE in the header).
+ */
+export const SHELL_SCRIPT_RUNNER = /^(?:sh|bash|dash|zsh|ksh|sh\.exe|bash\.exe|\.|source)$/;
+/**
+ * Programs that print, read, list, test, copy, move or delete a file and never run it. Not `rg`: `rg --pre <file>` runs that file
+ * on every file it searches.
+ */
 const MENTIONS = new Set([
-  'echo', 'printf', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'rg', 'wc',
-  'ls', 'stat', 'file', 'test', '[', '[[', 'true', 'false', ':', 'cp', 'mv', 'ln', 'rm', 'touch',
-  'chmod', 'chown', 'mkdir', 'diff', 'cmp', 'realpath', 'readlink', 'basename', 'dirname',
-  'sha256sum', 'shasum', 'md5sum', 'shellcheck',
+  'echo', 'printf', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'wc',
+  'ls', 'stat', 'file', 'test', '[', '[[', 'true', 'false', ':', 'cp', 'mv', 'ln', 'rm', 'unlink', 'touch',
+  'truncate', 'tee', 'chmod', 'chown', 'mkdir', 'diff', 'cmp', 'realpath', 'readlink', 'basename', 'dirname',
+  'sha256sum', 'sha1sum', 'sha512sum', 'shasum', 'md5sum', 'b2sum', 'cksum', 'xxd', 'od', 'hexdump', 'strings', 'du',
+  'shellcheck',
 ]);
 /** Words that lead a program without being one, where the shell reads them: never after a wrapper, which hands the
  *  word after it to the system as the name of a program. `time` is not one of them (WRAPPERS in the header). */
@@ -632,10 +657,35 @@ function namesGate(text, gateFile) {
   return String(text).split(PIECE_BOUNDARY).some((piece) => basename(piece) === gateFile);
 }
 
-/** True when a redirection in these simple commands, or in a substitution inside them, writes to a file named like the gate. */
+/**
+ * Every text in a simple command that the shell may run as a script: its substitutions, its here-documents' bodies, the script a
+ * shell's `-c` is given — wherever that shell sits, past wrappers this reader pins or not — and what `eval` is given. Searched
+ * for writes to the gate whatever runs them: a write this reader could see and did not look for is a write it would take over.
+ */
+function scriptsIn({ words, substitutions, heredocs }) {
+  const scripts = [...substitutions, ...heredocs];
+  for (let index = 0; index < words.length; index += 1) {
+    const name = basename(words[index]);
+    if (name === 'eval') scripts.push(words.slice(index + 1).join(' '));
+    if (!SHELLS.has(name)) continue;
+    let at = index + 1;
+    let script = false;
+    for (; at < words.length && words[at].startsWith('-') && words[at] !== '-'; at += 1) {
+      if (words[at] === '--') {
+        at += 1;
+        break;
+      }
+      if (SHELL_SCRIPT_OPTION.test(words[at])) script = true;
+    }
+    if (script && at < words.length) scripts.push(words[at]);
+  }
+  return scripts;
+}
+
+/** True when a redirection in these simple commands, or in a script they may run (`scriptsIn`), writes to a file named like the gate. */
 function writesToGate(commands, gateFile, depth = 0) {
-  return commands.some(({ redirections, substitutions }) => redirections.some(({ direction, target }) => direction !== 'in' && namesGate(target, gateFile))
-    || (depth < MAX_DEPTH && substitutions.some((inner) => writesToGate(parseShell(inner).commands, gateFile, depth + 1))));
+  return commands.some((simple) => simple.redirections.some(({ direction, target }) => direction !== 'in' && namesGate(target, gateFile))
+    || (depth < MAX_DEPTH && scriptsIn(simple).some((inner) => writesToGate(parseShell(inner).commands, gateFile, depth + 1))));
 }
 
 /** RUNS, UNCLEAR or NONE for one simple command. */
@@ -769,11 +819,13 @@ function installerWords(command) {
 
 /**
  * The command read as the installer's exact shape (THE EXACT SHAPE in the header): `null` when it is not in that
- * shape, and otherwise `{ owned, mention }` — `owned` when its interpreter is written the way this installer writes
- * one, `mention` when that word is a program that only prints, reads, lists, copies or deletes files.
+ * shape, and otherwise `{ owned, runs, mention }` — `owned` when its interpreter is written the way this installer writes
+ * one; `runs` when that word is also, or instead, a program that runs this gate's kind of file (`interpreter.runs`) or the
+ * gate itself; `mention` when it is a program that only prints, reads, lists, copies or deletes files. A word that is
+ * neither is a program this reader does not know runs the gate.
  *
  * @param {string} command
- * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quoted?: boolean, pattern?: RegExp, names?: readonly string[] } }} identity
+ * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quoted?: boolean, pattern?: RegExp, names?: readonly string[], runs?: RegExp } }} identity
  */
 export function installerShape(command, { envFlag, gateFile, variables = [envFlag], interpreter } = {}) {
   const words = installerWords(command);
@@ -799,48 +851,71 @@ export function installerShape(command, { envFlag, gateFile, variables = [envFla
   const names = [interpreter.names].flat().filter((entry) => typeof entry === 'string' && entry !== '');
   const owned = quoted === (interpreter.quoted === true)
     && (names.includes(name) || (interpreter.pattern instanceof RegExp && interpreter.pattern.test(name)));
-  return { owned, mention: MENTIONS.has(basename(program.value)) };
+  // Whatever way it is written, the program is its basename: `'/bin/bash'`, `bash` and `'bash'` all run bash.
+  const programName = basename(program.value);
+  const runs = owned || programName === gateFile || (interpreter.runs instanceof RegExp && interpreter.runs.test(programName));
+  return { owned, runs, mention: !runs && MENTIONS.has(programName) };
+}
+
+/** Whether a hook carries this installer's own describe (THE INSTALLER'S OWN DESCRIBE in the header). */
+function wearsOwnDescribe(hook, { describePrefix }) {
+  return typeof describePrefix === 'string' && describePrefix !== '' && typeof hook.describe === 'string' && hook.describe.startsWith(describePrefix);
 }
 
 /**
+ * Why a command this reader reads as running nothing of the gate still names the gate file (LEFT ALONE in the header): `write
+ * target` when it writes to the gate file, `mention` when it names it anywhere else, `different file` when it only contains the
+ * gate file's name inside another file's, or null when it has nothing of the gate file in it.
+ */
+function namingOf(command, gateFile) {
+  const { commands } = parseShell(command);
+  if (writesToGate(commands, gateFile)) return 'write target';
+  const words = commands.flatMap(({ words: parsed, redirections }) => [...parsed, ...redirections.map(({ target }) => target)]);
+  if (namesGate(command, gateFile) || words.some((word) => namesGate(word, gateFile))) return 'mention';
+  return command.includes(gateFile) ? 'different file' : null;
+}
+
+/**
+ * `{ kind, why }` for one hook, or null for a hook that is nothing to the gate. `kind` is what WHAT A HOOK IS (in the header)
+ * calls it — `ours`, `adoptable`, `unclear`, `foreign`, or null for one that does not run the gate — and `why` says which case
+ * of it: `runs` for an adoptable hook; `unreadable`, `writes` (it also writes to the gate file) or `describe only` (the
+ * installer's own describe over a command that never names the gate file) for an unclear one; `describe` for a foreign one;
+ * `mention`, `write target` or `different file` for a hook that does not run the gate but names the gate file. Never throws.
+ */
+function readHook(hook, identity) {
+  if (!plainObject(hook) || !plainObject(identity)) return null;
+  const own = wearsOwnDescribe(hook, identity);
+  // 0.19.0 took a hook under its describe whatever its command; this reader cannot tell whether such a hook runs the gate.
+  if (typeof hook.command !== 'string') return own ? { kind: 'unclear', why: 'describe only' } : null;
+  const { gateFile } = identity;
+  // The exact shape is read by its interpreter alone (THE EXACT SHAPE in the header).
+  const shape = installerShape(hook.command, identity);
+  const use = shape ? (shape.runs ? RUNS : shape.mention ? NONE : UNCLEAR) : gateUse(hook.command, gateFile);
+  if (use === NONE) {
+    const why = namingOf(hook.command, gateFile);
+    if (why !== null) return { kind: null, why };
+    return own ? { kind: 'unclear', why: 'describe only' } : null;
+  }
+  // A describe is a statement of ownership: somebody else's vetoes it.
+  if (Object.hasOwn(hook, 'describe') && !own) return { kind: 'foreign', why: 'describe' };
+  if (use === UNCLEAR) return { kind: 'unclear', why: writesToGate(parseShell(hook.command).commands, gateFile) ? 'writes' : 'unreadable' };
+  // This installer's own describe grants ownership to a hook that runs the gate (THE INSTALLER'S OWN DESCRIBE in the header).
+  if (own || shape?.owned) return { kind: 'ours', why: null };
+  return { kind: 'adoptable', why: 'runs' };
+}
+
+/** Whether `--adopt` takes over a hook this reader read as `readHook` did (THE OVERRIDE in the header). */
+const overridable = (read) => read?.kind === 'unclear' && read.why !== 'writes';
+
+/**
  * `ours`, `adoptable`, `unclear`, `foreign`, or `null` for a hook that does not run the gate at all
- * (or is not a command hook with a string command). See the header for what each means. Never throws.
+ * (or is nothing to it). See the header for what each means. Never throws.
  *
  * @param {unknown} hook
  * @param {{ envFlag: string, gateFile: string, describePrefix: string, variables?: readonly string[], interpreter?: object }} identity
  */
 export function classifyHook(hook, identity) {
-  if (!plainObject(hook) || typeof hook.command !== 'string' || !plainObject(identity)) return null;
-  // The exact shape is read by its interpreter alone, and is never unclear (THE EXACT SHAPE in the header).
-  const shape = installerShape(hook.command, identity);
-  const use = shape ? (shape.mention ? NONE : RUNS) : gateUse(hook.command, identity.gateFile);
-  if (use === NONE) return null;
-  if (Object.hasOwn(hook, 'describe')) {
-    // A describe is a statement of ownership: somebody else's vetoes it, and this installer's own grants it to a
-    // hook that runs the gate (THE INSTALLER'S OWN DESCRIBE in the header).
-    const prefix = identity.describePrefix;
-    const ownDescribe = typeof prefix === 'string' && prefix !== '' && typeof hook.describe === 'string' && hook.describe.startsWith(prefix);
-    if (!ownDescribe) return 'foreign';
-    return use === RUNS ? 'ours' : 'unclear';
-  }
-  if (use === UNCLEAR) return 'unclear';
-  return shape?.owned ? 'ours' : 'adoptable';
-}
-
-/** A word that is a path to the gate file: its basename exactly the gate file, and nothing in it that makes it an option, an
- *  assignment, or text holding more than a path (THE OVERRIDE in the header). */
-const NOT_A_PATH = /^-|[=;&|<>()`\n]/;
-function isGatePath(word, gateFile) {
-  return !NOT_A_PATH.test(word) && basename(word) === gateFile;
-}
-
-/** Whether a command carries what THE OVERRIDE (in the header) takes a hook this reader cannot fully read on. */
-function carriesGateSettingAndPath(command, { envFlag, gateFile }) {
-  if (!leadingAssignments(command).some((entry) => entry.name === envFlag)) return false;
-  const { commands } = parseShell(command);
-  if (writesToGate(commands, gateFile)) return false;
-  return commands.some((simple) => simple.words.some((word) => isGatePath(word, gateFile)))
-    || commands.some((simple) => simple.redirections.some(({ direction, target }) => direction === 'in' && isGatePath(target, gateFile)));
+  return readHook(hook, identity)?.kind ?? null;
 }
 
 /**
@@ -853,30 +928,61 @@ function carriesGateSettingAndPath(command, { envFlag, gateFile }) {
  * @param {{ adopt?: boolean }} [options]
  */
 export function takenAs(hook, identity, { adopt = false } = {}) {
-  const kind = classifyHook(hook, identity);
-  if (kind === 'ours') return 'own';
-  if (!adopt) return null;
-  if (kind === 'adoptable') return 'adopted';
-  if (kind === 'unclear' && carriesGateSettingAndPath(hook.command, identity)) return 'override';
-  return null;
+  const read = readHook(hook, identity);
+  if (read?.kind === 'ours') return 'own';
+  if (!adopt || read === null) return null;
+  if (read.kind === 'adoptable') return 'adopted';
+  return overridable(read) ? 'override' : null;
 }
 
 /**
  * Why an installer leaves an unowned hook where it is, for the line that names it. `ownShape` says, in
- * a few words, what that installer's own command is made of; for an unclear hook, `overridable` says whether
- * `--adopt` takes it over, and `envFlag` names the variable that decides it.
+ * a few words, what that installer's own command is made of; `why` is the case `findUnownedHooks` found.
  */
-export function unownedReason(kind, ownShape, { overridable = false, envFlag = 'this gate\'s own variable' } = {}) {
+export function unownedReason(kind, ownShape, { why = null } = {}) {
   if (kind === 'adoptable') {
     return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this, and so does a hook written under an interpreter this installer does not know by name.`;
   }
   if (kind === 'unclear') {
-    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a here-document, a function, or a command that also writes to the gate file — so no run without --adopt takes it';
-    return overridable
-      ? `${where}. It sets ${envFlag} and names the gate path, so --adopt takes it over and says so: check first that it is the gate, because removing a hook that is not the gate cannot be undone.`
-      : `${where}, and neither does --adopt, which takes such a hook only when its leading assignments set ${envFlag}, one of its words is the gate path, and nothing in it writes to the gate file: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.`;
+    const check = '--adopt takes it over and says so: check first that it is the gate, because removing a hook that is not the gate cannot be undone.';
+    if (why === 'describe only') {
+      return `carries this installer's own describe, but its command never names the gate file, so this installer cannot tell whether it runs the gate, and no run without --adopt takes it. ${check}`;
+    }
+    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, its own command shape run by a program it does not know, an option\'s value, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a here-document or a function';
+    if (why === 'writes') {
+      return `${where} — and it also writes to the gate file, which may empty the gate or change it around the run, so no flag takes it: --adopt never takes a hook that writes to the gate file. If it does run the gate, remove it by hand.`;
+    }
+    return `${where} — so no run without --adopt takes it. ${check}`;
   }
   return 'runs this gate, or may, under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.';
+}
+
+/** Why a hook that names the gate file and does not run it was left alone, for the line that names it (LEFT ALONE in the header). */
+export function leftAloneReason(why) {
+  if (why === 'write target') return 'left alone: only writes to the gate file, through a redirection, and runs nothing of the gate, so no flag takes it.';
+  if (why === 'different file') return 'left alone: names a different file whose name contains the gate file\'s, which is not the gate, so no flag takes it.';
+  return 'left alone: only mentions the gate file — as an argument of a program that does not run it, such as echo, cat, rm or unlink, or in a comment — so no flag takes it. A copy of the gate that such a hook makes and runs is not something this installer follows.';
+}
+
+/**
+ * The lines `--remove` prints for the hooks it left alone that name the gate file (LEFT ALONE in the header): a heading, then
+ * one line per hook, with why. `removed` is how many hooks the run removed, or null where the heading follows the list of hooks
+ * that still run the gate, or may. No lines when there are no such hooks.
+ */
+export function leftAloneReport(hooks, { removed = null, settingsPath = 'this file' } = {}) {
+  if (hooks.length === 0) return [];
+  const one = hooks.length === 1;
+  const counted = `${hooks.length} hook${one ? '' : 's'}`;
+  const check = 'check each, because a hook that runs a copy of the gate is not one this installer follows';
+  let heading;
+  if (removed === null) {
+    heading = `Also left alone: ${counted} that ${one ? 'names' : 'name'} the gate file and, as this installer reads ${one ? 'it' : 'them'}, ${one ? 'does' : 'do'} not run it — ${check}:`;
+  } else if (removed > 0) {
+    heading = `No hook left in ${settingsPath} runs this gate, as this installer reads it, but ${counted} in it still ${one ? 'names' : 'name'} the gate file and ${one ? 'was' : 'were'} left alone — ${check}:`;
+  } else {
+    heading = `Nothing was removed from ${settingsPath}, and nothing changed: no hook in it runs this gate, as this installer reads it, but ${counted} in it ${one ? 'names' : 'name'} the gate file and ${one ? 'was' : 'were'} left alone — ${check}:`;
+  }
+  return [heading, ...hooks.map((hook) => `  - ${hookLabel(hook)}: ${leftAloneReason(hook.why)}`)];
 }
 
 /** The line a run prints, on its own, naming each hook `--adopt` took over although this reader could not fully read it. */
@@ -916,17 +1022,32 @@ export function eventKeys(settings) {
   return Object.keys(settings.hooks);
 }
 
-/** Every hook that runs the gate, or may, and is not the installer's own, with where it sits, which kind, and whether
- *  `--adopt` takes it over although this reader cannot fully read it (`overridable`, THE OVERRIDE in the header). */
+/** Every hook that runs the gate, or may, and is not the installer's own, with where it sits, which kind, why (`readHook`), and
+ *  whether `--adopt` takes it over although this reader cannot fully read it (`overridable`, THE OVERRIDE in the header). */
 export function findUnownedHooks(settings, identity) {
   const found = [];
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
-        const kind = classifyHook(hook, identity);
-        if (kind === 'adoptable' || kind === 'unclear' || kind === 'foreign') {
-          found.push({ event, matcher: group.matcher, kind, overridable: kind === 'unclear' && carriesGateSettingAndPath(hook.command, identity) });
+        const read = readHook(hook, identity);
+        if (read?.kind === 'adoptable' || read?.kind === 'unclear' || read?.kind === 'foreign') {
+          found.push({ event, matcher: group.matcher, kind: read.kind, why: read.why, overridable: overridable(read) });
         }
+      }
+    }
+  }
+  return found;
+}
+
+/** Every hook that names the gate file, or contains its name, and that this reader reads as not running the gate, with where it
+ *  sits and why it is left alone: `mention`, `write target` or `different file` (LEFT ALONE in the header). */
+export function findHooksNamingGate(settings, identity) {
+  const found = [];
+  for (const event of eventKeys(settings)) {
+    for (const group of readableGroups(settings, event) ?? []) {
+      for (const hook of group.hooks) {
+        const read = readHook(hook, identity);
+        if (read !== null && read.kind === null) found.push({ event, matcher: group.matcher, kind: null, why: read.why });
       }
     }
   }

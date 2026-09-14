@@ -1864,7 +1864,9 @@ test('a command that merely contains the gate file\'s name is not the gate, and 
   const { settingsPath, text } = await settingsFile('gate-lookalike', lookalikes);
   const removed = await runInstaller(['--remove', '--adopt', '--settings', settingsPath]);
   assert.equal(removed.status, 0, removed.stderr);
-  assert.match(removed.stdout, /No report-progress gate was installed/);
+  // Both name the gate file's name, so --remove does not say no gate was installed: it names each hook it left, and why.
+  assert.doesNotMatch(removed.stdout, /No report-progress gate was installed/, 'said no gate was installed while two hooks name the gate file');
+  assert.equal(removed.stdout.split('\n').filter((line) => /^ {2}- Stop \(matcher \*\): left alone: names a different file/.test(line)).length, 2, removed.stdout);
   assert.match(removed.stdout, /Adopted none/);
   assert.equal(await readFile(settingsPath, 'utf8'), text, '--remove --adopt took a hook that does not run the gate');
 

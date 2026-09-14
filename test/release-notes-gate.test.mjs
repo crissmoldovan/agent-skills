@@ -622,7 +622,9 @@ test('a command that merely contains the gate file\'s name is not the gate, and 
   const { file, text } = await settingsFileWith('release-notes-lookalike', { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: lookalikes }] } });
   const removed = await runInstaller(['--remove', '--adopt', '--settings', file]);
   assert.equal(removed.status, 0, removed.stderr);
-  assert.match(removed.stdout, /No release-notes gate was installed/);
+  // Both name the gate file's name, so --remove does not say no gate was installed: it names each hook it left, and why.
+  assert.doesNotMatch(removed.stdout, /No release-notes gate was installed/, 'said no gate was installed while two hooks name the gate file');
+  assert.equal(removed.stdout.split('\n').filter((line) => /^ {2}- PreToolUse \(matcher Bash\): left alone: names a different file/.test(line)).length, 2, removed.stdout);
   assert.equal(await readFile(file, 'utf8'), text, '--remove --adopt took a hook that does not run the gate');
 
   const installed = await runInstaller(['--mode', 'block', '--settings', file]);

@@ -48,8 +48,9 @@ test('each installer hands the ownership rule its own identity', () => {
     describePrefix: 'agent-skills report-progress gate',
     variables: ['AGENT_SKILLS_PROGRESS_GATE', 'AGENT_SKILLS_PROGRESS_GATE_COVERAGE', 'AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK', 'AGENT_SKILLS_PROGRESS_GATE_SKILLS'],
   });
-  // It writes process.execPath, single-quoted: a Node-compatible runtime's name, or whatever the binary running it is called.
-  assert.deepEqual(progressInterpreter, { quoted: true, pattern: ownership.NODE_RUNTIME_NAME, names: [path.basename(process.execPath)] });
+  // It writes process.execPath, single-quoted: a Node-compatible runtime's name, or whatever the binary running it is called. In its
+  // exact shape, only a Node-compatible runtime runs its gate.
+  assert.deepEqual(progressInterpreter, { quoted: true, pattern: ownership.NODE_RUNTIME_NAME, names: [path.basename(process.execPath)], runs: ownership.NODE_RUNTIME_NAME });
 
   const { interpreter: releaseInterpreter, ...release } = RELEASE;
   assert.deepEqual(release, {
@@ -58,8 +59,15 @@ test('each installer hands the ownership rule its own identity', () => {
     describePrefix: 'agent-skills release-notes gate',
     variables: ['AGENT_SKILLS_RELEASE_NOTES_GATE'],
   });
-  // It writes the bare word `bash` on every machine.
-  assert.deepEqual(releaseInterpreter, { quoted: false, names: ['bash'] });
+  // It writes the bare word `bash` on every machine. In its exact shape, only a shell runs its gate.
+  assert.deepEqual(releaseInterpreter, { quoted: false, names: ['bash'], runs: ownership.SHELL_SCRIPT_RUNNER });
+});
+
+test('the programs that run a gate in an installer\'s exact shape are the ones the structural reading runs a file with', () => {
+  const shells = ownership.SHELL_SCRIPT_RUNNER;
+  assert.ok(shells instanceof RegExp, 'hook-ownership.mjs exports no SHELL_SCRIPT_RUNNER');
+  for (const name of ['sh', 'bash', 'dash', 'zsh', 'ksh', 'sh.exe', 'bash.exe', '.', 'source']) assert.match(name, shells, name);
+  for (const name of ['bash5', 'fish', 'node', 'env', 'nohup', '/bin/bash', 'shellcheck', 'hook-wrapper', 'sourced', '..']) assert.doesNotMatch(name, shells, name);
 });
 
 test('a Node-compatible runtime name is one pattern: node, nodejs or bun, an optional version, an optional .exe, in any case', () => {
@@ -152,7 +160,6 @@ test('only the exact shape, with an interpreter the installer writes, is owned: 
     'AGENT_SKILLS_PROGRESS_GATE="block" \'/bin/node\' \'/pack/report-progress-gate.mjs\'',
     "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=${LEVEL:-2} '/bin/node' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block node '/pack/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/local/bin/node-lts' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block '/bin/node' /pack/report-progress-gate.mjs",
     // The gate's own variables without the arming one.
     "AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/bin/node' '/pack/report-progress-gate.mjs'",
@@ -183,12 +190,18 @@ test('the interpreter an installer writes is the binary that ran it, whatever th
   assert.equal(classifyHook(hook(command, { describe: 'theirs' }), ranUnder), 'foreign');
   // Anything around the shape leaves the structural reading, where a program it does not know leaves it unable to tell.
   assert.equal(classifyHook(hook(`${command} && true`), ranUnder), 'unclear');
-  // Under an installer running as anything else, that shape is adoptable — never unclear, which no flag takes. The
-  // installer that wrote it under `node-20` and re-read it under `node-22` could not even adopt it (measured).
-  assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable');
+  // Under an installer running as anything else, `gate-runner` is a program this reader does not know runs a file, so the shape
+  // is one it cannot fully read: never taken by a run without --adopt, even under the installer's own describe, and taken over,
+  // loudly, with --adopt. The installer that wrote it under `node-20` and re-read it under `node-22` once could not take it with
+  // any flag (measured); a Node-compatible name like those is its own (the pattern above).
+  assert.equal(classifyHook(hook(command), PROGRESS), 'unclear');
+  assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'unclear');
+  assert.equal(ownership.takenAs(hook(command, ownDescribe), PROGRESS), null);
+  assert.equal(ownership.takenAs(hook(command), PROGRESS, { adopt: true }), 'override');
 });
 
-test('a command in the installer\'s exact shape is never unclear: its own interpreter owns it, one that only reads files nobody, any other --adopt', () => {
+test('a command in the installer\'s exact shape is read by its interpreter alone: its own owns it, a known interpreter runs the gate, a program that only reads files runs nothing, and any other program is unclear', () => {
+  const { takenAs } = ownership;
   const lead = 'AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2';
   const gate = "'/pack/adapters/claude-code/report-progress-gate.mjs'";
   // A Node-compatible runtime's name, single-quoted, as the installer writes process.execPath: its own, describe or not.
@@ -196,33 +209,53 @@ test('a command in the installer\'s exact shape is never unclear: its own interp
     assert.equal(classifyHook(hook(`${lead} ${q(node)} ${gate}`), PROGRESS), 'ours', node);
     assert.equal(classifyHook(hook(`${lead} ${q(node)} ${gate}`, ownDescribe), PROGRESS), 'ours', node);
   }
-  // Any other program in the interpreter's place, quoted or bare: adoptable, since everything else is pinned and a user
-  // passing --adopt has made the call; the installer's own describe makes it its own; somebody else's never.
-  for (const program of [q('/usr/local/bin/node-lts'), q('/usr/bin/deno'), q('/usr/local/bin/hook-wrapper'), q('/usr/bin/python3'), 'node-lts', 'hook-wrapper', 'node']) {
+  // A Node-compatible runtime written another way than the installer writes it, or the gate itself as the program: that runs the
+  // gate, so it is adoptable; the installer's own describe makes it its own; somebody else's never.
+  for (const program of ['node', 'bun', 'nodejs-22', q('/pack/elsewhere/report-progress-gate.mjs')]) {
     const command = `${lead} ${program} ${gate}`;
     assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', command);
     assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'ours', command);
     assert.equal(classifyHook(hook(command, { describe: 'theirs' }), PROGRESS), 'foreign', command);
   }
+  // Any other program in the interpreter's place, quoted or bare: this reader does not know that it runs the gate, so no run without
+  // --adopt takes it, even under the installer's own describe, and --adopt takes it over. A shell does not run a Node module.
+  for (const program of [q('/usr/local/bin/node-lts'), q('/usr/bin/deno'), q('/usr/local/bin/hook-wrapper'), q('/usr/bin/python3'), 'node-lts', 'hook-wrapper', q('/bin/bash'), 'sh']) {
+    const command = `${lead} ${program} ${gate}`;
+    assert.equal(classifyHook(hook(command), PROGRESS), 'unclear', command);
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'unclear', command);
+    assert.equal(classifyHook(hook(command, { describe: 'theirs' }), PROGRESS), 'foreign', command);
+    assert.equal(takenAs(hook(command, ownDescribe), PROGRESS), null, command);
+    assert.equal(takenAs(hook(command), PROGRESS, { adopt: true }), 'override', command);
+  }
   // A program that only prints, reads, lists, copies or deletes files runs nothing of the gate, whatever describe it wears.
-  for (const program of [q('/bin/echo'), q('/bin/cat'), q('/usr/bin/grep'), q('/bin/rm'), q('/bin/cp'), q('/bin/ls'), 'echo', 'shellcheck']) {
+  for (const program of [q('/bin/echo'), q('/bin/cat'), q('/usr/bin/grep'), q('/bin/rm'), q('/bin/cp'), q('/bin/ls'), 'echo', 'shellcheck', 'unlink', q('/bin/unlink'), 'xxd', q('/usr/bin/xxd'), 'du', 'od']) {
     const command = `${lead} ${program} ${gate}`;
     assert.equal(classifyHook(hook(command), PROGRESS), null, command);
     assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), null, command);
+    assert.equal(takenAs(hook(command, ownDescribe), PROGRESS, { adopt: true }), null, command);
   }
 
-  // The release-notes installer writes the bare word bash: that is its own; any other interpreter word is adoptable.
+  // The release-notes installer writes the bare word bash: that is its own; a shell written any other way runs the gate, and so does
+  // the gate as the program; any other program is unclear.
   const releaseGate = "'/pack/adapters/claude-code/release-notes-gate.sh'";
   const releaseLead = 'AGENT_SKILLS_RELEASE_NOTES_GATE=block';
-  for (const program of ['bash5', q('/opt/homebrew/bin/bash5'), 'fish', q('/bin/bash'), q('bash'), 'sh']) {
+  for (const program of [q('/bin/bash'), q('bash'), 'sh', 'dash', 'zsh', q('/bin/ksh'), '.', 'source', q('/pack/elsewhere/release-notes-gate.sh')]) {
     const command = `${releaseLead} ${program} ${releaseGate}`;
     assert.equal(classifyHook(hook(command), RELEASE), 'adoptable', command);
     assert.equal(classifyHook(hook(command, releaseDescribe), RELEASE), 'ours', command);
   }
-  for (const program of ['shellcheck', q('/usr/bin/shellcheck'), 'cat']) {
+  for (const program of ['bash5', q('/opt/homebrew/bin/bash5'), 'fish', q('/usr/local/bin/node'), q('/usr/local/bin/hook-wrapper'), q('/usr/bin/env'), 'nohup']) {
+    const command = `${releaseLead} ${program} ${releaseGate}`;
+    assert.equal(classifyHook(hook(command), RELEASE), 'unclear', command);
+    assert.equal(classifyHook(hook(command, releaseDescribe), RELEASE), 'unclear', command);
+    assert.equal(takenAs(hook(command, releaseDescribe), RELEASE), null, command);
+    assert.equal(takenAs(hook(command), RELEASE, { adopt: true }), 'override', command);
+  }
+  for (const program of ['shellcheck', q('/usr/bin/shellcheck'), 'cat', 'unlink', q('/bin/unlink'), q('/usr/bin/unlink'), 'xxd', 'du', q('/usr/bin/du'), 'od']) {
     const command = `${releaseLead} ${program} ${releaseGate}`;
     assert.equal(classifyHook(hook(command), RELEASE), null, command);
     assert.equal(classifyHook(hook(command, releaseDescribe), RELEASE), null, command);
+    assert.equal(takenAs(hook(command, releaseDescribe), RELEASE, { adopt: true }), null, command);
   }
 
   // Outside the shape, a program the structural reading does not know leaves it unable to tell, describe or not.
@@ -392,7 +425,7 @@ test('a describe somebody else wrote vetoes ownership; the installer\'s own desc
     "node '/pack/report-progress-gate.mjs'",
     "cd / && AGENT_SKILLS_PROGRESS_GATE=block '/bin/node' '/pack/report-progress-gate.mjs'",
     `${PROGRESS_COMMAND} && rm -rf /tmp/x`,
-    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/bin/deno' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block node '/pack/report-progress-gate.mjs'",
   ]) {
     assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'ours', command);
     assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', command);
@@ -402,8 +435,18 @@ test('a describe somebody else wrote vetoes ownership; the installer\'s own desc
 
   // Never to a hook that only mentions the gate file, which 0.19.0 took by that describe, and never to one where
   // whether the gate runs cannot be told.
-  assert.equal(classifyHook(hook('echo something else entirely', ownDescribe), PROGRESS), null);
   assert.equal(classifyHook(hook('AGENT_SKILLS_PROGRESS_GATE=block echo /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), null);
+  // 0.19.0 took a hook under its describe whatever its command was. Over a command that never names the gate file, this reader
+  // cannot tell whether the hook runs the gate — a script of the user's may — so no run without --adopt takes it, and --adopt
+  // takes it over, loudly. A command that names a different file whose name contains the gate file's is not that: it is not the gate.
+  for (const value of [hook('echo something else entirely', ownDescribe), { type: 'command', ...ownDescribe }]) {
+    assert.equal(classifyHook(value, PROGRESS), 'unclear', JSON.stringify(value));
+    assert.equal(ownership.takenAs(value, PROGRESS), null, JSON.stringify(value));
+    assert.equal(ownership.takenAs(value, PROGRESS, { adopt: true }), 'override', JSON.stringify(value));
+  }
+  assert.equal(classifyHook(hook('echo something else entirely'), PROGRESS), null);
+  assert.equal(classifyHook(hook("node '/pack/install-report-progress-gate.mjs'", ownDescribe), PROGRESS), null);
+  assert.equal(ownership.takenAs(hook("node '/pack/install-report-progress-gate.mjs'", ownDescribe), PROGRESS, { adopt: true }), null);
   assert.equal(classifyHook(hook("AGENT_SKILLS_PROGRESS_GATE=block '/bin/echo' '/pack/report-progress-gate.mjs'", ownDescribe), PROGRESS), null);
   assert.equal(classifyHook(hook("AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck '/pack/release-notes-gate.sh'", releaseDescribe), RELEASE), null);
   assert.equal(classifyHook(hook('timeout --no-such-option 5 node /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), 'unclear');
@@ -629,12 +672,13 @@ test('leading assignments are read only where the shell reads them literally', (
 
 // ---------------------------------------------------------------------------
 // THE OVERRIDE. A safe reader of shell text always refuses some hand-wrapped hook, so `--adopt` is the explicit override for a
-// hook this reader could not fully read: it takes one when the command's leading assignments set this gate's own arming
-// variable AND one of its words is the gate path — exactly the gate file's basename, as a word of its own. With no flag
-// nothing changes. A hook the reader understood as not running the gate — a mention, a write target — is never taken.
+// hook this reader could not fully read. 0.19.0 matched the gate file's name anywhere in a command, option values included, so
+// --adopt takes any such hook that names the gate file — as a word, inside a quoted argument or an option value — whatever
+// leads it, unless it writes to the gate file. With no flag nothing changes. A hook the reader understood as not running the
+// gate — a mention, a write target, a different file — is never taken, and neither is one under a describe somebody else wrote.
 // ---------------------------------------------------------------------------
 
-test('--adopt takes over a hook this reader could not fully read only when it sets this gate\'s own variable and names the gate path as a word of its own', () => {
+test('--adopt takes over any hook this reader could not fully read that names the gate file, unless it writes to the gate file', () => {
   const { takenAs, findUnownedHooks } = ownership;
   assert.equal(typeof takenAs, 'function', 'hook-ownership.mjs exports no takenAs');
   const G = WRAPPED_GATE;
@@ -656,12 +700,47 @@ test('--adopt takes over a hook this reader could not fully read only when it se
     [`${P} timeout 5 ${N} <<< ${G}`, PROGRESS, ownDescribe],
     // The arming variable need not lead the assignments; the directory may be an expansion, or hold a blank.
     ['AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 AGENT_SKILLS_PROGRESS_GATE=block nice -10 node "$HOME/my pack/report-progress-gate.mjs"', PROGRESS, ownDescribe],
-    // A wrapper script given an option first: outside the exact shape, where any interpreter word is adoptable, never unclear.
+    // A wrapper script given an option first, which takes it outside the exact shape and into the structural reading.
     [`AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --verbose ${G}`, PROGRESS, ownDescribe],
     [`${R} nice -10 bash ${RG}`, RELEASE, releaseDescribe],
     [`${R} sudo -i bash ${RG}`, RELEASE, releaseDescribe],
     [`${R} bash <${RG}`, RELEASE, releaseDescribe],
     [`${R} time -o ${RG} bash -c true`, RELEASE, releaseDescribe],
+    // No leading assignment of the gate's own variable: none, not the arming one, another gate's, not literal, after a wrapper.
+    [`timeout --no-such-option 5 node ${G}`, PROGRESS, ownDescribe],
+    [`nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`time node ${G}`, PROGRESS, ownDescribe],
+    [`sudo -i node ${G}`, PROGRESS, ownDescribe],
+    [`nice -10 AGENT_SKILLS_PROGRESS_GATE=block node ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATE=$MODE nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATE=\${MODE:-block} nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`env AGENT_SKILLS_PROGRESS_GATE=block nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`cd /tmp && AGENT_SKILLS_PROGRESS_GATE=block nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`export AGENT_SKILLS_PROGRESS_GATE=block; nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`sudo -u x AGENT_SKILLS_PROGRESS_GATE=block nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATEX=block nice -10 node ${G}`, PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 nice -10 cat ${G}`, PROGRESS, ownDescribe],
+    [`sudo -i bash ${RG}`, RELEASE, releaseDescribe],
+    [`time bash ${RG}`, RELEASE, releaseDescribe],
+    [`AGENT_SKILLS_PROGRESS_GATE=block nice -10 bash ${RG}`, RELEASE, releaseDescribe],
+    [`env AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -10 bash ${RG}`, RELEASE, releaseDescribe],
+    // The gate path only inside a word: an option's value, a variable's, a substitution, a script, a function, a here-document.
+    ['AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --gate=/pack/report-progress-gate.mjs', PROGRESS, ownDescribe],
+    ['AGENT_SKILLS_PROGRESS_GATE=block GATE=/pack/report-progress-gate.mjs hook-wrapper', PROGRESS, ownDescribe],
+    ["AGENT_SKILLS_PROGRESS_GATE=block sh -c 'nice -10 node /pack/report-progress-gate.mjs; true'", PROGRESS, ownDescribe],
+    [`GATE=${G} AGENT_SKILLS_PROGRESS_GATE=block sh -c 'nice -10 node "$GATE"'`, PROGRESS, ownDescribe],
+    [`GATE=${G}; AGENT_SKILLS_PROGRESS_GATE=block node "$GATE"`, PROGRESS, ownDescribe],
+    [`gate() { AGENT_SKILLS_PROGRESS_GATE=block node ${G}; }; gate`, PROGRESS, ownDescribe],
+    ['AGENT_SKILLS_PROGRESS_GATE=block node $(echo /pack/report-progress-gate.mjs)', PROGRESS, ownDescribe],
+    ['cat /pack/report-progress-gate.mjs | node --input-type=module', PROGRESS, ownDescribe],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block hook-wrapper --script=/pack/release-notes-gate.sh', RELEASE, releaseDescribe],
+    [`gate() { bash ${RG}; }; gate`, RELEASE, releaseDescribe],
+    ["bash <<'EOF'\nbash /pack/adapters/claude-code/release-notes-gate.sh\nEOF", RELEASE, releaseDescribe],
+    // rg runs the file its --pre option names, so it is not a program this reader knows does not run the gate.
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block rg --pre ${RG} x /etc/hosts`, RELEASE, releaseDescribe],
+    [`rg -c decision ${G}`, PROGRESS, ownDescribe],
   ];
   for (const [command, identity, describe] of takenOver) {
     for (const extra of [{}, describe]) {
@@ -673,22 +752,11 @@ test('--adopt takes over a hook this reader could not fully read only when it se
     }
   }
 
-  // Unclear, and not taken even under --adopt: the variable is missing, not the arming one, another gate's, not a literal
-  // leading assignment; the path is only inside a word; or the command also writes to the gate file.
+  // Unclear, and not taken even under --adopt: the command also writes to the gate file.
   const refused = [
-    [`timeout --no-such-option 5 node ${G}`, PROGRESS],
-    [`nice -10 AGENT_SKILLS_PROGRESS_GATE=block node ${G}`, PROGRESS],
-    [`AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 nice -10 node ${G}`, PROGRESS],
-    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -10 node ${G}`, PROGRESS],
-    [`AGENT_SKILLS_PROGRESS_GATE=$MODE nice -10 node ${G}`, PROGRESS],
-    [`sudo -i bash ${RG}`, RELEASE],
-    [`AGENT_SKILLS_PROGRESS_GATE=block nice -10 bash ${RG}`, RELEASE],
-    ['AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --gate=/pack/report-progress-gate.mjs', PROGRESS],
-    ['AGENT_SKILLS_PROGRESS_GATE=block GATE=/pack/report-progress-gate.mjs hook-wrapper', PROGRESS],
-    ["AGENT_SKILLS_PROGRESS_GATE=block sh -c 'nice -10 node /pack/report-progress-gate.mjs; true'", PROGRESS],
-    ['AGENT_SKILLS_PROGRESS_GATE=block node $(echo /pack/report-progress-gate.mjs)', PROGRESS],
-    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block hook-wrapper --script=/pack/release-notes-gate.sh', RELEASE],
     [`AGENT_SKILLS_PROGRESS_GATE=block nice -10 node ${G} 2>${G}`, PROGRESS],
+    [`nice -10 bash ${RG} >>${RG}`, RELEASE],
+    [`hook-wrapper --gate=${G} $(: >${G})`, PROGRESS],
   ];
   for (const [command, identity] of refused) {
     for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
@@ -704,8 +772,13 @@ test('--adopt takes over a hook this reader could not fully read only when it se
     [`${P} node >${G}`, PROGRESS],
     [`${P} cat ${G}`, PROGRESS],
     [`${P} timeout 5 echo ${G}`, PROGRESS],
+    [`${P} ${q('/bin/unlink')} ${G}`, PROGRESS],
+    [`${P} cp ${G} ./copy.mjs && node ./copy.mjs`, PROGRESS],
+    [`${P} node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove`, PROGRESS],
     [`${R} timeout 5 >${RG} bash -c true`, RELEASE],
     [`${R} shellcheck ${RG}`, RELEASE],
+    [`${R} xxd ${RG}`, RELEASE],
+    [`${R} bash '/pack/release-notes-gate.sh.orig'`, RELEASE],
   ]) {
     for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
       for (const adopt of [false, true]) {
@@ -720,14 +793,80 @@ test('--adopt takes over a hook this reader could not fully read only when it se
   assert.equal(takenAs(hook(`${P} timeout 5 ${N} ${G}`), PROGRESS), null);
   assert.equal(takenAs(hook(`${P} timeout 5 ${N} ${G}`), PROGRESS, { adopt: true }), 'adopted');
   assert.equal(takenAs(hook(`${P} nice -10 ${N} ${G}`, { describe: 'theirs' }), PROGRESS, { adopt: true }), null);
+  assert.equal(takenAs(hook(`nice -10 ${N} ${G}`, { describe: 'theirs' }), PROGRESS, { adopt: true }), null);
 
-  // Each unowned hook says whether --adopt can take it over.
-  const settings = { hooks: { Stop: [{ matcher: '*', hooks: [hook(`${P} nice -10 ${N} ${G}`), hook(`timeout --no-such-option 5 node ${G}`), hook(`${P} timeout 5 ${N} ${G}`)] }] } };
+  // Each unowned hook says what it is, why, and whether --adopt can take it over.
+  const settings = { hooks: { Stop: [{ matcher: '*', hooks: [
+    hook(`${P} nice -10 ${N} ${G}`),
+    hook(`timeout --no-such-option 5 node ${G}`),
+    hook(`${P} timeout 5 ${N} ${G}`),
+    hook(`nice -10 node ${G} 2>${G}`),
+    hook('someone-elses-hook', ownDescribe),
+    hook(`timeout 5 node ${G}`, { describe: 'theirs' }),
+  ] }] } };
   assert.deepEqual(findUnownedHooks(settings, PROGRESS), [
-    { event: 'Stop', matcher: '*', kind: 'unclear', overridable: true },
-    { event: 'Stop', matcher: '*', kind: 'unclear', overridable: false },
-    { event: 'Stop', matcher: '*', kind: 'adoptable', overridable: false },
+    { event: 'Stop', matcher: '*', kind: 'unclear', why: 'unreadable', overridable: true },
+    { event: 'Stop', matcher: '*', kind: 'unclear', why: 'unreadable', overridable: true },
+    { event: 'Stop', matcher: '*', kind: 'adoptable', why: 'runs', overridable: false },
+    { event: 'Stop', matcher: '*', kind: 'unclear', why: 'writes', overridable: false },
+    { event: 'Stop', matcher: '*', kind: 'unclear', why: 'describe only', overridable: true },
+    { event: 'Stop', matcher: '*', kind: 'foreign', why: 'describe', overridable: false },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// What --remove says about a hook it leaves. It never reports the gate gone while a hook that runs it, or may, is left, and it
+// never says no gate was installed while any hook in the file names the gate file: every such hook is named, with why it was left.
+// ---------------------------------------------------------------------------
+
+test('every hook that names the gate file and is not the gate is found, with why it is left alone', () => {
+  const { findHooksNamingGate, findUnownedHooks } = ownership;
+  assert.equal(typeof findHooksNamingGate, 'function', 'hook-ownership.mjs exports no findHooksNamingGate');
+  const G = WRAPPED_GATE;
+  const RG = WRAPPED_RELEASE_GATE;
+  const progress = { hooks: {
+    Stop: [{ matcher: '*', hooks: [
+      hook(`AGENT_SKILLS_PROGRESS_GATE=block cat ${G}`),
+      hook(`AGENT_SKILLS_PROGRESS_GATE=block ${q('/bin/unlink')} ${G}`, ownDescribe),
+      hook(`cp ${G} ./copy.mjs && node ./copy.mjs`),
+      hook('true # node /pack/report-progress-gate.mjs'),
+      hook(`timeout 5 >${G} node -e 0`, { describe: 'theirs' }),
+      hook("AGENT_SKILLS_PROGRESS_GATE=block node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove"),
+      hook("node '/pack/report-progress-gate.mjs.bak'"),
+      hook('someone-elses-hook'),
+      hook('someone-elses-hook', { describe: 'theirs' }),
+      hook(PROGRESS_COMMAND),
+      hook(`nice -10 node ${G}`),
+    ] }],
+    // A group with no hooks array is skipped, as everywhere else.
+    SubagentStart: [{ matcher: '*', hooks: 'not an array' }],
+  } };
+  assert.deepEqual(findHooksNamingGate(progress, PROGRESS), [
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'write target' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'different file' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'different file' },
+  ]);
+  // …and none of those is a hook that runs the gate, or may.
+  assert.deepEqual(findUnownedHooks(progress, PROGRESS).map((entry) => entry.why), ['unreadable']);
+
+  const release = { hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [
+    hook(`AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck ${RG}`),
+    hook(`echo armed >| ${RG}`),
+    hook("bash '/pack/my-release-notes-gate.sh'"),
+    hook(`cat ${G}`),
+  ] }] } };
+  assert.deepEqual(findHooksNamingGate(release, RELEASE).map(({ event, why }) => `${event} ${why}`), ['PostToolUse mention', 'PostToolUse write target', 'PostToolUse different file']);
+  // Every reason reads as a line an installer prints.
+  for (const why of ['mention', 'write target', 'different file']) {
+    assert.match(ownership.leftAloneReason(why), /^left alone: /, why);
+  }
+  assert.match(ownership.leftAloneReason('mention'), /only mentions the gate file/);
+  assert.match(ownership.leftAloneReason('write target'), /only writes to the gate file/);
+  assert.match(ownership.leftAloneReason('different file'), /a different file/);
 });
 
 // ---------------------------------------------------------------------------
@@ -752,6 +891,10 @@ test('a command that writes to the gate file is never read as running it, and --
     [`${R} bash ${RG}; : >${RG}`, RELEASE],
     [`${R} bash ${RG} $(: >${RG})`, RELEASE],
     [`${P} sh -c ${q('node /pack/adapters/claude-code/report-progress-gate.mjs >/pack/adapters/claude-code/report-progress-gate.mjs')}`, PROGRESS],
+    // Through a wrapper this reader does not pin, in a script `eval` runs, and in a here-document a shell runs.
+    [`nice -10 sh -ec ${q('node /pack/adapters/claude-code/report-progress-gate.mjs 2>>/pack/adapters/claude-code/report-progress-gate.mjs')}`, PROGRESS],
+    [`${R} eval "bash /pack/adapters/claude-code/release-notes-gate.sh >/pack/adapters/claude-code/release-notes-gate.sh"`, RELEASE],
+    [`bash <<'EOF'\nbash /pack/adapters/claude-code/release-notes-gate.sh >/pack/adapters/claude-code/release-notes-gate.sh\nEOF`, RELEASE],
     [`${R} nice -10 echo ${RG} $(: >${RG})`, RELEASE],
     [`${R} echo hi 1<>${RG}`, RELEASE],
   ];
@@ -761,7 +904,7 @@ test('a command that writes to the gate file is never read as running it, and --
       assert.equal(classifyHook(entry, identity), 'unclear', `${command} ${JSON.stringify(extra)}`);
       for (const adopt of [false, true]) assert.equal(takenAs(entry, identity, { adopt }), null, `${command} ${JSON.stringify(extra)} adopt=${adopt}`);
     }
-    assert.deepEqual(findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity), [{ event: 'Stop', matcher: '*', kind: 'unclear', overridable: false }], command);
+    assert.deepEqual(findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity), [{ event: 'Stop', matcher: '*', kind: 'unclear', why: 'writes', overridable: false }], command);
   }
 
   // Writing any other file is not writing the gate, and a write target that runs nothing of the gate is still nobody's.
