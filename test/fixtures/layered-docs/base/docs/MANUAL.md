@@ -22,6 +22,7 @@ change with the pull request that needs it.
 
 | Command | What it does |
 |---|---|
+| `npm start` | Starts the service on port 8080 |
 | `npm test` | Runs the test files under `test/` |
 | `npm run build` | Writes `generated/registry.json` |
 | `npm run deploy` | Deploys; takes `--env` and `--dry-run` |
@@ -41,7 +42,7 @@ Tier 2: another system reads the registry this service generates.
 |---|---|---|---|
 | `README.md` | Quick start | anyone arriving | PR |
 | `docs/MANUAL.md` | Manual | people using or changing it | PR |
-| `HANDOFF.md` | Working: handoff | the next person | delete when done |
+| `HANDOFF.md` | Working: handoff | the next person | delete when accepted |
 | `docs/RUNBOOK.md` | Runbook | whoever deploys | PR |
 | `docs/spec/01-DESIGN.md` | Record: spec | people changing behaviour | amend |
 | `docs/decisions.md` | Record: decisions | anyone asking why | supersede |

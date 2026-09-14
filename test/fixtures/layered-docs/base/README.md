@@ -22,7 +22,7 @@ staging run is green. Use `--dry-run` first.
 
 ## What it keeps
 
-Records are kept for 14 days and then deleted by the nightly job.
+Records are kept for 14 days.
 
 ## Where to go next
 

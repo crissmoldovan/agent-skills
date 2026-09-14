@@ -14,4 +14,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$environment" ] || { echo "--target is required" >&2; exit 2; }
-echo "deploy: ${environment} (dry-run: ${dry_run})"
+if [ "$dry_run" = "yes" ]; then
+  echo "plan: deploy the current build to ${environment}"
+else
+  echo "deploying the current build to ${environment}"
+fi

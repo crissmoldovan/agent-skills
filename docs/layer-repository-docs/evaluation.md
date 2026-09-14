@@ -61,7 +61,7 @@ evaluation, `scripts/make-docs-fixture.mjs` materialises a small repository with
 real history:
 
 ```bash
-node scripts/make-docs-fixture.mjs /tmp/fixture   # prints the path and its four commit shas
+node scripts/make-docs-fixture.mjs /tmp/fixture   # prints the path and its five commit shas
 ```
 
 It is a working service of about fifteen files — a manifest, a workflow, a script with a usage
@@ -79,7 +79,8 @@ subject the agent file explicitly closes, which a run must hold back rather than
 credential's value, which must appear in nothing the run writes.
 
 The history matters as much as the files. Documentation lands in the second commit, and its docs map
-carries `sources re-read at <sha>` naming the first — so an `audit` has a baseline to read files at.
+carries `sources re-read at <sha>` naming the first, whose sources it was written from — so an
+`update` has a stamp to start its range from.
 Three later commits rename a deploy flag, add a nightly schedule and rename the build script, and
 no document follows any of them, so an `update` has three differently shaped deltas to find.
 
@@ -105,7 +106,26 @@ to `update` alone although an `audit` reads both at `HEAD`; the missing schedule
 that never discusses the checks; a behaviour to observe sat among the defects to count; and a comment
 in the fixture described what the file was planted to test. All of that is fixed, a third delta was
 added so an `update` is not tested on a single shape, and a test now fails if the fixture narrates its
-own purpose. **The corrected fixture has not been measured yet.**
+own purpose.
+
+On the same day the corrected fixture was measured again, this time with all three entry points, and
+scored the same way. `audit` reported every defect keyed to it, with no false positive. `update`
+reported every delta keyed to it and wrote only overtaken passages of the README and the manual,
+reporting the runbook, the agent file and the generated output with their owners instead. `draft`
+reported every defect keyed to it, wrote only the file it named, and left the repository's own tests
+passing. In all three the closed subject was held back and the credential's value appeared in
+nothing the run authored.
+
+One miss belonged to a run rather than the fixture: the `draft` report quoted two totals that did
+not match the rows it had saved, which the report contract exists to prevent. And the scoring again
+found fixture problems, smaller this time — a sentence of the fixture's own that made the tests'
+placeholder look like a second credential, a retention job the documents named and nothing
+implemented, an edit rule outside the skill's vocabulary, markers the key placed in files that did
+not carry them, notes that named the wrong home for flags, and an ambiguity about whether reporting a
+credential's location reopens a closed subject. Those are corrected, and a run's true findings that
+the fixture did not plant are now listed as known extras so that a scorer can classify them. **The
+fixture as committed has not been measured since those last corrections**, which removed defects
+and clarified the key rather than planting new ones.
 
 ## Deterministic checks
 

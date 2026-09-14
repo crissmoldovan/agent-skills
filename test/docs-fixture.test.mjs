@@ -25,9 +25,13 @@ test('the fixture materialises as a real repository with a documentation baselin
   assert.equal(log.length, 5, 'five commits: code, documentation, and three the documentation has not caught up with');
   assert.equal(git('rev-parse', '--abbrev-ref', 'HEAD'), 'main');
   assert.equal(git('status', '--porcelain'), '', 'the materialised fixture starts clean');
-  // The delta an `update` run is supposed to find, and nothing else.
-  const changed = git('diff', '--name-only', `${fixture.commits.documented}..HEAD`).split('\n').sort();
-  assert.deepEqual(changed, ['.github/workflows/verify.yml', 'package.json', 'scripts/deploy.sh']);
+  // The range an `update` computes runs from the manual's stamp to HEAD, which includes
+  // the commit that wrote the documentation itself. Take the documents out, and what is
+  // left is the source the documentation has not followed.
+  const documents = new Set(['README.md', 'HANDOFF.md', 'docs/MANUAL.md', 'docs/RUNBOOK.md']);
+  const range = git('diff', '--name-only', `${fixture.commits.baseline}..HEAD`).split('\n');
+  assert.deepEqual(range.filter((file) => !documents.has(file)).sort(),
+    ['.github/workflows/verify.yml', 'package.json', 'scripts/deploy.sh']);
 });
 
 test('the manual names a baseline revision that exists, which is what an update run reads', async () => {
@@ -49,6 +53,7 @@ test('every planted defect and observed behaviour is present exactly once, and l
     assert.equal(hits, 1, `${defect.id}: expected exactly one "${defect.marker}" in ${defect.file}, found ${hits}`);
     for (const other of defect.also_in ?? []) {
       assert.ok(existsSync(path.join(fixture.path, other)), `${defect.id}: also_in names ${other}, which must exist`);
+      assert.ok((await read(other)).includes(defect.marker), `${defect.id}: also_in names ${other}, which does not carry "${defect.marker}"`);
     }
     if (defect.contradicted_by) {
       assert.ok(existsSync(path.join(fixture.path, defect.contradicted_by)),
@@ -101,5 +106,12 @@ test('the fixture narrates nothing about what it is testing', async () => {
   for (const file of git('ls-files').split('\n')) {
     const contents = await read(file);
     assert.doesNotMatch(contents, /\bplant(ed|s)?\b|answer key|fixture/i, `${file} tells a reading session what is being graded`);
+  }
+});
+
+test('known extras point at files that exist, so a scorer can classify a true finding outside the key', () => {
+  assert.ok(Array.isArray(answers.known_extras) && answers.known_extras.length > 0);
+  for (const extra of answers.known_extras) {
+    assert.ok(existsSync(path.join(fixture.path, extra.file)), `known extra names ${extra.file}, which must exist`);
   }
 });

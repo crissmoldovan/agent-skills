@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "node src/server.js",
     "test": "node --test test/*.test.js",
     "build": "node scripts/build-registry.mjs",
     "deploy": "bash scripts/deploy.sh"

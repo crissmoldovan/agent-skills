@@ -54,8 +54,8 @@ export async function makeFixture(target) {
   git(dir, 'commit', '-q', '-m', 'a readme, a manual, a handoff and a runbook');
   const documented = git(dir, 'rev-parse', 'HEAD');
 
-  // Two commits the documentation has not caught up with: this is the delta an
-  // `update` run is supposed to find, and nothing in the docs mentions either.
+  // Three commits the documentation has not caught up with, starting here: this is
+  // the delta an `update` run is supposed to find, and no document follows any of them.
   await cp(path.join(template, 'patches', '03-rename-flag'), dir, { recursive: true });
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'deploy: --env becomes --target');

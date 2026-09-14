@@ -2,8 +2,8 @@
 
 ## 3. Retention
 
-Records are kept for **30 days**, then deleted by the nightly job. The window is
-enforced in `src/config.js` (`retentionDays`), which is the home of this fact.
+Records are kept for **30 days**. The window is set in `src/config.js`
+(`retentionDays`), which is the home of this fact.
 
 ## 4. Configuration
 
