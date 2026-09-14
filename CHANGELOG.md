@@ -5,6 +5,82 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.21.0
+
+**What.** One new skill, `isolated-change-validation`, and nothing else: no adapter, package,
+export or flag changed, and the twenty-five skills already in the pack are byte-identical. It is
+for work that must stay **outside** the repository until it is accepted — a change proven in a
+sandbox, usually by a delegated agent, before anyone decides whether it may land. It owns the
+physical lane and the evidence ladder over it: source identity frozen in a SHA-256 manifest before
+the first edit, because in a copied lane with no git those hashes *are* the revision identity; two
+path sets — allowed existing and allowed new — that acceptance matches exactly rather than as a
+subset; one observed RED per behaviour, watched at the implementation file's hash rather than in
+the builder's prose; the typecheck, build, focused, full and downstream gates run by the parent
+itself; review on independent axes that fail closed on a source-hash mismatch; and a static scan
+that is unfinished while any hit is unclassified. Two carried references hold the depth:
+`references/evidence-contract.md` for the artifact shapes, and `references/handoff-bundle.md` for
+the bundle an unattended run is transferred in. Minor, by this repository's rule that a new skill
+is a minor: twenty-five skills become twenty-six.
+
+**Why.** Two failures kept recurring in real isolated runs, and neither is visible in a diff.
+
+The first is that **a builder's report is a claim**. "1042 passing" survives a run that was
+stopped and restarted, an implementation written before its test, a file created outside the
+budget, and a suite contaminated by a live-provider call that returned 401 — each still produces a
+passing line, and nothing in the report distinguishes them. The ladder here exists so the parent
+holds evidence for each claim it repeats: totals parsed from the runner's own machine-readable
+output rather than quoted from a child, gates labelled with what they do **not** prove (direct
+binaries against an attached dependency tree are source verification, not a clean install), and a
+frozen-install record whose first half — argv, non-secret environment paths, empty-store and
+empty-dependency-tree preconditions, input hashes — is written *before* the command runs, because
+afterwards there is no way to tell a real clean install from a reused tree.
+
+The second is that **a handoff document is not a handoff**. The next agent cannot re-run a
+paragraph. What transfers is state: every lane preserved and labelled by acceptance state — the
+accepted candidate, the work that runs but never earned a verdict, the dirty working checkout
+whose uncommitted work has no reflog, the deltas made in other repositories, and the local
+workflow changes that made the run work — plus the runnable artifacts, the evidence, the authority
+boundaries, a manifest over all of it, and a verifier the next agent runs before trusting any of
+it. A backup that preserves the good lane and silently drops the others reads as complete and is
+not.
+
+The skill also carries the package-manager lessons that cost the most time: a filtered
+lockfile-only install is **not** importer isolation and can reconcile a workspace importer nobody
+touched; a scratch `HOME` changes Corepack resolution and can make a lane you called offline reach
+the network; and one pnpm version rejects `--state-dir`, which is why the installed CLI's own help
+is read before options are added. Raw secret-scan hits are not findings: each is classified as a
+credential-shaped fixture, a documentation example, or a real credential — the last of which stops
+the run — and zero unclassified is a release condition, not a preference.
+
+Above all it holds one boundary that a green run erodes: **technical acceptance in a sandbox
+authorizes nothing.** Transfer into the repository, a commit or push, a publication, a visibility
+change, signing, an account or billing change and a live-provider call are separate acts, each
+needing its own authorization, and the verdict artifact keeps a field saying so.
+
+**Impact.** **Additive. No migration, and existing call sites are unchanged.**
+
+- **Nothing already installed changes behaviour.** No adapter, hook, installer, package export or
+  command was touched. An installed copy of the pack gains one skill directory and the catalogue
+  text around it.
+- **The gates are unaffected.** The `report-progress` and `release-notes` hooks, their installers
+  and their recognised command shapes are byte-identical to 0.20.0; there is no installer to re-run
+  for this release.
+- **Blast radius:** anyone updating the pack. `npx skills update --global --yes` (or `--project`)
+  brings the new skill in; nothing is installed on your behalf.
+- **Dependencies and distribution:** none added, none changed. `latest` is correct for this
+  version.
+- **Runtime behaviour:** unchanged everywhere. The new skill is instructions; it runs when an agent
+  loads it and never on its own.
+- The skill is loaded by description, like every other: it surfaces on *prove this in a sandbox*,
+  *the agent says the tests pass*, *the scratch tree has no git*, *an overnight run someone else
+  picks up*, and *keep the accepted candidate somewhere it cannot be lost*. For a change you are
+  landing in the repository now, `land-complex-change` is still the skill; this one runs before it,
+  in a tree that is not the repository.
+
+Upstreamed from a local skill through issue #54, taking only the reusable workflow lessons: no
+project paths, private evidence, machine details or organisation names, which a catalogue test now
+asserts.
+
 ## 0.20.0
 
 **If a gate installer stopped recognising your hooks, re-run it with no flag.** Claude Code drops the
