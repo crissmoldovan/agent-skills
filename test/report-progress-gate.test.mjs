@@ -1642,3 +1642,189 @@ test('a foreign hook wearing the gate name is still refused before any level is 
   assert.match(result.stderr, /was not written by this installer/);
   assert.equal(await readFile(settingsPath, 'utf8'), foreign);
 });
+
+// ---------------------------------------------------------------------------
+// A hook that runs the gate and carries NO describe at all: an older copy of this installer, or
+// a hand-wiring. Found on a real machine, left by a pre-0.17.0 install. Against it, --remove
+// printed "No report-progress gate was installed … Nothing changed." while both hooks kept
+// running the gate, and install refused with "Remove it by hand first" — so the one command a
+// user had for getting rid of the gate did nothing and said it had nothing to do.
+// ---------------------------------------------------------------------------
+
+/** A gate hook with no `describe` key, in the command shape the installer writes. */
+const undescribedHook = (timeout, level) => ({
+  type: 'command',
+  command: `${GATE_ENV_FLAG}=block ${level ? `${COVERAGE_ENV_FLAG}=${level} ` : ''}'/bin/node' '/pack/adapters/claude-code/${HOOK_MARKER}'`,
+  timeout,
+});
+
+/** Somebody else's Stop hook, in a group of its own. Every run below must leave it alone. */
+const UNRELATED_STOP_GROUP = Object.freeze({ hooks: [{ type: 'command', command: 'someone-elses-stop-hook' }] });
+
+/** The fixture the bug was found with: two undescribed gate hooks, under `Stop` and `PostToolUse`
+ *  matcher `Agent`, beside an unrelated `Stop` hook. */
+const undescribedSettings = (level) => ({
+  model: 'claude-sonnet-4-6',
+  hooks: {
+    Stop: [structuredClone(UNRELATED_STOP_GROUP), { matcher: '*', hooks: [undescribedHook(10, level)] }],
+    PostToolUse: [{ matcher: 'Agent', hooks: [undescribedHook(5, level)] }],
+  },
+});
+
+/** A hook that runs the gate under a describe some other tool wrote. */
+const otherToolsHook = () => ({ type: 'command', command: `node /elsewhere/${HOOK_MARKER}`, describe: 'written by some other tool' });
+
+/** Every hook in a settings object that runs the gate, whoever wrote it. */
+const gateHooks = (settings) => Object.values(settings.hooks ?? {})
+  .filter(Array.isArray)
+  .flat()
+  .filter((group) => group && Array.isArray(group.hooks))
+  .flatMap((group) => group.hooks)
+  .filter((hook) => typeof hook.command === 'string' && hook.command.includes(HOOK_MARKER));
+
+async function settingsFile(name, value) {
+  const directory = await scratch(name);
+  const settingsPath = path.join(directory, 'settings.json');
+  const text = JSON.stringify(value, null, 2);
+  await writeFile(settingsPath, text);
+  return { directory, settingsPath, text };
+}
+
+test('removeHooks adopts only when asked, and only a hook with no describe key at all', () => {
+  const emptyDescribe = { type: 'command', command: `node /elsewhere/${HOOK_MARKER}`, describe: '' };
+  const make = () => ({ hooks: { Stop: [{ matcher: '*', hooks: [undescribedHook(10), otherToolsHook(), emptyDescribe] }] } });
+
+  const plain = removeHooks(make());
+  assert.equal(plain.removed, 0);
+  assert.equal(plain.adopted, 0);
+  assert.deepEqual(plain.unowned.map((hook) => `${hook.event}|${hook.matcher}|${hook.describe}`), ['Stop|*|absent', 'Stop|*|foreign', 'Stop|*|foreign']);
+
+  const adopting = removeHooks(make(), { adopt: true });
+  assert.equal(adopting.removed, 1);
+  assert.equal(adopting.adopted, 1);
+  // A describe somebody typed, even an empty one, is not the absence of one.
+  assert.deepEqual(adopting.settings.hooks.Stop[0].hooks, [otherToolsHook(), emptyDescribe]);
+  assert.deepEqual(adopting.unowned.map((hook) => hook.describe), ['foreign', 'foreign']);
+});
+
+test('--remove never says nothing is installed while undescribed hooks run the gate, and names each one', async () => {
+  const { settingsPath, text } = await settingsFile('gate-undescribed-remove', undescribedSettings());
+  const result = await runInstaller(['--remove', '--settings', settingsPath]);
+  const output = `${result.stdout}${result.stderr}`;
+  assert.doesNotMatch(output, /No report-progress gate was installed/, 'said nothing is installed while two hooks run the gate');
+  assert.doesNotMatch(output, /Nothing changed/);
+  assert.doesNotMatch(output, /No turn will be held again/);
+  assert.notEqual(result.status, 0, 'a --remove that left the gate wired exited as a success');
+  assert.match(output, /Stop \(matcher \*\)/);
+  assert.match(output, /PostToolUse \(matcher Agent\)/);
+  assert.match(output, /--remove --adopt/, 'the output did not say how to remove them');
+  assert.equal(await readFile(settingsPath, 'utf8'), text, 'a hook with no describe was removed without --adopt');
+  assert.equal(gateHooks(await readJson(settingsPath)).length, 2);
+});
+
+test('--remove --adopt removes both undescribed hooks, says so, and leaves the unrelated one', async () => {
+  const { directory, settingsPath } = await settingsFile('gate-undescribed-remove-adopt', undescribedSettings());
+  const result = await runInstaller(['--remove', '--adopt', '--settings', settingsPath]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Removed 2 report-progress gate hooks/);
+  assert.match(result.stdout, /Adopted 2 of them/);
+  assert.match(result.stdout, /Stop \(matcher \*\)/);
+  assert.match(result.stdout, /PostToolUse \(matcher Agent\)/);
+  assert.match(result.stdout, /No turn will be held again/);
+  assert.deepEqual(await readJson(settingsPath), { model: 'claude-sonnet-4-6', hooks: { Stop: [UNRELATED_STOP_GROUP] } });
+  assert.deepEqual((await readdir(directory)).sort(), ['settings.json'], 'a temp file was left behind');
+});
+
+test('--remove takes out its own hooks and still names the undescribed one it left behind', async () => {
+  const value = undescribedSettings();
+  delete value.hooks.PostToolUse;
+  value.hooks.SubagentStart = [{ matcher: '*', hooks: [v0170Hook(5)] }];
+  const { settingsPath } = await settingsFile('gate-undescribed-remove-mixed', value);
+
+  const result = await runInstaller(['--remove', '--settings', settingsPath]);
+  const output = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status, 0, 'a --remove that left a gate hook running exited as a success');
+  assert.match(result.stdout, /Removed 1 report-progress gate hook from/);
+  assert.match(output, /Stop \(matcher \*\)/);
+  assert.doesNotMatch(output, /No turn will be held again/, 'promised the gate is gone while a hook still runs it');
+  const written = await readJson(settingsPath);
+  assert.equal(Object.hasOwn(written.hooks, 'SubagentStart'), false);
+  assert.equal(gateHooks(written).length, 1);
+});
+
+test('install without --adopt refuses, names every undescribed hook, and names --adopt as the way forward', async () => {
+  const { settingsPath, text } = await settingsFile('gate-undescribed-install', undescribedSettings());
+  const result = await runInstaller(['--mode', 'block', '--coverage', '2', '--settings', settingsPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /was not written by this installer/);
+  assert.match(result.stderr, /Stop \(matcher \*\)/);
+  assert.match(result.stderr, /PostToolUse \(matcher Agent\)/);
+  assert.match(result.stderr, /again with --adopt/);
+  assert.doesNotMatch(result.stderr, /by hand first/, 'the refusal still sends the user to hand-edit the file');
+  assert.equal(await readFile(settingsPath, 'utf8'), text);
+});
+
+test('install --adopt replaces both undescribed hooks with this installer\'s own, and says how many', async () => {
+  const { settingsPath } = await settingsFile('gate-undescribed-install-adopt', undescribedSettings());
+  const result = await runInstaller(['--mode', 'block', '--coverage', '2', '--adopt', '--settings', settingsPath]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Adopted 2 hooks/);
+  assert.match(result.stdout, /Set coverage 2 \(was 1\)/);
+
+  const written = await readJson(settingsPath);
+  assert.equal(written.model, 'claude-sonnet-4-6');
+  const running = gateHooks(written);
+  assert.equal(running.length, 2, `expected the Stop hook and one arming half, found ${running.length}`);
+  assert.ok(running.every((hook) => typeof hook.describe === 'string' && hook.describe.startsWith(DESCRIBE_PREFIX)), 'an undescribed hook survived adoption');
+  assert.ok(ourCommand(written, 'Stop', '*').includes(`${COVERAGE_ENV_FLAG}=2 `));
+  assert.ok(hasOurHook(written, 'SubagentStart', '*'));
+  assert.equal(Object.hasOwn(written.hooks, 'PostToolUse'), false, 'the adopted PostToolUse hook was left behind');
+  assert.deepEqual(written.hooks.Stop.filter((group) => !Object.hasOwn(group, 'matcher')), [UNRELATED_STOP_GROUP], 'the unrelated Stop hook did not survive');
+});
+
+test('adopting with no --coverage keeps the level the adopted command runs at', async () => {
+  for (const [level, expected] of [[undefined, 1], ['2', 2]]) {
+    const { settingsPath } = await settingsFile(`gate-undescribed-level-${expected}`, undescribedSettings(level));
+    const result = await runInstaller(['--mode', 'block', '--adopt', '--settings', settingsPath]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, new RegExp(`Kept coverage ${expected} \\(read from the adopted hook`));
+    const written = await readJson(settingsPath);
+    assert.ok(ourCommand(written, 'Stop', '*').includes(`${COVERAGE_ENV_FLAG}=${expected} `), `adopting moved the level off ${expected}`);
+    assert.equal(hasOurHook(written, 'SubagentStart', '*'), expected === 2);
+    assert.equal(hasOurHook(written, 'PostToolUse', 'Agent'), expected === 1);
+  }
+});
+
+test('a hook running the gate under somebody else\'s describe is never adopted, with or without --adopt', async () => {
+  const value = { hooks: { Stop: [{ matcher: '*', hooks: [otherToolsHook()] }], PostToolUse: [{ matcher: 'Agent', hooks: [undescribedHook(5)] }] } };
+
+  for (const flags of [[], ['--adopt']]) {
+    const { settingsPath, text } = await settingsFile('gate-described-install', value);
+    const refused = await runInstaller(['--mode', 'block', ...flags, '--settings', settingsPath]);
+    assert.equal(refused.status, 1, `installed over another tool's gate hook with ${flags.join(' ') || 'no flag'}`);
+    assert.match(refused.stderr, /Stop \(matcher \*\)/);
+    assert.match(refused.stderr, /never adopted/);
+    assert.equal(await readFile(settingsPath, 'utf8'), text, 'a refused install changed the file');
+  }
+
+  const { settingsPath } = await settingsFile('gate-described-remove', value);
+  const removed = await runInstaller(['--remove', '--adopt', '--settings', settingsPath]);
+  const output = `${removed.stdout}${removed.stderr}`;
+  assert.notEqual(removed.status, 0, 'a --remove that left a gate hook running exited as a success');
+  assert.match(removed.stdout, /Removed 1 report-progress gate hook from/);
+  assert.match(removed.stdout, /Adopted 1 of them/);
+  assert.match(output, /Stop \(matcher \*\)/);
+  assert.match(output, /never adopted/);
+  assert.doesNotMatch(output, /No turn will be held again|Nothing changed|No report-progress gate was installed/);
+  assert.deepEqual(await readJson(settingsPath), { hooks: { Stop: [{ matcher: '*', hooks: [otherToolsHook()] }] } }, 'another tool\'s gate hook was touched');
+
+  // Alone, it gets no advice to run --adopt: that flag would not remove it.
+  const { settingsPath: alone, text } = await settingsFile('gate-described-alone', { hooks: { Stop: [{ matcher: '*', hooks: [otherToolsHook()] }] } });
+  const aloneResult = await runInstaller(['--remove', '--settings', alone]);
+  const aloneOutput = `${aloneResult.stdout}${aloneResult.stderr}`;
+  assert.notEqual(aloneResult.status, 0);
+  assert.match(aloneOutput, /Stop \(matcher \*\)/);
+  assert.doesNotMatch(aloneOutput, /Nothing changed|No report-progress gate was installed/);
+  assert.doesNotMatch(aloneOutput, /--remove --adopt|again with --adopt/);
+  assert.equal(await readFile(alone, 'utf8'), text);
+});

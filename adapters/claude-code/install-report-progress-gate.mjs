@@ -91,6 +91,18 @@
  * v0.16.1's pair, and coverage 2 writes `Stop` + `SubagentStart`, plus `PostToolUse`
  * matcher `Skill` for a configured list. A skill list at coverage 1 is refused rather than
  * written: the gate at that level never reads one.
+ *
+ * ADOPTION, and why only an absent `describe` earns it. A hook this installer did not write is
+ * refused on install and left alone on removal: overwriting somebody else's decision is how a
+ * settings file gets corrupted. But a hook that runs this gate with NO `describe` at all is what
+ * an older copy of this installer, or a hand-wiring, leaves behind — and treating that as foreign
+ * left a real user with no command that worked: `--remove` printed that nothing was installed
+ * while two such hooks ran the gate, and install told them to edit the file by hand. So `--remove`
+ * names every hook that runs the gate and that it did not remove, never reports the gate gone
+ * while one still runs it, and exits 1 when one does; and `--adopt` treats a hook with no
+ * `describe` as this installer's own — removed by `--remove`, replaced by an install, its level
+ * read out of its command when no `--coverage` is named. A `describe` written by anything else is
+ * a statement of ownership, and that hook is never adopted, with or without the flag.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -143,8 +155,8 @@ export const SKILL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 export const STOP_TIMEOUT_SECONDS = 10;
 export const POST_TOOL_TIMEOUT_SECONDS = 5;
 
-const USAGE = `Usage: install-report-progress-gate.mjs [--mode observe|block] [--coverage 1|2] [--skills <names>] [--settings <path>]
-       install-report-progress-gate.mjs --remove [--settings <path>]
+const USAGE = `Usage: install-report-progress-gate.mjs [--mode observe|block] [--coverage 1|2] [--skills <names>] [--adopt] [--settings <path>]
+       install-report-progress-gate.mjs --remove [--adopt] [--settings <path>]
 
 observe  report to stderr what the gate would have blocked; never ends a turn. (default)
 block    hold the turn for one more round when an armed turn ends without a progress
@@ -162,6 +174,13 @@ block    hold the turn for one more round when an armed turn ends without a prog
          EXACT name (e.g. --skills codex,gpt-researcher). Coverage 2 only. Empty by
          default, and when it is empty no hook is written for it at all. There is no
          matching of command text here, for any binary, ever.
+
+--adopt  treat a hook that runs this gate and has NO describe at all as this installer's own:
+         --remove removes it, and an install replaces it, keeping the level its command runs
+         at when no --coverage is given. An older copy of this installer, or a hand-wiring,
+         leaves exactly that. A hook whose describe something else wrote is never adopted.
+         Without --adopt, --remove names every such hook it left and exits 1, and an install
+         refuses and names them.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;
@@ -287,6 +306,52 @@ function wearsOurName(hook) {
 }
 
 /**
+ * The one kind of hook this installer did not write that it may treat as its own — and only when
+ * the user passes `--adopt`: a hook that runs this gate and has NO `describe` key at all. The
+ * absence is the evidence; it is what an older copy of this installer, or a hand-wiring, leaves.
+ * A `describe` written by anything else, an empty one included, is somebody's statement of
+ * ownership, and that hook is reported and left alone whatever flags are passed.
+ */
+function isAdoptable(hook) {
+  return wearsOurName(hook) && !Object.hasOwn(hook, 'describe');
+}
+
+/**
+ * Every hook that runs this gate but was not written by this installer: where it sits, and which
+ * kind it is — `absent` (no describe; `--adopt` can take it) or `foreign` (a describe from
+ * something else; never adopted). Scanned over every event key, as removal is, because a hook
+ * nobody can see is a hook nobody can remove.
+ */
+export function findUnownedGateHooks(settings) {
+  const found = [];
+  for (const event of eventKeys(settings)) {
+    for (const group of readableGroups(settings, event) ?? []) {
+      for (const hook of group.hooks) {
+        if (!wearsOurName(hook) || isOurs(hook)) continue;
+        found.push({ event, matcher: group.matcher, describe: isAdoptable(hook) ? 'absent' : 'foreign' });
+      }
+    }
+  }
+  return found;
+}
+
+/** `Stop (matcher *)`: a hook named the way a user finds it in the file. */
+export function hookLabel({ event, matcher }) {
+  return typeof matcher === 'string' ? `${event} (matcher ${matcher})` : `${event} (no matcher)`;
+}
+
+/** One line per unowned hook, saying what it is and what can be done about it. */
+function unownedLines(unowned) {
+  return unowned.map((hook) => (hook.describe === 'absent'
+    ? `  - ${hookLabel(hook)}: runs this gate with no describe — an older copy of this installer, or a hand-wiring.`
+    : `  - ${hookLabel(hook)}: runs this gate under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.`));
+}
+
+function countOf(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/**
  * The groups under one event key that are shaped the way this script understands — GROUP BY
  * GROUP, never all-or-nothing.
  *
@@ -355,21 +420,21 @@ const HOOK_PLAN = Object.freeze([
  * A hook that wears our name but that we did not write is somebody else's decision, so it
  * is refused rather than replaced.
  */
-export function installHooks(settings, { entries }) {
+export function installHooks(settings, { entries, adopt = false }) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
 
   // Scanned over EVERY event key, not only the ones this version writes: a hook wearing the
   // gate's filename under an event we no longer touch is still somebody's decision, and
   // stacking a second gate beside it would spend two of the eight shared blocks on one
-  // missing report.
-  for (const event of eventKeys(settings)) {
-    for (const group of readableGroups(settings, event) ?? []) {
-      for (const hook of group.hooks) {
-        if (wearsOurName(hook) && !isOurs(hook)) {
-          throw new Error(`refusing to write: a ${event} hook already runs this gate but was not written by this installer. Remove it by hand first.`);
-        }
-      }
+  // missing report. Every such hook is named, so the refusal is something a user can act on,
+  // and `--adopt` lifts it for a hook with no describe at all — never for any other.
+  const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && hook.describe === 'absent'));
+  if (blockers.length > 0) {
+    const lines = ['refusing to write: each hook below already runs this gate but was not written by this installer.', ...unownedLines(blockers)];
+    if (blockers.some((hook) => hook.describe === 'absent')) {
+      lines.push("Run this script again with --adopt to treat each hook with no describe as this installer's own and replace it.");
     }
+    throw new Error(lines.join('\n'));
   }
   // Validated only where we are about to WRITE. A shape we misread is a settings file we
   // could corrupt, and these three are the only keys this script edits.
@@ -380,7 +445,7 @@ export function installHooks(settings, { entries }) {
   // Drop any previous copy of ours wherever it sits, so re-running this to change mode or
   // level replaces the gate instead of stacking a second one beside it, and so the arming
   // half of the level being left does not survive as an orphan beside the new one.
-  const { settings: cleaned } = removeHooks(settings);
+  const { settings: cleaned } = removeHooks(settings, { adopt });
   const hooks = plainObject(cleaned.hooks) ? cleaned.hooks : {};
   for (const { event, matcher, key } of HOOK_PLAN) {
     if (!entries[key]) continue;
@@ -406,15 +471,27 @@ export function installHooks(settings, { entries }) {
  * stopped naming `PostToolUse` — which this version's default install no longer writes —
  * every already-installed user's `PostToolUse` hook became unremovable by `--remove`:
  * left in their settings forever, arming a marker nothing reads.
+ *
+ * With `adopt`, a hook that runs this gate with no `describe` at all goes too (`isAdoptable`).
+ * `removed` counts every hook taken out, adopted ones included; `unowned` is what still runs the
+ * gate afterwards, so no caller can report the gate gone while a hook is still running it.
  */
-export function removeHooks(settings) {
+export function removeHooks(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
   let removed = 0;
+  let adopted = 0;
   for (const event of eventKeys(settings)) {
     const groups = readableGroups(settings, event);
     if (groups === null || groups.length === 0) continue;
     for (const group of groups) {
-      const kept = group.hooks.filter((hook) => !isOurs(hook));
+      const kept = group.hooks.filter((hook) => {
+        if (isOurs(hook)) return false;
+        if (adopt && isAdoptable(hook)) {
+          adopted += 1;
+          return false;
+        }
+        return true;
+      });
       removed += group.hooks.length - kept.length;
       group.hooks = kept;
     }
@@ -424,7 +501,7 @@ export function removeHooks(settings) {
     if (settings.hooks[event].length === 0) delete settings.hooks[event];
   }
   if (plainObject(settings.hooks) && Object.keys(settings.hooks).length === 0) delete settings.hooks;
-  return { settings, removed };
+  return { settings, removed, adopted, unowned: findUnownedGateHooks(settings) };
 }
 
 /**
@@ -450,24 +527,31 @@ function leadingAssignments(command) {
  * So a command naming no level — as v0.16.1 wrote it — or an unrecognised one is coverage 1,
  * which is exactly what that gate is running at.
  *
- * Only hooks this installer wrote are read. `Stop` is preferred, because that is the hook
+ * Only hooks this installer wrote are read — plus, under `--adopt`, the hooks it is about to
+ * adopt, so adopting with no `--coverage` keeps the level the adopted command was running at,
+ * exactly as a bare re-run keeps its own. `Stop` is preferred, because that is the hook
  * where the level changes what a turn can cost; any other of ours stands in when there is no
  * `Stop`. Returns `null` when the file holds no gate of ours.
  */
-export function readInstalledGate(settings) {
+export function readInstalledGate(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) return null;
-  const ours = [];
+  const candidates = [];
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
-        if (isOurs(hook) && typeof hook.command === 'string') ours.push({ event, hook });
+        if (!plainObject(hook) || typeof hook.command !== 'string') continue;
+        if (isOurs(hook)) candidates.push({ event, hook, adopted: false });
+        else if (adopt && isAdoptable(hook)) candidates.push({ event, hook, adopted: true });
       }
     }
   }
-  if (ours.length === 0) return null;
-  const { hook } = ours.find((entry) => entry.event === 'Stop') ?? ours[0];
+  if (candidates.length === 0) return null;
+  // `Stop` first; within an event, a hook this installer wrote over one it is adopting.
+  const stops = candidates.filter((entry) => entry.event === 'Stop');
+  const { hook, adopted } = stops.find((entry) => !entry.adopted) ?? stops[0]
+    ?? candidates.find((entry) => !entry.adopted) ?? candidates[0];
   const env = leadingAssignments(hook.command);
-  return { coverage: resolveCoverage(env), mode: resolveMode(env) };
+  return { coverage: resolveCoverage(env), mode: resolveMode(env), adopted };
 }
 
 /** One line naming where the level came from. A silent level is the defect this replaced. */
@@ -480,7 +564,10 @@ function describeLevel({ named, existing, coverage }) {
       ? `Set coverage ${coverage} (unchanged).`
       : `Set coverage ${coverage} (was ${existing.coverage}).`;
   }
-  if (existing) return `Kept coverage ${coverage} (already installed in this file). ${change}.`;
+  if (existing) {
+    const source = existing.adopted ? 'read from the adopted hook' : 'already installed in this file';
+    return `Kept coverage ${coverage} (${source}). ${change}.`;
+  }
   return `Set coverage ${coverage} (the default for a new install). ${change} — what that adds, and what it costs, is below.`;
 }
 
@@ -521,7 +608,7 @@ async function writeSettings(settingsPath, settings) {
 }
 
 function parseArguments(argv) {
-  const options = { mode: null, modeGiven: false, coverage: null, settingsPath: null, skills: [], remove: false, help: false };
+  const options = { mode: null, modeGiven: false, coverage: null, settingsPath: null, skills: [], remove: false, adopt: false, help: false };
   let skillsGiven = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -543,6 +630,7 @@ function parseArguments(argv) {
       skillsGiven = true;
       options.skills = normaliseSkills(argv[index] ?? '');
     } else if (argument === '--remove') options.remove = true;
+    else if (argument === '--adopt') options.adopt = true;
     else if (argument === '--help' || argument === '-h') options.help = true;
     else throw new Error(`unknown argument: ${argument}`);
   }
@@ -578,17 +666,45 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   try {
     const settings = await readSettings(settingsPath);
     if (options.remove) {
-      const { settings: pruned, removed } = removeHooks(settings);
-      await writeSettings(settingsPath, pruned);
-      stdout.write(removed > 0
-        ? `Removed ${removed} report-progress gate hook${removed === 1 ? '' : 's'} from ${settingsPath}.\nNo turn will be held again unless you install it back.\n`
-        : `No report-progress gate was installed in ${settingsPath}. Nothing changed.\n`);
-      return 0;
+      // Named before removal, because removal edits `settings` in place.
+      const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.describe === 'absent') : [];
+      const { settings: pruned, removed, adopted, unowned } = removeHooks(settings, { adopt: options.adopt });
+      // Written only when something was removed: a run that removed nothing leaves the file byte
+      // for byte as it found it.
+      if (removed > 0) await writeSettings(settingsPath, pruned);
+      const report = [];
+      if (removed > 0) report.push(`Removed ${countOf(removed, 'report-progress gate hook')} from ${settingsPath}.`);
+      if (options.adopt) {
+        report.push(adopted > 0
+          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate with no describe — ${adoptable.map(hookLabel).join(', ')}.`
+          : 'Adopted none: no hook in this file ran this gate without a describe.');
+      }
+      // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No report-progress
+      // gate was installed … Nothing changed." and exited 0 while two hooks with no describe kept
+      // running the gate. So every hook left running it is named, with what can be done about it,
+      // and the run fails: what was asked for — the gate out of this file — did not happen.
+      if (unowned.length === 0) {
+        report.push(removed > 0
+          ? 'No turn will be held again unless you install it back.'
+          : `No report-progress gate was installed in ${settingsPath}. Nothing changed.`);
+        stdout.write(`${report.join('\n')}\n`);
+        return 0;
+      }
+      if (report.length > 0) stdout.write(`${report.join('\n')}\n`);
+      const still = [
+        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
+        ...unownedLines(unowned),
+      ];
+      if (unowned.some((hook) => hook.describe === 'absent')) {
+        still.push("To remove each hook with no describe as this installer's own, run this script again with --remove --adopt.");
+      }
+      stderr.write(`${still.join('\n')}\n`);
+      return 1;
     }
 
     // Named, then installed, then the default. The middle step is the point: re-running this
     // script to pick up a new version must never be the thing that changes what it enforces.
-    const existing = readInstalledGate(settings);
+    const existing = readInstalledGate(settings, { adopt: options.adopt });
     const coverage = options.coverage ?? existing?.coverage ?? DEFAULT_COVERAGE_LEVEL;
     if (coverage === 1 && options.skills.length > 0) {
       const source = options.coverage !== null
@@ -600,10 +716,17 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     }
 
     const entries = buildHookEntries({ mode: options.mode, gatePath: resolveGatePath(), skills: options.skills, coverage });
-    const updated = installHooks(settings, { entries });
+    // Named before installing, because installing edits `settings` in place.
+    const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.describe === 'absent') : [];
+    const updated = installHooks(settings, { entries, adopt: options.adopt });
     await writeSettings(settingsPath, updated);
 
     stdout.write(`Installed the ${options.mode} report-progress gate into ${settingsPath}.\n`);
+    if (options.adopt) {
+      stdout.write(adoptable.length > 0
+        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate with no describe, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
+        : 'Adopted none: no hook in this file ran this gate without a describe.\n');
+    }
     stdout.write(`${describeLevel({ named: options.coverage, existing, coverage })}\n`);
     const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
     if (modeChange) stdout.write(`${modeChange}\n`);

@@ -386,7 +386,14 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block --covera
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
+
+# a hook running the gate with no describe (an older install, or a hand-wiring): --remove names it
+# and exits 1; --adopt takes it out, or replaces it on install, as this installer's own
+node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
+
+A hook that runs the gate under a `describe` something else wrote is never adopted: `--remove` names
+it and leaves it alone, and an install refuses until it is gone.
 
 Four limits, stated here because a guard that is misread is worse than no guard:
 

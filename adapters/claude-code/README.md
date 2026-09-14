@@ -259,6 +259,9 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block --covera
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
+
+# …including a hook that runs the gate with no describe, as an older install or a hand-wiring leaves
+node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
 
 **Updating keeps the level you have.** Re-running the installer with no `--coverage`
@@ -376,8 +379,18 @@ it reads.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking
 a second copy beside it, so changing mode is one command. A hook wearing the
-gate's filename that this installer did not write is refused, not overwritten:
-somebody else put it there, and it is theirs to remove.
+gate's filename that this installer did not write is refused, not overwritten, and
+`--remove` names it, by event and matcher, rather than reporting the gate gone: it
+exits 1 while any hook still runs the gate. (It used to print "No report-progress
+gate was installed … Nothing changed." over two such hooks.)
+
+**`--adopt`** covers the one kind of such hook this installer can vouch for: a hook
+that runs the gate with **no `describe` key at all**, which is what an older copy of
+this installer, or a hand-wiring, leaves. With `--adopt`, `--remove` removes it and
+an install replaces it, keeping the level its command runs at when no `--coverage`
+is named, and both say how many they adopted. A hook whose `describe` something else
+wrote is never adopted, with or without the flag: somebody else put it there, and it
+is theirs to remove.
 
 It is deliberately **not** in `settings-fragment.json`. That fragment is the
 journal hook's, and it is meant to be copied wholesale — a gate that can end a
