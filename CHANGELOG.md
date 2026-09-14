@@ -5,6 +5,45 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.21.1
+
+**What.** Two fixes in the `report-progress` Stop gate, both in `adapters/claude-code/report-progress-gate.mjs`.
+The refusal it returns now names the skill to load before it describes the shape to write. And a
+block that could not be shown is no longer left on record as spent: when the record of the block
+lands but the marker beside it fails to write, the record is cleared again rather than kept.
+No skill text, installer, hook command, settings shape or package export changed, and no hook
+needs re-running.
+
+**Why.** The refusal was teaching the wrong half. Measured in live sessions: the gate fired, the
+turn came back carrying the three headings, and the `report-progress` skill was never loaded —
+because skills load by description match, and a gate's refusal is not one. The shape passed the
+string match while everything the skill exists for was absent: numbers the author checked kept
+apart from numbers they were told, the user-facing consequence named, corrections said out loud.
+The refusal now opens by naming the skill and closes the same way as before, so an agent without
+it installed still gets the shape from the message itself.
+
+The second fix closes a silence. The gate's ceiling is two writes — a record of the spent block,
+and the marker. They were evaluated in one condition, so a run where the record landed and the
+marker did not returned without blocking and kept the record: for the rest of that turn the gate
+believed it had already spoken, over a block nobody ever saw. It is the same silence the ceiling
+exists to bound, arriving through the door marked "failed write". Reported by a review of
+0.20.0 at severity 4; both halves now land or neither counts.
+
+**Impact.** **Patch. No migration, no installer step, and no settings change.**
+
+- **An installed gate picks both fixes up the moment the checkout updates** — an installed hook
+  points at a checkout, and neither fix is behind a flag. Nothing about when the gate arms, what it
+  checks, or what it writes to `settings.json` changed, so there is no re-install and no
+  re-arming.
+- **What you will notice:** the refusal message is one paragraph longer, and it starts by telling
+  the model to load the skill.
+- **Blast radius:** anyone running the report-progress gate in `block` or `observe` mode. In
+  `observe` mode the refusal text is not printed at all, so only the record fix applies there.
+- **Dependencies and distribution:** none added or changed. `latest` is correct for this version.
+- **Runtime behaviour:** unchanged except in the failed-write path, where the gate now clears a
+  record it previously kept. `test/report-progress-gate.test.mjs` grows from 119 to 121 tests,
+  the two new ones covering exactly these paths.
+
 ## 0.21.0
 
 **What.** One new skill, `isolated-change-validation`, and nothing else: no adapter, package,

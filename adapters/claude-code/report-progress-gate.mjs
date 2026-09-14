@@ -701,6 +701,12 @@ export function buildBlockReason(failures, { causes = ['agent-tool'], runningCou
     missing,
     ...register,
     '',
+    // The shape alone teaches the shape. Measured in live sessions: the gate fired, the three
+    // headings came back, and the skill was never loaded — so none of what it is for (numbers the
+    // author checked kept apart from numbers they were told, the user-facing consequence,
+    // corrections said out loud) reached the reader. Naming the skill first costs one line and is the only pointer
+    // the model gets: skills load by description match, and a gate's reason is not one.
+    'Load the `report-progress` skill and follow it: this gate matches a shape, and the skill carries what makes the report worth reading — numbers you checked yourself kept apart from numbers you were told, the user-facing consequence named, and corrections stated out loud. If it is not installed, write the shape below from here.',
     'Write the report now, in the report-progress shape: what is done, what is running, what is next — each item carrying a count or a named artefact. Every running row needs a literal state and a freshness (for example: "child-7f2, state running, last observed 40s ago"). Where there is no lifecycle evidence at all, use exactly this sentence in place of the running section:',
     NO_EVIDENCE_SENTENCE,
     'An empty section says it is empty ("Running: none") rather than being omitted.',
@@ -1123,7 +1129,13 @@ async function main() {
     };
     // With the turn hook declared, the record that holds the ceiling is written first, and a gate that
     // cannot write it stands down exactly as one that cannot write the marker does.
-    if ((turnHook && !recordSpentBlock(spentRecord)) || !writeMarker(file, spent)) {
+    const recorded = turnHook ? recordSpentBlock(spentRecord) : true;
+    if (!recorded || !writeMarker(file, spent)) {
+      // Both halves land or neither counts. When the record landed and the marker did not, the block
+      // is refused here — so the record of it goes too. Left behind, it silences the rest of the turn
+      // over a block the reader never saw, which is the same silence the ceiling exists to bound,
+      // arriving through the door marked "failed write".
+      if (recorded && turnHook) clearSpentBlock(spentRecord);
       try {
         process.stderr.write('report-progress gate: could not record a spent block, so not spending one\n');
       } catch {
