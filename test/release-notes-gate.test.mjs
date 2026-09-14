@@ -521,9 +521,10 @@ test('the default settings path is the user\'s, and no test ever writes to it', 
 // and dropped `describe` (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14).
 // This installer recognised its hook by `describe`, so on a rewritten file `--remove` printed "No
 // release-notes gate was installed … Nothing changed." and exited 0 with the hook still in place, and
-// an install refused. A hook is now this installer's when its command carries the fingerprint: the
-// gate's assignment among the command's leading assignments, and an argument whose basename is
-// exactly the gate file. A describe somebody else wrote still vetoes that.
+// an install refused. A hook is now this installer's only when its whole command is exactly the shape
+// every released version wrote: the gate's assignment, bash, and the gate path, single-quoted, and
+// nothing else. A describe somebody else wrote still vetoes that. test/hook-ownership-installers.test.mjs
+// holds the full rule end to end.
 // ---------------------------------------------------------------------------
 
 /** The hook this installer writes, as the harness leaves it: command and timeout, no describe. */
@@ -533,7 +534,7 @@ const strippedReleaseHook = (mode = 'block') => ({
   timeout: 10,
 });
 
-/** A hook that runs the gate without the assignment leading its command: a hand-wiring. */
+/** A hook that runs the gate in a shape no installer wrote — no assignment at all: a hand-wiring. */
 const handWiredReleaseHook = () => ({ type: 'command', command: `bash '/elsewhere/${HOOK_MARKER}'` });
 
 const UNRELATED_BASH_HOOK = Object.freeze({ type: 'command', command: 'someone-elses-bash-hook' });

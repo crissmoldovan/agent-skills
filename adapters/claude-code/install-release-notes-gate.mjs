@@ -39,16 +39,21 @@
  * (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14). Until now this installer
  * recognised its hook by `describe`, so on a rewritten file `--remove` printed "No release-notes gate
  * was installed … Nothing changed." and exited 0 with the hook still running, and an install refused.
- * A hook is now this installer's when its command carries the fingerprint `./hook-ownership.mjs`
- * defines: `AGENT_SKILLS_RELEASE_NOTES_GATE=` among its leading assignments, and an argument whose
- * basename is exactly `release-notes-gate.sh`. Every command this installer has written has that
- * shape. A `describe` written by anything else is a statement of ownership, and that hook is never
- * taken, with or without a flag.
+ * A hook is now this installer's, with no flag, only when its WHOLE command is exactly the shape every
+ * released version wrote (`HOOK_IDENTITY` below, checked by `./hook-ownership.mjs`):
+ * `AGENT_SKILLS_RELEASE_NOTES_GATE=<value>` and no other assignment, then the bare word `bash`, then
+ * the gate path, single-quoted, whose basename is exactly `release-notes-gate.sh`, and nothing after
+ * it. The harness keeps the command byte for byte, so that shape survives every rewrite. A `describe`
+ * written by anything else is a statement of ownership, and that hook is never taken, with or without
+ * a flag.
  *
- * `--adopt` is for what is left: a hook that runs the gate WITHOUT the assignment leading its command,
- * which is a hand-wiring. It is refused on install and named on removal; with `--adopt` it is removed
- * or replaced. `--remove` never reports the gate gone while any hook still runs it, and exits 1 when
- * one does.
+ * `--adopt` is for a hook that RUNS the gate in any other shape, which is a hand-wiring. It is refused
+ * on install and named on removal; with `--adopt` it is removed or replaced. `--remove` never reports
+ * the gate gone while any hook still runs it, and exits 1 when one does. A hook that only MENTIONS the
+ * gate file — an argument of echo, cat, shellcheck, rm and the like — is not the gate, and nothing here
+ * touches it. A hook where this installer cannot tell whether the gate runs is named and never taken,
+ * with or without `--adopt`: over-reporting a hook is recoverable, and deleting one that is not the
+ * gate is not.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -66,12 +71,12 @@ import {
   leadingAssignments,
   plainObject,
   readableGroups,
+  unownedReason,
 } from './hook-ownership.mjs';
 
-/** The gate file. A hook is this installer's when an argument of its command has exactly this basename… */
+/** The gate file: the exact basename of the path every command this installer writes runs. */
 export const HOOK_MARKER = 'release-notes-gate.sh';
-/** …and the gate's own assignment leads that command. This prefix still starts every `describe`
- *  written, and a describe that does not start with it vetoes ownership. */
+/** Still starts every `describe` written; a describe that does not start with it vetoes ownership. */
 export const DESCRIBE_PREFIX = 'agent-skills release-notes gate';
 /** The arming flag the gate reads. `off`, unset or anything else is off. */
 export const GATE_ENV_FLAG = 'AGENT_SKILLS_RELEASE_NOTES_GATE';
@@ -91,8 +96,24 @@ export const BASH_MATCHER = 'Bash';
  */
 export const TIMEOUT_SECONDS = 10;
 
-/** What `./hook-ownership.mjs` needs to tell this installer's hook from anybody else's. */
-const IDENTITY = Object.freeze({ envFlag: GATE_ENV_FLAG, gateFile: HOOK_MARKER, describePrefix: DESCRIBE_PREFIX });
+/**
+ * What `./hook-ownership.mjs` needs to tell this installer's hook from anybody else's, including the
+ * exact shape of the one command every released version wrote, from `git log -p` on this file across
+ * the tags:
+ *   v0.16.0–this version  AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<gate>'
+ * `bash` is `buildHookEntry`'s default `shellPath`, written bare, and no release passed another;
+ * `<gate>` is this file's sibling through `shellQuote`.
+ */
+export const HOOK_IDENTITY = Object.freeze({
+  envFlag: GATE_ENV_FLAG,
+  gateFile: HOOK_MARKER,
+  describePrefix: DESCRIBE_PREFIX,
+  variables: Object.freeze([GATE_ENV_FLAG]),
+  interpreter: Object.freeze({ word: 'bash' }),
+});
+const IDENTITY = HOOK_IDENTITY;
+/** How an unowned hook's line describes the shape it is not. */
+const OWN_SHAPE = `the ${GATE_ENV_FLAG}= assignment, bash, and the gate path, single-quoted`;
 
 export { hookLabel };
 
@@ -105,13 +126,17 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          --mode is not carried over: a re-run that changes the mode of the gate already in
          the settings file says so.
 
---adopt  treat a hook that runs the gate WITHOUT the AGENT_SKILLS_RELEASE_NOTES_GATE=
-         assignment leading its command — a hand-wiring — as this installer's own: --remove
-         removes it, and an install replaces it. Not needed for this installer's own hook:
-         every command it writes starts with that assignment, and that is how it recognises
-         it, including after Claude Code has dropped its describe. A hook whose describe
-         something else wrote is never adopted. Without --adopt, --remove names every
-         hand-wiring it left and exits 1, and an install refuses and names them.
+--adopt  also take a hook that RUNS the gate in a shape this installer never writes — a
+         hand-wiring: --remove removes it, and an install replaces it. Not needed for this
+         installer's own hook: a hook whose whole command is exactly what it writes — the
+         AGENT_SKILLS_RELEASE_NOTES_GATE= assignment, bash, and the gate path, single-quoted,
+         and nothing else — is recognised with no flag, including after Claude Code has
+         dropped its describe. Never taken, with or without --adopt: a hook whose describe
+         something else wrote, and a hook where this installer cannot tell whether the gate
+         runs (the gate file as an argument of a program it does not know, for one). A hook
+         that only mentions the gate file, as echo, cat or shellcheck do, is not the gate and
+         is left alone. Without --adopt, --remove names every hook it left that runs the gate,
+         or may, and exits 1, and an install refuses and names them.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;
@@ -157,8 +182,8 @@ export function resolveGatePath() {
  * desktop launch inherits no shell profile at all — so a gate that depended on an exported
  * variable would be armed in a terminal session and silently inert in every other one. Here
  * the mode is visible in `settings.json`, on the line that runs it, and editing that one word
- * to `off` is how a user disarms the gate without uninstalling it. It is also, now, how this
- * installer recognises the hook as its own.
+ * to `off` is how a user disarms the gate without uninstalling it. The whole command, exactly as
+ * written here, is also how this installer recognises the hook as its own.
  *
  * The interpreter is named explicitly rather than relying on the script's execute bit and
  * shebang. A checkout that lost the mode bit — a zip download, a copy through a filesystem
@@ -182,10 +207,11 @@ export function buildHookEntry({ mode, gatePath, shellPath = 'bash' }) {
 }
 
 /**
- * Every hook that runs this gate but is not this installer's: where it sits, and which kind it is —
- * `adoptable` (a hand-wiring; `--adopt` can take it) or `foreign` (a describe something else wrote;
- * never adopted). Scanned over every event key, because a hook nobody can see is a hook nobody can
- * remove.
+ * Every hook that runs this gate, or may, but is not this installer's: where it sits, and which kind it
+ * is — `adoptable` (a hand-wiring; `--adopt` can take it), `unclear` (it names the gate file where this
+ * installer cannot tell whether the gate runs; never adopted) or `foreign` (a describe something else
+ * wrote; never adopted). Scanned over every event key, because a hook nobody can see is a hook nobody
+ * can remove.
  */
 export function findUnownedGateHooks(settings) {
   return findUnownedHooks(settings, IDENTITY);
@@ -193,9 +219,7 @@ export function findUnownedGateHooks(settings) {
 
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
-  return unowned.map((hook) => (hook.kind === 'adoptable'
-    ? `  - ${hookLabel(hook)}: runs this gate, but its command does not start with the ${GATE_ENV_FLAG}= assignment every command this installer writes starts with, so it is not recognised as this installer's own. A hand-wiring looks like this.`
-    : `  - ${hookLabel(hook)}: runs this gate under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.`));
+  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE)}`);
 }
 
 function countOf(count, noun) {
@@ -279,9 +303,9 @@ export function installHook(settings, { entry, adopt = false }) {
 
   const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && hook.kind === 'adoptable'));
   if (blockers.length > 0) {
-    const lines = ['refusing to write: each hook below already runs this gate but was not written by this installer.', ...unownedLines(blockers)];
+    const lines = ['refusing to write: each hook below already runs this gate, or may, and was not written by this installer.', ...unownedLines(blockers)];
     if (blockers.some((hook) => hook.kind === 'adoptable')) {
-      lines.push(`Run this script again with --adopt to treat each hook that runs this gate without the ${GATE_ENV_FLAG}= assignment as this installer's own and replace it.`);
+      lines.push('Run this script again with --adopt to replace each hook above that runs this gate in a shape this installer never writes with this installer\'s own.');
     }
     throw new Error(lines.join('\n'));
   }
@@ -425,8 +449,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       if (removed > 0) report.push(`Removed ${countOf(removed, 'release-notes gate hook')} from ${settingsPath}.`);
       if (options.adopt) {
         report.push(adopted > 0
-          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate without the ${GATE_ENV_FLAG}= assignment — ${adoptable.map(hookLabel).join(', ')}.`
-          : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.`);
+          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate in a shape this installer never writes — ${adoptable.map(hookLabel).join(', ')}.`
+          : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.');
       }
       // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No release-notes gate
       // was installed … Nothing changed." and exited 0 while the harness-rewritten hook kept running.
@@ -439,11 +463,11 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       }
       if (report.length > 0) stdout.write(`${report.join('\n')}\n`);
       const still = [
-        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
+        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, or may, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
         ...unownedLines(unowned),
       ];
       if (unowned.some((hook) => hook.kind === 'adoptable')) {
-        still.push(`To remove each hook that runs this gate without the ${GATE_ENV_FLAG}= assignment as this installer's own, run this script again with --remove --adopt.`);
+        still.push('To remove each hook above that runs this gate in a shape this installer never writes, run this script again with --remove --adopt.');
       }
       stderr.write(`${still.join('\n')}\n`);
       return 1;
@@ -460,8 +484,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stdout.write(`Installed the ${options.mode} release-notes gate into ${settingsPath}.\n`);
     if (options.adopt) {
       stdout.write(adoptable.length > 0
-        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate without the ${GATE_ENV_FLAG}= assignment, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
-        : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.\n`);
+        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate in a shape this installer never writes, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
+        : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.\n');
     }
     const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
     if (modeChange) stdout.write(`${modeChange}\n`);
@@ -501,9 +525,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     }
     stdout.write([
       `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${options.mode} to`,
-      `${GATE_ENV_FLAG}=off in the command this wrote — keep the assignment itself, because it is`,
-      'how this installer recognises the hook as its own. Remove it entirely: run this script',
-      'with --remove.',
+      `${GATE_ENV_FLAG}=off in the command this wrote, and change nothing else in it: this`,
+      'installer recognises its hook only while the command is exactly what it writes. Remove',
+      'it entirely: run this script with --remove.',
       '',
     ].join('\n'));
     stdout.write(`\nHook written:\n${JSON.stringify(entry, null, 2)}\n`);

@@ -735,7 +735,7 @@ test('removal finds our hooks under any event key, not only the ones this versio
     hooks: {
       AnEventThisVersionNeverWrites: [{
         matcher: '*',
-        hooks: [{ type: 'command', command: `${GATE_ENV_FLAG}=block node /pack/${HOOK_MARKER}`, describe: `${DESCRIBE_PREFIX} (block): left over from a version that wrote this event.` }],
+        hooks: [{ type: 'command', command: `${GATE_ENV_FLAG}=block '/bin/node' '/pack/${HOOK_MARKER}'`, describe: `${DESCRIBE_PREFIX} (block): left over from a version that wrote this event.` }],
       }],
     },
   };
@@ -798,7 +798,7 @@ test('removal leaves an event key it cannot understand exactly as it found it', 
   // Scanning every key means meeting keys this script knows nothing about. A malformed one
   // holds none of our hooks, so it is skipped rather than refused: `--remove` must not fail
   // because of somebody else's typo three keys away.
-  const ours = { type: 'command', command: `${GATE_ENV_FLAG}=observe node /pack/${HOOK_MARKER}`, describe: `${DESCRIBE_PREFIX} (observe): …` };
+  const ours = { type: 'command', command: `${GATE_ENV_FLAG}=observe '/bin/node' '/pack/${HOOK_MARKER}'`, describe: `${DESCRIBE_PREFIX} (observe): …` };
   const settings = { hooks: { SessionStart: 'not an array at all', Stop: [{ matcher: '*', hooks: [ours] }] } };
   const { settings: pruned, removed } = removeHooks(settings);
   assert.equal(removed, 1);
@@ -1659,10 +1659,10 @@ test('a foreign hook wearing the gate name is still refused before any level is 
 // (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14). 0.19.0 recognised its own
 // hooks by `describe`, so on a live install — Stop and SubagentStart at coverage 2 in block mode, both
 // stripped — a bare re-run refused and `--remove` exited 1 until `--adopt` was added. A hook is now
-// this installer's when its command carries the fingerprint: the gate's own assignment among the
-// command's leading assignments, and an argument whose basename is exactly the gate file. A describe
-// somebody else wrote still vetoes that. `--adopt` is left for hand-wirings: hooks that run the gate
-// without the assignment.
+// this installer's only when its whole command is exactly a shape a released version wrote: the
+// gate's own assignments, the node binary and the gate path, single-quoted, and nothing else. A
+// describe somebody else wrote still vetoes that. `--adopt` is left for hand-wirings: hooks that run
+// the gate in any other shape. test/hook-ownership-installers.test.mjs holds the full rule end to end.
 // ---------------------------------------------------------------------------
 
 /** A gate hook as Claude Code leaves one after rewriting the file: the installer's command, no describe. */
@@ -1682,7 +1682,7 @@ function stripDescribes(settings) {
   return settings;
 }
 
-/** A hook that runs the gate without the gate's assignment leading its command: a hand-wiring. */
+/** A hook that runs the gate in a shape no installer wrote — no assignment at all: a hand-wiring. */
 const handWiredHook = (timeout) => ({ type: 'command', command: `node '/elsewhere/${HOOK_MARKER}'`, timeout });
 
 /** Somebody else's Stop hook, in a group of its own. Every run below must leave it alone. */
@@ -1965,7 +1965,9 @@ test('adopting reads a double-quoted level and mode as the shell does, and refus
   });
   const kept = await runInstaller(['--adopt', '--settings', settingsPath]);
   assert.equal(kept.status, 0, kept.stderr);
-  assert.match(kept.stdout, /Kept coverage 2 \(already installed in this file\)/);
+  // No installer ever wrote double quotes, so this hook is adopted, not recognised as installed.
+  assert.match(kept.stdout, /Adopted 2 hooks/);
+  assert.match(kept.stdout, /Kept coverage 2 \(read from the adopted hook\)/);
   assert.doesNotMatch(kept.stdout, /disarmed \(off\)/, 'a double-quoted "block" was read as off');
   assert.match(kept.stdout, /ran in block mode/);
   assert.ok(ourCommand(await readJson(settingsPath), 'Stop', '*').includes(`${COVERAGE_ENV_FLAG}=2 `));

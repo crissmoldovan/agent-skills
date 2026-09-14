@@ -7,29 +7,55 @@
  * `command`, `matcher` and `timeout` byte for byte (adapters/HOOK-OUTPUT-NOTES.md, third and fourth
  * addenda of 2026-09-14). So ownership is read from the command here, the one field that survives.
  *
- * THE FINGERPRINT. A hook is an installer's own when its command has
- *   1. the gate's arming assignment (`AGENT_SKILLS_PROGRESS_GATE=…` or
- *      `AGENT_SKILLS_RELEASE_NOTES_GATE=…`) among the command's leading assignments, read only where
- *      the shell reads it literally; and
- *   2. an argument of that same simple command whose basename is EXACTLY the gate file.
- * Every command either installer has ever written has that shape, because the assignment is what arms
- * the gate. The basename is compared exactly: the substring check this replaced took
- * `install-report-progress-gate.mjs` and `report-progress-gate.mjs.bak` for the gate, and `--adopt`
- * would then have removed hooks that never ran it.
+ * WHAT A HOOK IS, for a hook with a string command (`classifyHook`):
  *
- * THE VETO. A `describe` somebody else wrote — an empty one included — is a statement of ownership,
- * and a hook carrying one is `foreign`, whatever its command looks like. An absent `describe`, or the
- * installer's own, leaves the decision to the command. That includes a hook wearing the installer's
- * describe over a command without the fingerprint: no installer wrote one, so it is a hand-edit.
+ *   ours       Its WHOLE command is exactly a shape a released version of the installer wrote
+ *              (`isInstallerShape`), and no `describe` somebody else wrote sits on it. Taken with no flag.
+ *   adoptable  It RUNS the gate (`gateUse`), in any other shape. Named and refused; taken only under
+ *              `--adopt`.
+ *   unclear    It names the gate file where this reader cannot tell whether the gate runs. Named, and
+ *              never taken, with or without a flag: over-reporting a hook is recoverable, and deleting
+ *              one that is not the gate is not.
+ *   foreign    It runs the gate, or may, under a `describe` somebody else wrote. Named, never taken.
+ *   null       It does not run the gate: it never names the gate file, or only MENTIONS it.
  *
- * WHAT IS LEFT. A hook that runs the gate without the fingerprint — no assignment, `env A=… node …`,
- * `cd … && …`, `export …;`, a nested `bash -c '…'` — is `adoptable`: named by `--remove` and by an
- * install's refusal, and taken only when the user passes `--adopt`.
+ * THE EXACT SHAPE. The command, read as blank-separated words made only of literal characters
+ * (letters, digits and `_ . , : / @ % + = -`) and single-quoted runs joined by `\'` — the only quoting
+ * either installer has emitted — is:
+ *   1. one or more assignments, each to one of the installer's own `variables`, none twice, the
+ *      arming `envFlag` among them, each value either literal characters or exactly single-quoted;
+ *   2. the interpreter: for `{ quotedPathTo: 'node' }`, one single-quoted word whose basename is
+ *      exactly `node`; for `{ word: 'bash' }`, the bare word `bash` and nothing else;
+ *   3. the gate path: one single-quoted word whose basename is exactly `gateFile`;
+ *   4. nothing more — no further word, operator, redirection, comment or expansion.
+ * Each installer's `HOOK_IDENTITY` lists the shapes its released versions wrote. Claude Code keeps the
+ * command byte for byte, so the shape an installer emitted is the shape it finds again.
+ *
+ * RUNS THE GATE is structural, over the command's simple commands as `sh` splits them. In some simple
+ * command, past its leading assignments, the reserved words `! { } if then else elif fi do done while
+ * until time`, and the wrappers `exec`, `command`, `nohup` and `env` (only `env` takes assignments):
+ *   - the program's basename is exactly the gate file; or
+ *   - the program is an interpreter in `INTERPRETERS` or a shell in `SHELLS`, and the very next word's
+ *     basename is exactly the gate file; or
+ *   - the program is a shell given `-c`, and the gate runs in that script; or
+ *   - the gate runs inside a `$(…)`, backtick or `<(…)` substitution.
+ * A gate path that is an argument of a command that prints, reads, lists, tests, copies, moves or
+ * deletes files — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`,
+ * `shellcheck` and the like — is a MENTION, and that command runs nothing of the gate. Whatever else
+ * names the gate file is UNCLEAR: an argument of any other program (`timeout`, `sudo`, `xargs`, a
+ * wrapper script), a word after an interpreter's options (`node --check`), a mention whose output is
+ * piped on, a variable's value, a here-document's body, a substitution the gate does not run in, and
+ * every command in a text that defines a function.
+ *
+ * NAMING THE GATE FILE means a word, or a piece of one split at blanks, quotes, `= : ,`, `$`, parens,
+ * braces and shell operators, whose basename is exactly the gate file. So
+ * `install-report-progress-gate.mjs` and `report-progress-gate.mjs.bak` never name it.
  *
  * This reads shell text, and it is the kind of reading that has gone wrong in this repository before,
- * so its scope is small on purpose: it tells whether a command runs a file and what leads it. It never
- * decides what a gate enforces — the level and mode are read by `leadingAssignments` alone, and a
- * value it cannot read literally is reported as unreadable rather than guessed.
+ * so its scope is small on purpose: whether a command runs a file, and whether it is exactly what an
+ * installer wrote. It evaluates nothing. It never decides what a gate enforces — the level and mode are
+ * read by `leadingAssignments` alone, and a value it cannot read literally is reported as unreadable
+ * rather than guessed.
  */
 
 export function plainObject(value) {
@@ -61,35 +87,112 @@ const BLANKS = new Set([' ', '\t']);
 const CONTROL = new Set([';', '&', '|', '(', ')', '\n']);
 /** These end a word without ending the command. */
 const REDIRECTION = new Set(['<', '>']);
+/** `(` followed only by blanks and `)`: the `name ()` of a function definition. */
+const EMPTY_PARENS = /[ \t]*\)/y;
+const ARRAY_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=$/;
+
+function closingDoubleQuote(text, start) {
+  for (let index = start; index < text.length; index += 1) {
+    if (text[index] === '\\') index += 1;
+    else if (text[index] === '"') return index;
+  }
+  return text.length;
+}
+
+/** The index of the `)` that closes a `(` whose content starts at `start`; the text's length when none does. */
+function closingParen(text, start) {
+  let depth = 1;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '\\') {
+      index += 1;
+    } else if (char === "'") {
+      const close = text.indexOf("'", index + 1);
+      if (close === -1) return text.length;
+      index = close;
+    } else if (char === '"') {
+      index = closingDoubleQuote(text, index + 1);
+    } else if (char === '(') {
+      depth += 1;
+    } else if (char === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return text.length;
+}
+
+function closingBacktick(text, start) {
+  for (let index = start; index < text.length; index += 1) {
+    if (text[index] === '\\') index += 1;
+    else if (text[index] === '`') return index;
+  }
+  return text.length;
+}
+
+/** Read the bodies of the here-documents whose delimiters are pending, from `start`; return where reading stopped. */
+function readHeredocBodies(text, start, pending) {
+  let cursor = start;
+  while (pending.length > 0) {
+    const { delimiter, stripTabs, owner } = pending.shift();
+    const body = [];
+    while (cursor < text.length) {
+      const newline = text.indexOf('\n', cursor);
+      const end = newline === -1 ? text.length : newline;
+      const line = text.slice(cursor, end);
+      cursor = end + 1;
+      if ((stripTabs ? line.replace(/^\t+/, '') : line) === delimiter) break;
+      body.push(line);
+    }
+    owner.heredocs.push(body.join('\n'));
+  }
+  return Math.min(cursor, text.length);
+}
 
 /**
- * A command's simple commands, each as its words after quote removal — the way `sh` splits them, as
- * far as that matters for telling what a command runs. Single quotes are literal; double quotes honour
- * `\"`, `\\`, `\$`, `` \` `` and a backslash-newline; an unquoted backslash escapes one character; a
- * `#` that begins a word starts a comment. Expansions are left as the literal text they are written
- * as, because nothing here evaluates anything. An unbalanced quote runs to the end of the text.
+ * A command's simple commands, each with its words after quote removal, the text of every command
+ * substitution in it, the bodies of its here-documents, and whether its output is piped on — the way
+ * `sh` splits them, as far as that matters for telling what a command runs. Single quotes are literal;
+ * double quotes honour `\"`, `\\`, `\$`, `` \` `` and a backslash-newline; an unquoted backslash escapes
+ * one character; a `#` that begins a word starts a comment. A `$(…)`, backtick or `<(…)` substitution
+ * stays in the word it belongs to, as the literal text it is written as, because nothing here evaluates
+ * anything. `&>`, `>&`, `<&` and `>|` redirect; a here-document's body is data; `name=(…)` is one word.
+ * An unbalanced quote or substitution runs to the end of the text.
  */
-export function shellCommands(command) {
+function parseShell(command) {
   const text = String(command);
   const commands = [];
-  let words = [];
+  const pendingHeredocs = [];
+  let definesFunction = false;
+  let heredocDelimiter = null;
+  const fresh = () => ({ words: [], substitutions: [], heredocs: [], pipesOut: false });
+  let current = fresh();
   let word = null;
+
   const endWord = () => {
-    if (word !== null) {
-      words.push(word);
-      word = null;
+    if (word === null) return;
+    if (heredocDelimiter) {
+      pendingHeredocs.push({ delimiter: word, stripTabs: heredocDelimiter.stripTabs, owner: current });
+      heredocDelimiter = null;
     }
+    current.words.push(word);
+    word = null;
   };
-  const endCommand = () => {
+  const endCommand = (pipesOut = false) => {
     endWord();
-    if (words.length > 0) {
-      commands.push(words);
-      words = [];
+    if (current.words.length > 0) {
+      current.pipesOut = pipesOut;
+      commands.push(current);
     }
+    current = fresh();
+  };
+  const substitution = (open, close) => {
+    current.substitutions.push(text.slice(open, close));
   };
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
+    const next = text[index + 1];
     if (char === "'") {
       const close = text.indexOf("'", index + 1);
       const stop = close === -1 ? text.length : close;
@@ -102,6 +205,16 @@ export function shellCommands(command) {
         if (text[cursor] === '\\' && cursor + 1 < text.length && '"\\$`\n'.includes(text[cursor + 1])) {
           if (text[cursor + 1] !== '\n') value += text[cursor + 1];
           cursor += 2;
+        } else if (text[cursor] === '$' && text[cursor + 1] === '(') {
+          const close = closingParen(text, cursor + 2);
+          substitution(cursor + 2, close);
+          value += text.slice(cursor, close + 1);
+          cursor = close + 1;
+        } else if (text[cursor] === '`') {
+          const close = closingBacktick(text, cursor + 1);
+          substitution(cursor + 1, close);
+          value += text.slice(cursor, close + 1);
+          cursor = close + 1;
         } else {
           value += text[cursor];
           cursor += 1;
@@ -110,15 +223,67 @@ export function shellCommands(command) {
       word = (word ?? '') + value;
       index = cursor;
     } else if (char === '\\') {
-      if (index + 1 < text.length && text[index + 1] !== '\n') word = (word ?? '') + text[index + 1];
+      if (index + 1 < text.length && next !== '\n') word = (word ?? '') + next;
       index += 1;
+    } else if (char === '$' && next === '(') {
+      const close = closingParen(text, index + 2);
+      substitution(index + 2, close);
+      word = (word ?? '') + text.slice(index, close + 1);
+      index = close;
+    } else if (char === '`') {
+      const close = closingBacktick(text, index + 1);
+      substitution(index + 1, close);
+      word = (word ?? '') + text.slice(index, close + 1);
+      index = close;
+    } else if (char === '(' && word !== null && ARRAY_ASSIGNMENT.test(word)) {
+      const close = closingParen(text, index + 1);
+      word += text.slice(index, close + 1);
+      index = close;
+    } else if ((char === '<' || char === '>') && next === '(') {
+      // A process substitution: a word of its own, whose content is a command.
+      endWord();
+      const close = closingParen(text, index + 2);
+      substitution(index + 2, close);
+      word = text.slice(index, close + 1);
+      endWord();
+      index = close;
+    } else if (char === '<' && next === '<' && text[index + 2] !== '<') {
+      // A here-document: the next word is its delimiter, and its body starts after the next newline.
+      endWord();
+      const stripTabs = text[index + 2] === '-';
+      heredocDelimiter = { stripTabs };
+      index += stripTabs ? 2 : 1;
+    } else if (char === '<' && next === '<') {
+      // `<<<`, a here-string: the word after it is data, like any redirection's.
+      endWord();
+      index += 2;
     } else if (char === '#' && word === null) {
       const newline = text.indexOf('\n', index);
       if (newline === -1) break;
       index = newline - 1;
     } else if (BLANKS.has(char)) {
       endWord();
+    } else if ((char === '&' || char === '|') && (text[index - 1] === '<' || text[index - 1] === '>')) {
+      // `>&`, `<&` and `>|` are redirections, not a background job or a pipe.
+      endWord();
+    } else if (char === '&' && next === '>') {
+      endWord();
+    } else if (char === '|') {
+      if (next === '|') {
+        endCommand();
+        index += 1;
+      } else {
+        endCommand(true);
+        if (next === '&') index += 1;
+      }
+    } else if (char === '\n') {
+      endCommand();
+      if (pendingHeredocs.length > 0) index = readHeredocBodies(text, index + 1, pendingHeredocs) - 1;
     } else if (CONTROL.has(char)) {
+      if (char === '(') {
+        EMPTY_PARENS.lastIndex = index + 1;
+        if (EMPTY_PARENS.test(text)) definesFunction = true;
+      }
       endCommand();
     } else if (REDIRECTION.has(char)) {
       endWord();
@@ -127,7 +292,12 @@ export function shellCommands(command) {
     }
   }
   endCommand();
-  return commands;
+  return { commands, definesFunction };
+}
+
+/** A command's simple commands, each as its words after quote removal (see `parseShell`). */
+export function shellCommands(command) {
+  return parseShell(command).commands.map((simple) => simple.words);
 }
 
 /** The last path segment, on either separator. Exact comparison happens at the caller. */
@@ -136,45 +306,212 @@ function basename(word) {
   return segments[segments.length - 1];
 }
 
-/**
- * True when some word of the command — or some blank-separated piece of one, which is how a nested
- * `bash -c 'node …/gate.mjs --flag'` carries it — has exactly the gate file as its basename. Wide on
- * purpose: this decides whether a hook is REPORTED as running the gate, and a hook nobody reports is
- * a second gate stacked silently beside the first.
- */
-function runsGate(commands, gateFile) {
-  return commands.some((words) => words.some((word) => basename(word) === gateFile
-    || word.split(/\s+/).some((piece) => basename(piece) === gateFile)));
+const NONE = 0;
+const UNCLEAR = 1;
+const RUNS = 2;
+
+/** Programs whose next word is the script they run. */
+const INTERPRETERS = new Set(['node', 'nodejs', 'node.exe', 'bun', '.', 'source']);
+/** Shells: the next word is the script they run, and `-c` hands them a script as text. */
+const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'sh.exe', 'bash.exe']);
+/** Programs that print, read, list, test, copy, move or delete a file and never run it. */
+const MENTIONS = new Set([
+  'echo', 'printf', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'rg', 'wc',
+  'ls', 'stat', 'file', 'test', '[', '[[', 'true', 'false', ':', 'cp', 'mv', 'ln', 'rm', 'touch',
+  'chmod', 'chown', 'mkdir', 'diff', 'cmp', 'realpath', 'readlink', 'basename', 'dirname',
+  'sha256sum', 'shasum', 'md5sum', 'shellcheck',
+]);
+/** Words that lead a program without being one. Only `env` takes assignments. */
+const RESERVED = new Set(['!', '{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do', 'done', 'while', 'until', 'time']);
+const WRAPPERS = new Set(['exec', 'command', 'nohup', 'env']);
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const SHELL_SCRIPT_OPTION = /^-[A-Za-z]*c[A-Za-z]*$/;
+const PIECE_BOUNDARY = /[\s'"`$=:,(){}<>;|&]+/;
+/** Substitutions and nested `-c` scripts deeper than this are not followed, only searched for the gate. */
+const MAX_DEPTH = 8;
+
+/** True when some piece of the text (see the header) has exactly the gate file as its basename. */
+function namesGate(text, gateFile) {
+  return String(text).split(PIECE_BOUNDARY).some((piece) => basename(piece) === gateFile);
 }
 
-/**
- * True when the gate's own assignment leads the command and an argument of that same simple command
- * — a whole word, not a piece of one — has exactly the gate file as its basename. Narrow on purpose:
- * this decides what an installer may rewrite or remove without being asked.
- */
-function carriesFingerprint(command, commands, envFlag, gateFile) {
-  if (!leadingAssignments(command).some((assignment) => assignment.name === envFlag)) return false;
-  const first = commands[0] ?? [];
+/** RUNS, UNCLEAR or NONE for one simple command. */
+function simpleCommandGateUse({ words, substitutions, heredocs, pipesOut }, gateFile, depth) {
+  let use = NONE;
+  for (const inner of substitutions) {
+    use = Math.max(use, gateUse(inner, gateFile, depth + 1) === RUNS ? RUNS : namesGate(inner, gateFile) ? UNCLEAR : NONE);
+  }
+  if (heredocs.some((body) => namesGate(body, gateFile))) use = Math.max(use, UNCLEAR);
+  const unclearIfNamed = (list) => Math.max(use, list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
+
   let index = 0;
-  while (index < first.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first[index])) index += 1;
-  return first.slice(index).some((word) => basename(word) === gateFile);
+  let assignmentsLead = true;
+  for (;;) {
+    while (assignmentsLead && index < words.length && ASSIGNMENT.test(words[index])) {
+      // A variable holding the gate's path may run it later.
+      if (namesGate(words[index], gateFile)) use = Math.max(use, UNCLEAR);
+      index += 1;
+    }
+    assignmentsLead = true;
+    if (index >= words.length) return use;
+    if (RESERVED.has(words[index])) {
+      index += 1;
+    } else if (WRAPPERS.has(basename(words[index]))) {
+      assignmentsLead = basename(words[index]) === 'env';
+      index += 1;
+      if (index < words.length && words[index].startsWith('-')) return unclearIfNamed(words.slice(index));
+    } else {
+      break;
+    }
+  }
+
+  const program = basename(words[index]);
+  const rest = words.slice(index + 1);
+  if (program === gateFile) return RUNS;
+  if (SHELLS.has(program)) {
+    let at = 0;
+    let script = false;
+    while (at < rest.length && rest[at].startsWith('-') && rest[at] !== '-') {
+      if (rest[at] === '--') {
+        at += 1;
+        break;
+      }
+      if (SHELL_SCRIPT_OPTION.test(rest[at])) script = true;
+      at += 1;
+    }
+    if (script) {
+      if (at >= rest.length) return use;
+      const inner = gateUse(rest[at], gateFile, depth + 1);
+      return Math.max(unclearIfNamed(rest.slice(at + 1)), inner);
+    }
+    if (at === 0 && rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
+    return unclearIfNamed(rest);
+  }
+  if (INTERPRETERS.has(program)) {
+    if (rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
+    return unclearIfNamed(rest);
+  }
+  if (MENTIONS.has(program)) return pipesOut ? unclearIfNamed(rest) : use;
+  return unclearIfNamed(rest);
+}
+
+/** RUNS when the text runs the gate, UNCLEAR when it names the gate file and whether it runs cannot be told, NONE otherwise. */
+function gateUse(text, gateFile, depth = 0) {
+  if (depth > MAX_DEPTH) return namesGate(text, gateFile) ? UNCLEAR : NONE;
+  const { commands, definesFunction } = parseShell(text);
+  let use = NONE;
+  for (const simple of commands) use = Math.max(use, simpleCommandGateUse(simple, gateFile, depth));
+  // A function body runs only if the function is called, which is not something to guess at.
+  return definesFunction ? Math.min(use, UNCLEAR) : use;
+}
+
+const LITERAL = /[A-Za-z0-9_.,:\/@%+=-]/;
+const LITERAL_RUN = /^[A-Za-z0-9_.,:\/@%+=-]*$/;
+const ASSIGNMENT_NAME = /^([A-Za-z_][A-Za-z0-9_]*)=/;
+
+/** How both installers quote a word. */
+function singleQuoted(value) {
+  return `'${String(value).split("'").join(`'\\''`)}'`;
+}
+
+/** The command's words, each as written (`raw`) and after quote removal (`value`); `null` for anything
+ *  but literal characters and single-quoted runs joined by `\'`, separated by blanks. */
+function installerWords(command) {
+  const text = String(command);
+  const words = [];
+  let index = 0;
+  while (index < text.length) {
+    if (BLANKS.has(text[index])) {
+      index += 1;
+      continue;
+    }
+    let raw = '';
+    let value = '';
+    while (index < text.length && !BLANKS.has(text[index])) {
+      const char = text[index];
+      if (char === "'") {
+        const close = text.indexOf("'", index + 1);
+        if (close === -1) return null;
+        raw += text.slice(index, close + 1);
+        value += text.slice(index + 1, close);
+        index = close + 1;
+      } else if (char === '\\' && text[index + 1] === "'") {
+        raw += "\\'";
+        value += "'";
+        index += 2;
+      } else if (LITERAL.test(char)) {
+        raw += char;
+        value += char;
+        index += 1;
+      } else {
+        return null;
+      }
+    }
+    words.push({ raw, value });
+  }
+  return words;
 }
 
 /**
- * `ours`, `adoptable`, `foreign`, or `null` for a hook that does not run the gate at all (or is not a
- * command hook with a string command). See the header for what each means. Never throws.
+ * True only when the whole command is exactly the installer's shape: see THE EXACT SHAPE in the header.
+ *
+ * @param {string} command
+ * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quotedPathTo?: string, word?: string } }} identity
+ */
+export function isInstallerShape(command, { envFlag, gateFile, variables = [envFlag], interpreter } = {}) {
+  const words = installerWords(command);
+  if (words === null || !plainObject(interpreter)) return false;
+  const assigned = new Set();
+  let index = 0;
+  for (; index < words.length; index += 1) {
+    const match = ASSIGNMENT_NAME.exec(words[index].raw);
+    if (!match) break;
+    const [prefix, name] = match;
+    if (!variables.includes(name) || assigned.has(name)) return false;
+    const raw = words[index].raw.slice(prefix.length);
+    if (!LITERAL_RUN.test(raw) && raw !== singleQuoted(words[index].value.slice(prefix.length))) return false;
+    assigned.add(name);
+  }
+  if (!assigned.has(envFlag) || words.length - index !== 2) return false;
+  const [program, gate] = words.slice(index);
+  const interpreterMatches = typeof interpreter.word === 'string'
+    ? program.raw === interpreter.word
+    : typeof interpreter.quotedPathTo === 'string'
+      && program.raw === singleQuoted(program.value)
+      && basename(program.value) === interpreter.quotedPathTo;
+  return interpreterMatches && gate.raw === singleQuoted(gate.value) && basename(gate.value) === gateFile;
+}
+
+/**
+ * `ours`, `adoptable`, `unclear`, `foreign`, or `null` for a hook that does not run the gate at all
+ * (or is not a command hook with a string command). See the header for what each means. Never throws.
  *
  * @param {unknown} hook
- * @param {{ envFlag: string, gateFile: string, describePrefix: string }} identity
+ * @param {{ envFlag: string, gateFile: string, describePrefix: string, variables?: readonly string[], interpreter?: object }} identity
  */
-export function classifyHook(hook, { envFlag, gateFile, describePrefix }) {
-  if (!plainObject(hook) || typeof hook.command !== 'string') return null;
-  const commands = shellCommands(hook.command);
-  if (!runsGate(commands, gateFile)) return null;
+export function classifyHook(hook, identity) {
+  if (!plainObject(hook) || typeof hook.command !== 'string' || !plainObject(identity)) return null;
+  const use = gateUse(hook.command, identity.gateFile);
+  if (use === NONE) return null;
   const describedByAnother = Object.hasOwn(hook, 'describe')
-    && !(typeof hook.describe === 'string' && hook.describe.startsWith(describePrefix));
+    && !(typeof hook.describe === 'string' && hook.describe.startsWith(identity.describePrefix));
   if (describedByAnother) return 'foreign';
-  return carriesFingerprint(hook.command, commands, envFlag, gateFile) ? 'ours' : 'adoptable';
+  if (use === UNCLEAR) return 'unclear';
+  return isInstallerShape(hook.command, identity) ? 'ours' : 'adoptable';
+}
+
+/**
+ * Why an installer leaves an unowned hook where it is, for the line that names it. `ownShape` says, in
+ * a few words, what that installer's own command is made of.
+ */
+export function unownedReason(kind, ownShape) {
+  if (kind === 'adoptable') {
+    return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this.`;
+  }
+  if (kind === 'unclear') {
+    return 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a word after an interpreter\'s options, a pipe, a substitution, a variable, a here-document or a function — so it is never adopted: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.';
+  }
+  return 'runs this gate, or may, under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.';
 }
 
 /**
@@ -209,14 +546,14 @@ export function eventKeys(settings) {
   return Object.keys(settings.hooks);
 }
 
-/** Every hook that runs the gate but is not the installer's own, with where it sits and which kind. */
+/** Every hook that runs the gate, or may, and is not the installer's own, with where it sits and which kind. */
 export function findUnownedHooks(settings, identity) {
   const found = [];
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
         const kind = classifyHook(hook, identity);
-        if (kind === 'adoptable' || kind === 'foreign') found.push({ event, matcher: group.matcher, kind });
+        if (kind === 'adoptable' || kind === 'unclear' || kind === 'foreign') found.push({ event, matcher: group.matcher, kind });
       }
     }
   }

@@ -113,19 +113,25 @@
  * it writes a settings file, and keeps `command`, `matcher` and `timeout` byte for byte
  * (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14). Through 0.19.0 this
  * installer recognised its hooks by `describe`, so after the first such write a bare re-run refused
- * and `--remove` exited 1 over a gate it had written itself. A hook is now this installer's when
- * its command carries the fingerprint `./hook-ownership.mjs` defines: `AGENT_SKILLS_PROGRESS_GATE=`
- * among its leading assignments, and an argument whose basename is exactly `report-progress-gate.mjs`.
- * Every command this installer has written has that shape, because that assignment is what arms the
- * gate. A `describe` written by anything else is a statement of ownership, and that hook is never
- * taken, with or without a flag.
+ * and `--remove` exited 1 over a gate it had written itself. A hook is now this installer's, with no
+ * flag, only when its WHOLE command is exactly a shape some released version of it wrote (`HOOK_IDENTITY`
+ * below, checked by `./hook-ownership.mjs`): leading assignments to this gate's own variables only,
+ * `AGENT_SKILLS_PROGRESS_GATE` among them and none twice; then the node binary, single-quoted, whose
+ * basename is exactly `node`; then the gate path, single-quoted, whose basename is exactly
+ * `report-progress-gate.mjs`; and nothing after it. The harness keeps the command byte for byte, so
+ * that shape survives every rewrite. A `describe` written by anything else is a statement of
+ * ownership, and that hook is never taken, with or without a flag.
  *
- * ADOPTION is for what is left: a hook that runs this gate WITHOUT the assignment leading its
- * command — a hand-wiring, a `cd … &&` in front, an `env` prefix. It is refused on install and named
- * on removal, because overwriting somebody else's decision is how a settings file gets corrupted;
- * `--remove` never reports the gate gone while one still runs it, and exits 1 when one does. With
- * `--adopt` it is removed by `--remove` and replaced by an install, its level read out of its command
- * when no `--coverage` is named.
+ * ADOPTION is for a hook that RUNS this gate in any other shape — a hand-wiring, a `cd … &&` or an
+ * `env` in front, a `&& …` after. It is refused on install and named on removal, because overwriting
+ * somebody else's decision is how a settings file gets corrupted; `--remove` never reports the gate
+ * gone while one still runs it, and exits 1 when one does. With `--adopt` it is removed by `--remove`
+ * and replaced by an install, its level read out of its command when no `--coverage` is named.
+ *
+ * A hook that only MENTIONS the gate file — as an argument of echo, cat, rm and the like — is not the
+ * gate, and nothing here touches it. A hook where this installer cannot tell whether the gate runs is
+ * named, like a hand-wiring, and never taken, with or without `--adopt`: over-reporting a hook is
+ * recoverable, and deleting one that is not the gate is not.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -156,19 +162,38 @@ import {
   leadingAssignments,
   plainObject,
   readableGroups,
+  unownedReason,
 } from './hook-ownership.mjs';
 
 export { hookLabel };
 
-/** The gate file. A hook is this installer's when an argument of its command has exactly this basename… */
+/** The gate file: the exact basename of the path every command this installer writes runs. */
 export const HOOK_MARKER = 'report-progress-gate.mjs';
-/** …and the gate's own assignment leads that command (see `./hook-ownership.mjs`). This prefix still
- *  starts every `describe` written, and a describe that does not start with it vetoes ownership. */
+/** Still starts every `describe` written; a describe that does not start with it vetoes ownership. */
 export const DESCRIBE_PREFIX = 'agent-skills report-progress gate';
 export const MODES = GATE_MODES;
 
-/** What `./hook-ownership.mjs` needs to tell this installer's hooks from anybody else's. */
-const IDENTITY = Object.freeze({ envFlag: GATE_ENV_FLAG, gateFile: HOOK_MARKER, describePrefix: DESCRIBE_PREFIX });
+/**
+ * What `./hook-ownership.mjs` needs to tell this installer's hooks from anybody else's, including the
+ * exact shape of every command a released version wrote, from `git log -p` on this file across the tags:
+ *   v0.13.0–v0.16.1  AGENT_SKILLS_PROGRESS_GATE=<mode> '<node>' '<gate>'
+ *   v0.17.0–v0.18.0  …=<mode> AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 [AGENT_SKILLS_PROGRESS_GATE_SKILLS='<list>'] '<node>' '<gate>'
+ *   v0.19.0          …=<mode> AGENT_SKILLS_PROGRESS_GATE_COVERAGE=<level> [… _SKILLS='<list>'] '<node>' '<gate>'
+ *   this version     …=<mode> … _COVERAGE=<level> AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit [… _SKILLS='<list>'] '<node>' '<gate>'
+ * `<node>` is `process.execPath` and `<gate>` this file's sibling, each through `shellQuote`. A node
+ * binary under any other basename (`nodejs`, `node.exe`) is outside that shape: such a hook runs the
+ * gate and is a hand-wiring, which `--adopt` takes.
+ */
+export const HOOK_IDENTITY = Object.freeze({
+  envFlag: GATE_ENV_FLAG,
+  gateFile: HOOK_MARKER,
+  describePrefix: DESCRIBE_PREFIX,
+  variables: Object.freeze([GATE_ENV_FLAG, COVERAGE_ENV_FLAG, TURN_HOOK_ENV_FLAG, SKILLS_ENV_FLAG]),
+  interpreter: Object.freeze({ quotedPathTo: 'node' }),
+});
+const IDENTITY = HOOK_IDENTITY;
+/** How an unowned hook's line describes the shape it is not. */
+const OWN_SHAPE = `the gate's own ${GATE_ENV_FLAG}= assignments, the node binary and the gate path, single-quoted`;
 
 /** The events the gate needs, with the matcher each is scoped by. */
 export const STOP_MATCHER = '*';
@@ -227,14 +252,18 @@ block    hold the turn for one more round when an armed turn ends without a prog
          default, and when it is empty no hook is written for it at all. There is no
          matching of command text here, for any binary, ever.
 
---adopt  treat a hook that runs this gate WITHOUT the AGENT_SKILLS_PROGRESS_GATE= assignment
-         leading its command — a hand-wiring — as this installer's own: --remove removes it,
-         and an install replaces it, keeping the level its command runs at when no --coverage
-         is given. Not needed for this installer's own hooks: every command it writes starts
-         with that assignment, and that is how it recognises them, including after Claude Code
-         has dropped their describe. A hook whose describe something else wrote is never
-         adopted. Without --adopt, --remove names every hand-wiring it left and exits 1, and an
-         install refuses and names them.
+--adopt  also take a hook that RUNS this gate in a shape this installer never writes — a
+         hand-wiring: --remove removes it, and an install replaces it, keeping the level its
+         command runs at when no --coverage is given. Not needed for this installer's own
+         hooks: a hook whose whole command is exactly what a version of it wrote — this gate's
+         own AGENT_SKILLS_PROGRESS_GATE assignments, the node binary and the gate path, each
+         single-quoted, and nothing else — is recognised with no flag, including after Claude
+         Code has dropped its describe. Never taken, with or without --adopt: a hook whose
+         describe something else wrote, and a hook where this installer cannot tell whether the
+         gate runs (the gate file as an argument of a program it does not know, for one). A
+         hook that only mentions the gate file, as echo, cat or rm do, is not the gate and is
+         left alone. Without --adopt, --remove names every hook it left that runs the gate, or
+         may, and exits 1, and an install refuses and names them.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;
@@ -358,10 +387,11 @@ export function normaliseSkills(skills) {
 }
 
 /**
- * Every hook that runs this gate but is not this installer's: where it sits, and which kind it is —
- * `adoptable` (it runs the gate without the gate's assignment leading its command; `--adopt` can
- * take it) or `foreign` (a describe something else wrote; never adopted). Scanned over every event
- * key, as removal is, because a hook nobody can see is a hook nobody can remove.
+ * Every hook that runs this gate, or may, but is not this installer's: where it sits, and which kind
+ * it is — `adoptable` (it runs the gate in a shape this installer never writes; `--adopt` can take
+ * it), `unclear` (it names the gate file where this installer cannot tell whether the gate runs;
+ * never adopted) or `foreign` (a describe something else wrote; never adopted). Scanned over every
+ * event key, as removal is, because a hook nobody can see is a hook nobody can remove.
  */
 export function findUnownedGateHooks(settings) {
   return findUnownedHooks(settings, IDENTITY);
@@ -369,9 +399,7 @@ export function findUnownedGateHooks(settings) {
 
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
-  return unowned.map((hook) => (hook.kind === 'adoptable'
-    ? `  - ${hookLabel(hook)}: runs this gate, but its command does not start with the ${GATE_ENV_FLAG}= assignment every command this installer writes starts with, so it is not recognised as this installer's own. A hand-wiring looks like this.`
-    : `  - ${hookLabel(hook)}: runs this gate under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.`));
+  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE)}`);
 }
 
 function countOf(count, noun) {
@@ -422,16 +450,16 @@ const HOOK_PLAN = Object.freeze([
 export function installHooks(settings, { entries, adopt = false }) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
 
-  // Scanned over EVERY event key, not only the ones this version writes: a hook wearing the
-  // gate's filename under an event we no longer touch is still somebody's decision, and
-  // stacking a second gate beside it would spend two of the eight shared blocks on one
-  // missing report. Every such hook is named, so the refusal is something a user can act on,
-  // and `--adopt` lifts it for a hand-wiring — never for a hook under somebody else's describe.
+  // Scanned over EVERY event key, not only the ones this version writes: a hook running the
+  // gate under an event we no longer touch is still somebody's decision, and stacking a second
+  // gate beside it would spend two of the eight shared blocks on one missing report. Every such
+  // hook is named, so the refusal is something a user can act on, and `--adopt` lifts it for a
+  // hand-wiring — never for a hook it cannot tell runs the gate, nor one under somebody else's describe.
   const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && hook.kind === 'adoptable'));
   if (blockers.length > 0) {
-    const lines = ['refusing to write: each hook below already runs this gate but was not written by this installer.', ...unownedLines(blockers)];
+    const lines = ['refusing to write: each hook below already runs this gate, or may, and was not written by this installer.', ...unownedLines(blockers)];
     if (blockers.some((hook) => hook.kind === 'adoptable')) {
-      lines.push(`Run this script again with --adopt to treat each hook that runs this gate without the ${GATE_ENV_FLAG}= assignment as this installer's own and replace it.`);
+      lines.push('Run this script again with --adopt to replace each hook above that runs this gate in a shape this installer never writes with this installer\'s own.');
     }
     throw new Error(lines.join('\n'));
   }
@@ -464,15 +492,15 @@ export function installHooks(settings, { entries, adopt = false }) {
 /**
  * Remove only our own hooks, and leave the file exactly as we found it otherwise.
  *
- * EVENT-AGNOSTIC ON PURPOSE. It scans every key under `settings.hooks` for a hook carrying this
- * installer's fingerprint (`./hook-ownership.mjs`), rather than iterating the event list this version
+ * EVENT-AGNOSTIC ON PURPOSE. It scans every key under `settings.hooks` for a hook in this
+ * installer's exact shape (`./hook-ownership.mjs`), rather than iterating the event list this version
  * happens to write. The version before this one did the latter, and the moment that list
  * stopped naming `PostToolUse` — which this version's default install no longer writes —
  * every already-installed user's `PostToolUse` hook became unremovable by `--remove`:
  * left in their settings forever, arming a marker nothing reads.
  *
- * With `adopt`, a hook that runs this gate without that fingerprint goes too, unless a describe
- * somebody else wrote vetoes it.
+ * With `adopt`, a hook that runs this gate in any other shape goes too, unless a describe somebody
+ * else wrote vetoes it. A hook it cannot tell runs the gate never goes.
  * `removed` counts every hook taken out, adopted ones included; `unowned` is what still runs the
  * gate afterwards, so no caller can report the gate gone while a hook is still running it.
  */
@@ -709,8 +737,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       if (removed > 0) report.push(`Removed ${countOf(removed, 'report-progress gate hook')} from ${settingsPath}.`);
       if (options.adopt) {
         report.push(adopted > 0
-          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate without the ${GATE_ENV_FLAG}= assignment — ${adoptable.map(hookLabel).join(', ')}.`
-          : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.`);
+          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate in a shape this installer never writes — ${adoptable.map(hookLabel).join(', ')}.`
+          : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.');
       }
       // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No report-progress
       // gate was installed … Nothing changed." and exited 0 while two hooks the harness had stripped
@@ -725,11 +753,11 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       }
       if (report.length > 0) stdout.write(`${report.join('\n')}\n`);
       const still = [
-        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
+        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, or may, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
         ...unownedLines(unowned),
       ];
       if (unowned.some((hook) => hook.kind === 'adoptable')) {
-        still.push(`To remove each hook that runs this gate without the ${GATE_ENV_FLAG}= assignment as this installer's own, run this script again with --remove --adopt.`);
+        still.push('To remove each hook above that runs this gate in a shape this installer never writes, run this script again with --remove --adopt.');
       }
       stderr.write(`${still.join('\n')}\n`);
       return 1;
@@ -762,8 +790,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stdout.write(`Installed the ${options.mode} report-progress gate into ${settingsPath}.\n`);
     if (options.adopt) {
       stdout.write(adoptable.length > 0
-        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate without the ${GATE_ENV_FLAG}= assignment, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
-        : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.\n`);
+        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate in a shape this installer never writes, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
+        : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.\n');
     }
     stdout.write(`${describeLevel({ named: options.coverage, existing, coverage })}\n`);
     const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
@@ -878,8 +906,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     }
     stdout.write([
       `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${options.mode} to`,
-      `${GATE_ENV_FLAG}=off in the commands this wrote. Remove it entirely: run this`,
-      'script with --remove.',
+      `${GATE_ENV_FLAG}=off in the commands this wrote, and change nothing else in them: a`,
+      'command that is no longer exactly what this installer writes is not recognised as its',
+      'own. Remove it entirely: run this script with --remove.',
       '',
     ].join('\n'));
     const written = Object.fromEntries(Object.entries(entries).filter(([, entry]) => entry !== null));
