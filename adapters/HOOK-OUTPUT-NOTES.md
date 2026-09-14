@@ -1226,3 +1226,68 @@ included.
 
 The throwaway directory, its settings files, the scripted endpoint's logs and every transcript the
 runs created were deleted after this was written.
+
+---
+
+## Addendum, dated 2026-09-14 (fifth): which matchers reach `SessionStart` and `UserPromptSubmit`, and the gate's new hooks end to end
+
+Written for the two hooks the report-progress installer now adds: `UserPromptSubmit`, which clears
+the gate's record of a spent block, and `SessionStart` on matcher `resume`, which marks a resume.
+The fourth addendum settled the events. This one settles the matchers those hooks are written on,
+and whether the hooks, as the installer writes them, do their job inside the harness.
+
+**Method.** Claude Code 2.1.181, macOS. The method is the fourth addendum's. `HOME` and
+`CLAUDE_CONFIG_DIR` pointed at a throwaway directory (`<scratch>`), with every `CLAUDE*`,
+`ANTHROPIC*` and `AGENT_SKILLS_*` variable removed. Settings were passed with `--settings <file>
+--setting-sources project`. `ANTHROPIC_BASE_URL` pointed at a local scripted Messages endpoint that
+returned the same text to every request and logged every request body, with a dummy API key: the
+harness was the real binary, and the model was a script. Probe hooks appended a label to a file and
+printed nothing.
+
+### OBSERVED — `SessionStart` matcher `resume` fires on a resume and not on a fresh start; `*` fires on both
+
+One `-p` run, then `-p --resume <id>` on the same session. The settings held `SessionStart` groups on
+matcher `""`, `"*"` and `"resume"`, plus one group with no matcher, and `UserPromptSubmit` groups on
+matcher `"*"` and with no matcher.
+
+- **Fresh start** (`source: "startup"`): the `""`, `"*"` and no-matcher groups fired, and `"resume"`
+  did not.
+- **Resume** (`source: "resume"`): all four groups fired.
+- **`UserPromptSubmit`**: both groups fired, on both runs.
+
+This settles a doubt `claude-code/README.md` raises: `"*"` on `SessionStart` was never observed
+directly before. It is observed here, on these two sources.
+
+### OBSERVED — the gate's hooks, as its installer writes them, end to end
+
+The real installer wrote the gate at coverage 2 in block mode into a throwaway settings file:
+`Stop` `"*"`, `UserPromptSubmit` `"*"`, `SessionStart` `"resume"` and `SubagentStart` `"*"`. The
+probe hooks were added beside them. Between runs, the gate's temp directory was seeded with the
+files an earlier process would leave behind. The scripted reply carried no progress report, so an
+armed turn always had something to block. A block was counted from the probe's `Stop` events,
+because each block forces a continuation and each continuation ends in another `Stop`.
+
+- **Resume, with a baseline listing a task the old process had running.** With the installer from
+  before the `SessionStart` hook existed, `-p --resume <id>` blocked once. With the hook, the
+  resumed turn ended without a block, and the note and the baseline were both gone afterwards. The
+  same resume, with only the gate's `SessionStart` hook removed from the file, blocked once.
+- **`--continue`, with the same seeded baseline.** It blocked once without the hook and not at all
+  with it, so matcher `resume` reaches `--continue` too.
+- **A spent-block record left from a previous turn, plus an armed marker, then a resumed turn.** With
+  the gate's `UserPromptSubmit` hook, the turn blocked once, and the continuation's `Stop` stood down.
+  With only that hook removed from the file, the turn did not block, and the record was still on
+  disk. The hook fires before the turn's first `Stop`, and is what clears the record.
+- **Nothing reached the model from any of these hooks.** No request body in any run contained
+  `UserPromptSubmit hook`, `SessionStart hook`, or the gate's own stderr prefix.
+
+### NOT TESTED
+
+- `--fork-session` against the gate's hooks. The fork's session-id behaviour is taken from the
+  fourth addendum.
+- A real model, or a human-driven interactive session.
+- Slash-command turns.
+- Two processes holding one session id at the same time.
+- A spent block produced by a live subagent dispatch, as opposed to a seeded marker.
+
+The throwaway directories, settings files, endpoint logs and transcripts were deleted after this was
+written.
