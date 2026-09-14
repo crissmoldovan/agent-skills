@@ -54,13 +54,68 @@ own working file contradicted.
 Those findings are what the entry points, the announcement rule and the report contract exist to fix.
 Each of them names the failure it answers.
 
+## The fixture
+
+The trial repositories are private. So that anyone who clones this pack can reproduce the
+evaluation, `scripts/make-docs-fixture.mjs` materialises a small repository with planted defects and
+real history:
+
+```bash
+node scripts/make-docs-fixture.mjs /tmp/fixture   # prints the path and its four commit shas
+```
+
+It is a working service of about fifteen files — a manifest, a workflow, a script with a usage
+header, a config module that reads two variables by name, a passing test suite, generated output, a
+spec, a decision record and an agent file — documented by a README, a manual, a handoff and a
+runbook. The defects planted in it are each of a shape the first trial actually met, and the
+answer key is the one place they are counted: a README
+claiming the checks run on every push where the workflow says otherwise; a stale count; a command
+that is not in the manifest; a status the runbook contradicts; a variable the code does not read; one
+fact stated in two places with two different values; a second file claiming to be the front door; an
+obviously fake credential written into prose; a manual telling a reader to hand-edit generated
+output; flags in the quick start; a README that names no owner and never says what the repository is
+not for. Separately from the defects, the key records two behaviours to observe rather than count: a
+subject the agent file explicitly closes, which a run must hold back rather than raise again, and the
+credential's value, which must appear in nothing the run writes.
+
+The history matters as much as the files. Documentation lands in the second commit, and its docs map
+carries `sources re-read at <sha>` naming the first — so an `audit` has a baseline to read files at.
+Three later commits rename a deploy flag, add a nightly schedule and rename the build script, and
+no document follows any of them, so an `update` has three differently shaped deltas to find.
+
+**The answer key never reaches the fixture.** It lives in the pack at
+`test/fixtures/layered-docs.answers.json`, locating each defect by a unique string rather than a
+line number, and `test/docs-fixture.test.mjs` asserts on every run that each marker is present
+exactly once, that the key is not among the fixture's tracked files, that the baseline sha resolves,
+and that the fixture's own test suite passes — which the `draft` entry point needs, since it runs the
+repository's tests with the drafts in place.
+
+### Measured once, and then corrected
+
+On 2026-09-14 two sessions ran against the fixture as it then stood, and a third scored each against
+the answer key they never saw. The `audit` run reported every defect keyed to it, with no false
+positive, without reproducing the credential, and left its clone byte-identical. The `update` run
+corrected both deltas the fixture then had, inside its write scope.
+
+The scoring found more wrong with the fixture than with either run. The committed generated file was
+not what the build emits, so a rule the fixture relied on was already broken; the deploy script
+parsed none of the flags its usage header documented, so a planted stale flag had no correct fix; the
+spec claimed an exit code the code never used; the key credited a stale flag and a missing schedule
+to `update` alone although an `audit` reads both at `HEAD`; the missing schedule was keyed to a file
+that never discusses the checks; a behaviour to observe sat among the defects to count; and a comment
+in the fixture described what the file was planted to test. All of that is fixed, a third delta was
+added so an `update` is not tested on a single shape, and a test now fails if the fixture narrates its
+own purpose. **The corrected fixture has not been measured yet.**
+
 ## Deterministic checks
 
-Running on every change today, one of them:
+Running on every change today:
 
 - the catalogue test asserts that the skill documents three entry points, the announcement and the
   report contract. It reads the skill's own text, so it proves the rule is written down, not that
-  any run obeyed it.
+  any run obeyed it;
+- the fixture test asserts the fixture and its answer key still describe each other, so an
+  evaluation run against them measures something.
 
 Planned for the trial harness, and not written yet:
 
@@ -84,9 +139,8 @@ Planned for the trial harness, and not written yet:
   attributable to the skill alone. What is attributable is the per-entry-point write boundary, which
   no harness rule stated: the read-only runs left their clones byte-identical while the drafting and
   update runs wrote only where their entry point allows.
-- **The trial repositories are private**, so they cannot ship here. A public fixture repository with
-  planted defects — a trigger mismatch, a stale count, a credential-shaped test value, a
-  self-contradicting handoff, a status a runbook and a README disagree on — does not exist yet.
+- **The trial repositories are private**, so they cannot ship here. The fixture below stands in for
+  them, and it is smaller than any of them: it exercises the shapes, not the scale.
 - **Coverage.** One model, one owner's repositories, and six runs over the seven cases — the
   audit-layered case twice, for the consistency case, and the no-word case not yet run at all,
   although three documents state it as behaviour. Every newcomer test in the first trial ran

@@ -1,0 +1,11 @@
+{
+  "name": "widget-service",
+  "version": "2.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "registry": "node scripts/build-registry.mjs",
+    "deploy": "bash scripts/deploy.sh"
+  }
+}
