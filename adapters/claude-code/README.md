@@ -472,21 +472,36 @@ level from (one that sets the level after `env`, `cd … &&` or `export`, or fro
 expansion) is refused until `--coverage` names the level, and so are hooks that run at
 different levels.
 
-**Some hooks no flag takes.** A hook that only **mentions** the gate file — as an
-argument of `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm`, `unlink`, `xxd`,
-`du`, `od` or a similar command that prints, reads, lists, copies or deletes files, in the exact
-shape or any other, printing only to such commands (`cat '<gate>' | grep x`) — is not the gate. Neither is one that only writes to the gate file through a
-redirection (`timeout 5 >'<gate>' node x` runs `node x` and empties the gate), nor one that names a
-different file whose name merely contains the gate file's (`install-report-progress-gate.mjs`,
-`report-progress-gate.mjs.bak`). The installer read each and knows it runs nothing of the gate: an
-install writes the gate beside it, and `--remove` leaves it, with or without `--adopt`, whatever
-`describe` it wears. (0.19.0 took such a hook under its own describe, and under `--adopt`; this
-version never does.) `--remove` still names each one it leaves, with why — for example
-`Stop (matcher *): left alone: only mentions the gate file …` — and never says no gate was
-installed while one is in the file. It does not follow a hook that copies the gate and runs the
-copy (`cp '<gate>' x && node x`): that is a mention, named as one, so check what it runs. A hook
-whose `describe` something else wrote is never taken either, even over the exact command this
-installer writes: somebody else put it there, and it is theirs to remove.
+**Some hooks no flag takes, for exactly four reasons.** The installer never takes a hook, with or
+without `--adopt` and whatever `describe` it wears, when it knows the hook does not run the gate for
+one of these reasons, and it keeps a hook from `--adopt` for no other (`neverTakenReason` in
+`hook-ownership.mjs` is the one place that says so):
+
+1. **A mention.** The gate file is named only as an argument of a program the installer knows does not
+   run it — `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm`, `unlink`, `xxd`, `du`, `od`
+   or a similar command that prints, reads, lists, copies or deletes files, in the exact shape or any
+   other — only in what flows only into such programs (`cat '<gate>' | grep x`), or only in a shell
+   comment (`true # report-progress-gate.mjs`), and nowhere else in the command. A comment never
+   downgrades a run elsewhere in the command: `node '<gate>' # note` still runs the gate.
+2. **A write target.** The command writes to the gate file through a redirection, including inside
+   `sh -c`, `eval`, a here-document or a substitution, whether or not it also runs the gate:
+   `timeout 5 >'<gate>' node x` runs `node x` and empties the gate.
+3. **A different file.** Every path in the command that contains the gate file's name ends in another
+   name: a lookalike (`install-report-progress-gate.mjs`, `report-progress-gate.mjs.bak`), or the gate
+   file's name only as a directory (`/x/report-progress-gate.mjs/index.mjs`). A name joined to a glob or
+   a parameter (`*report-progress-gate.mjs`, `"$D"report-progress-gate.mjs`) may be the gate, so it is
+   never a different file.
+4. **Another tool's `describe`,** even over the exact command this installer writes: somebody else put
+   it there, and it is theirs to remove. 0.19.0 never took such a hook either.
+
+An install writes the gate beside such a hook, and `--remove` leaves it and exits 0 unless another hook
+still runs the gate, or may. (0.19.0 took the first three under its own describe, and under `--adopt`;
+this version never does.) `--remove` still names each one it leaves, with the reason and which kind of
+it — for example `Stop (matcher *): left alone: only mentions the gate file (comment): …` or
+`Stop (matcher *): left alone: names a different file (directory): …` — and never says no gate was
+installed while one is in the file. It does not follow a hook that copies the gate and runs the copy
+(`cp '<gate>' x && node x`): that is a mention, named as one, so check what it runs. Every other hook
+that names the gate file is taken by `--adopt`, as below.
 
 **A plain re-run never takes a hook it cannot fully read.** A hook where the installer
 **cannot tell** whether the gate runs — the file is an argument of a program it does not
@@ -524,6 +539,19 @@ Took over 1 hook this installer could not fully read: Stop (matcher *).
 
 The installer could not tell whether such a hook runs the gate, so check each one before you pass
 `--adopt`.
+
+**Known limits of the reading.** None of these is one of the four reasons above, and each is either
+what 0.19.0 did or taken only under `--adopt`:
+
+- a glob that matches the gate file without its name written out (`node /pack/[r]eport-progress-gate.mjs`)
+  is not read as naming it: without this installer's own `describe`, no flag takes such a hook and
+  `--remove` does not name it;
+- a group whose `hooks` is not an array is not read, as in 0.19.0;
+- control flow is read by structure: `false && node '<gate>'` reads as running the gate;
+- a write through a program's argument (`sed -i`, `dd of=`, `curl -o`) is not a write target, so
+  `--adopt` may take such a hook;
+- under `--adopt`, a hook this installer did not write and cannot fully read is taken, and named, as
+  0.19.0 took it.
 
 **Wrappers.** A command may start with other commands that run the command after them, and
 the installer strips those before it looks for the gate, as many as are nested. It reads each only
@@ -779,11 +807,16 @@ scans every event key, never reports the gate gone while any hook still runs it,
 when one does; it also leaves the file untouched when it removed nothing. A hook with no
 `describe` that runs the gate in any other shape — a `2>/dev/null` or `&& …` after it, or a
 wrapper from the progress gate's **Wrappers** table in front of it, such as `timeout 5` — is
-refused, not overwritten, until `--adopt` takes it. A hook that only mentions the gate file, as
-`echo`, `cat`, `unlink` or `shellcheck` do, only writes to it through a redirection, or names a
-different file whose name contains the gate file's is not the gate and is left alone with any flag,
-whatever its `describe` says, and so is a hook under a `describe` somebody else wrote; `--remove`
-names each one it leaves, with why, and never says no gate was installed while one is in the file.
+refused, not overwritten, until `--adopt` takes it. It never takes a hook, with any flag and whatever
+its `describe` says, for the same four reasons as the progress gate's installer, and for no other: a
+mention (the gate file only as an argument of a program that does not run it, as `echo`, `cat`,
+`unlink` or `shellcheck` do, only in what flows only into such programs, or only in a shell comment,
+as in `true # release-notes-gate.sh`, and nowhere else in the command); a write target (a redirection
+writes to the gate file, inside `sh -c`, `eval`, a here-document or a substitution too); a different
+file (every path with the gate file's name in it ends in another name, `release-notes-gate.sh.orig` or
+`/x/release-notes-gate.sh/run.sh`); and a `describe` somebody else wrote. `--remove` names each one it
+leaves, with the reason and its kind, exits 0 over them, and never says no gate was installed while
+one is in the file. The known limits of the reading are the progress gate's, above.
 This installer reads every event key, where 0.19.0's read only `PreToolUse`: a gate hook under any
 other event is read by the same rule. A plain re-run never takes a hook the installer cannot fully
 read, a wrapper option or form that table does not recognise among them, describe or not. `--adopt`

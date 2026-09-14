@@ -136,10 +136,13 @@
  * and replaced by an install, its level and mode read out of its command when no `--coverage` or
  * `--mode` is named.
  *
- * A hook that only MENTIONS the gate file — as an argument of echo, cat, rm, unlink and the like — only writes to
- * it through a redirection, or names a different file whose name contains the gate file's
- * (`install-report-progress-gate.mjs`) is not the gate, and nothing here takes it, with any flag, whatever
- * describe it wears. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
+ * NEVER TAKEN, with any flag and whatever describe it wears, for exactly four reasons and no other (`neverTakenReason`
+ * in `./hook-ownership.mjs`): a MENTION, the gate file named only as an argument of a program that does not run it
+ * (echo, cat, rm, unlink and the like), only in what flows only into such programs, or only in a shell comment, and
+ * nowhere else in the command; a WRITE TARGET, a redirection that writes to the gate file, in `sh -c`, `eval`, a
+ * here-document or a substitution too; a DIFFERENT FILE, where every path with the gate file's name in it ends in
+ * another name (`install-report-progress-gate.mjs`, `/x/report-progress-gate.mjs/index.mjs`); and a describe somebody
+ * else wrote. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
  * and a run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting
  * one that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate
  * file's name anywhere in a command, option values included, so it takes over every one that does not write to
@@ -308,13 +311,21 @@ block    hold the turn for one more round when an armed turn ends without a prog
          the binary running this script) and the gate path, each single-quoted, and nothing
          else — is recognised with no flag, including after Claude Code has dropped its
          describe, and so is a hook that runs the gate under this installer's own describe.
-         Never taken, with or without --adopt: a hook whose describe something else wrote; a
-         hook that writes to the gate file, even one that also runs it; a hook that only
-         mentions the gate file, as echo, cat, rm or unlink do; and a hook that names a
-         different file whose name contains the gate file's, such as
-         install-report-progress-gate.mjs. Without --adopt a hook it cannot fully read is never
-         taken, and an install refuses and names it. --remove names every hook it leaves that
-         names the gate file, and why, and exits 1 while one of them runs the gate, or may.
+         Never taken, with or without --adopt, for exactly four reasons: a mention (the gate
+         file only as an argument of a program that does not run it, as echo, cat, rm or
+         unlink, only in what flows only into such programs, or only in a shell comment, and
+         nowhere else in the command); a write target (a redirection writes to the gate file,
+         in sh -c, eval, a here-document or a substitution too, even in a hook that also runs
+         it); a different file (every path with the gate file's name in it ends in another
+         name: install-report-progress-gate.mjs, /x/report-progress-gate.mjs/index.mjs); and
+         a describe something else wrote. Known limits: a glob that matches the gate without
+         its name written out is not read as naming it; a group whose hooks is not an array
+         is not read; control flow is read by structure (false && node '<gate>' reads as
+         running it); a write through a program's argument (sed -i, dd of=, curl -o) is not a
+         write target, so --adopt may take it. Without --adopt a hook it cannot fully read is
+         never taken, and an install refuses and names it. --remove names every hook it leaves
+         that names the gate file, with the reason and its kind, and exits 1 while one of them
+         runs the gate, or may.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;

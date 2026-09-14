@@ -78,9 +78,17 @@ the conversation, in a hook the user wired into their own harness.
   read. `--adopt` takes every one over — whatever leads its command, wherever the gate path sits,
   option values included, and a hook under the installer's own `describe` whose command never names
   the gate file — unless it writes to the gate file, and the installer prints each hook it took that
-  way, by event and matcher. A hook that only mentions the gate file, only writes to it, names a
-  different file whose name contains the gate file's, or carries another tool's `describe` is never
-  taken, with any flag. `--remove` exits 1 while it leaves a hook that runs the gate, or may, and
+  way, by event and matcher. No flag takes a hook for exactly four reasons, which `neverTakenReason`
+  returns and nothing else can: a mention (the gate file named only as an argument of a program known
+  not to run it, only in what flows only into such programs, or only in a shell comment, and nowhere
+  else in the command), a write target (a redirection writes to the gate file, inside `sh -c`, `eval`,
+  a here-document or a substitution too), a different file (every path holding the gate file's name
+  ends in another name: a lookalike, or the name only as a directory), and another tool's `describe`.
+  Its known limits: a glob matching the gate without its name written out is not read as naming it; a
+  group whose `hooks` is not an array is not read; control flow is read by structure; a write through a
+  program's argument is not a write target; and under `--adopt` a hook the installer did not write and
+  cannot fully read is taken, and named, as 0.19.0 took it. `--remove` exits 1 while it leaves a hook
+  that runs the gate, or may, and
   names every hook it leaves that names the gate file, with why. A re-run with no `--mode` keeps the
   mode already installed, as the report-progress installer keeps its level. It is covered by
   `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
@@ -93,7 +101,11 @@ the conversation, in a hook the user wired into their own harness.
   installer has no `--adopt`, so those rows are compared with its nearest equivalent run. `--remove`
   exits 1 while it leaves a hook that runs the gate, or may, and never says no gate was installed
   while a hook names the gate file. Whether a start hook runs the gate is established by firing it
-  against a stand-in gate, not written by hand.
+  against a stand-in gate, not written by hand. The same test holds the four reasons closed: over every
+  subject of that matrix, every form the branch's held reviews named and a generated set, a hook with
+  the gate file's name in it is taken under `--adopt` or given one of the four reasons, never both, and
+  every mention and different file is fired at a stand-in that records which file ran and at an armed
+  copy of the real gate, and runs neither.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.

@@ -57,10 +57,14 @@
  * shape above run by another shell (`/bin/bash`, `sh`, `zsh`). It is refused on install and named on removal;
  * with `--adopt` it is removed or replaced. `--remove` never reports the gate gone while any hook still runs it,
  * or may, and exits 1 when one does; and while any hook still names the gate file it never says no gate was
- * installed: it names each hook it left, and why. A hook that only MENTIONS the gate file — an argument of echo,
- * cat, shellcheck, rm, unlink, xxd and the like, in that shape or any other — only writes to it through a
- * redirection, or names a different file whose name contains the gate file's is not the gate, and nothing here
- * takes it, with any flag, whatever describe it wears. A hook where this installer cannot tell whether the gate
+ * installed: it names each hook it left, with its reason and kind. NEVER TAKEN, with any flag and whatever describe it
+ * wears, for exactly four reasons and no other (`neverTakenReason` in `./hook-ownership.mjs`): a MENTION, the gate file
+ * named only as an argument of a program that does not run it (echo, cat, shellcheck, rm, unlink, xxd and the like), in
+ * that shape or any other, only in what flows only into such programs, or only in a shell comment
+ * (`true # release-notes-gate.sh`), and nowhere else in the command; a WRITE TARGET, a redirection that writes to the
+ * gate file, in `sh -c`, `eval`, a here-document or a substitution too; a DIFFERENT FILE, where every path with the gate
+ * file's name in it ends in another name (`release-notes-gate.sh.orig`, `/x/release-notes-gate.sh/run.sh`); and a
+ * describe somebody else wrote. A hook where this installer cannot tell whether the gate
  * runs — the shape above run by a program it does not know, `bash5` or `/usr/bin/env` among them — is named, and a
  * run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting one
  * that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate file's
@@ -168,13 +172,20 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          AGENT_SKILLS_RELEASE_NOTES_GATE= assignment, bash, and the gate path, single-quoted,
          and nothing else — is recognised with no flag, including after Claude Code has
          dropped its describe, and so is a hook that runs the gate under this installer's own
-         describe. Never taken, with or without --adopt: a hook whose describe something else
-         wrote; a hook that writes to the gate file, even one that also runs it; a hook that
-         only mentions the gate file, as echo, cat, unlink or shellcheck do; and a hook that
-         names a different file whose name contains the gate file's. Without --adopt a hook
-         it cannot fully read is never taken, and an install refuses and names it. --remove
-         names every hook it leaves that names the gate file, and why, and exits 1 while one
-         of them runs the gate, or may.
+         describe. Never taken, with or without --adopt, for exactly four reasons: a mention
+         (the gate file only as an argument of a program that does not run it, as echo, cat,
+         unlink or shellcheck, only in what flows only into such programs, or only in a shell
+         comment, and nowhere else in the command); a write target (a redirection writes to
+         the gate file, in sh -c, eval, a here-document or a substitution too, even in a hook
+         that also runs it); a different file (every path with the gate file's name in it
+         ends in another name: release-notes-gate.sh.orig, /x/release-notes-gate.sh/run.sh);
+         and a describe something else wrote. Known limits: a glob that matches the gate
+         without its name written out is not read as naming it; a group whose hooks is not an
+         array is not read; control flow is read by structure; a write through a program's
+         argument (sed -i, dd of=, curl -o) is not a write target, so --adopt may take it.
+         Without --adopt a hook it cannot fully read is never taken, and an install refuses
+         and names it. --remove names every hook it leaves that names the gate file, with the
+         reason and its kind, and exits 1 while one of them runs the gate, or may.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;
