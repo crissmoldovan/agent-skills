@@ -58,9 +58,13 @@
  * as unclear. It is refused on install and named on removal; with `--adopt` it is removed or replaced.
  * `--remove` never reports the gate gone while any hook still runs it, and exits 1 when one does. A hook
  * that only MENTIONS the gate file — an argument of echo, cat, shellcheck, rm and the like, in that shape
- * or any other — is not the gate, and nothing here touches it, whatever describe it wears. A hook where
- * this installer cannot tell whether the gate runs is named and never taken, with or without `--adopt`:
- * over-reporting a hook is recoverable, and deleting one that is not the gate is not.
+ * or any other — or only writes to it through a redirection is not the gate, and nothing here touches it,
+ * with any flag, whatever describe it wears. A hook where this installer cannot tell whether the gate runs
+ * is named, and a run without `--adopt` never takes it, describe or not: over-reporting a hook is
+ * recoverable, and deleting one that is not the gate is not. `--adopt` is the explicit override for such a
+ * hook: it takes one over when its leading assignments set `AGENT_SKILLS_RELEASE_NOTES_GATE` and one of its
+ * words is the gate path, and prints each hook it took that way, by event and matcher, on a line of its own
+ * (THE OVERRIDE in `./hook-ownership.mjs`).
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -70,7 +74,6 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import {
-  classifyHook,
   eventKeys,
   findUnownedHooks,
   hookLabel,
@@ -78,6 +81,8 @@ import {
   leadingAssignments,
   plainObject,
   readableGroups,
+  takenAs,
+  tookOverLine,
   unownedReason,
 } from './hook-ownership.mjs';
 
@@ -145,17 +150,21 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
 
 --adopt  also take a hook that RUNS the gate in a shape this installer never writes — a
          hand-wiring, or its own shape with another interpreter than bash: --remove removes
-         it, and an install replaces it. Not needed for this installer's own hook: a hook
-         whose whole command is exactly what it writes — the AGENT_SKILLS_RELEASE_NOTES_GATE=
-         assignment, bash, and the gate path, single-quoted, and nothing else — is recognised
-         with no flag, including after Claude Code has dropped its describe, and so is a hook
-         that runs the gate under this installer's own describe. Never taken, with or without
-         --adopt: a hook whose describe
-         something else wrote, and a hook where this installer cannot tell whether the gate
-         runs (the gate file as an argument of a program it does not know, for one). A hook
-         that only mentions the gate file, as echo, cat or shellcheck do, is not the gate and
-         is left alone. Without --adopt, --remove names every hook it left that runs the gate,
-         or may, and exits 1, and an install refuses and names them.
+         it, and an install replaces it. It also takes over a hook this installer cannot
+         fully read (a wrapper form it does not recognise, the gate read on stdin) when that
+         hook sets AGENT_SKILLS_RELEASE_NOTES_GATE= at its start and names the gate path as a
+         word of its own, and prints each one: "Took over 1 hook this installer could not
+         fully read: PreToolUse (matcher Bash)." Not needed for this installer's own hook: a
+         hook whose whole command is exactly what it writes — the
+         AGENT_SKILLS_RELEASE_NOTES_GATE= assignment, bash, and the gate path, single-quoted,
+         and nothing else — is recognised with no flag, including after Claude Code has
+         dropped its describe, and so is a hook that runs the gate under this installer's own
+         describe. Never taken, with or without --adopt: a hook whose describe something else
+         wrote; a hook it cannot fully read that lacks that setting or that path; and a hook
+         that only mentions the gate file, as echo, cat or shellcheck do, or only writes to
+         it, which is not the gate. Without --adopt a hook it cannot fully read is never
+         taken: --remove names every hook it left that runs the gate, or may, and exits 1, and
+         an install refuses and names them.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;
@@ -236,8 +245,13 @@ export function findUnownedGateHooks(settings) {
 
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
-  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE)}`);
+  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE, { overridable: hook.overridable, envFlag: GATE_ENV_FLAG })}`);
 }
+
+/** What `--adopt` took a hook it could not fully read on, printed under the line naming each one (THE OVERRIDE in `./hook-ownership.mjs`). */
+const OVERRIDE_BASIS = `--adopt took each because it sets ${GATE_ENV_FLAG} and names the gate path; this installer could not tell whether it ran the gate.`;
+/** How to take such a hook over, where a run without `--adopt` left it. */
+const OVERRIDE_ADVICE = `each hook above that this installer cannot fully read but that sets ${GATE_ENV_FLAG} and names the gate path`;
 
 function countOf(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -258,7 +272,7 @@ function gateModeOf(value) {
  * installer to update — which is what a release note tells a user to do — switched a block gate to observe.
  *
  * Read only from a hook an install is about to replace — this installer's own, and under `--adopt` a
- * hand-wiring — and only from the leading assignment the shell hands the gate, resolved as
+ * hand-wiring or a hook it takes over — and only from the leading assignment the shell hands the gate, resolved as
  * `release-notes-gate.sh` resolves it, so a gate disarmed by hand reads `off`. `null` when there is no such
  * hook; `{ mode: null }` when a hook also sets the flag anywhere else, because a mode that cannot be read
  * cannot be kept or reported as changed. `adopted` says whether it came from a hook being adopted.
@@ -269,12 +283,12 @@ export function readInstalledMode(settings, { adopt = false } = {}) {
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
-        const kind = classifyHook(hook, IDENTITY);
-        if (kind !== 'ours' && !(adopt && kind === 'adoptable')) continue;
+        const taken = takenAs(hook, IDENTITY, { adopt });
+        if (taken === null) continue;
         const assigned = leadingAssignments(hook.command).filter((entry) => entry.name === GATE_ENV_FLAG);
         const mentions = hook.command.match(new RegExp(`(?<![A-Za-z0-9_])${GATE_ENV_FLAG}=`, 'g'))?.length ?? 0;
-        const found = { mode: mentions === assigned.length ? gateModeOf(assigned.at(-1)?.value) : null, adopted: kind !== 'ours' };
-        if (kind === 'ours') return found;
+        const found = { mode: mentions === assigned.length ? gateModeOf(assigned.at(-1)?.value) : null, adopted: taken !== 'own' };
+        if (taken === 'own') return found;
         adopted ??= found;
       }
     }
@@ -323,17 +337,20 @@ function eventGroups(settings, event) {
  * Merge the hook into a parsed settings object without disturbing anything else in it.
  * A hook that runs the gate but is not this installer's is somebody else's decision, so it
  * is refused rather than replaced — scanned under every event key, and named, so the refusal
- * is something a user can act on. `--adopt` lifts it for a hand-wiring, never for a hook under
- * somebody else's describe.
+ * is something a user can act on. `--adopt` lifts it for a hand-wiring and for a hook it cannot fully
+ * read that THE OVERRIDE takes, never for a hook under somebody else's describe.
  */
 export function installHook(settings, { entry, adopt = false }) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
 
-  const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && hook.kind === 'adoptable'));
+  const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && (hook.kind === 'adoptable' || hook.overridable)));
   if (blockers.length > 0) {
     const lines = ['refusing to write: each hook below already runs this gate, or may, and was not written by this installer.', ...unownedLines(blockers)];
     if (blockers.some((hook) => hook.kind === 'adoptable')) {
       lines.push('Run this script again with --adopt to replace each hook above that runs this gate in a shape this installer never writes with this installer\'s own.');
+    }
+    if (blockers.some((hook) => hook.overridable)) {
+      lines.push(`Run this script again with --adopt to take over ${OVERRIDE_ADVICE} — check first that each is the gate.`);
     }
     throw new Error(lines.join('\n'));
   }
@@ -364,26 +381,25 @@ export function installHook(settings, { entry, adopt = false }) {
  * scanned, so a hook of ours moved by hand, or left under a key a later version stops writing, is
  * still reachable. A group this script cannot read is somebody else's and is put back untouched.
  *
- * With `adopt`, a hand-wiring goes too. `removed` counts every hook taken out, adopted ones included;
- * `unowned` is what still runs the gate afterwards, so no caller can report the gate gone while a
+ * With `adopt`, a hand-wiring goes too, and so does a hook this installer cannot fully read that THE
+ * OVERRIDE takes. `removed` counts every hook taken out; `adopted` and `tookOver` count those two kinds;
+ * `unowned` is what still runs the gate afterwards, or may, so no caller can report the gate gone while a
  * hook is still running it.
  */
 export function removeHook(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
   let removed = 0;
   let adopted = 0;
+  let tookOver = 0;
   for (const event of eventKeys(settings)) {
     const groups = readableGroups(settings, event);
     if (groups === null || groups.length === 0) continue;
     for (const group of groups) {
       const kept = group.hooks.filter((hook) => {
-        const kind = classifyHook(hook, IDENTITY);
-        if (kind === 'ours') return false;
-        if (adopt && kind === 'adoptable') {
-          adopted += 1;
-          return false;
-        }
-        return true;
+        const taken = takenAs(hook, IDENTITY, { adopt });
+        if (taken === 'adopted') adopted += 1;
+        if (taken === 'override') tookOver += 1;
+        return taken === null;
       });
       removed += group.hooks.length - kept.length;
       group.hooks = kept;
@@ -393,7 +409,7 @@ export function removeHook(settings, { adopt = false } = {}) {
     if (settings.hooks[event].length === 0) delete settings.hooks[event];
   }
   if (plainObject(settings.hooks) && Object.keys(settings.hooks).length === 0) delete settings.hooks;
-  return { settings, removed, adopted, unowned: findUnownedGateHooks(settings) };
+  return { settings, removed, adopted, tookOver, unowned: findUnownedGateHooks(settings) };
 }
 
 async function readSettings(settingsPath) {
@@ -468,17 +484,20 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     const settings = await readSettings(settingsPath);
     if (options.remove) {
       // Named before removal, because removal edits `settings` in place.
-      const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.kind === 'adoptable') : [];
-      const { settings: pruned, removed, adopted, unowned } = removeHook(settings, { adopt: options.adopt });
+      const unownedBefore = options.adopt ? findUnownedGateHooks(settings) : [];
+      const adoptable = unownedBefore.filter((hook) => hook.kind === 'adoptable');
+      const takenOver = unownedBefore.filter((hook) => hook.overridable);
+      const { settings: pruned, removed, adopted, tookOver, unowned } = removeHook(settings, { adopt: options.adopt });
       // Written only when something was removed: a run that removed nothing leaves the file byte
       // for byte as it found it, and creates no file that did not exist.
       if (removed > 0) await writeSettings(settingsPath, pruned);
       const report = [];
       if (removed > 0) report.push(`Removed ${countOf(removed, 'release-notes gate hook')} from ${settingsPath}.`);
       if (options.adopt) {
-        report.push(adopted > 0
-          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate in a shape this installer never writes — ${adoptable.map(hookLabel).join(', ')}.`
-          : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.');
+        if (adopted > 0) report.push(`Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate in a shape this installer never writes — ${adoptable.map(hookLabel).join(', ')}.`);
+        // A hook taken although it could not be fully read is said out loud, on a line of its own.
+        if (tookOver > 0) report.push(tookOverLine(takenOver), OVERRIDE_BASIS);
+        if (adopted === 0 && tookOver === 0) report.push('Adopted none: no hook in this file ran this gate in a shape this installer never writes.');
       }
       // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No release-notes gate
       // was installed … Nothing changed." and exited 0 while the harness-rewritten hook kept running.
@@ -497,6 +516,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       if (unowned.some((hook) => hook.kind === 'adoptable')) {
         still.push('To remove each hook above that runs this gate in a shape this installer never writes, run this script again with --remove --adopt.');
       }
+      if (unowned.some((hook) => hook.overridable)) {
+        still.push(`To take over ${OVERRIDE_ADVICE}, run this script again with --remove --adopt — check first that each is the gate.`);
+      }
       stderr.write(`${still.join('\n')}\n`);
       return 1;
     }
@@ -507,7 +529,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     const mode = resolveInstallMode({ named: options.mode, existing });
     const entry = buildHookEntry({ mode, gatePath: resolveGatePath() });
     // Named before installing, because installing edits `settings` in place.
-    const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.kind === 'adoptable') : [];
+    const unownedBefore = options.adopt ? findUnownedGateHooks(settings) : [];
+    const adoptable = unownedBefore.filter((hook) => hook.kind === 'adoptable');
+    const takenOver = unownedBefore.filter((hook) => hook.overridable);
     const updated = installHook(settings, { entry, adopt: options.adopt });
     await writeSettings(settingsPath, updated);
 
@@ -515,9 +539,12 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       ? `Installed the release-notes gate into ${settingsPath}, disarmed (off), as the gate already there was.\n`
       : `Installed the ${mode} release-notes gate into ${settingsPath}.\n`);
     if (options.adopt) {
-      stdout.write(adoptable.length > 0
-        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate in a shape this installer never writes, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
-        : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.\n');
+      if (adoptable.length > 0) {
+        stdout.write(`Adopted ${countOf(adoptable.length, 'hook')} that ran this gate in a shape this installer never writes, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`);
+      }
+      // A hook replaced although it could not be fully read is said out loud, on a line of its own.
+      if (takenOver.length > 0) stdout.write(`${tookOverLine(takenOver)}\n${OVERRIDE_BASIS}\n`);
+      if (adoptable.length === 0 && takenOver.length === 0) stdout.write('Adopted none: no hook in this file ran this gate in a shape this installer never writes.\n');
     }
     const modeLine = describeMode({ named: options.mode, existing, mode });
     if (modeLine) stdout.write(`${modeLine}\n`);

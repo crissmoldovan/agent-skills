@@ -16,17 +16,18 @@
  *              interpreter, or a command that RUNS the gate (`gateUse`). Named and refused; taken only
  *              under `--adopt`.
  *   unclear    Outside the exact shape, it names the gate file where this reader cannot tell whether the
- *              gate runs. Named, and never taken, with or without a flag, with or without the installer's
+ *              gate runs. Named, and never taken by a run without `--adopt`, with or without the installer's
  *              describe: over-reporting a hook is recoverable, and deleting one that is not the gate is not.
+ *              `--adopt` takes one over only by THE OVERRIDE, below, and the installer says so.
  *   foreign    It runs the gate, or may, under a `describe` somebody else wrote. Named, never taken.
- *   null       It does not run the gate: it never names the gate file, or only MENTIONS it — whatever
- *              `describe` it wears.
+ *   null       It does not run the gate: it never names the gate file, only MENTIONS it, or only writes to
+ *              it — whatever `describe` it wears. No flag takes it.
  *
  * THE INSTALLER'S OWN DESCRIBE. Claude Code drops `describe` when it rewrites the file, but where it has not,
  * a describe that starts with the installer's `describePrefix` is that installer's statement that it wrote
  * the hook. 0.19.0 took every hook wearing it with no flag, so a hook that still wears it and runs the gate,
  * in any shape, is the installer's own. A hook that only mentions the gate file is not taken under it (0.19.0
- * took one), and neither is one where whether the gate runs cannot be told.
+ * took one), and neither is one where whether the gate runs cannot be told: that one needs `--adopt`.
  *
  * THE EXACT SHAPE. The command, read as blank-separated words made only of literal characters
  * (letters, digits and `_ . , : / @ % + = -`) and single-quoted runs joined by `\'` — the only quoting
@@ -98,6 +99,21 @@
  * `stdbuf`, which on macOS dyld kills at load for some commands; `ionice`, `chrt` and `taskset`, which run
  * nothing when the kernel refuses what they ask; and `xargs`, `watch` and `parallel`, which change how or
  * whether the command runs. An over-refusal is recoverable; deleting a hook the reader misread is not.
+ *
+ * THE OVERRIDE (`takenAs`). A reader that never guesses always refuses some hook that does run the gate — a
+ * wrapper form nobody pinned (`nice -10`, `timeout -p 5`, `sudo -i`), the gate read on stdin — and 0.19.0 took
+ * such hooks, by its describe with no flag or under the report-progress installer's `--adopt`. Pinning one more
+ * form at a time never ends, so `--adopt` is the explicit override: it takes an `unclear` hook, describe or not,
+ * when all of these hold:
+ *   1. the command's leading assignments, as `leadingAssignments` reads them, set this gate's own arming
+ *      variable, `envFlag`;
+ *   2. a word of one of its simple commands, or a file one of its redirections reads, is the gate path: its
+ *      basename is exactly `gateFile`, and it is not an option (`-…`) and holds no `=` and no shell operator,
+ *      so `--gate=<path>`, `GATE=<path>`, a `sh -c` script and a `$(…)` that end in the gate's name are not it;
+ *   3. none of its redirections writes to a file named like the gate.
+ * The installer names every hook it took this way, by event and matcher, on a line of its own (`tookOverLine`):
+ * a silent override is the defect this replaced. Without `--adopt` nothing changes. And a hook this reader can
+ * read and knows runs nothing of the gate — a mention, a write target — is `null`, not `unclear`: no flag takes it.
  *
  * NAMING THE GATE FILE means a word, or a piece of one split at blanks, quotes, `= : ,`, `$`, parens,
  * braces and shell operators, whose basename is exactly the gate file. So
@@ -796,18 +812,62 @@ export function classifyHook(hook, identity) {
   return shape?.owned ? 'ours' : 'adoptable';
 }
 
+/** A word that is a path to the gate file: its basename exactly the gate file, and nothing in it that makes it an option, an
+ *  assignment, or text holding more than a path (THE OVERRIDE in the header). */
+const NOT_A_PATH = /^-|[=;&|<>()`\n]/;
+function isGatePath(word, gateFile) {
+  return !NOT_A_PATH.test(word) && basename(word) === gateFile;
+}
+
+/** Whether a command carries what THE OVERRIDE (in the header) takes a hook this reader cannot fully read on. */
+function carriesGateSettingAndPath(command, { envFlag, gateFile }) {
+  if (!leadingAssignments(command).some((entry) => entry.name === envFlag)) return false;
+  const { commands } = parseShell(command);
+  const redirections = commands.flatMap((simple) => simple.redirections);
+  if (redirections.some(({ direction, target }) => direction === 'out' && namesGate(target, gateFile))) return false;
+  return commands.some((simple) => simple.words.some((word) => isGatePath(word, gateFile)))
+    || redirections.some(({ direction, target }) => direction === 'in' && isGatePath(target, gateFile));
+}
+
+/**
+ * How a run treats one hook: `own`, taken with no flag; with `adopt`, `adopted` for a hook that runs the gate in a shape the
+ * installer never writes, and `override` for a hook this reader cannot fully read that THE OVERRIDE (in the header) takes;
+ * null for a hook the run leaves where it is. Never throws.
+ *
+ * @param {unknown} hook
+ * @param {{ envFlag: string, gateFile: string, describePrefix: string, variables?: readonly string[], interpreter?: object }} identity
+ * @param {{ adopt?: boolean }} [options]
+ */
+export function takenAs(hook, identity, { adopt = false } = {}) {
+  const kind = classifyHook(hook, identity);
+  if (kind === 'ours') return 'own';
+  if (!adopt) return null;
+  if (kind === 'adoptable') return 'adopted';
+  if (kind === 'unclear' && carriesGateSettingAndPath(hook.command, identity)) return 'override';
+  return null;
+}
+
 /**
  * Why an installer leaves an unowned hook where it is, for the line that names it. `ownShape` says, in
- * a few words, what that installer's own command is made of.
+ * a few words, what that installer's own command is made of; for an unclear hook, `overridable` says whether
+ * `--adopt` takes it over, and `envFlag` names the variable that decides it.
  */
-export function unownedReason(kind, ownShape) {
+export function unownedReason(kind, ownShape, { overridable = false, envFlag = 'this gate\'s own variable' } = {}) {
   if (kind === 'adoptable') {
     return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this, and so does a hook written under an interpreter this installer does not know by name.`;
   }
   if (kind === 'unclear') {
-    return 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, a word after an interpreter\'s options, a pipe, a substitution, a variable, a here-document or a function — so it is never adopted: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.';
+    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a here-document or a function — so no run without --adopt takes it';
+    return overridable
+      ? `${where}. It sets ${envFlag} and names the gate path, so --adopt takes it over and says so: check first that it is the gate, because removing a hook that is not the gate cannot be undone.`
+      : `${where}, and neither does --adopt, which takes such a hook only when its leading assignments set ${envFlag} and one of its words is the gate path: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.`;
   }
   return 'runs this gate, or may, under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.';
+}
+
+/** The line a run prints, on its own, naming each hook `--adopt` took over although this reader could not fully read it. */
+export function tookOverLine(hooks) {
+  return `Took over ${hooks.length} hook${hooks.length === 1 ? '' : 's'} this installer could not fully read: ${hooks.map(hookLabel).join(', ')}.`;
 }
 
 /**
@@ -842,14 +902,17 @@ export function eventKeys(settings) {
   return Object.keys(settings.hooks);
 }
 
-/** Every hook that runs the gate, or may, and is not the installer's own, with where it sits and which kind. */
+/** Every hook that runs the gate, or may, and is not the installer's own, with where it sits, which kind, and whether
+ *  `--adopt` takes it over although this reader cannot fully read it (`overridable`, THE OVERRIDE in the header). */
 export function findUnownedHooks(settings, identity) {
   const found = [];
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
         const kind = classifyHook(hook, identity);
-        if (kind === 'adoptable' || kind === 'unclear' || kind === 'foreign') found.push({ event, matcher: group.matcher, kind });
+        if (kind === 'adoptable' || kind === 'unclear' || kind === 'foreign') {
+          found.push({ event, matcher: group.matcher, kind, overridable: kind === 'unclear' && carriesGateSettingAndPath(hook.command, identity) });
+        }
       }
     }
   }

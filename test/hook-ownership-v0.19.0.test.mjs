@@ -1,56 +1,70 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { classifyHook } from '../adapters/claude-code/hook-ownership.mjs';
+import { HOOK_IDENTITY as PROGRESS_IDENTITY } from '../adapters/claude-code/install-report-progress-gate.mjs';
+import { HOOK_IDENTITY as RELEASE_IDENTITY } from '../adapters/claude-code/install-release-notes-gate.mjs';
+
 // ---------------------------------------------------------------------------
-// Never worse than 0.19.0, row by row.
+// The release bar, row by row, against 0.19.0's real installers.
 //
-// 0.19.0 recognised a gate installer's hooks by `describe`. This branch recognises them by their command,
-// because Claude Code drops `describe` whenever it rewrites a settings file. Two held releases measured the
-// cost of reading a command wrong: an installer run under a Node binary with one name refused, even under
-// `--adopt`, the hooks written under another name; and a hook that wrapped the gate in `timeout 5` read as
-// unclear, which no flag takes, where 0.19.0 took it by its describe, or under `--adopt` without one.
+// 0.19.0 recognised a gate installer's hooks by `describe`. This branch reads the command, because Claude Code drops
+// `describe` whenever it rewrites a settings file. A reader of shell text that never guesses will always refuse some
+// hand-wrapped hook, so `--adopt` is the explicit override for a hook it cannot fully read: it takes one when the command's
+// leading assignments set the gate's own variable and one of its words is the gate path, and says it did. Every row below is
+// held to the four points of the release bar:
+//   1. a run with no flag never takes a hook the reader cannot fully read, with or without the installer's own describe;
+//   2. anything 0.19.0 did, the branch still does, with the same flags or at worst with --adopt added: on every row where
+//      0.19.0 took or removed the gate's hooks and exited 0, the branch takes or removes them on that row, or on the same
+//      row with --adopt;
+//   3. a hook the reader can read and knows does not run the gate — a mention (the gate path as an argument of echo, cat,
+//      grep, rm, cp, ls, shellcheck and the like) or a write target (`timeout 5 >'<gate>' node x`, which empties the gate)
+//      — is never taken, with any flag, and never fires;
+//   4. the release-notes installer's --remove exits 1 while it leaves a hook that runs the gate, or may, where 0.19.0
+//      printed "No release-notes gate was installed".
+// Every row lands in exactly one count: the same as 0.19.0; better; (2) taken only once --adopt is added; (3) never taken;
+// (4) exits 1 over a hook both versions leave. A row that breaks a point, or where 0.19.0 did better outside those counts,
+// fails, and every such row is listed before the test fails.
 //
-// So every row below runs 0.19.0's REAL installers and this branch's on byte-identical temp files:
-//   - who wrote the file: 0.19.0's installer or this branch's, under a Node binary called `wrote`; or a
-//     hand-written file (HAND_WRITTEN): the live shape; the gate wrapped in `timeout 5`, `nice -n 10`,
-//     `env FOO=1`, a nested `sudo -u x timeout 5`, or a wrapper option the reader does not pin; the release gate
-//     run by `'/bin/bash'`, `sh` or a renamed shell; the gate run by `'/usr/bin/env'`; the exact shape followed
-//     by `&& echo done` or `; true`, or under another tool's describe; or a hook that only mentions the gate file;
+// 0.19.0'S RELEASE-NOTES INSTALLER HAS NO --adopt: it exits 1 with "unknown argument: --adopt". Held to that, every branch
+// result on those rows would count as better. So those rows are compared with 0.19.0's nearest equivalent run instead — its
+// bare install for `--adopt install`, its bare `--remove` for `--remove --adopt` — and the first test checks that 0.19.0
+// refuses the argument on every one of them.
+//
+// WHETHER A HOOK RUNS THE GATE IS FIRED, NOT WRITTEN DOWN. Each distinct start command is run through /bin/sh, with the
+// ambient gate variables cleared, against a stand-in gate: a file with the gate's basename and the real gate's permission
+// bits, in a temp directory, that writes a marker only when it is handed the hook's payload on stdin — run the way a hook
+// runs the gate. What fired is recorded. sudo is never run here: its forms carry a label from runs documented in this
+// branch's reviews (as root with a user x under Debian 12's dash, sudo 1.9.13p3), or say that none was documented. A form
+// that needs a program this machine lacks is not fired, and says which. The reader's reading of each start hook is stated
+// here and checked against the reader: a hook it reads as running the gate must fire, unless its row says why it cannot,
+// and a hook it reads as not running the gate must not.
+//
+// Rows:
+//   - who wrote the file: 0.19.0's installer or this branch's, under a Node binary called `wrote`; by hand (HAND_WRITTEN),
+//     including every form from the held release reviews; or a file holding one hook that does not run the gate (NOT_RUN);
 //   - describe present, or stripped the way a settings rewrite strips it;
 //   - which installer re-runs it, under a Node binary called `reran`;
 //   - the four re-runs: a bare install, `--adopt`, `--remove`, `--remove --adopt`.
-// The branch must never do worse than 0.19.0: never refuse, or leave a gate, where 0.19.0 succeeded, and never
-// take a hook 0.19.0 left alone. Three kinds of row are declared exceptions, each asserted as its own kind and
-// counted:
-//   (a) a hook that only MENTIONS the gate file is never taken, where 0.19.0's `--adopt`, and its describe,
-//       took it;
-//   (b) the release-notes installer's `--remove` exits 1, not 0, when it leaves a hook that runs the gate, or
-//       may: both versions leave the same hooks, and 0.19.0 printed "No release-notes gate was installed" over
-//       that hook;
-//   (c) a wrapper form the reader does not pin is refused, named as a hook it cannot tell runs the gate, and
-//       left byte for byte, where 0.19.0 took it. The form used, `timeout --no-such-option 5`, is one every
-//       `timeout` measured rejects without running anything, and this test runs it to show that — but the reader
-//       does not know it, which is the point: it never guesses past a wrapper.
-// Any other row where 0.19.0 did better fails.
 //
-// 0.19.0 comes from git (`git show <commit>:<file>` for the four files its installers load, into a temp
-// directory: nothing is added to the repository's worktree list and nothing is left to clean up). A shallow
-// clone does not have that commit, so what 0.19.0 does is also kept as a table recorded from real runs,
-// fixtures/hook-ownership-v0.19.0.json. The first test re-derives the table from 0.19.0 wherever the commit
-// is present and fails if the two disagree; the second holds the branch to it everywhere.
+// 0.19.0 comes from git (`git show <commit>:<file>` for the four files its installers load, into a temp directory: nothing
+// is added to the repository's worktree list and nothing is left to clean up). A shallow clone does not have that commit,
+// so what 0.19.0 does is also kept as a table recorded from real runs, fixtures/hook-ownership-v0.19.0.json. The first test
+// re-derives the table from 0.19.0 wherever the commit is present and fails if the two disagree; the second holds the
+// branch to it everywhere.
 // Re-record: AGENT_SKILLS_RECORD_V019_TABLE=1 node --test test/hook-ownership-v0.19.0.test.mjs
 //
-// Every binary is the running Node under another name (a hard link, so `process.execPath` carries that
-// name), and every run has HOME and --settings in a temp directory. Every gate the branch leaves installed,
-// and every gate in a file a row starts from that can be run here, is run from its written command through
-// /bin/sh with the ambient gate variables cleared: a gate that looks installed and never fires fails, and so
-// does the unpinned wrapper firing.
+// Every binary is the running Node under another name (a hard link, so `process.execPath` carries that name), and every
+// installer run has HOME and --settings in a temp directory. Every gate the branch writes is run from its written command
+// against the real gate, and must fire.
 // ---------------------------------------------------------------------------
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -58,6 +72,8 @@ const V019 = Object.freeze({ tag: 'v0.19.0', commit: '8a40f2a4e7a59ca1f0a49cf052
 const TABLE_URL = new URL('./fixtures/hook-ownership-v0.19.0.json', import.meta.url);
 const RECORDING = process.env.AGENT_SKILLS_RECORD_V019_TABLE === '1';
 const LIMIT = Math.max(2, Math.min(6, Math.floor(availableParallelism() / 2)));
+/** A fired start command still running after this long is killed, and fails the test. */
+const FIRE_TIMEOUT_MS = 30_000;
 
 const KINDS = Object.freeze({
   progress: Object.freeze({
@@ -89,10 +105,14 @@ const OTHER = Object.freeze({ progress: 'release', release: 'progress' });
 
 const BRANCH_ADAPTER = path.join(REPO, 'adapters', 'claude-code');
 const branchGate = (kind) => path.join(BRANCH_ADAPTER, KINDS[kind].gate);
+/** Where a NOT_RUN hook names the gate. No installer runs a hook; the firing check puts a stand-in in its place. */
+const packGate = (kind) => `/pack/adapters/claude-code/${KINDS[kind].gate}`;
 
 /** How both installers quote a word into a command. */
 const q = (value) => `'${String(value).split("'").join(`'\\''`)}'`;
 const both = (value) => Object.freeze({ progress: value, release: value });
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hooksWord = (count) => `${count} hook${count === 1 ? '' : 's'}`;
 
 /** Installed by a binary called `wrote`, re-run by one called `reran`. `recognised`: whether the
  *  progress installer takes the hooks with no describe and no flag (the release installer writes `bash`). */
@@ -124,37 +144,141 @@ const followedBy = (tail) => ({
   release: (gate) => `${exactShape.release(gate)}${tail}`,
 });
 
+/** Labels for forms this test never fires, from runs documented in this branch's reviews. */
+const SUDO_RAN = Object.freeze({ fires: true, why: "sudo is never run here; as root with a user x under Debian 12's dash, sudo 1.9.13p3, this form ran the command (a run documented in this branch's review)" });
+const SUDO_RAN_NOTHING = Object.freeze({ fires: false, why: "sudo is never run here; as root with a user x under Debian 12's dash, sudo 1.9.13p3, this form ran nothing (a run documented in this branch's review)" });
+const SUDO_UNDOCUMENTED = Object.freeze({ fires: null, why: 'sudo is never run here, and no run of this form is documented' });
+
+/** Why a hook the reader reads as running the gate does not fire. */
+const NOT_EXECUTABLE = 'the progress gate is not executable in a checkout (git mode 100644), so running the file as a program runs nothing';
+const HERE_STRING = "a here-string takes the place of the hook's payload on stdin, so the gate never reads the payload (and dash refuses a here-string)";
+
 /**
- * Hand-written files: both gates at block and coverage 2, beside hooks nobody here wrote, each command built from the
- * `node` binary and this branch's gate paths.
- *   shape     for each gate, what its command is to the branch's reader: `own`, the installer's exact shape with the
- *             interpreter it writes; `runs`, a command that runs the gate in any other shape; `unpinned`, a wrapper form
- *             the reader does not pin.
- *   describe  what "describe present" puts on the gate hooks, when it is not the installer's own.
- *   fires     for each gate, whether the file's own hook fires when run as written — true or false — or why it is not
- *             run here. `needs` is a program the check needs on PATH; where it is missing the check is not run, and
- *             says so.
+ * Hand-written files: both gates at block and coverage 2, beside hooks nobody here wrote, each command built from the `node`
+ * binary and this branch's gate paths.
+ *   reader      for each gate, what its command is to the branch's reader: `own`, the installer's exact shape with the
+ *               interpreter it writes; `hand-wiring`, a command that runs the gate in any other shape; `unclear`, a command
+ *               where the reader cannot tell whether the gate runs. Checked against the reader on every row.
+ *   describe    what "describe present" puts on the gate hooks, when it is not the installer's own.
+ *   needs       for each gate, a program the firing check needs on PATH; where it is missing that command is not fired.
+ *   documented  for each gate, the label of a form never fired here (sudo), and where it comes from.
+ *   silent      for each gate, why a command the reader reads as running the gate does not fire.
  */
 const HAND_WRITTEN = Object.freeze([
-  { id: 'live shape', ...exactShape, shape: both('own'), fires: both(true) },
-  { id: 'timeout 5', ...wrappedIn('timeout 5'), shape: both('runs'), fires: both(true), needs: 'timeout' },
-  { id: 'nice -n 10', ...wrappedIn('nice -n 10'), shape: both('runs'), fires: both(true), needs: 'nice' },
-  { id: 'env FOO=1', ...wrappedIn('env FOO=1'), shape: both('runs'), fires: both(true), needs: 'env' },
-  { id: 'sudo -u x timeout 5', ...wrappedIn('sudo -u x timeout 5'), shape: both('runs'), fires: both('no test runs sudo') },
-  { id: 'timeout --no-such-option 5', ...wrappedIn('timeout --no-such-option 5'), shape: both('unpinned'), fires: both(false) },
-  { id: "release gate run by '/bin/bash'", ...releaseRunBy(q('/bin/bash')), shape: { progress: 'own', release: 'runs' }, fires: both(true) },
-  { id: 'release gate run by sh', ...releaseRunBy('sh'), shape: { progress: 'own', release: 'runs' }, fires: { progress: true, release: 'sh is dash on Debian and Ubuntu, and the gate is a bash script' } },
-  { id: 'release gate run by bash5', ...releaseRunBy('bash5'), shape: { progress: 'own', release: 'runs' }, fires: { progress: true, release: 'no machine this runs on is known to have a bash5' } },
+  { id: 'live shape', ...exactShape, reader: both('own') },
+  { id: 'timeout 5', ...wrappedIn('timeout 5'), reader: both('hand-wiring'), needs: both('timeout') },
+  { id: 'nice -n 10', ...wrappedIn('nice -n 10'), reader: both('hand-wiring'), needs: both('nice') },
+  { id: 'env FOO=1', ...wrappedIn('env FOO=1'), reader: both('hand-wiring') },
+  { id: 'sudo -u x timeout 5', ...wrappedIn('sudo -u x timeout 5'), reader: both('hand-wiring'), documented: both(SUDO_RAN) },
+  { id: "release gate run by '/bin/bash'", ...releaseRunBy(q('/bin/bash')), reader: { progress: 'own', release: 'hand-wiring' } },
+  { id: 'release gate run by sh', ...releaseRunBy('sh'), reader: { progress: 'own', release: 'hand-wiring' } },
+  { id: 'release gate run by bash5', ...releaseRunBy('bash5'), reader: { progress: 'own', release: 'hand-wiring' }, needs: { release: 'bash5' } },
   {
     id: "'/usr/bin/env' '<gate>'",
     progress: (node, gate) => `${P} ${q('/usr/bin/env')} ${q(gate)}`,
     release: (gate) => `${R} ${q('/usr/bin/env')} ${q(gate)}`,
-    shape: both('runs'),
-    fires: { progress: 'the progress gate is not executable in a checkout (git mode 100644)', release: true },
+    reader: both('hand-wiring'),
+    silent: { progress: NOT_EXECUTABLE },
   },
-  { id: '<shape> && echo done', ...followedBy(' && echo done'), shape: both('runs'), fires: both(true) },
-  { id: '<shape>; true', ...followedBy('; true'), shape: both('runs'), fires: both(true) },
-  { id: "the exact shape under another tool's describe", ...exactShape, shape: both('own'), describe: 'another-tool: checks every tool call against its own policy.', fires: both(true) },
+  { id: '<shape> && echo done', ...followedBy(' && echo done'), reader: both('hand-wiring') },
+  { id: '<shape>; true', ...followedBy('; true'), reader: both('hand-wiring') },
+  { id: "the exact shape under another tool's describe", ...exactShape, reader: both('own'), describe: 'another-tool: checks every tool call against its own policy.' },
+
+  // The forms from the held release reviews. First, wrapper forms the reader does not recognise, which run the gate or not.
+  { id: 'nice -10', ...wrappedIn('nice -10'), reader: both('unclear'), needs: both('nice') },
+  { id: 'stdbuf -oL', ...wrappedIn('stdbuf -oL'), reader: both('unclear'), needs: both('stdbuf') },
+  { id: 'timeout -p 5', ...wrappedIn('timeout -p 5'), reader: both('unclear'), needs: both('timeout') },
+  { id: 'time', ...wrappedIn('time'), reader: both('unclear') },
+  { id: 'sudo -i', ...wrappedIn('sudo -i'), reader: both('unclear'), documented: both(SUDO_RAN) },
+  { id: 'timeout --no-such-option 5', ...wrappedIn('timeout --no-such-option 5'), reader: both('unclear'), needs: both('timeout') },
+  { id: 'sudo -u x timeout --no-such-option 5', ...wrappedIn('sudo -u x timeout --no-such-option 5'), reader: both('unclear'), documented: both(SUDO_UNDOCUMENTED) },
+  { id: 'timeout 5x', ...wrappedIn('timeout 5x'), reader: both('unclear'), needs: both('timeout') },
+  { id: 'timeout 5>/dev/null', ...wrappedIn('timeout 5>/dev/null'), reader: both('unclear'), needs: both('timeout') },
+  { id: 'nice -n 2147483648', ...wrappedIn('nice -n 2147483648'), reader: both('unclear'), needs: both('nice') },
+  { id: 'env -C /tmp', ...wrappedIn('env -C /tmp'), reader: both('unclear') },
+  { id: 'caffeinate -z', ...wrappedIn('caffeinate -z'), reader: both('unclear'), needs: both('caffeinate') },
+  { id: 'exec -a name', ...wrappedIn('exec -a name'), reader: both('unclear') },
+  { id: 'command -v', ...wrappedIn('command -v'), reader: both('unclear') },
+  { id: 'command -V', ...wrappedIn('command -V'), reader: both('unclear') },
+  { id: 'sudo -e', ...wrappedIn('sudo -e'), reader: both('unclear'), documented: both(SUDO_RAN_NOTHING) },
+  { id: 'sudo -n -u $U', ...wrappedIn('sudo -n -u $U'), reader: both('unclear'), documented: both(SUDO_RAN_NOTHING) },
+  { id: 'sudo -p $P', ...wrappedIn('sudo -p $P'), reader: both('unclear'), documented: both(SUDO_RAN_NOTHING) },
+  { id: 'sudo -u x*', ...wrappedIn('sudo -u x*'), reader: both('unclear'), documented: both(SUDO_RAN_NOTHING) },
+  { id: 'sudo -g {a,b}', ...wrappedIn('sudo -g {a,b}'), reader: both('unclear'), documented: both(SUDO_RAN_NOTHING) },
+  { id: 'sudo --user=$U', ...wrappedIn('sudo --user=$U'), reader: both('unclear'), documented: both(SUDO_RAN_NOTHING) },
+  // The gate path as an option's value.
+  {
+    id: "timeout -s '<gate>' 5",
+    progress: (node, gate) => `${P} timeout -s ${q(gate)} 5 ${q(node)} -e 0`,
+    release: (gate) => `${R} timeout -s ${q(gate)} 5 bash -c true`,
+    reader: both('unclear'),
+    needs: both('timeout'),
+  },
+  {
+    id: "time -o '<gate>'",
+    progress: (node, gate) => `${P} time -o ${q(gate)} ${q(node)} -e 0`,
+    release: (gate) => `${R} time -o ${q(gate)} bash -c true`,
+    reader: both('unclear'),
+  },
+  // The gate as what an interpreter reads on stdin: a file, or a here-string.
+  {
+    id: "stdin: <interpreter> <'<gate>'",
+    progress: (node, gate) => `${P} ${q(node)} <${q(gate)}`,
+    release: (gate) => `${R} bash <${q(gate)}`,
+    reader: both('unclear'),
+  },
+  {
+    id: "timeout 5 <interpreter> <<< '<gate>'",
+    progress: (node, gate) => `${P} timeout 5 ${q(node)} <<< ${q(gate)}`,
+    release: (gate) => `${R} timeout 5 bash <<< ${q(gate)}`,
+    reader: both('unclear'),
+    needs: both('timeout'),
+  },
+  // Read as running the gate, and never handed the payload, or never run as a program.
+  {
+    id: "<interpreter> '<gate>' <<< '{}'",
+    progress: (node, gate) => `${P} ${q(node)} ${q(gate)} <<< '{}'`,
+    release: (gate) => `${R} bash ${q(gate)} <<< '{}'`,
+    reader: both('hand-wiring'),
+    silent: both(HERE_STRING),
+  },
+  {
+    id: "env '<gate>'",
+    progress: (node, gate) => `${P} env ${q(gate)}`,
+    release: (gate) => `${R} env ${q(gate)}`,
+    reader: both('hand-wiring'),
+    silent: { progress: NOT_EXECUTABLE },
+  },
+]);
+
+/**
+ * Hooks that do not run the gate, each in a file of its own under the event its installer writes. A MENTION names the gate
+ * as an argument of a program that prints, reads, lists, copies or deletes files; a WRITE TARGET names it as the file a
+ * redirection writes to, which empties it. The reader reads both, and knows neither runs the gate.
+ */
+const NOT_RUN = Object.freeze([
+  ...[
+    `AGENT_SKILLS_PROGRESS_GATE=block echo ${q(packGate('progress'))}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block cat ${q(packGate('progress'))}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block grep -c decision ${q(packGate('progress'))}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block rm -f ${q(packGate('progress'))}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block cp ${q(packGate('progress'))} copy.mjs`,
+    `AGENT_SKILLS_PROGRESS_GATE=block ls -l ${q(packGate('progress'))}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block ${q('/bin/echo')} ${q(packGate('progress'))}`,
+  ].map((command) => ({ kind: 'progress', category: 'mention', command })),
+  { kind: 'progress', category: 'mention', command: `AGENT_SKILLS_PROGRESS_GATE=block timeout 5 echo ${q(packGate('progress'))}`, needs: 'timeout' },
+  { kind: 'progress', category: 'write target', command: `AGENT_SKILLS_PROGRESS_GATE=block timeout 5 >${q(packGate('progress'))} node -e 0`, needs: 'timeout' },
+  { kind: 'progress', category: 'write target', command: `AGENT_SKILLS_PROGRESS_GATE=block node >${q(packGate('progress'))}` },
+  { kind: 'progress', category: 'write target', command: `AGENT_SKILLS_PROGRESS_GATE=block env >${q(packGate('progress'))} node -e 0` },
+  { kind: 'progress', category: 'write target', command: `AGENT_SKILLS_PROGRESS_GATE=block >${q(packGate('progress'))} node -e 0` },
+  { kind: 'release', category: 'mention', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck ${q(packGate('release'))}`, needs: 'shellcheck' },
+  { kind: 'release', category: 'mention', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block cat ${q(packGate('release'))}` },
+  { kind: 'release', category: 'mention', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block ${q('/usr/bin/shellcheck')} ${q(packGate('release'))}`, needs: '/usr/bin/shellcheck' },
+  { kind: 'release', category: 'mention', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block timeout 5 echo ${q(packGate('release'))}`, needs: 'timeout' },
+  { kind: 'release', category: 'write target', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block timeout 5 >${q(packGate('release'))} bash -c true`, needs: 'timeout' },
+  { kind: 'release', category: 'write target', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash >${q(packGate('release'))}` },
+  { kind: 'release', category: 'write target', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block env >${q(packGate('release'))} bash -c true` },
+  { kind: 'release', category: 'write target', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block >${q(packGate('release'))} bash -c true` },
 ]);
 
 const RUNS = Object.freeze({
@@ -164,28 +288,16 @@ const RUNS = Object.freeze({
   '--remove --adopt': ['--remove', '--adopt'],
 });
 const DESCRIBES = Object.freeze(['present', 'stripped']);
-
-/** Hooks that only MENTION a gate file. Their paths are not the real gates': nothing here is ever run. */
-const MENTIONS = Object.freeze({
-  progress: Object.freeze([
-    "AGENT_SKILLS_PROGRESS_GATE=block echo '/pack/adapters/claude-code/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block cat '/pack/adapters/claude-code/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block grep -c decision '/pack/adapters/claude-code/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block rm -f '/pack/adapters/claude-code/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block cp '/pack/adapters/claude-code/report-progress-gate.mjs' /tmp/copy.mjs",
-    "AGENT_SKILLS_PROGRESS_GATE=block ls -l '/pack/adapters/claude-code/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block '/bin/echo' '/pack/adapters/claude-code/report-progress-gate.mjs'",
-  ]),
-  release: Object.freeze([
-    "AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck '/pack/adapters/claude-code/release-notes-gate.sh'",
-    "AGENT_SKILLS_RELEASE_NOTES_GATE=block cat '/pack/adapters/claude-code/release-notes-gate.sh'",
-    "AGENT_SKILLS_RELEASE_NOTES_GATE=block '/usr/bin/shellcheck' '/pack/adapters/claude-code/release-notes-gate.sh'",
-  ]),
-});
+const isRemove = (run) => RUNS[run].includes('--remove');
+const isAdopt = (run) => RUNS[run].includes('--adopt');
+/** The same run with --adopt added: where point 2 lets the branch take what 0.19.0 took with no flag. */
+const WITH_ADOPT = Object.freeze({ 'bare install': '--adopt install', '--remove': '--remove --adopt' });
+/** 0.19.0's release-notes installer has no --adopt: the run each such row is compared with. */
+const WITHOUT_ADOPT = Object.freeze({ '--adopt install': 'bare install', '--remove --adopt': '--remove' });
 
 /** Every row the matrix declares, so a harness that builds or runs fewer cannot pass. */
 const EXPECTED_ROWS = (INPUTS.length * 2 + HAND_WRITTEN.length) * DESCRIBES.length * Object.keys(KINDS).length * Object.keys(RUNS).length
-  + Object.values(MENTIONS).flat().length * DESCRIBES.length * Object.keys(RUNS).length;
+  + NOT_RUN.length * DESCRIBES.length * Object.keys(RUNS).length;
 
 const UNRELATED = 'someone-elses-hook';
 const GATE_VARIABLES = Object.freeze([
@@ -203,13 +315,17 @@ function childEnv(extra) {
   return { ...env, ...extra };
 }
 
-function spawnCollect(file, args, { env, stdin }) {
+function spawnCollect(file, args, { env, stdin, cwd, timeout }) {
   return new Promise((resolve) => {
-    const child = spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
-    let stdout = ''; let stderr = '';
+    const child = spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], env, cwd });
+    let stdout = ''; let stderr = ''; let timedOut = false;
+    const timer = timeout ? setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeout) : null;
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.on('close', (status) => resolve({ status, stdout, stderr }));
+    child.on('close', (status) => {
+      if (timer) clearTimeout(timer);
+      resolve({ status, stdout, stderr, timedOut });
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(stdin ?? '');
   });
@@ -238,6 +354,12 @@ const allHooks = (settings) => Object.entries(settings.hooks ?? {})
 function stripDescribes(settings) {
   for (const { hook } of allHooks(settings)) delete hook.describe;
   return settings;
+}
+
+/** A hook named the way an installer names it. */
+function labelOf({ event, matcher }) {
+  if (typeof matcher !== 'string') return `${event} (no matcher)`;
+  return matcher === '' ? `${event} (matcher "")` : `${event} (matcher ${matcher})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,58 +497,59 @@ function gateHooks(settings, kind) {
   return allHooks(settings).filter(({ hook }) => typeof hook.command === 'string' && hook.command.includes(`/${KINDS[kind].gate}'`));
 }
 
-/** exit, how many hooks name the gate and in which modes, and for a mention whether it is still there. */
-function summarise(status, settings, kind, mention) {
+/** exit, how many hooks name the gate and in which modes, and for a NOT_RUN hook whether it is still there. */
+function summarise(status, settings, kind, notRun) {
   const hooks = gateHooks(settings, kind);
   const flag = new RegExp(`(?:^|\\s)${KINDS[kind].flag}=([A-Za-z0-9]+)`);
   const modes = [...new Set(hooks.map(({ hook }) => flag.exec(hook.command)?.[1] ?? 'unset'))].sort();
-  let text = `exit ${status} | ${hooks.length} hook${hooks.length === 1 ? '' : 's'}${modes.length > 0 ? ` (${modes.join(', ')})` : ''}`;
-  if (mention) text += ` | mention ${hooks.some(({ hook }) => isDeepStrictEqual(hook, mention)) ? 'kept' : 'taken'}`;
+  let text = `exit ${status} | ${hooksWord(hooks.length)}${modes.length > 0 ? ` (${modes.join(', ')})` : ''}`;
+  if (notRun) text += ` | hook ${hooks.some(({ hook }) => isDeepStrictEqual(hook, notRun)) ? 'kept' : 'taken'}`;
   return text;
 }
 
 function parseSummary(text) {
-  const match = /^exit (\d+) \| (\d+) hooks?(?: \(([^)]*)\))?(?: \| mention (kept|taken))?$/.exec(text);
+  const match = /^exit (\d+) \| (\d+) hooks?(?: \(([^)]*)\))?(?: \| hook (kept|taken))?$/.exec(text);
   assert.ok(match, `unreadable summary: ${text}`);
-  return { status: Number(match[1]), count: Number(match[2]), modes: match[3] ?? '', mention: match[4] ?? null };
+  return { status: Number(match[1]), count: Number(match[2]), modes: match[3] ?? '', hook: match[4] ?? null };
 }
 
 async function buildRows(template) {
   const rows = [];
-  const add = (row) => rows.push({ ...row, startCount: gateHooks(JSON.parse(row.text), row.kind).length });
+  const add = (row) => rows.push({ ...row, key: `${row.base} | ${row.run}`, startCount: gateHooks(JSON.parse(row.text), row.kind).length });
 
   for (const input of INPUTS) {
-    const shaped = { ...input, shape: { progress: input.recognised ? 'own' : 'runs', release: 'own' }, fires: both(true) };
+    const read = { ...input, reader: { progress: input.recognised ? 'own' : 'hand-wiring', release: 'own' } };
     for (const [writer, settings] of [['v0.19.0', fromTemplate(template, BINARIES[input.wrote])], ['branch', await writtenByBranch(input.wrote)]]) {
       for (const describe of DESCRIBES) {
         const start = describe === 'stripped' ? stripDescribes(structuredClone(settings)) : structuredClone(settings);
+        const text = JSON.stringify(start, null, 2);
         for (const kind of Object.keys(KINDS)) {
           for (const run of Object.keys(RUNS)) {
-            add({ key: `${input.id} | written by ${writer} | describe ${describe} | ${kind} | ${run}`, source: 'installer', input: shaped, kind, run, describe, mention: null, text: JSON.stringify(start, null, 2) });
+            add({ base: `${input.id} | written by ${writer} | describe ${describe} | ${kind}`, source: 'installer', input: read, kind, run, describe, notRun: null, gatePath: branchGate(kind), text });
           }
         }
       }
     }
   }
   for (const input of HAND_WRITTEN) {
-    const shaped = { ...input, wrote: 'node', reran: 'node' };
+    const read = { ...input, wrote: 'node', reran: 'node' };
     for (const describe of DESCRIBES) {
-      const start = handWritten(input, describe);
+      const text = JSON.stringify(handWritten(input, describe), null, 2);
       for (const kind of Object.keys(KINDS)) {
         for (const run of Object.keys(RUNS)) {
-          add({ key: `${input.id} | written by hand | describe ${describe} | ${kind} | ${run}`, source: 'hand', input: shaped, kind, run, describe, mention: null, text: JSON.stringify(start, null, 2) });
+          add({ base: `${input.id} | written by hand | describe ${describe} | ${kind}`, source: 'hand', input: read, kind, run, describe, notRun: null, gatePath: branchGate(kind), text });
         }
       }
     }
   }
-  for (const [kind, commands] of Object.entries(MENTIONS)) {
-    for (const command of commands) {
-      for (const describe of DESCRIBES) {
-        const mention = { type: 'command', command, ...(describe === 'present' ? { describe: `${KINDS[kind].describePrefix} (block): recorded before a settings rewrite.` } : {}) };
-        const start = { model: 'opus', hooks: { [KINDS[kind].event]: [{ matcher: KINDS[kind].matcher, hooks: [{ type: 'command', command: UNRELATED }, mention] }] } };
-        for (const run of Object.keys(RUNS)) {
-          add({ key: `mention ${command} | describe ${describe} | ${kind} | ${run}`, source: 'mention', input: { id: 'mention', wrote: 'node', reran: 'node' }, kind, run, describe, mention, text: JSON.stringify(start, null, 2) });
-        }
+  for (const entry of NOT_RUN) {
+    const { kind, category, command } = entry;
+    const read = { id: category, wrote: 'node', reran: 'node', needs: entry.needs ? { [kind]: entry.needs } : undefined };
+    for (const describe of DESCRIBES) {
+      const hook = { type: 'command', command, ...(describe === 'present' ? { describe: `${KINDS[kind].describePrefix} (block): recorded before a settings rewrite.` } : {}) };
+      const text = JSON.stringify({ model: 'opus', hooks: { [KINDS[kind].event]: [{ matcher: KINDS[kind].matcher, hooks: [{ type: 'command', command: UNRELATED }, hook] }] } }, null, 2);
+      for (const run of Object.keys(RUNS)) {
+        add({ base: `${category} ${command} | describe ${describe} | ${kind}`, source: 'not run', input: read, kind, run, describe, notRun: hook, gatePath: packGate(kind), text });
       }
     }
   }
@@ -440,54 +563,160 @@ async function runRow(adapter, row) {
   const result = await runInstaller(adapter, row.kind, BINARIES[row.input.reran], RUNS[row.run], file, home);
   const text = await readFile(file, 'utf8');
   const settings = JSON.parse(text);
-  return { result, text, settings, summary: summarise(result.status, settings, row.kind, row.mention) };
+  return { result, text, settings, summary: summarise(result.status, settings, row.kind, row.notRun) };
 }
 
-/** What the branch's reader makes of this row's gate hooks: ours, adoptable, unclear or foreign. Stated as the rule. */
+/** What the branch's reader makes of this row's gate hooks: ours, adoptable, unclear, foreign, or none. Stated as the rule. */
 function readingOf(row) {
-  const shape = row.input.shape[row.kind];
-  if (row.describe === 'present') {
-    if (row.input.describe) return 'foreign';
-    return shape === 'unpinned' ? 'unclear' : 'ours';
-  }
-  return { own: 'ours', runs: 'adoptable', unpinned: 'unclear' }[shape];
+  if (row.notRun) return 'none';
+  if (row.describe === 'present' && row.input.describe) return 'foreign';
+  const reader = row.input.reader[row.kind];
+  if (reader === 'unclear') return 'unclear';
+  return reader === 'own' || row.describe === 'present' ? 'ours' : 'adoptable';
+}
+
+/** What --adopt takes a hook the reader cannot fully read on, stated here rather than read from the reader: this gate's
+ *  arming variable among the command's leading assignments, and the gate path, single-quoted, as a word of its own or as the
+ *  file a `<` reads. */
+function carriesOverrideEvidence(command, kind, gatePath) {
+  const lead = new RegExp(`^(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*${KINDS[kind].flag}=\\S*\\s`);
+  const word = new RegExp(`(?:^|\\s|<)${escapeRegExp(q(gatePath))}(?=\\s|$)`);
+  return lead.test(command) && word.test(command);
 }
 
 /** What the branch does on a row, stated as the rule rather than recorded. */
 function expectedBranch(row) {
   const { kind } = row;
-  const remove = RUNS[row.run].includes('--remove');
-  const adopt = RUNS[row.run].includes('--adopt');
-  const hooks = (count) => `${count} hook${count === 1 ? '' : 's'}`;
-  if (row.mention) {
-    // Never taken; an install writes a new gate beside it, in observe at coverage 1, because nothing of the gate is installed.
-    return remove ? 'exit 0 | 1 hook (block) | mention kept' : `exit 0 | ${hooks(1 + KINDS[kind].fresh)} (block, observe) | mention kept`;
-  }
+  const remove = isRemove(row.run);
+  const adopt = isAdopt(row.run);
   const reading = readingOf(row);
-  if (reading === 'ours' || (reading === 'adoptable' && adopt)) return remove ? 'exit 0 | 0 hooks' : `exit 0 | ${hooks(KINDS[kind].full)} (block)`;
-  return `exit 1 | ${hooks(row.startCount)} (block)`;
+  if (reading === 'none') {
+    // Never taken; an install writes a new gate beside it, in observe at coverage 1, because nothing of the gate is installed.
+    return remove ? 'exit 0 | 1 hook (block) | hook kept' : `exit 0 | ${hooksWord(1 + KINDS[kind].fresh)} (block, observe) | hook kept`;
+  }
+  const taken = reading === 'ours' || (adopt && (reading === 'adoptable' || reading === 'unclear'));
+  if (taken) return remove ? 'exit 0 | 0 hooks' : `exit 0 | ${hooksWord(KINDS[kind].full)} (block)`;
+  return `exit 1 | ${hooksWord(row.startCount)} (block)`;
 }
 
-/** Which declared exception a row where 0.19.0 did better is, or null when it is none of them. */
-function declaredException(row, { before, after, run, output }) {
-  if (row.source === 'mention') {
-    return before.mention === 'taken' && after.mention === 'kept' && after.status === 0 ? 'a' : null;
-  }
-  // Checked before (b): a release --remove over the unpinned wrapper exits 1 where 0.19.0 exited 0 too, and it is here
-  // because the reader refused to read it, not because a hook that runs the gate is left.
-  if (row.input.shape[row.kind] === 'unpinned') {
-    return after.status === 1 && run.text === row.text && /cannot tell whether/.test(output) ? 'c' : null;
-  }
-  if (row.kind === 'release' && row.run === '--remove' && before.status === 0 && after.status === 1
-    && after.count === before.count && after.count > 0 && run.text === row.text
-    && output.includes(KINDS.release.label) && /the gate is not gone/.test(output)) {
-    return 'b';
-  }
-  return null;
+/** Whether a version took or removed the gate's hooks on a row and exited 0. An install that exits 0 over a start file holding
+ *  gate hooks replaced them: neither version stacks a gate beside a gate hook it will not take. */
+function took(outcome, row) {
+  if (outcome.status !== 0) return false;
+  if (row.notRun) return outcome.hook === 'taken';
+  return isRemove(row.run) ? outcome.count < row.startCount : true;
+}
+
+/** Whether the branch took or removed, on a row, what 0.19.0 took or removed there. */
+function didTheSame(after, before, row) {
+  if (after.status !== 0) return false;
+  if (row.notRun) return after.hook === 'taken';
+  return isRemove(row.run) ? after.count <= before.count : after.count === KINDS[row.kind].full;
 }
 
 // ---------------------------------------------------------------------------
-// Running a written gate the way the harness does.
+// Firing a start command against a stand-in gate.
+// ---------------------------------------------------------------------------
+
+/** What the stand-in looks for on stdin: only a hook's payload carries it. */
+const PAYLOAD_MARK = 'agent-skills-matrix-payload';
+/** Stand-ins that write their marker only when handed the payload on stdin. Each is in its own temp directory and knows its
+ *  marker's absolute path, so an emptied environment (`env -i`) or another working directory changes nothing. */
+const STAND_INS = Object.freeze({
+  progress: (marker) => [
+    '#!/usr/bin/env node',
+    "import { readFileSync, writeFileSync } from 'node:fs';",
+    "let input = '';",
+    "try { input = readFileSync(0, 'utf8'); } catch {}",
+    `if (input.includes(${JSON.stringify(PAYLOAD_MARK)})) writeFileSync(${JSON.stringify(marker)}, 'fired');`,
+    '',
+  ].join('\n'),
+  release: (marker) => [
+    '#!/bin/sh',
+    'input=$(cat)',
+    `case $input in *${PAYLOAD_MARK}*) printf fired > ${q(marker)} ;; esac`,
+    '',
+  ].join('\n'),
+});
+
+const firingKey = (kind, command) => `${kind}\n${command}`;
+const firingEnv = () => childEnv({ PATH: [path.dirname(BINARIES.node), process.env.PATH].filter(Boolean).join(path.delimiter) });
+
+const onPath = new Map();
+function installedHere(program) {
+  if (!onPath.has(program)) {
+    onPath.set(program, spawnCollect('/bin/sh', ['-c', `command -v ${q(program)}`], { env: firingEnv() }).then((result) => result.status === 0));
+  }
+  return onPath.get(program);
+}
+
+const gateMode = async (kind) => (await stat(branchGate(kind))).mode & 0o777;
+async function gateHashes() {
+  const entries = [];
+  for (const kind of Object.keys(KINDS)) entries.push([kind, createHash('sha256').update(await readFile(branchGate(kind))).digest('hex')]);
+  return Object.fromEntries(entries);
+}
+
+async function fireOne(check) {
+  if (/(?:^|[\s;&|(`])sudo\s/.test(check.command)) {
+    assert.ok(check.documented, `refusing to run sudo to label a form with no documented run: ${check.command}`);
+  }
+  if (check.documented) return { state: 'documented', fires: check.documented.fires, why: check.documented.why };
+  if (check.needs && !(await installedHere(check.needs))) return { state: 'not fired', fires: null, why: `${check.needs} is not installed here` };
+  const dir = await scratch('ownership-v019-standin');
+  const standIn = path.join(dir, KINDS[check.kind].gate);
+  const marker = path.join(dir, 'fired');
+  await writeFile(standIn, STAND_INS[check.kind](marker));
+  await chmod(standIn, await gateMode(check.kind));
+  const command = check.command.split(check.gatePath).join(standIn);
+  assert.ok(command.includes(standIn) && !command.includes(branchGate(check.kind)), `the stand-in did not take the gate's place in: ${check.command}`);
+  const payload = JSON.stringify({ hook_event_name: KINDS[check.kind].event, session_id: 'sess-matrix-standin', token: PAYLOAD_MARK });
+  const result = await spawnCollect('/bin/sh', ['-c', command], { env: firingEnv(), stdin: payload, cwd: dir, timeout: FIRE_TIMEOUT_MS });
+  if (result.timedOut) return { state: 'timed out', fires: null, why: `killed after ${FIRE_TIMEOUT_MS} ms` };
+  return existsSync(marker) ? { state: 'fired', fires: true, why: null } : { state: 'silent', fires: false, why: null };
+}
+
+/** Every distinct start command, fired once, with the reading and labels its rows state. The real gates must not change. */
+async function fireStartCommands(rows) {
+  const checks = new Map();
+  for (const row of rows) {
+    for (const { hook } of gateHooks(JSON.parse(row.text), row.kind)) {
+      const check = {
+        key: firingKey(row.kind, hook.command),
+        kind: row.kind,
+        id: row.input.id,
+        command: hook.command,
+        gatePath: row.gatePath,
+        reader: row.notRun ? 'none' : row.input.reader[row.kind],
+        needs: row.input.needs?.[row.kind] ?? null,
+        documented: row.input.documented?.[row.kind] ?? null,
+        silent: row.input.silent?.[row.kind] ?? null,
+      };
+      const seen = checks.get(check.key);
+      if (seen) {
+        assert.deepEqual([seen.reader, seen.needs, seen.documented, seen.silent], [check.reader, check.needs, check.documented, check.silent], `two rows state different things about one start command: ${hook.command}`);
+      } else {
+        checks.set(check.key, check);
+      }
+    }
+  }
+  const list = [...checks.values()];
+  const before = await gateHashes();
+  const results = await inPool(list, fireOne);
+  assert.deepEqual(await gateHashes(), before, 'firing a start command changed a real gate file');
+  return new Map(list.map((check, index) => [check.key, { ...check, ...results[index] }]));
+}
+
+function firingLabel(check) {
+  if (check.state === 'fired') return 'fired here';
+  if (check.state === 'silent') return 'did not fire here';
+  if (check.fires === true) return 'ran, by a documented run';
+  if (check.fires === false) return 'ran nothing, by a documented run';
+  return 'not fired';
+}
+
+// ---------------------------------------------------------------------------
+// Running a written gate the way the harness does, against the real gate.
 // ---------------------------------------------------------------------------
 
 const BAD_REPORT = 'Great progress! Things are moving along nicely and the background agent should be wrapping up shortly.';
@@ -536,14 +765,6 @@ const firingCommands = (settings, kind) => (kind === 'progress'
   ? [onlyCommand(settings, 'progress', 'SubagentStart', '*'), onlyCommand(settings, 'progress', 'Stop', '*')]
   : [onlyCommand(settings, 'release', 'PreToolUse', 'Bash')]);
 
-const onPath = new Map();
-function installedHere(program) {
-  if (!onPath.has(program)) {
-    onPath.set(program, spawnCollect('/bin/sh', ['-c', `command -v ${program}`], { env: childEnv({}) }).then((result) => result.status === 0));
-  }
-  return onPath.get(program);
-}
-
 // ---------------------------------------------------------------------------
 // The tests.
 // ---------------------------------------------------------------------------
@@ -562,6 +783,14 @@ test('what 0.19.0 does, row by row, is the recorded table: re-derived from its o
   const runs = await inPool(rows, (row) => runRow(V019_ADAPTER, row));
   const outcomes = Object.fromEntries(rows.map((row, index) => [row.key, runs[index].summary]));
   assert.equal(Object.keys(outcomes).length, EXPECTED_ROWS, 'two rows share a key, or a row did not run');
+
+  // 0.19.0's release-notes installer has no --adopt. Those rows are compared with its nearest equivalent run (the header),
+  // which is only honest while 0.19.0 refuses the argument on every one of them and leaves the file alone.
+  const withAdopt = rows.map((row, index) => ({ row, run: runs[index] })).filter(({ row }) => row.kind === 'release' && isAdopt(row.run));
+  const accepted = withAdopt.filter(({ row, run }) => !(run.result.status === 1 && /unknown argument: --adopt/.test(run.result.stderr) && run.text === row.text));
+  assert.ok(withAdopt.length > 0, 'no release-notes row passes --adopt');
+  assert.deepEqual(accepted.map(({ row }) => row.key), [], "0.19.0's release-notes installer did not refuse --adopt on these rows");
+
   if (RECORDING) {
     table = {
       about: `What ${V019.tag} (${V019.commit}) does on every row of test/hook-ownership-v0.19.0.test.mjs, recorded from its real installers. Placeholders in "writes" stand for the Node binary and each gate's path. Re-record with AGENT_SKILLS_RECORD_V019_TABLE=1.`,
@@ -572,99 +801,174 @@ test('what 0.19.0 does, row by row, is the recorded table: re-derived from its o
     await writeFile(TABLE_URL, `${JSON.stringify(table, null, 2)}\n`);
   }
   assert.deepEqual(outcomes, table.outcomes, '0.19.0 no longer does what the recorded table says');
-  t.diagnostic(`${rows.length} rows run through 0.19.0's installers${RECORDING ? ', and recorded' : ''}`);
+  t.diagnostic(`${rows.length} rows run through 0.19.0's installers${RECORDING ? ', and recorded' : ''}; its release-notes installer refused --adopt as an unknown argument, leaving the file alone, on all ${withAdopt.length} rows that pass it`);
 });
 
-test('the branch against 0.19.0, row by row: never worse, but for three declared kinds of row, each counted', async (t) => {
+test('the branch against 0.19.0, row by row, held to the release bar: every point on every row, and every row in one count', async (t) => {
   assert.ok(table, `no recorded table at ${fileURLToPath(TABLE_URL)}`);
   const rows = await buildRows(table.writes);
   assert.equal(rows.length, EXPECTED_ROWS, 'the matrix did not build every row it declares');
   assert.deepEqual(rows.map((row) => row.key).sort(), Object.keys(table.outcomes).sort(), 'the rows and the recorded table are not the same rows');
   const runs = await inPool(rows, (row) => runRow(BRANCH_ADAPTER, row));
   assert.equal(runs.filter((run) => typeof run?.summary === 'string').length, rows.length, 'a row did not run');
+  const branchSummary = new Map(rows.map((row, index) => [row.key, runs[index].summary]));
+
+  // Whether each start file's hooks run the gate: fired, not written down.
+  const firing = await fireStartCommands(rows);
 
   // Every row is checked before anything fails, so a regression reads as the full list of rows it touches.
   const problems = [];
-  const tally = { better: 0, same: 0, a: 0, b: 0, c: 0 };
+  const tally = { same: 0, better: 0, withAdopt: 0, neverTaken: 0, exitsOne: 0 };
+  const points = { noFlagUnclear: 0, tookOver: 0, notRun: 0, releaseRemoveLeft: 0, comparedWithEquivalent: 0 };
+  const leftBy = {};
   const written = new Map();
-  const starts = new Map();
   for (const [index, row] of rows.entries()) {
     const run = runs[index];
     const start = JSON.parse(row.text);
-    const before = parseSummary(table.outcomes[row.key]);
+    const startGate = gateHooks(start, row.kind);
+    const reading = readingOf(row);
+    const remove = isRemove(row.run);
+    const adopt = isAdopt(row.run);
+    // 0.19.0's release-notes installer has no --adopt, so its nearest equivalent run stands in (the header).
+    const equivalent = row.kind === 'release' && adopt ? WITHOUT_ADOPT[row.run] : null;
+    const beforeText = table.outcomes[equivalent ? `${row.base} | ${equivalent}` : row.key];
+    const before = parseSummary(beforeText);
     const after = parseSummary(run.summary);
     const output = `${run.result.stdout}${run.result.stderr}`;
-    const remove = RUNS[row.run].includes('--remove');
-    const failed = (why) => problems.push(`${row.key}\n    ${why}\n    0.19.0: ${table.outcomes[row.key]}\n    branch: ${run.summary}${run.result.stderr ? `\n    stderr: ${run.result.stderr.split('\n').slice(0, 2).join(' / ')}` : ''}`);
+    const failed = (why) => problems.push(`${row.key}\n    ${why}\n    0.19.0${equivalent ? ` (${equivalent}, its nearest equivalent run)` : ''}: ${beforeText}\n    branch: ${run.summary}${run.result.stderr ? `\n    stderr: ${run.result.stderr.split('\n').slice(0, 2).join(' / ')}` : ''}`);
+    if (equivalent) {
+      points.comparedWithEquivalent += 1;
+      if (parseSummary(table.outcomes[row.key]).status !== 1) failed("0.19.0's release-notes installer is recorded accepting --adopt, so its run without it is not the nearest equivalent");
+    }
+
+    // What this test states the reader makes of each start hook is what the reader makes of it.
+    const identity = row.kind === 'progress'
+      ? { ...PROGRESS_IDENTITY, interpreter: { ...PROGRESS_IDENTITY.interpreter, names: [row.input.reran] } }
+      : RELEASE_IDENTITY;
+    for (const { hook } of startGate) {
+      const actual = classifyHook(hook, identity) ?? 'none';
+      if (actual !== reading) failed(`the reader reads a start hook as ${actual}, and this test states ${reading}`);
+      if (reading === 'unclear' && !carriesOverrideEvidence(hook.command, row.kind, row.gatePath)) {
+        failed("a hook stated unclear does not set this gate's own variable and name its path, which is what --adopt takes such a hook on");
+      }
+    }
 
     if (run.summary !== expectedBranch(row)) failed(`expected ${expectedBranch(row)}`);
     const unrelated = (settings) => allHooks(settings).filter(({ hook }) => hook.command === UNRELATED).length;
     if (unrelated(run.settings) !== unrelated(start) || run.settings.model !== 'opus') failed('the branch took or changed a hook that is not the gate');
     if (!isDeepStrictEqual(gateHooks(run.settings, OTHER[row.kind]), gateHooks(start, OTHER[row.kind]))) failed(`the ${row.kind} installer changed the ${OTHER[row.kind]} gate's hooks`);
     if (after.status !== 0 && run.text !== row.text) failed('a run that failed changed the file');
-    if (row.mention && after.mention !== 'kept') failed('the branch took a hook that only mentions the gate');
 
-    // Where 0.19.0 did better, the row is a declared exception or a failure.
-    let worse = null;
-    if (before.status === 0 && after.status !== 0) worse = '0.19.0 succeeded here and the branch did not';
-    else if (row.mention && before.mention === 'taken' && after.mention === 'kept') worse = '0.19.0 took a hook that only mentions the gate, and the branch kept it';
-    else if (remove && before.status === 0 && after.count > before.count) worse = '0.19.0 removed more of the gate than the branch did';
-    else if (!remove && !row.mention && before.status === 0 && after.count !== KINDS[row.kind].full) worse = '0.19.0 installed the gate and the branch did not install it exactly once';
-    if (worse) {
-      const exception = declaredException(row, { before, after, run, output });
-      if (exception) tally[exception] += 1;
-      else failed(worse);
-    } else if (run.summary === table.outcomes[row.key]) {
+    // POINT 1: a run with no flag never takes a hook the reader cannot fully read, with or without its own describe.
+    if (!adopt && reading === 'unclear') {
+      points.noFlagUnclear += 1;
+      const left = gateHooks(run.settings, row.kind);
+      const kept = startGate.filter(({ hook }) => left.some((entry) => isDeepStrictEqual(entry.hook, hook))).length;
+      if (after.status !== 1 || kept !== startGate.length || run.text !== row.text) failed('POINT 1: a run with no flag took or changed a hook the reader cannot fully read');
+    }
+    // …and --adopt says so, naming each by event and matcher, whenever it takes one.
+    const tookOverLine = `Took over ${hooksWord(startGate.length)} this installer could not fully read: ${startGate.map(labelOf).join(', ')}.`;
+    if (adopt && reading === 'unclear') {
+      points.tookOver += 1;
+      if (!run.result.stdout.split('\n').includes(tookOverLine)) failed(`--adopt took hooks it could not fully read without printing: ${tookOverLine}`);
+    } else if (/Took over/.test(output)) {
+      failed('said it took over a hook it could not fully read, on a row where it took none');
+    }
+    // POINT 3: a hook the reader knows does not run the gate is never taken, with any flag.
+    if (row.notRun) {
+      points.notRun += 1;
+      if (after.status !== 0 || after.hook !== 'kept') failed(`POINT 3: took, or failed over, a ${row.input.id}, which never runs the gate`);
+    }
+    // POINT 4: the release-notes --remove exits 1 while it leaves a hook that runs the gate, or may.
+    if (row.kind === 'release' && remove && !row.notRun && after.count > 0) {
+      points.releaseRemoveLeft += 1;
+      const label = firingLabel(firing.get(firingKey('release', startGate[0].hook.command)));
+      leftBy[label] = (leftBy[label] ?? 0) + 1;
+      if (after.status !== 1 || /No release-notes gate was installed/.test(output) || !output.includes(KINDS.release.label)) {
+        failed('POINT 4: the release-notes --remove left a hook that runs the gate, or may, and did not exit 1 naming it');
+      }
+    }
+
+    // Every row in exactly one count. Where 0.19.0 did better, the row is (2), (3) or (4), or it fails.
+    if (took(before, row) && !didTheSame(after, before, row)) {
+      if (row.notRun) {
+        if (after.status === 0 && after.hook === 'kept') tally.neverTaken += 1;
+        else failed('0.19.0 took this hook, and the branch neither took it nor left it and succeeded');
+      } else if (!adopt && didTheSame(parseSummary(branchSummary.get(`${row.base} | ${WITH_ADOPT[row.run]}`)), before, row)) {
+        tally.withAdopt += 1;
+      } else {
+        failed(`POINT 2: 0.19.0 took or removed the gate here, and the branch does not${adopt ? '' : ', with these flags or with --adopt added'}`);
+      }
+    } else if (before.status === 0 && after.status !== 0) {
+      if (row.kind === 'release' && remove && !row.notRun && after.status === 1 && after.count === before.count && run.text === row.text && /the gate is not gone/.test(output)) {
+        tally.exitsOne += 1;
+      } else {
+        failed('0.19.0 exited 0 here, and the branch did not');
+      }
+    } else if (run.summary === beforeText) {
       tally.same += 1;
     } else {
       tally.better += 1;
     }
 
-    if (row.mention) continue;
-    const unclear = readingOf(row) === 'unclear';
-    if (/cannot tell whether/.test(output) !== unclear) {
-      failed(unclear ? 'a hook the reader cannot read was not named as one it cannot tell runs the gate' : 'a hook the reader can read was named as one it cannot tell runs the gate');
+    if (row.notRun) continue;
+    const named = reading === 'unclear' && !adopt;
+    if (/cannot tell whether/.test(output) !== named) {
+      failed(named ? 'a hook the reader cannot fully read was left without being named as one it cannot tell runs the gate' : 'a hook was named as one the reader cannot tell runs the gate, on a row that did not leave one');
     }
-    if (!remove && after.status === 0) {
+    // Only a row that did what it should: one that stacked a second gate is already a problem above, and must be listed with
+    // the rest rather than stop the loop here.
+    if (!remove && after.status === 0 && run.summary === expectedBranch(row)) {
       if (!/^Kept mode block \((already installed in this file|read from the adopted hook)\)\. Pass --mode observe to change it\.$/m.test(run.result.stdout)) failed('a re-run with no --mode did not say it kept block mode');
       if (after.modes === 'block') {
         const commands = firingCommands(run.settings, row.kind);
         written.set(`${row.kind}\n${commands.join('\n')}`, { kind: row.kind, commands, context: `what the branch wrote on ${row.key}` });
       }
     }
-    // The file each row starts from is live too: its gates fire before any re-run, or, for the unpinned wrapper, must not.
-    const commands = firingCommands(start, row.kind);
-    starts.set(`${row.kind}\n${commands.join('\n')}`, { kind: row.kind, commands, expected: row.input.fires[row.kind], needs: row.input.needs, context: `the file ${row.key} starts from` });
   }
-  assert.deepEqual(problems, [], `${problems.length} of ${rows.length} rows:\n${problems.join('\n')}`);
-  assert.equal(tally.better + tally.same + tally.a + tally.b + tally.c, rows.length, 'a row was neither compared nor counted');
-  assert.ok(tally.a > 0, 'no row showed 0.19.0 taking a mention, so exception (a) was never compared');
-  assert.ok(tally.b > 0, 'no row showed 0.19.0\'s release --remove exiting 0 over a hook it left, so exception (b) was never compared');
-  assert.ok(tally.c > 0, 'no row showed 0.19.0 taking the unpinned wrapper, so exception (c) was never compared');
+  assert.deepEqual(problems, [], `${problems.length} problems over ${rows.length} rows:\n${problems.join('\n')}`);
+  assert.equal(Object.values(tally).reduce((sum, count) => sum + count, 0), rows.length, 'a row was neither compared nor counted');
+  for (const [name, count] of Object.entries({ ...tally, ...points })) assert.ok(count > 0, `no row was counted as ${name}, so that part of the bar was never compared`);
+
+  // The firing, held against the reader.
+  const firingProblems = [];
+  const states = { fired: 0, silent: 0, documented: 0, 'not fired': 0 };
+  const labelled = new Map();
+  const unclearRan = new Set();
+  let silentAsDeclared = 0;
+  for (const check of firing.values()) {
+    if (!Object.hasOwn(states, check.state)) {
+      firingProblems.push(`${check.kind} start command ${check.state} (${check.why}): ${check.command}`);
+      continue;
+    }
+    states[check.state] += 1;
+    if (check.why) labelled.set(check.why, [...(labelled.get(check.why) ?? []), `${check.kind} ${check.id}`]);
+    if (check.reader === 'none') {
+      if (check.fires === true) firingProblems.push(`POINT 3: a hook the reader knows does not run the gate fired: ${check.command}`);
+    } else if (check.reader === 'unclear') {
+      if (check.fires === true) unclearRan.add(`${check.kind} ${check.id}${check.state === 'documented' ? ' (documented)' : ''}`);
+    } else if (check.fires !== null) {
+      if (check.silent && check.fires) firingProblems.push(`declared silent (${check.silent}), and it fired: ${check.command}`);
+      if (!check.silent && !check.fires) firingProblems.push(`the reader reads this as running the gate, and it did not fire: ${check.command}`);
+      if (check.silent && check.state === 'silent') silentAsDeclared += 1;
+    }
+  }
+  assert.deepEqual(firingProblems, [], firingProblems.join('\n'));
+  assert.equal(Object.values(states).reduce((sum, count) => sum + count, 0), firing.size, 'a start command was neither fired nor labelled');
+  assert.ok(states.fired > 0 && states.silent > 0 && states.documented > 0, `the firing check did not exercise every outcome: ${JSON.stringify(states)}`);
+  assert.ok(silentAsDeclared > 0, 'no command declared silent was fired to show it');
 
   const writtenChecks = [...written.values()];
   const writtenFired = await inPool(writtenChecks, fires);
   const silent = writtenChecks.filter((_, index) => writtenFired[index] !== true).map(({ kind, context }) => `the ${kind} gate looks installed and never fires: ${context}`);
   assert.deepEqual(silent, [], silent.join('\n'));
-
-  const notRun = [];
-  const startChecks = [];
-  for (const check of starts.values()) {
-    if (typeof check.expected === 'string') notRun.push(`${check.kind}: ${check.expected}`);
-    else if (check.needs && !(await installedHere(check.needs))) notRun.push(`${check.kind}: ${check.needs} is not installed here`);
-    else startChecks.push(check);
-  }
-  const startFired = await inPool(startChecks, fires);
-  const wrong = startChecks.filter((check, index) => startFired[index] !== check.expected).map((check) => (check.expected
-    ? `the ${check.kind} gate never fires from ${check.context}`
-    : `the ${check.kind} gate fired from ${check.context}, where this test states it cannot`));
-  assert.deepEqual(wrong, [], wrong.join('\n'));
-  const firedStarts = startChecks.filter((check) => check.expected === true).length;
-  const silentStarts = startChecks.filter((check) => check.expected === false).length;
-  assert.ok(firedStarts > 0 && silentStarts > 0, 'a start file was neither run to fire nor run to stay silent');
+  assert.ok(writtenChecks.length > 0, 'no gate the branch wrote was fired');
 
   const bySource = (source) => rows.filter((row) => row.source === source).length;
-  t.diagnostic(`${rows.length} rows (${bySource('installer')} from installer-written files, ${bySource('hand')} hand-written, ${bySource('mention')} mentions); the branch did better than 0.19.0 on ${tally.better} and the same on ${tally.same}`);
-  t.diagnostic(`declared exceptions: (a) a mention 0.19.0 took and the branch kept: ${tally.a}; (b) release --remove exits 1 over a hook both versions leave: ${tally.b}; (c) an unpinned wrapper refused where 0.19.0 took it: ${tally.c}`);
-  t.diagnostic(`${writtenChecks.length} distinct gates the branch wrote fired; of the start files, ${firedStarts} fired and ${silentStarts} stayed silent as stated; ${notRun.length} not run: ${[...new Set(notRun)].join('; ')}`);
+  t.diagnostic(`${rows.length} rows (${bySource('installer')} from installer-written files, ${bySource('hand')} hand-written, ${bySource('not run')} over a hook that does not run the gate)`);
+  t.diagnostic(`counts: the same as 0.19.0 ${tally.same}; better ${tally.better}; (2) taken only with --adopt added ${tally.withAdopt}; (3) never taken ${tally.neverTaken}; (4) release --remove exits 1 over a hook both versions leave ${tally.exitsOne}`);
+  t.diagnostic(`points: (1) no-flag rows over a hook the reader cannot fully read, none taken ${points.noFlagUnclear}; --adopt rows that took such a hook and said so ${points.tookOver}; (3) rows over a mention or write target, none taken ${points.notRun}; (4) release --remove rows leaving a gate hook, all exit 1 ${points.releaseRemoveLeft} (${Object.entries(leftBy).map(([label, count]) => `${label}: ${count}`).join(', ')}); release-notes --adopt rows compared with 0.19.0's nearest equivalent run ${points.comparedWithEquivalent}`);
+  t.diagnostic(`start commands: ${firing.size} (fired ${states.fired}, did not fire ${states.silent}, labelled from a documented run ${states.documented}, not fired ${states['not fired']}; ${silentAsDeclared} declared silent and shown so); the reader cannot fully read these, and they ran: ${[...unclearRan].join('; ') || 'none'}`);
+  t.diagnostic(`labels not from a firing here: ${[...labelled].map(([why, which]) => `${which.join(', ')} — ${why}`).join('; ')}`);
+  t.diagnostic(`${writtenChecks.length} distinct gates the branch wrote fired against the real gate`);
 });

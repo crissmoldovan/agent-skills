@@ -626,3 +626,106 @@ test('leading assignments are read only where the shell reads them literally', (
   assert.deepEqual(leadingAssignments('env A=1 cmd'), []);
   assert.deepEqual(leadingAssignments('A=1'), [{ name: 'A', value: '1' }]);
 });
+
+// ---------------------------------------------------------------------------
+// THE OVERRIDE. A safe reader of shell text always refuses some hand-wrapped hook, so `--adopt` is the explicit override for a
+// hook this reader could not fully read: it takes one when the command's leading assignments set this gate's own arming
+// variable AND one of its words is the gate path — exactly the gate file's basename, as a word of its own. With no flag
+// nothing changes. A hook the reader understood as not running the gate — a mention, a write target — is never taken.
+// ---------------------------------------------------------------------------
+
+test('--adopt takes over a hook this reader could not fully read only when it sets this gate\'s own variable and names the gate path as a word of its own', () => {
+  const { takenAs, findUnownedHooks } = ownership;
+  assert.equal(typeof takenAs, 'function', 'hook-ownership.mjs exports no takenAs');
+  const G = WRAPPED_GATE;
+  const RG = WRAPPED_RELEASE_GATE;
+  const N = WRAPPED_NODE;
+  const P = 'AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2';
+  const R = 'AGENT_SKILLS_RELEASE_NOTES_GATE=block';
+
+  // The forms 0.19.0 took that this reader cannot read, and more: each sets the gate's own variable and names its path.
+  const takenOver = [
+    [`${P} nice -10 ${N} ${G}`, PROGRESS, ownDescribe],
+    [`${P} stdbuf -oL ${N} ${G}`, PROGRESS, ownDescribe],
+    [`${P} timeout -p 5 ${N} ${G}`, PROGRESS, ownDescribe],
+    [`${P} time ${N} ${G}`, PROGRESS, ownDescribe],
+    [`${P} sudo -i ${N} ${G}`, PROGRESS, ownDescribe],
+    [`${P} timeout --no-such-option 5 ${N} ${G}`, PROGRESS, ownDescribe],
+    // The gate as the file a command reads on stdin, or a here-string.
+    [`${P} ${N} <${G}`, PROGRESS, ownDescribe],
+    [`${P} timeout 5 ${N} <<< ${G}`, PROGRESS, ownDescribe],
+    // The arming variable need not lead the assignments; the directory may be an expansion, or hold a blank.
+    ['AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 AGENT_SKILLS_PROGRESS_GATE=block nice -10 node "$HOME/my pack/report-progress-gate.mjs"', PROGRESS, ownDescribe],
+    // A wrapper script given an option first: outside the exact shape, where any interpreter word is adoptable, never unclear.
+    [`AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --verbose ${G}`, PROGRESS, ownDescribe],
+    [`${R} nice -10 bash ${RG}`, RELEASE, releaseDescribe],
+    [`${R} sudo -i bash ${RG}`, RELEASE, releaseDescribe],
+    [`${R} bash <${RG}`, RELEASE, releaseDescribe],
+    [`${R} time -o ${RG} bash -c true`, RELEASE, releaseDescribe],
+  ];
+  for (const [command, identity, describe] of takenOver) {
+    for (const extra of [{}, describe]) {
+      const entry = hook(command, extra);
+      assert.equal(classifyHook(entry, identity), 'unclear', command);
+      assert.equal(takenAs(entry, identity, { adopt: true }), 'override', command);
+      assert.equal(takenAs(entry, identity, { adopt: false }), null, `${command}: taken with no flag`);
+      assert.equal(takenAs(entry, identity), null, `${command}: taken with no options`);
+    }
+  }
+
+  // Unclear, and not taken even under --adopt: the variable is missing, not the arming one, another gate's, not a literal
+  // leading assignment; the path is only inside a word; or the command also writes to the gate file.
+  const refused = [
+    [`timeout --no-such-option 5 node ${G}`, PROGRESS],
+    [`nice -10 AGENT_SKILLS_PROGRESS_GATE=block node ${G}`, PROGRESS],
+    [`AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 nice -10 node ${G}`, PROGRESS],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -10 node ${G}`, PROGRESS],
+    [`AGENT_SKILLS_PROGRESS_GATE=$MODE nice -10 node ${G}`, PROGRESS],
+    [`sudo -i bash ${RG}`, RELEASE],
+    [`AGENT_SKILLS_PROGRESS_GATE=block nice -10 bash ${RG}`, RELEASE],
+    ['AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --gate=/pack/report-progress-gate.mjs', PROGRESS],
+    ['AGENT_SKILLS_PROGRESS_GATE=block GATE=/pack/report-progress-gate.mjs hook-wrapper', PROGRESS],
+    ["AGENT_SKILLS_PROGRESS_GATE=block sh -c 'nice -10 node /pack/report-progress-gate.mjs; true'", PROGRESS],
+    ['AGENT_SKILLS_PROGRESS_GATE=block node $(echo /pack/report-progress-gate.mjs)', PROGRESS],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block hook-wrapper --script=/pack/release-notes-gate.sh', RELEASE],
+    [`AGENT_SKILLS_PROGRESS_GATE=block nice -10 node ${G} 2>${G}`, PROGRESS],
+  ];
+  for (const [command, identity] of refused) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      const entry = hook(command, extra);
+      assert.equal(classifyHook(entry, identity), 'unclear', command);
+      assert.equal(takenAs(entry, identity, { adopt: true }), null, `${command}: --adopt took it over`);
+    }
+  }
+
+  // Read, and known not to run the gate: never taken, flag or not, describe or not.
+  for (const [command, identity] of [
+    [`${P} timeout 5 >${G} node -e 0`, PROGRESS],
+    [`${P} node >${G}`, PROGRESS],
+    [`${P} cat ${G}`, PROGRESS],
+    [`${P} timeout 5 echo ${G}`, PROGRESS],
+    [`${R} timeout 5 >${RG} bash -c true`, RELEASE],
+    [`${R} shellcheck ${RG}`, RELEASE],
+  ]) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      for (const adopt of [false, true]) {
+        assert.equal(takenAs(hook(command, extra), identity, { adopt }), null, `${command} adopt=${adopt}`);
+      }
+    }
+  }
+
+  // The rest is unchanged: its own with no flag, a hand-wiring under --adopt, somebody else's describe never.
+  assert.equal(takenAs(hook(PROGRESS_COMMAND), PROGRESS), 'own');
+  assert.equal(takenAs(hook(PROGRESS_COMMAND), PROGRESS, { adopt: true }), 'own');
+  assert.equal(takenAs(hook(`${P} timeout 5 ${N} ${G}`), PROGRESS), null);
+  assert.equal(takenAs(hook(`${P} timeout 5 ${N} ${G}`), PROGRESS, { adopt: true }), 'adopted');
+  assert.equal(takenAs(hook(`${P} nice -10 ${N} ${G}`, { describe: 'theirs' }), PROGRESS, { adopt: true }), null);
+
+  // Each unowned hook says whether --adopt can take it over.
+  const settings = { hooks: { Stop: [{ matcher: '*', hooks: [hook(`${P} nice -10 ${N} ${G}`), hook(`timeout --no-such-option 5 node ${G}`), hook(`${P} timeout 5 ${N} ${G}`)] }] } };
+  assert.deepEqual(findUnownedHooks(settings, PROGRESS), [
+    { event: 'Stop', matcher: '*', kind: 'unclear', overridable: true },
+    { event: 'Stop', matcher: '*', kind: 'unclear', overridable: false },
+    { event: 'Stop', matcher: '*', kind: 'adoptable', overridable: false },
+  ]);
+});

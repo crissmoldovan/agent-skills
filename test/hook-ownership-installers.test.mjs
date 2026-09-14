@@ -146,12 +146,14 @@ test('a hook that only names the gate file is left alone by --remove and by an i
         assert.equal(removed.status, 0, `${run}: ${removed.stderr}`);
         assert.match(removed.stdout, nothingInstalled, `${run}: read a mention as a gate`);
         assert.equal(await readFile(file, 'utf8'), text, `${run}: took a hook that never runs the gate`);
+        assert.doesNotMatch(`${removed.stdout}${removed.stderr}`, /Took over/, `${run}: said it took over a hook it left`);
       }
       for (const flags of [[], ['--adopt']]) {
         const { home, file, hook } = await settingsWith(kind, command);
         const installed = await runInstaller(kind, ['--mode', 'block', ...flags, '--settings', file], home);
         const run = `${kind} install ${flags.join(' ')} over ${JSON.stringify(command)}`;
         assert.equal(installed.status, 0, `${run}: ${installed.stderr}`);
+        assert.doesNotMatch(`${installed.stdout}${installed.stderr}`, /Took over/, `${run}: said it took over a hook it left`);
         const group = (await readJson(file)).hooks[event].find((candidate) => candidate.matcher === matcher);
         assert.deepEqual(group.hooks[0], hook, `${run}: replaced or moved a hook that never runs the gate`);
         assert.equal(group.hooks.length, 2, `${run}: expected the hook beside the gate just written`);
@@ -161,33 +163,38 @@ test('a hook that only names the gate file is left alone by --remove and by an i
 });
 
 // ---------------------------------------------------------------------------
-// Unclear: the gate file is there, and whether the gate runs cannot be told from the command.
+// Unclear: the gate file is there, and whether the gate runs cannot be told from the command. No run without --adopt takes
+// such a hook. --adopt takes one over only when its leading assignments set this gate's own arming variable and one of its
+// words is the gate path (the end of this file); every hook below misses one of those, so no flag takes it.
 // ---------------------------------------------------------------------------
 
 const UNCLEAR = Object.freeze({
   progress: [
+    // The gate path only inside a word: an option's value, a substitution, a variable, a script.
     'AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --gate=/pack/report-progress-gate.mjs',
+    'AGENT_SKILLS_PROGRESS_GATE=block node $(echo /pack/report-progress-gate.mjs)',
+    "AGENT_SKILLS_PROGRESS_GATE=block sh -c 'nice -10 node /pack/report-progress-gate.mjs; true'",
+    // No leading assignment of this gate's arming variable.
     'timeout --no-such-option 5 node /pack/report-progress-gate.mjs',
     'node --check /pack/report-progress-gate.mjs',
     'cat /pack/report-progress-gate.mjs | node --input-type=module',
-    'node $(echo /pack/report-progress-gate.mjs)',
     'GATE=/pack/report-progress-gate.mjs; node "$GATE"',
-    // Read on stdin, a sudo value the shell may make vanish, an adjustment BSD nice refuses.
-    'AGENT_SKILLS_PROGRESS_GATE=block timeout 5 node <<< /pack/report-progress-gate.mjs',
-    'AGENT_SKILLS_PROGRESS_GATE=block sudo -n -u $U node /pack/report-progress-gate.mjs',
-    'AGENT_SKILLS_PROGRESS_GATE=block nice -n 2147483648 node /pack/report-progress-gate.mjs',
+    'nice -10 AGENT_SKILLS_PROGRESS_GATE=block node /pack/report-progress-gate.mjs',
+    'AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 nice -10 node /pack/report-progress-gate.mjs',
+    'AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -10 node /pack/report-progress-gate.mjs',
+    // It also writes to the gate file.
+    'AGENT_SKILLS_PROGRESS_GATE=block nice -10 node /pack/report-progress-gate.mjs 2>/pack/report-progress-gate.mjs',
   ],
   release: [
-    'AGENT_SKILLS_RELEASE_NOTES_GATE=block /usr/local/bin/hook-wrapper /pack/release-notes-gate.sh',
+    'AGENT_SKILLS_RELEASE_NOTES_GATE=block hook-wrapper --script=/pack/release-notes-gate.sh',
     'sudo -i bash /pack/release-notes-gate.sh',
     'bash -n /pack/release-notes-gate.sh',
     "bash <<'EOF'\nbash /pack/release-notes-gate.sh\nEOF",
     'gate() { bash /pack/release-notes-gate.sh; }',
-    'AGENT_SKILLS_RELEASE_NOTES_GATE=block bash <<< /pack/release-notes-gate.sh',
   ],
 });
 
-test('a hook where the installer cannot tell whether the gate runs is named and kept, and --adopt never takes it', async () => {
+test('a hook where the installer cannot tell whether the gate runs, without this gate\'s own variable and path, is named and kept, and no flag takes it', async () => {
   for (const [kind, commands] of Object.entries(UNCLEAR)) {
     const { label, nothingInstalled } = INSTALLERS[kind];
     for (const command of commands) {
@@ -201,7 +208,7 @@ test('a hook where the installer cannot tell whether the gate runs is named and 
         assert.ok(output.includes(label), `${run}: did not name the hook`);
         assert.match(output, /cannot tell whether/, `${run}: did not say why the hook was kept`);
         assert.doesNotMatch(output, nothingInstalled);
-        assert.doesNotMatch(output, /again with --remove --adopt/, `${run}: advised a flag that would not remove it`);
+        assert.doesNotMatch(output, /again with --remove --adopt|Took over/, `${run}: advised a flag that would not remove it, or said it took one over`);
       }
       for (const flags of [[], ['--adopt']]) {
         const { home, file, text } = await settingsWith(kind, command);
@@ -211,6 +218,7 @@ test('a hook where the installer cannot tell whether the gate runs is named and 
         assert.equal(await readFile(file, 'utf8'), text, `${run}: changed the file`);
         assert.ok(installed.stderr.includes(label), `${run}: did not name the hook`);
         assert.match(installed.stderr, /cannot tell whether/);
+        assert.doesNotMatch(`${installed.stdout}${installed.stderr}`, /again with --adopt|Took over/, `${run}: advised a flag that would not take it, or said it took one over`);
       }
     }
   }
@@ -605,4 +613,97 @@ test('a gate wrapped in timeout, nice, env or sudo runs: under its own describe 
       }
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// The override. A reader that never guesses always refuses some hand-wrapped hook, and 0.19.0 took such hooks — by its
+// describe with no flag, or under --adopt. So --adopt takes over a hook the installer cannot fully read when its leading
+// assignments set this gate's own arming variable and one of its words is the gate path, and it says so, naming each hook by
+// event and matcher. With no flag nothing changes: such a hook is named and refused, its own describe or not.
+// ---------------------------------------------------------------------------
+
+const TAKEN_OVER = Object.freeze({
+  progress: [
+    // The wrapper forms the held release reviews found running the gate, or not, that the reader does not recognise.
+    ...['nice -10', 'stdbuf -oL', 'timeout -p 5', 'time', 'sudo -i', 'timeout --no-such-option 5'].map((wrapper) => WRAPPED.progress(wrapper)),
+    // The gate as what the interpreter reads on stdin, and as a here-string.
+    `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${q(NODE)} <${q(PACKED_PROGRESS)}`,
+    'AGENT_SKILLS_PROGRESS_GATE=block timeout 5 node <<< /pack/report-progress-gate.mjs',
+    // A sudo value the shell may make vanish, an adjustment BSD nice refuses, a wrapper script.
+    'AGENT_SKILLS_PROGRESS_GATE=block sudo -n -u $U node /pack/report-progress-gate.mjs',
+    'AGENT_SKILLS_PROGRESS_GATE=block nice -n 2147483648 node /pack/report-progress-gate.mjs',
+    // Given an option first: without it this is the exact shape with another interpreter word, which is adoptable, never unclear.
+    `AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --verbose ${q(PACKED_PROGRESS)}`,
+  ],
+  release: [
+    ...['nice -10', 'stdbuf -oL', 'timeout -p 5', 'time', 'sudo -i', 'timeout --no-such-option 5'].map((wrapper) => WRAPPED.release(wrapper)),
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash <${q(PACKED_RELEASE)}`,
+    'AGENT_SKILLS_RELEASE_NOTES_GATE=block bash <<< /pack/release-notes-gate.sh',
+    'AGENT_SKILLS_RELEASE_NOTES_GATE=block /usr/local/bin/hook-wrapper /pack/release-notes-gate.sh',
+  ],
+});
+
+test('a hook the installer cannot fully read that sets this gate\'s own variable and names its path: refused with no flag, describe or not; --adopt takes it over and says so', async () => {
+  let runs = 0;
+  for (const [kind, commands] of Object.entries(TAKEN_OVER)) {
+    const { event, matcher, label, nothingInstalled } = INSTALLERS[kind];
+    const tookOver = `Took over 1 hook this installer could not fully read: ${label}.`;
+    for (const command of commands) {
+      for (const described of [false, true]) {
+        const run = (flags) => `${kind} ${flags.join(' ') || 'bare'} over ${JSON.stringify(command)}${described ? ' under its own describe' : ''}`;
+        const made = async () => {
+          const settings = await settingsWith(kind, command);
+          if (!described) return settings;
+          const parsed = JSON.parse(settings.text);
+          parsed.hooks[event][0].hooks[0].describe = OWN_DESCRIBES[kind];
+          const text = JSON.stringify(parsed, null, 2);
+          await writeFile(settings.file, text);
+          return { ...settings, text };
+        };
+
+        // No flag: named, refused, the file untouched, and --adopt offered.
+        for (const flags of [['--remove'], []]) {
+          const { home, file, text } = await made();
+          const result = await runInstaller(kind, [...flags, '--settings', file], home);
+          const output = `${result.stdout}${result.stderr}`;
+          assert.equal(result.status, 1, `${run(flags)}: took a hook it cannot fully read with no flag`);
+          assert.equal(await readFile(file, 'utf8'), text, `${run(flags)}: changed the file`);
+          assert.ok(output.includes(label), `${run(flags)}: did not name the hook`);
+          assert.match(output, /cannot tell whether/, run(flags));
+          assert.match(output, flags.length > 0 ? /again with --remove --adopt/ : /again with --adopt/, `${run(flags)}: did not say --adopt takes it`);
+          assert.doesNotMatch(output, /Took over/, run(flags));
+          assert.doesNotMatch(output, nothingInstalled, run(flags));
+          runs += 1;
+        }
+
+        // --remove --adopt: gone, and said out loud.
+        {
+          const flags = ['--remove', '--adopt'];
+          const { home, file } = await made();
+          const removed = await runInstaller(kind, [...flags, '--settings', file], home);
+          assert.equal(removed.status, 0, `${run(flags)}: ${removed.stderr}`);
+          assert.deepEqual(await readJson(file), {}, `${run(flags)}: left the hook`);
+          assert.ok(removed.stdout.split('\n').includes(tookOver), `${run(flags)}: did not print "${tookOver}"\n${removed.stdout}`);
+          assert.doesNotMatch(removed.stdout, /Adopted 1 of them/, `${run(flags)}: counted it as a hook that runs the gate`);
+          runs += 1;
+        }
+
+        // --adopt install: replaced by this installer's own, keeping block, and said out loud.
+        {
+          const flags = ['--adopt'];
+          const { home, file } = await made();
+          const installed = await runInstaller(kind, [...flags, '--settings', file], home);
+          assert.equal(installed.status, 0, `${run(flags)}: ${installed.stderr}`);
+          assert.ok(installed.stdout.split('\n').includes(tookOver), `${run(flags)}: did not print "${tookOver}"\n${installed.stdout}`);
+          assert.match(installed.stdout, /^Kept mode block \(read from the adopted hook\)\./m, run(flags));
+          const left = (await readJson(file)).hooks[event].filter((group) => group.matcher === matcher).flatMap((group) => group.hooks).map((entry) => entry.command);
+          assert.equal(left.length, 1, `${run(flags)}: expected exactly the gate this installer writes, found ${left.length}`);
+          assert.ok(!left.includes(command), `${run(flags)}: the hook was left where the new gate went`);
+          runs += 1;
+        }
+      }
+    }
+  }
+  const commands = Object.values(TAKEN_OVER).flat().length;
+  assert.equal(runs, commands * 2 * 4, 'a run over a hook --adopt takes over did not happen');
 });
