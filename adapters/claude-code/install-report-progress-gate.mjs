@@ -95,7 +95,9 @@
  * ADOPTION, and why only an absent `describe` earns it. A hook this installer did not write is
  * refused on install and left alone on removal: overwriting somebody else's decision is how a
  * settings file gets corrupted. But a hook that runs this gate with NO `describe` at all is what
- * an older copy of this installer, or a hand-wiring, leaves behind — and treating that as foreign
+ * Claude Code leaves of this installer's own hooks: it drops `describe` from every hook entry
+ * whenever it writes a settings file (adapters/HOOK-OUTPUT-NOTES.md, third addendum of
+ * 2026-09-14). An older copy of this installer, or a hand-wiring, leaves the same thing. Treating that as foreign
  * left a real user with no command that worked: `--remove` printed that nothing was installed
  * while two such hooks ran the gate, and install told them to edit the file by hand. So `--remove`
  * names every hook that runs the gate and that it did not remove, never reports the gate gone
@@ -177,10 +179,11 @@ block    hold the turn for one more round when an armed turn ends without a prog
 
 --adopt  treat a hook that runs this gate and has NO describe at all as this installer's own:
          --remove removes it, and an install replaces it, keeping the level its command runs
-         at when no --coverage is given. An older copy of this installer, or a hand-wiring,
-         leaves exactly that. A hook whose describe something else wrote is never adopted.
-         Without --adopt, --remove names every such hook it left and exits 1, and an install
-         refuses and names them.
+         at when no --coverage is given. Claude Code leaves exactly that of this installer's
+         own hooks, because it drops describe from every hook whenever it writes the settings
+         file; an older copy of this installer, or a hand-wiring, leaves the same. A hook
+         whose describe something else wrote is never adopted. Without --adopt, --remove
+         names every such hook it left and exits 1, and an install refuses and names them.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;
@@ -308,7 +311,8 @@ function wearsOurName(hook) {
 /**
  * The one kind of hook this installer did not write that it may treat as its own — and only when
  * the user passes `--adopt`: a hook that runs this gate and has NO `describe` key at all. The
- * absence is the evidence; it is what an older copy of this installer, or a hand-wiring, leaves.
+ * absence is the evidence: it is what Claude Code leaves of this installer's own hooks whenever it
+ * writes the settings file, and what an older copy of this installer, or a hand-wiring, leaves.
  * A `describe` written by anything else, an empty one included, is somebody's statement of
  * ownership, and that hook is reported and left alone whatever flags are passed.
  */
@@ -343,7 +347,7 @@ export function hookLabel({ event, matcher }) {
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
   return unowned.map((hook) => (hook.describe === 'absent'
-    ? `  - ${hookLabel(hook)}: runs this gate with no describe — an older copy of this installer, or a hand-wiring.`
+    ? `  - ${hookLabel(hook)}: runs this gate with no describe. Claude Code drops describe whenever it writes this file, so this is most likely a hook this installer wrote; an older copy of it, or a hand-wiring, looks the same.`
     : `  - ${hookLabel(hook)}: runs this gate under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.`));
 }
 

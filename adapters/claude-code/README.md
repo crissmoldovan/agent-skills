@@ -385,8 +385,15 @@ exits 1 while any hook still runs the gate. (It used to print "No report-progres
 gate was installed … Nothing changed." over two such hooks.)
 
 **`--adopt`** covers the one kind of such hook this installer can vouch for: a hook
-that runs the gate with **no `describe` key at all**, which is what an older copy of
-this installer, or a hand-wiring, leaves. With `--adopt`, `--remove` removes it and
+that runs the gate with **no `describe` key at all**. Claude Code leaves exactly that
+of this installer's own hooks. It drops `describe` from every hook entry whenever it
+writes a settings file, and adding a plugin marketplace is enough
+(`../HOOK-OUTPUT-NOTES.md`, third addendum of 2026-09-14). After that, a bare re-run
+refuses and `--remove` exits 1 until `--adopt` is added. An older copy of this
+installer, or a hand-wiring, leaves the same. A command this installer cannot read
+the level from (one that sets the level after `env`, `cd … &&` or `export`, or from
+an expansion) is refused until `--coverage` names the level, and so are hooks that
+run at different levels. With `--adopt`, `--remove` removes it and
 an install replaces it, keeping the level its command runs at when no `--coverage`
 is named, and both say how many they adopted. A hook whose `describe` something else
 wrote is never adopted, with or without the flag: somebody else put it there, and it

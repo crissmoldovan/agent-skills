@@ -1061,3 +1061,44 @@ than one false block per resume.
 
 The probe project, its hook, its logs and the transcripts it created were deleted after this was
 written. The user's own settings files were neither loaded nor written.
+
+---
+
+## Addendum, dated 2026-09-14 (third): Claude Code drops `describe` from hook entries when it writes a settings file
+
+Both gate installers decide which hooks are theirs by a `describe` prefix. A real user's settings
+file held this gate's `Stop` and `SubagentStart` hooks, written by the 0.17.0 installer, whose
+builder sets `describe` on both. Neither hook had a `describe` key, and neither did any other hook
+in that file. The question here is whether the harness itself removes the key.
+
+**Method.** A throwaway directory with `HOME` and `CLAUDE_CONFIG_DIR` both pointed inside it, so
+the user's own settings could be neither read nor written: the real file's SHA-1 was identical
+before and after. Two settings files were prepared, a project's `.claude/settings.json` and the
+redirected user `settings.json`. Each held two hooks carrying a `describe`, one of them with this
+gate's prefix, plus an unknown top-level key. A local directory marketplace was then added with
+`claude plugin marketplace add <dir> --scope project`, and again with `--scope user`. That command
+writes `extraKnownMarketplaces` into the settings file for its scope, and needs no network and no
+model. **Harness: Claude Code 2.1.181**, macOS.
+
+### OBSERVED — every hook entry lost `describe`, and nothing else was dropped
+
+After each run, the file for that scope had gained `extraKnownMarketplaces`. Every hook entry in it
+had been rewritten to `type`, `command` and `timeout` only, with `timeout` only where it had been
+set. Both `describe` keys were gone, including the one with the gate's prefix. The unknown
+top-level key survived in both files. So the harness does not drop unknown keys in general: it
+rewrites each hook entry to the fields it knows.
+
+### Result
+
+**A `describe` does not survive the harness writing the file it sits in.** Any Claude Code action
+that writes that settings file removes `describe` from every hook. After that, a gate an installer
+wrote cannot be told apart from a hand-wiring by its `describe`. For
+`install-report-progress-gate.mjs`, that is the case `--adopt` exists for, and it is the common
+case, not a rare one. Which other harness actions rewrite a settings file was not enumerated here.
+
+`install-release-notes-gate.mjs` identifies its hooks the same way and has no `--adopt`. Measured
+against a copy with `describe` removed, its `--remove` printed "No release-notes gate was installed
+… Nothing changed." while the hook was still in the file, and its install refused with "Remove it
+by hand first".
+
+The throwaway directory and its marketplace were deleted after this was written.

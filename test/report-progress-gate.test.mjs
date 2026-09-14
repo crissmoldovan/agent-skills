@@ -1644,8 +1644,11 @@ test('a foreign hook wearing the gate name is still refused before any level is 
 });
 
 // ---------------------------------------------------------------------------
-// A hook that runs the gate and carries NO describe at all: an older copy of this installer, or
-// a hand-wiring. Found on a real machine, left by a pre-0.17.0 install. Against it, --remove
+// A hook that runs the gate and carries NO describe at all. Found on a real machine. v0.16.1 and
+// 0.17.0 both write a describe, and Claude Code drops it from every hook whenever it writes the
+// settings file (adapters/HOOK-OUTPUT-NOTES.md, third addendum of 2026-09-14), so this is the
+// common shape of an installed gate, not a rare one; an older copy or a hand-wiring leaves the
+// same. Against it, --remove
 // printed "No report-progress gate was installed … Nothing changed." while both hooks kept
 // running the gate, and install refused with "Remove it by hand first" — so the one command a
 // user had for getting rid of the gate did nothing and said it had nothing to do.
@@ -1718,6 +1721,7 @@ test('--remove never says nothing is installed while undescribed hooks run the g
   assert.match(output, /Stop \(matcher \*\)/);
   assert.match(output, /PostToolUse \(matcher Agent\)/);
   assert.match(output, /--remove --adopt/, 'the output did not say how to remove them');
+  assert.match(output, /Claude Code drops describe/, 'the output did not say where a hook with no describe usually comes from');
   assert.equal(await readFile(settingsPath, 'utf8'), text, 'a hook with no describe was removed without --adopt');
   assert.equal(gateHooks(await readJson(settingsPath)).length, 2);
 });

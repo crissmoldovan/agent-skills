@@ -387,13 +387,18 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block --covera
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 
-# a hook running the gate with no describe (an older install, or a hand-wiring): --remove names it
-# and exits 1; --adopt takes it out, or replaces it on install, as this installer's own
+# a hook running the gate with no describe: --remove names it and exits 1, and an install refuses;
+# --adopt takes it out, or replaces it on install, as this installer's own
 node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
 
-A hook that runs the gate under a `describe` something else wrote is never adopted: `--remove` names
-it and leaves it alone, and an install refuses until it is gone.
+**A hook with no `describe` is the common case, not a rare one.** Claude Code drops `describe` from
+every hook entry whenever it writes a settings file, and adding a plugin marketplace is enough to
+cause that ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14). An older
+install or a hand-wiring leaves the same thing. Once that has happened, re-running the installer to
+update refuses, and `--remove` exits 1, until you add `--adopt`. A hook that runs the gate under a
+`describe` something else wrote is never adopted: `--remove` names it and leaves it alone, and an
+install refuses until it is gone.
 
 Six limits, stated here because a guard that is misread is worse than no guard:
 
