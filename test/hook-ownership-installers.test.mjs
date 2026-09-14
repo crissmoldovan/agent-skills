@@ -145,6 +145,9 @@ const LEFT_ALONE = Object.freeze({
     // A different file whose name contains the gate file's, which 0.19.0's substring match took.
     ["AGENT_SKILLS_PROGRESS_GATE=block node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove", 'different file'],
     ["node '/pack/report-progress-gate.mjs.bak'", 'different file'],
+    // What a mention prints, piped or substituted only into programs that print or read, runs nothing either.
+    ["cat '/pack/report-progress-gate.mjs' | grep -c decision", 'mention'],
+    ['echo "$(cat /pack/report-progress-gate.mjs)"', 'mention'],
   ],
   release: [
     ['AGENT_SKILLS_RELEASE_NOTES_GATE=block echo /pack/release-notes-gate.sh', 'mention'],
@@ -162,6 +165,9 @@ const LEFT_ALONE = Object.freeze({
     ["AGENT_SKILLS_RELEASE_NOTES_GATE=block bash >'/pack/release-notes-gate.sh'", 'write target'],
     ["AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '/pack/release-notes-gate.sh.orig'", 'different file'],
     ["bash '/pack/my-release-notes-gate.sh'", 'different file'],
+    ["xxd '/pack/release-notes-gate.sh' | head -1", 'mention'],
+    // A write through a name joined to a variable is a write to what may be the gate.
+    ['D=/pack/; echo armed > "$D"release-notes-gate.sh', 'write target'],
   ],
 });
 
@@ -642,6 +648,11 @@ const TAKEN_OVER = Object.freeze({
     [`gate() { AGENT_SKILLS_PROGRESS_GATE=block node ${q(PACKED_PROGRESS)}; }; gate`, 'unreadable'],
     ['cat /pack/report-progress-gate.mjs | node --input-type=module', 'off'],
     ['node --check /pack/report-progress-gate.mjs', 'off'],
+    // An option read as the script, and a gate file name joined to a variable or a glob: the first was taken with no flag, the
+    // others by no flag at all, while --remove exited 0.
+    [`AGENT_SKILLS_PROGRESS_GATE=block ${q(NODE)} ${q('--gate=/pack/report-progress-gate.mjs')}`, 'block'],
+    ['D=/pack/adapters/claude-code/; AGENT_SKILLS_PROGRESS_GATE=block node "$D"report-progress-gate.mjs', 'unreadable'],
+    ['AGENT_SKILLS_PROGRESS_GATE=block node /pack/adapters/claude-code/*report-progress-gate.mjs', 'block'],
   ],
   release: [
     ...['nice -10', 'stdbuf -oL', 'timeout -p 5', 'time', 'sudo -i', 'timeout --no-such-option 5'].map((wrapper) => [WRAPPED.release(wrapper), 'block']),
@@ -664,6 +675,9 @@ const TAKEN_OVER = Object.freeze({
     ['bash -n /pack/release-notes-gate.sh', 'off'],
     // rg runs the file its --pre option names.
     [`AGENT_SKILLS_RELEASE_NOTES_GATE=block rg --pre ${q(PACKED_RELEASE)} x /etc/hosts`, 'block'],
+    // An option read as the script, and a glob that matches the gate.
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q('--rcfile=/pack/adapters/claude-code/release-notes-gate.sh')}`, 'block'],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block bash /pack/adapters/claude-code/release-notes-gate.sh*', 'block'],
   ],
 });
 

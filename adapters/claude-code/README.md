@@ -475,7 +475,7 @@ different levels.
 **Some hooks no flag takes.** A hook that only **mentions** the gate file — as an
 argument of `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm`, `unlink`, `xxd`,
 `du`, `od` or a similar command that prints, reads, lists, copies or deletes files, in the exact
-shape or any other — is not the gate. Neither is one that only writes to the gate file through a
+shape or any other, printing only to such commands (`cat '<gate>' | grep x`) — is not the gate. Neither is one that only writes to the gate file through a
 redirection (`timeout 5 >'<gate>' node x` runs `node x` and empties the gate), nor one that names a
 different file whose name merely contains the gate file's (`install-report-progress-gate.mjs`,
 `report-progress-gate.mjs.bak`). The installer read each and knows it runs nothing of the gate: an
@@ -491,10 +491,11 @@ installer writes: somebody else put it there, and it is theirs to remove.
 **A plain re-run never takes a hook it cannot fully read.** A hook where the installer
 **cannot tell** whether the gate runs — the file is an argument of a program it does not
 know (`xargs`, `time`, `rg`, a wrapper script) or the value of one of its options
-(`--gate='<gate>'`), comes after a wrapper option or form it does not recognise (**Wrappers**,
+(`--gate='<gate>'`, `node --gate='<gate>'` too), comes after a wrapper option or form it does not recognise (**Wrappers**,
 below), follows an interpreter's options (`node --check`), is piped on from a command that
-prints or reads it, is what a command reads on stdin (`node <'<gate>'`, a here-string), sits in a
-variable, a here-document, a substitution or a function body, is run in the exact shape by a
+prints or reads it into any other command, is what a command reads on stdin (`node <'<gate>'`, a here-string), sits in a
+variable, a glob, a here-document, a substitution or a function body, is joined to a variable
+(`"$D"report-progress-gate.mjs`), is run in the exact shape by a
 program the installer does not know (`deno`), or shares its command with a write to the gate file
 (`node '<gate>' 2>'<gate>'` empties the gate before node opens it) — is named, with or without
 this installer's own `describe`: `--remove` exits 1 and an install refuses. So is a hook under

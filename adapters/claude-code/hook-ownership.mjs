@@ -41,7 +41,8 @@
  *   1. one or more assignments, each to one of the installer's own `variables`, none twice, the
  *      arming `envFlag` among them, each value either literal characters or exactly single-quoted;
  *   2. ONE interpreter word, either literal characters or exactly single-quoted;
- *   3. the gate path: one single-quoted word whose basename is exactly `gateFile`;
+ *   3. the gate path: one single-quoted word, not an option (it does not start with `-`), whose basename is exactly
+ *      `gateFile`;
  *   4. nothing more — no further word, operator, redirection, comment or expansion.
  * Everything in it is pinned but the interpreter, so a command in that shape is read by its interpreter alone:
  *   - it is the installer's own when the interpreter is written the way that installer writes one, as its
@@ -64,16 +65,19 @@
  * until`, and every WRAPPER (below) with the options and operands it takes:
  *   - the program's basename is exactly the gate file; or
  *   - the program is an interpreter — a name matching `NODE_RUNTIME_NAME`, or `.` or `source` — or a shell
- *     in `SHELLS`, and the very next word's basename is exactly the gate file; or
+ *     in `SHELLS`, and the very next word is not an option and its basename is exactly the gate file
+ *     (`node --gate=<gate>` names the gate in an option, which node refuses, and runs nothing); or
  *   - the program is a shell given `-c`, and the gate runs in that script; or
  *   - the gate runs inside a `$(…)`, backtick or `<(…)` substitution.
  * A gate path that is an argument of a command that prints, reads, lists, tests, copies, moves or
  * deletes files — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`, `unlink`,
  * `xxd`, `od`, `du`, `shellcheck` and the like, and not `rg`, which runs the file its `--pre` names — is a
- * MENTION, and that command runs nothing of the gate. Whatever else
+ * MENTION, and that command runs nothing of the gate so long as what it prints reaches nothing but other such
+ * programs (`outputInert`): `cat '<gate>' | grep x` and `echo "$(cat '<gate>')"` are mentions. Whatever else
  * names the gate file is UNCLEAR: an argument of any other program (`xargs`, `watch`, a wrapper
  * script), a wrapper form the table below does not pin, a word after an interpreter's options
- * (`node --check`), a mention whose output is piped on, a variable's value, a here-document's body, a
+ * (`node --check`), a mention whose output is piped on to any other program, a group or a subshell
+ * (`cat '<gate>' | node`), a variable's value, a here-document's body, a
  * file a redirection reads from (`<`, `<>`, a here-string, a here-document's delimiter: what arrives on
  * stdin an interpreter may run), a substitution the gate does not run in, and every command in a text that
  * defines a function. A file a redirection WRITES to is not a word of the command and runs nothing:
@@ -130,7 +134,9 @@
  * changes.
  *
  * NAMING THE GATE FILE means a word, or a piece of one split at blanks, quotes, `= : ,`, `$`, parens,
- * braces and shell operators, whose basename is exactly the gate file. So
+ * braces and shell operators, whose basename is exactly the gate file — or may expand to it: the gate file's name
+ * joined only to a `*`, or to the parameter a `$` names just before it (`"$D"report-progress-gate.mjs` reads
+ * `$Dreport-progress-gate.mjs` once its quotes are removed, and runs the gate wherever D holds its directory). So
  * `install-report-progress-gate.mjs` and `report-progress-gate.mjs.bak` never name it: each is a DIFFERENT FILE,
  * which 0.19.0's substring match took and nothing here takes.
  *
@@ -405,6 +411,10 @@ function parseShell(command) {
       if (char === '(') {
         EMPTY_PARENS.lastIndex = index + 1;
         if (EMPTY_PARENS.test(text)) definesFunction = true;
+        // A pipe into a subshell hands what it carries to every command in it, not only the first.
+        const piped = commands.at(-1);
+        const empty = word === null && current.words.length + current.substitutions.length + current.heredocs.length + current.redirections.length === 0;
+        if (empty && piped?.pipesOut) piped.pipesIntoGroup = true;
       }
       endCommand();
     } else if (REDIRECTION.has(char)) {
@@ -648,13 +658,33 @@ function unwrap(grammar, source, start) {
   return { words, index, values };
 }
 const SHELL_SCRIPT_OPTION = /^-[A-Za-z]*c[A-Za-z]*$/;
-const PIECE_BOUNDARY = /[\s'"`$=:,(){}<>;|&]+/;
+/** A piece: a run of text between blanks, quotes, `= : ,`, `$`, parens, braces and shell operators. */
+const PIECE = /[^\s'"`$=:,(){}<>;|&]+/g;
+/** The parameter a `$` names when a piece follows it: `$D`, `$1`, `$@`. */
+const JOINED_PARAMETER = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?!-])/;
+const STARS = /^\**$/;
 /** Substitutions and nested `-c` scripts deeper than this are not followed, only searched for the gate. */
 const MAX_DEPTH = 8;
 
-/** True when some piece of the text (see the header) has exactly the gate file as its basename. */
+/**
+ * True when some piece of the text (see the header) has exactly the gate file as its basename, or may expand to it: its basename is
+ * the gate file's name joined only to `*` on either side, or, where the piece follows a `$`, to that parameter's name before it.
+ * `"$D"report-progress-gate.mjs` reads `$Dreport-progress-gate.mjs` once its quotes are removed and runs the gate wherever D holds its
+ * directory; `*report-progress-gate.mjs` and `report-progress-gate.mjs*` match it. Read as a mention or a different file, each ran
+ * the gate while no flag took it and `--remove` exited 0 (measured). `install-report-progress-gate.mjs` is still a different file.
+ */
 function namesGate(text, gateFile) {
-  return String(text).split(PIECE_BOUNDARY).some((piece) => basename(piece) === gateFile);
+  const source = String(text);
+  for (const { 0: piece, index } of source.matchAll(PIECE)) {
+    const name = basename(piece);
+    if (name === gateFile) return true;
+    for (let at = name.indexOf(gateFile); at !== -1; at = name.indexOf(gateFile, at + 1)) {
+      const joined = name === piece && source[index - 1] === '$';
+      const prefix = joined ? name.slice(0, at).replace(JOINED_PARAMETER, '') : name.slice(0, at);
+      if (STARS.test(prefix) && STARS.test(name.slice(at + gateFile.length))) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -688,17 +718,66 @@ function writesToGate(commands, gateFile, depth = 0) {
     || (depth < MAX_DEPTH && scriptsIn(simple).some((inner) => writesToGate(parseShell(inner).commands, gateFile, depth + 1))));
 }
 
-/** RUNS, UNCLEAR or NONE for one simple command. */
-function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirections, pipesOut }, gateFile, depth) {
+/**
+ * The program a simple command runs, past its leading assignments and every wrapper the reader pins, as a basename; null where it runs
+ * none, or a wrapper form the reader does not pin stands in front of it. A reserved word is returned as itself: what follows `{`, `if`
+ * or `while` is not one program.
+ */
+function programOf(parsed) {
   let words = parsed;
-  let use = NONE;
-  for (const inner of substitutions) {
-    use = Math.max(use, gateUse(inner, gateFile, depth + 1) === RUNS ? RUNS : namesGate(inner, gateFile) ? UNCLEAR : NONE);
+  let index = 0;
+  let wrapped = false;
+  for (;;) {
+    while (!wrapped && index < words.length && ASSIGNMENT.test(words[index])) index += 1;
+    if (index >= words.length) return null;
+    const grammar = wrapperGrammar(words[index], wrapped);
+    if (!grammar) return basename(words[index]);
+    const inner = unwrap(grammar, words, index + 1);
+    if (inner === null) return null;
+    ({ words, index } = inner);
+    wrapped = true;
   }
-  if (heredocs.some((body) => namesGate(body, gateFile))) use = Math.max(use, UNCLEAR);
+}
+
+/**
+ * Whether what one simple command prints reaches nothing that may run it: it is not piped on, or every command down its pipeline is a
+ * program in `MENTIONS`, past wrappers the reader pins, with no substitution or here-document of its own, and not a subshell, which
+ * hands the pipe to every command in it (`cat '<gate>' | (grep x; sh)`). `cat '<gate>' | grep x` runs nothing of the gate, and was
+ * read as unclear, so `--adopt` took it (measured).
+ */
+function outputInert(commands, index) {
+  for (let at = index; commands[at].pipesOut; at += 1) {
+    const next = commands[at + 1];
+    if (!next || commands[at].pipesIntoGroup || next.substitutions.length > 0 || next.heredocs.length > 0) return false;
+    const program = programOf(next.words);
+    if (program === null || !MENTIONS.has(program)) return false;
+  }
+  return true;
+}
+
+/** RUNS, UNCLEAR or NONE for one simple command; `inert` is whether what it prints reaches nothing that may run it (`outputInert`). */
+function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirections }, gateFile, depth, inert) {
+  let words = parsed;
+  // `plain` is this command's reading apart from substitutions that only mention the gate file; `substituted` is those, which leave
+  // a mention a mention while what it prints reaches nothing that may run it, and are unclear anywhere else.
+  let plain = NONE;
+  let substituted = NONE;
+  const raise = (level) => {
+    plain = Math.max(plain, level);
+  };
+  const use = () => Math.max(plain, substituted);
+  for (const inner of substitutions) {
+    const innerUse = gateUse(inner, gateFile, depth + 1);
+    if (innerUse === RUNS) raise(RUNS);
+    else if (namesGate(inner, gateFile)) {
+      if (innerUse === NONE) substituted = UNCLEAR;
+      else raise(UNCLEAR);
+    }
+  }
+  if (heredocs.some((body) => namesGate(body, gateFile))) raise(UNCLEAR);
   // What a command reads on stdin an interpreter may run. What it writes to, it does not run.
-  if (redirections.some(({ direction, target }) => direction !== 'out' && namesGate(target, gateFile))) use = Math.max(use, UNCLEAR);
-  const unclearIfNamed = (list) => Math.max(use, list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
+  if (redirections.some(({ direction, target }) => direction !== 'out' && namesGate(target, gateFile))) raise(UNCLEAR);
+  const unclearIfNamed = (list) => Math.max(use(), list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
 
   let index = 0;
   // Past a wrapper, the next word is the program it runs: no reserved word or assignment leads it any more, and a wrapper
@@ -707,10 +786,10 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
   for (;;) {
     while (!wrapped && index < words.length && ASSIGNMENT.test(words[index])) {
       // A variable holding the gate's path may run it later.
-      if (namesGate(words[index], gateFile)) use = Math.max(use, UNCLEAR);
+      if (namesGate(words[index], gateFile)) raise(UNCLEAR);
       index += 1;
     }
-    if (index >= words.length) return use;
+    if (index >= words.length) return use();
     const grammar = wrapperGrammar(words[index], wrapped);
     if (!wrapped && RESERVED.has(words[index])) {
       index += 1;
@@ -719,7 +798,7 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
       // A form the grammar does not pin: never guess what runs past it.
       if (inner === null) return unclearIfNamed(words.slice(index));
       // A value the wrapper took that names the gate file is somewhere the gate may run from.
-      if (inner.values.some((value) => namesGate(value, gateFile))) use = Math.max(use, UNCLEAR);
+      if (inner.values.some((value) => namesGate(value, gateFile))) raise(UNCLEAR);
       words = inner.words;
       index = inner.index;
       wrapped = true;
@@ -743,18 +822,21 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
       at += 1;
     }
     if (script) {
-      if (at >= rest.length) return use;
+      if (at >= rest.length) return use();
       const inner = gateUse(rest[at], gateFile, depth + 1);
-      return Math.max(unclearIfNamed(rest.slice(at + 1)), inner);
+      // A script that only mentions the gate prints it: piped on into anything that may run it, it is as unclear as `cat '<gate>' | sh`.
+      const printed = !inert && inner === NONE && namesGate(rest[at], gateFile) ? UNCLEAR : NONE;
+      return Math.max(unclearIfNamed(rest.slice(at + 1)), inner, printed);
     }
     if (at === 0 && rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
     return unclearIfNamed(rest);
   }
   if (isInterpreter(program)) {
-    if (rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
+    // Its script is a word that is not an option: `node --gate=<gate>` names the gate in an option, which node refuses.
+    if (rest.length > 0 && !rest[0].startsWith('-') && basename(rest[0]) === gateFile) return RUNS;
     return unclearIfNamed(rest);
   }
-  if (MENTIONS.has(program)) return pipesOut ? unclearIfNamed(rest) : use;
+  if (MENTIONS.has(program)) return inert ? plain : unclearIfNamed(rest);
   return unclearIfNamed(rest);
 }
 
@@ -763,7 +845,7 @@ function gateUse(text, gateFile, depth = 0) {
   if (depth > MAX_DEPTH) return namesGate(text, gateFile) ? UNCLEAR : NONE;
   const { commands, definesFunction } = parseShell(text);
   let use = NONE;
-  for (const simple of commands) use = Math.max(use, simpleCommandGateUse(simple, gateFile, depth));
+  for (const [index, simple] of commands.entries()) use = Math.max(use, simpleCommandGateUse(simple, gateFile, depth, outputInert(commands, index)));
   // A command that writes to the gate file may empty it before the gate runs, or change it around the run (the header).
   if (use === RUNS && writesToGate(commands, gateFile, depth)) use = UNCLEAR;
   // A function body runs only if the function is called, which is not something to guess at.
@@ -843,7 +925,8 @@ export function installerShape(command, { envFlag, gateFile, variables = [envFla
   }
   if (!assigned.has(envFlag) || words.length - index !== 2) return null;
   const [program, gate] = words.slice(index);
-  if (gate.raw !== singleQuoted(gate.value) || basename(gate.value) !== gateFile) return null;
+  // An option is not the script: `'--gate=<gate>'` after node, or `'--rcfile=<gate>'` after bash, runs nothing of the gate.
+  if (gate.raw !== singleQuoted(gate.value) || gate.value.startsWith('-') || basename(gate.value) !== gateFile) return null;
   const quoted = program.raw === singleQuoted(program.value);
   if (!quoted && !LITERAL_RUN.test(program.raw)) return null;
   // Single-quoted, the installer wrote a path, and its basename is the name; bare, the word is the name.
@@ -948,7 +1031,7 @@ export function unownedReason(kind, ownShape, { why = null } = {}) {
     if (why === 'describe only') {
       return `carries this installer's own describe, but its command never names the gate file, so this installer cannot tell whether it runs the gate, and no run without --adopt takes it. ${check}`;
     }
-    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, its own command shape run by a program it does not know, an option\'s value, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a here-document or a function';
+    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, its own command shape run by a program it does not know, an option\'s value, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a glob, a here-document or a function';
     if (why === 'writes') {
       return `${where} — and it also writes to the gate file, which may empty the gate or change it around the run, so no flag takes it: --adopt never takes a hook that writes to the gate file. If it does run the gate, remove it by hand.`;
     }
@@ -961,7 +1044,7 @@ export function unownedReason(kind, ownShape, { why = null } = {}) {
 export function leftAloneReason(why) {
   if (why === 'write target') return 'left alone: only writes to the gate file, through a redirection, and runs nothing of the gate, so no flag takes it.';
   if (why === 'different file') return 'left alone: names a different file whose name contains the gate file\'s, which is not the gate, so no flag takes it.';
-  return 'left alone: only mentions the gate file — as an argument of a program that does not run it, such as echo, cat, rm or unlink, or in a comment — so no flag takes it. A copy of the gate that such a hook makes and runs is not something this installer follows.';
+  return 'left alone: only mentions the gate file — as an argument of a program that does not run it, such as echo, cat, rm or unlink, printing only to such programs, or in a comment — so no flag takes it. A copy of the gate that such a hook makes and runs is not something this installer follows.';
 }
 
 /**

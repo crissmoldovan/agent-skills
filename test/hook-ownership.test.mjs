@@ -406,6 +406,114 @@ test('the gate runs as the program of a simple command, or as the script straigh
   }
 });
 
+// ---------------------------------------------------------------------------
+// Three misreadings found by running 0.19.0's installers beside this version's and firing each hook at a stand-in gate:
+//   - an option read as the script: `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '--rcfile=<gate>'` was the installer's own exact
+//     shape, taken with no flag and no describe, and bash refused the option and ran nothing (exit 2); `node --gate=<gate>` under
+//     the installer's own describe was taken with no flag, and node refused the option (exit 9);
+//   - a gate file name joined to a parameter or a glob read as a mention or a different file: `node "$D"report-progress-gate.mjs`
+//     and `node /pack/*report-progress-gate.mjs` ran the gate, no flag took them, and --remove exited 0 saying no hook runs it;
+//   - a mention piped or substituted only into programs that print or read read as unclear: `cat '<gate>' | grep -c x` and
+//     `echo "$(cat '<gate>')"` run nothing of the gate, and --adopt took them.
+// ---------------------------------------------------------------------------
+
+test('an option is never the script an interpreter runs, in the exact shape or out of it: a gate path in one is unclear, describe or not', () => {
+  const { takenAs } = ownership;
+  const cases = [
+    [`AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${q('/usr/local/bin/node')} ${q('--gate=/pack/adapters/claude-code/report-progress-gate.mjs')}`, PROGRESS, ownDescribe],
+    ['node --gate=/pack/adapters/claude-code/report-progress-gate.mjs', PROGRESS, ownDescribe],
+    ['node --require=/pack/report-progress-gate.mjs /work/other.mjs', PROGRESS, ownDescribe],
+    ['timeout 5 node -r=/pack/report-progress-gate.mjs', PROGRESS, ownDescribe],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q('--rcfile=/pack/adapters/claude-code/release-notes-gate.sh')}`, RELEASE, releaseDescribe],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q('-/pack/adapters/claude-code/release-notes-gate.sh')}`, RELEASE, releaseDescribe],
+    ['source --x=/pack/release-notes-gate.sh', RELEASE, releaseDescribe],
+  ];
+  let checked = 0;
+  for (const [command, identity, describe] of cases) {
+    for (const extra of [{}, describe]) {
+      const subject = hook(command, extra);
+      const run = `${JSON.stringify(command)}${extra.describe ? ' under its own describe' : ''}`;
+      assert.equal(classifyHook(subject, identity), 'unclear', run);
+      assert.equal(takenAs(subject, identity), null, `${run}: taken with no flag`);
+      assert.equal(takenAs(subject, identity, { adopt: true }), 'override', `${run}: --adopt does not take it over`);
+      checked += 1;
+    }
+  }
+  assert.equal(checked, cases.length * 2);
+  // The script straight after the interpreter still runs the gate, with options after it or not.
+  assert.equal(classifyHook(hook("node '/pack/report-progress-gate.mjs' --gate=x"), PROGRESS), 'adoptable');
+  assert.equal(classifyHook(hook(PROGRESS_COMMAND), PROGRESS), 'ours');
+  assert.equal(classifyHook(hook(RELEASE_COMMAND), RELEASE), 'ours');
+});
+
+test('a gate file name joined to a parameter or a glob may be the gate: unclear where it may run, a mention or a write target elsewhere, never a different file', () => {
+  const { findHooksNamingGate, takenAs } = ownership;
+  const unclear = [
+    ['D=/pack/adapters/claude-code/; node "$D"report-progress-gate.mjs', PROGRESS],
+    ["node $D'report-progress-gate.mjs'", PROGRESS],
+    ['node $D\\report-progress-gate.mjs', PROGRESS],
+    ['node /pack/adapters/claude-code/*report-progress-gate.mjs', PROGRESS],
+    ['node /pack/adapters/claude-code/report-progress-gate.mjs*', PROGRESS],
+    ['D=/pack/; bash "$D"release-notes-gate.sh', RELEASE],
+    ['bash /pack/*release-notes-gate.sh', RELEASE],
+    ['echo "$D"release-notes-gate.sh | sh', RELEASE],
+  ];
+  for (const [command, identity] of unclear) {
+    assert.equal(classifyHook(hook(command), identity), 'unclear', command);
+    assert.equal(takenAs(hook(command), identity, { adopt: true }), 'override', command);
+  }
+  const naming = [
+    ['D=/pack/; cat "$D"report-progress-gate.mjs', 'mention'],
+    ['rm -f /pack/*report-progress-gate.mjs', 'mention'],
+    ['D=/pack/; echo armed > "$D"report-progress-gate.mjs', 'write target'],
+    ["node '/pack/my-report-progress-gate.mjs'", 'different file'],
+    ["node '/pack/report-progress-gate.mjs.bak'", 'different file'],
+    ['echo report-progress-gate.mjs-is-not-installed', 'different file'],
+  ];
+  const settings = { hooks: { Stop: [{ matcher: '*', hooks: naming.map(([command]) => hook(command)) }] } };
+  assert.deepEqual(findHooksNamingGate(settings, PROGRESS).map(({ why }) => why), naming.map(([, why]) => why));
+});
+
+test('a mention piped or substituted only into programs that print, read or list is still a mention; into anything else it is unclear', () => {
+  const { findHooksNamingGate, takenAs } = ownership;
+  const G = "'/pack/adapters/claude-code/report-progress-gate.mjs'";
+  const RG = "'/pack/adapters/claude-code/release-notes-gate.sh'";
+  const mentions = [
+    [`cat ${G} | grep -c decision`, PROGRESS],
+    [`cat ${G} | wc -l`, PROGRESS],
+    [`echo ${G} | cat`, PROGRESS],
+    [`xxd ${G} | head -1 | tee /tmp/first-line`, PROGRESS],
+    [`echo "$(cat ${G})"`, PROGRESS],
+    [`nice cat ${G} | timeout 5 grep -q decision && echo present`, PROGRESS],
+    [`diff <(cat ${G}) /tmp/copy.mjs`, PROGRESS],
+    [`bash -c "cat ${RG}" | wc -c`, RELEASE],
+    [`xxd ${RG} | head -1`, RELEASE],
+  ];
+  for (const [command, identity] of mentions) {
+    for (const extra of [{}, identity === PROGRESS ? ownDescribe : releaseDescribe]) {
+      assert.equal(classifyHook(hook(command, extra), identity), null, command);
+      assert.equal(takenAs(hook(command, extra), identity, { adopt: true }), null, `${command}: --adopt took a mention`);
+    }
+    assert.deepEqual(findHooksNamingGate({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity).map(({ why }) => why), ['mention'], command);
+  }
+  const unclear = [
+    [`cat ${G} | node --input-type=module`, PROGRESS],
+    [`cat ${G} | grep -v '^#' | node --input-type=module`, PROGRESS],
+    [`cat ${G} | tee >(node --input-type=module)`, PROGRESS],
+    [`cat ${G} | (grep -q x; node --input-type=module)`, PROGRESS],
+    [`cat ${G} | { grep -q x; node --input-type=module; }`, PROGRESS],
+    [`node -e "$(cat ${G})"`, PROGRESS],
+    [`echo "$(cat ${G})" | node --input-type=module`, PROGRESS],
+    [`echo ${RG} | sh`, RELEASE],
+    [`bash -c "cat ${RG}" | sh`, RELEASE],
+    [`cat ${RG} | while read -r line; do eval "$line"; done`, RELEASE],
+  ];
+  for (const [command, identity] of unclear) {
+    assert.equal(classifyHook(hook(command), identity), 'unclear', command);
+    assert.equal(takenAs(hook(command), identity, { adopt: true }), 'override', command);
+  }
+});
+
 test('a describe somebody else wrote vetoes ownership; the installer\'s own describe grants it to a hook that runs the gate, and to nothing else', () => {
   assert.equal(classifyHook(hook(PROGRESS_COMMAND, { describe: 'written by some other tool' }), PROGRESS), 'foreign');
   // A describe somebody typed, even an empty one, is not the absence of one.
