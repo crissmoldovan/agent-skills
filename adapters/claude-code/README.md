@@ -468,15 +468,17 @@ different levels.
 **Some hooks no flag takes.** A hook that only **mentions** the gate file — as an
 argument of `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm` or a similar
 command that prints, reads, lists, copies or deletes files, in the exact shape or any other — is
-not the gate: `--remove` ignores it, and an install writes the gate beside it, whatever
-`describe` it wears. (0.19.0 took such a hook under its own describe, and under `--adopt`. It is
+not the gate, and neither is one that only writes to the gate file through a redirection
+(`timeout 5 >'<gate>' node x` runs `node x`): `--remove` ignores it, and an install writes the
+gate beside it, whatever `describe` it wears. (0.19.0 took such a hook under its own describe, and under `--adopt`. It is
 one of two kinds of hook this version leaves where 0.19.0 took it; the other is a wrapper form
 it does not recognise, **Wrappers** below.) A hook where the installer
 **cannot tell** whether the gate runs — the file is an argument of a program it does not
 know (`xargs`, `time`, a wrapper script), comes after a wrapper option or form it does not
 recognise (**Wrappers**, below), follows an interpreter's options
-(`node --check`), is piped on from a command that prints or reads it, or sits in a
-variable, a here-document, a substitution or a function body — is named, and never
+(`node --check`), is piped on from a command that prints or reads it, is what a command
+reads on stdin (`node <'<gate>'`, a here-string), or sits in a variable, a here-document, a
+substitution or a function body — is named, and never
 taken, with or without `--adopt`: `--remove` exits 1 and an install refuses until you
 remove it by hand. Over-reporting a hook can be undone; deleting one that was not the
 gate cannot. A hook whose `describe` something else wrote is never taken either, even
@@ -487,7 +489,8 @@ theirs to remove.
 the installer strips those before it looks for the gate, as many as are nested. It reads each only
 in the forms its manual gives on both macOS and Linux. Each form was run under macOS's `/bin/sh` and
 zsh, and under dash with GNU coreutils 9.1 and 9.4, before it went in; `sudo`'s grammar comes from its
-manual (1.9.13 on both systems), because running it needs a password. The table is
+manual (1.9.13 on both systems), because running it here needs a password, and every `sudo` form
+the table allows was also run as root under Debian 12's dash with sudo 1.9.13p3. The table is
 `WRAPPER_GRAMMARS` in `hook-ownership.mjs`:
 
 | Wrapper | What it may carry before the command it runs |
@@ -495,11 +498,11 @@ manual (1.9.13 on both systems), because running it needs a password. The table 
 | `command` | `-p`, `--`; only first in the command, where the shell reads it |
 | `exec` | nothing; only first in the command |
 | `nohup` | `--` |
-| `nice` | `-n N` for an integer `N`, `--` |
+| `nice` | `-n N` for an integer `N` from -2147483648 to 2147483647 (BSD nice refuses any other and runs nothing), `--` |
 | `env` | `-i`, `-`, `-v`, `-u NAME`, `-S` with a string of plain words (split, then read as if written out), `--`, then `NAME=value` words |
 | `timeout` | `-v`, `-k DURATION`, `-s SIGNAL`, `--verbose`, `--foreground`, `--preserve-status`, `--kill-after`, `--signal`, `--`, then a `DURATION` such as `5`, `0.5` or `1m` |
 | `caffeinate` (macOS) | `-d`, `-i`, `-m`, `-s`, `-u`, `-t N`, `-w N`, `--` |
-| `sudo` | `-B`, `-H`, `-n`, `-P`, `-u USER`, `-g GROUP`, `-p PROMPT` and their long names, each value once, `--`, then `NAME=value` words before any `--` |
+| `sudo` | `-B`, `-H`, `-n`, `-P`, `-u USER`, `-g GROUP`, `-p PROMPT` and their long names, each value once and with no `$`, backtick, `*`, `?`, `[`, `]`, `{`, `}` or `~` in it, `--`, then `NAME=value` words before any `--` |
 
 **An option or form outside that table is refused, never guessed past.** The hook is one the
 installer cannot tell runs the gate, so no flag takes it. That includes:
@@ -509,6 +512,8 @@ installer cannot tell runs the gate, so no flag takes it. That includes:
 - `sudo -i`, `-s`, `-E`, `-b`, `-S`, `-A` and `-D`;
 - a value that does not read as its type, such as `timeout 5x`, which makes `timeout` exit without
   running anything;
+- a value the shell may change before the wrapper sees it, such as `sudo -u $U`: with `U` unset, as it
+  is in a hook, `-u` takes the next word as the user;
 - `command` or `exec` after another wrapper.
 
 Some programs are not read as wrappers at all:
