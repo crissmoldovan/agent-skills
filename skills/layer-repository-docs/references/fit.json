@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "writing, auditing or updating the documentation people read in this repository",
+  "anyOf": [
+    {
+      "repo": {
+        "missing": "README.md"
+      }
+    },
+    {
+      "repo": {
+        "exists": "docs/"
+      }
+    },
+    {
+      "repo": {
+        "exists": "CONTRIBUTING.md"
+      }
+    }
+  ]
+}

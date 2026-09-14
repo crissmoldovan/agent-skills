@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "asked for by name: authoring and releasing an Agent Skill"
+}

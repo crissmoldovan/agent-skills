@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "about to cut a release, bump a version, or write a CHANGELOG entry",
+  "anyOf": [
+    {
+      "repo": {
+        "json": "package.json",
+        "field": "version"
+      }
+    },
+    {
+      "repo": {
+        "toml": "Cargo.toml",
+        "field": "package.version"
+      }
+    },
+    {
+      "repo": {
+        "toml": "pyproject.toml",
+        "field": "project.version"
+      }
+    },
+    {
+      "repo": {
+        "yaml": "pubspec.yaml",
+        "field": "version"
+      }
+    },
+    {
+      "repo": {
+        "exists": ".changeset/"
+      }
+    },
+    {
+      "repo": {
+        "exists": "CHANGELOG.md"
+      }
+    },
+    {
+      "repo": {
+        "exists": "docs/releases.md"
+      }
+    },
+    {
+      "history": {
+        "count": "releaseCommands",
+        "atLeast": 1
+      }
+    }
+  ]
+}

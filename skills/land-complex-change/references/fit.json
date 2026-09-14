@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "a change crossing surfaces \u2014 code with schema, jobs or config \u2014 that must not grow in scope",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": "**/migrations/"
+      }
+    },
+    {
+      "repo": {
+        "exists": "prisma/schema.prisma"
+      }
+    },
+    {
+      "repo": {
+        "exists": "supabase/"
+      }
+    },
+    {
+      "repo": {
+        "exists": "**/*.sql"
+      }
+    },
+    {
+      "repo": {
+        "exists": ".github/workflows/"
+      }
+    },
+    {
+      "repo": {
+        "exists": "docker-compose.yml"
+      }
+    }
+  ]
+}

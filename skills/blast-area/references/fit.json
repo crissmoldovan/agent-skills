@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "general",
+  "useWhen": "about to delete or change shared code, where \"nothing else calls this\" is load-bearing"
+}

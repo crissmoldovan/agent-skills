@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "making delegated child agents observable, or reconciling what one of them actually did",
+  "anyOf": [
+    {
+      "repo": {
+        "grep": "subagent|child_?[Aa]gent|dispatchAgent|spawnAgent",
+        "globs": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.mjs",
+          "**/*.py",
+          "**/*.go",
+          "**/*.rb",
+          "**/*.rs"
+        ]
+      }
+    },
+    {
+      "history": {
+        "count": "agentDispatches",
+        "atLeast": 10
+      }
+    }
+  ]
+}

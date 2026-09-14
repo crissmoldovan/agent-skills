@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "placing an API key, token or other credential this project needs",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": ".env.example"
+      }
+    },
+    {
+      "repo": {
+        "exists": ".env.sample"
+      }
+    },
+    {
+      "repo": {
+        "exists": ".env.template"
+      }
+    },
+    {
+      "repo": {
+        "grep": "process\\.env\\.[A-Z0-9_]*(KEY|TOKEN|SECRET)|os\\.environ\\[",
+        "globs": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.mjs",
+          "**/*.py",
+          "**/*.go",
+          "**/*.rb",
+          "**/*.rs"
+        ]
+      }
+    }
+  ]
+}

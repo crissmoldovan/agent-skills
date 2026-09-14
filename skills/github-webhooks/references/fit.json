@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "receiving, verifying or replaying GitHub webhook deliveries",
+  "anyOf": [
+    {
+      "repo": {
+        "grep": "x-hub-signature|X-Hub-Signature",
+        "globs": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.mjs",
+          "**/*.py",
+          "**/*.go",
+          "**/*.rb",
+          "**/*.rs"
+        ]
+      }
+    },
+    {
+      "repo": {
+        "grep": "@octokit/webhooks|createNodeMiddleware",
+        "globs": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.mjs",
+          "**/*.py",
+          "**/*.go",
+          "**/*.rb",
+          "**/*.rs"
+        ]
+      }
+    }
+  ]
+}

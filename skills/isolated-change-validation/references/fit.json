@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "proving a change in a sandbox before it may land, or handing an unattended run over",
+  "anyOf": [
+    {
+      "history": {
+        "count": "agentDispatches",
+        "atLeast": 10
+      }
+    },
+    {
+      "history": {
+        "count": "workflowLaunches",
+        "atLeast": 2
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "asked for by name: the review loop over an open pull request"
+}

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "recording what shipped to which signed-in users, across a release",
+  "allOf": [
+    {
+      "repo": {
+        "exists": "CHANGELOG.md"
+      }
+    },
+    {
+      "repo": {
+        "grep": "next-auth|@clerk|supabase.auth|auth0|passport",
+        "globs": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.mjs",
+          "**/*.py",
+          "**/*.go",
+          "**/*.rb",
+          "**/*.rs"
+        ]
+      }
+    }
+  ]
+}
