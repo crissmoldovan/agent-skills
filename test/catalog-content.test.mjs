@@ -7,6 +7,7 @@ const read = (path) => readFile(new URL(path, root), 'utf8');
 
 const readme = await read('README.md');
 const releases = await read('docs/releases.md');
+const changelogText = await read('CHANGELOG.md');
 const architecture = await read('docs/architecture.md');
 const composition = await read('docs/composition.md');
 const codeowners = await read('.github/CODEOWNERS');
@@ -488,5 +489,6 @@ test('layer-repository-docs publishes how it is evaluated, and says what is unme
   }
   assert.match(readme, /\[Entry points\]\(skills\/layer-repository-docs\/references\/entry-points\.md\)/);
   assert.match(readme, /\[its evaluation protocol\]\(docs\/layer-repository-docs\/evaluation\.md\)/);
-  assert.match(releases, /\[the evaluation page\]\(layer-repository-docs\/evaluation\.md\)/);
+  // The release record, not the staged prose: docs/releases.md empties when a release is cut.
+  assert.match(changelogText, /\(docs\/layer-repository-docs\/evaluation\.md\)/);
 });
