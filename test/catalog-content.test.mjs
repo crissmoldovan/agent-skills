@@ -483,7 +483,8 @@ test('layer-repository-docs publishes how it is evaluated, and says what is unme
   for (const claim of [
     'claude plugin eval',
     'skill-doctor',
-    'does not exist yet',
+    'What is not settled',
+    'make-docs-fixture',
   ]) {
     assert.match(layerRepositoryDocsEvaluation, new RegExp(claim));
   }
