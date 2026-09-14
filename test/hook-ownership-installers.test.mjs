@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url';
 //   - a hook that only names the gate file — as an argument to echo, cat, rm — is not the gate at all,
 //     and nothing touches it, whatever describe it wears;
 //   - a hook where the installer cannot tell whether the gate runs is named, and never taken, with or
-//     without a flag.
+//     without a flag;
+//   - a wrapper the reader pins (`timeout`, `nice`, `nohup`, `env`, `command`, `exec`, `caffeinate`, `sudo`) runs
+//     the command after it, so a gate wrapped in one runs; a wrapper form it does not pin is unclear.
 // test/hook-ownership-v0.19.0.test.mjs holds all of it against 0.19.0's own installers, row by row.
 //
 // The regression behind them: the first command-based ownership check took any hook that began with
@@ -162,7 +164,7 @@ test('a hook that only names the gate file is left alone by --remove and by an i
 const UNCLEAR = Object.freeze({
   progress: [
     'AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --gate=/pack/report-progress-gate.mjs',
-    'timeout 5 node /pack/report-progress-gate.mjs',
+    'timeout --no-such-option 5 node /pack/report-progress-gate.mjs',
     'node --check /pack/report-progress-gate.mjs',
     'cat /pack/report-progress-gate.mjs | node --input-type=module',
     'node $(echo /pack/report-progress-gate.mjs)',
@@ -170,7 +172,7 @@ const UNCLEAR = Object.freeze({
   ],
   release: [
     'AGENT_SKILLS_RELEASE_NOTES_GATE=block /usr/local/bin/hook-wrapper /pack/release-notes-gate.sh',
-    'sudo bash /pack/release-notes-gate.sh',
+    'sudo -i bash /pack/release-notes-gate.sh',
     'bash -n /pack/release-notes-gate.sh',
     "bash <<'EOF'\nbash /pack/release-notes-gate.sh\nEOF",
     'gate() { bash /pack/release-notes-gate.sh; }',
@@ -229,6 +231,9 @@ const HAND_WIRINGS = Object.freeze({
     // know as one either: adoptable, never unclear, because the installer's own shape is never unclear.
     `AGENT_SKILLS_PROGRESS_GATE=block ${q('/usr/local/bin/node-lts')} ${q(PACKED_PROGRESS)}`,
     `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${q('/usr/local/bin/hook-wrapper')} ${q(PACKED_PROGRESS)}`,
+    // Wrapped in commands the reader knows run the command after them.
+    `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 timeout 5 ${q(NODE)} ${q(PACKED_PROGRESS)}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 sudo -u x timeout 5 ${q(NODE)} ${q(PACKED_PROGRESS)}`,
   ],
   release: [
     `${OWN_RELEASE} && rm -rf /tmp/x`,
@@ -238,6 +243,8 @@ const HAND_WIRINGS = Object.freeze({
     `AGENT_SKILLS_RELEASE_NOTES_GATE=block AGENT_SKILLS_PROGRESS_GATE=off bash ${q(PACKED_RELEASE)}`,
     `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash5 ${q(PACKED_RELEASE)}`,
     `AGENT_SKILLS_RELEASE_NOTES_GATE=block ${q('/opt/homebrew/bin/bash5')} ${q(PACKED_RELEASE)}`,
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block timeout 5 bash ${q(PACKED_RELEASE)}`,
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -n 10 bash ${q(PACKED_RELEASE)}`,
   ],
 });
 
@@ -538,6 +545,56 @@ test('a hook under the installer\'s own describe that runs the gate is its own w
       assert.equal(result.status, 0, `${kind} ${flags.join(' ')}: ${result.stderr}`);
       assert.match(result.stdout, nothingInstalled, `${kind} ${flags.join(' ')}: read a mention under its own describe as the gate`);
       assert.equal(await readFile(file, 'utf8'), before, `${kind} ${flags.join(' ')}: took a hook that only mentions the gate file`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The held regression: a hook that wraps the gate in another command. 0.19.0 took it by its describe with no flag, and
+// under --adopt without one. The reader read `timeout` as a program it did not know, so the hook was unclear and no flag
+// took it. It now strips a wrapper by that wrapper's pinned grammar, and what is left runs the gate.
+// ---------------------------------------------------------------------------
+
+const WRAPPED = Object.freeze({
+  progress: (wrapper) => `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${wrapper} ${q(NODE)} ${q(PACKED_PROGRESS)}`,
+  release: (wrapper) => `AGENT_SKILLS_RELEASE_NOTES_GATE=block ${wrapper} bash ${q(PACKED_RELEASE)}`,
+});
+
+test('a gate wrapped in timeout, nice, env or sudo runs: under its own describe no flag is needed, and without one --adopt takes it', async () => {
+  const quiet = /refusing|cannot tell whether|not gone/;
+  for (const wrapper of ['timeout 5', 'nice -n 10', 'env FOO=1', 'sudo -u x timeout 5']) {
+    for (const kind of ['progress', 'release']) {
+      const { event, matcher } = INSTALLERS[kind];
+      const command = WRAPPED[kind](wrapper);
+      const settingsFor = async (described) => {
+        const made = await settingsWith(kind, command);
+        if (described) {
+          const settings = JSON.parse(made.text);
+          settings.hooks[event][0].hooks[0].describe = OWN_DESCRIBES[kind];
+          await writeFile(made.file, JSON.stringify(settings, null, 2));
+        }
+        return made;
+      };
+
+      for (const [flags, described] of [[[], true], [['--adopt'], false]]) {
+        const run = `${kind} install ${flags.join(' ')} over ${JSON.stringify(command)}${described ? ' under its own describe' : ''}`;
+        const { home, file } = await settingsFor(described);
+        const installed = await runInstaller(kind, [...flags, '--settings', file], home);
+        assert.equal(installed.status, 0, `${run}: ${installed.stderr}`);
+        assert.doesNotMatch(`${installed.stdout}${installed.stderr}`, quiet, run);
+        assert.match(installed.stdout, described ? /^Kept mode block \(already installed in this file\)\./m : /^Kept mode block \(read from the adopted hook\)\./m, run);
+        const commands = (await readJson(file)).hooks[event].filter((group) => group.matcher === matcher).flatMap((group) => group.hooks).map((entry) => entry.command);
+        assert.equal(commands.length, 1, `${run}: expected exactly the gate this installer writes, found ${commands.length}`);
+        assert.ok(!commands.includes(command), `${run}: the wrapped hook was left where the new gate went`);
+      }
+      for (const [flags, described] of [[['--remove'], true], [['--remove', '--adopt'], false]]) {
+        const run = `${kind} ${flags.join(' ')} over ${JSON.stringify(command)}${described ? ' under its own describe' : ''}`;
+        const { home, file } = await settingsFor(described);
+        const removed = await runInstaller(kind, [...flags, '--settings', file], home);
+        assert.equal(removed.status, 0, `${run}: ${removed.stderr}`);
+        assert.doesNotMatch(`${removed.stdout}${removed.stderr}`, quiet, run);
+        assert.deepEqual(await readJson(file), {}, `${run}: left the wrapped gate`);
+      }
     }
   }
 });

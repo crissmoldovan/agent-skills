@@ -50,7 +50,7 @@
  *
  * RUNS THE GATE is structural, over the command's simple commands as `sh` splits them. In some simple
  * command, past its leading assignments, the reserved words `! { } if then else elif fi do done while
- * until time`, and the wrappers `exec`, `command`, `nohup` and `env` (only `env` takes assignments):
+ * until`, and every WRAPPER (below) with the options and operands it takes:
  *   - the program's basename is exactly the gate file; or
  *   - the program is an interpreter — a name matching `NODE_RUNTIME_NAME`, or `.` or `source` — or a shell
  *     in `SHELLS`, and the very next word's basename is exactly the gate file; or
@@ -59,10 +59,38 @@
  * A gate path that is an argument of a command that prints, reads, lists, tests, copies, moves or
  * deletes files — the programs in `MENTIONS`: `echo`, `cat`, `grep`, `ls`, `test`, `cp`, `rm`,
  * `shellcheck` and the like — is a MENTION, and that command runs nothing of the gate. Whatever else
- * names the gate file is UNCLEAR: an argument of any other program (`timeout`, `sudo`, `xargs`, a
- * wrapper script), a word after an interpreter's options (`node --check`), a mention whose output is
- * piped on, a variable's value, a here-document's body, a substitution the gate does not run in, and
- * every command in a text that defines a function.
+ * names the gate file is UNCLEAR: an argument of any other program (`xargs`, `watch`, a wrapper
+ * script), a wrapper form the table below does not pin, a word after an interpreter's options
+ * (`node --check`), a mention whose output is piped on, a variable's value, a here-document's body, a
+ * substitution the gate does not run in, and every command in a text that defines a function.
+ *
+ * WRAPPERS are commands whose documented form is `wrapper [options] [operands] COMMAND [args]` and which
+ * execute COMMAND. The reader strips each by the grammar pinned for it in `WRAPPER_GRAMMARS`, as many times
+ * as they nest (`sudo -u x timeout 5 node <gate>`), and reads what is left by the rules above. Each grammar
+ * is the part of the manual that macOS and Linux (GNU coreutils; sudo, the same 1.9.13 on both) share, and
+ * every form was run under macOS 14's /bin/sh and zsh and under dash with coreutils 9.1 and 9.4 before it
+ * went in — all but sudo's, which needs a password, and caffeinate's, which only macOS has:
+ *   command     `-p`, `--` — only first in the command, where the shell reads it (`-v` and `-V` print)
+ *   exec        no option, not even `--`, which dash refuses — only first in the command
+ *   nohup       `--`
+ *   nice        `-n N` for an integer N, `--`
+ *   env         `-i`, `-`, `-v`, `-u NAME`, `-S` with a string of plain words, which it splits and reads as
+ *               if written out, `--`, then `NAME=value` words
+ *   timeout     `-v`, `-k DURATION`, `-s SIGNAL`, `--verbose`, `--foreground`, `--preserve-status`,
+ *               `--kill-after`, `--signal`, `--`, then DURATION, a decimal number with an optional s, m, h or
+ *               d: the options coreutils 9.1, 9.4 and 9.11 share
+ *   caffeinate  `-d -i -m -s -u`, `-t N`, `-w N`, `--`
+ *   sudo        `-B -H -n -P`, `-u USER`, `-g GROUP`, `-p PROMPT` and their long names, each value once, `--`,
+ *               then `NAME=value` words before any `--`
+ * Short options cluster and take a value attached or as the next word, as getopt reads them. ANY OTHER
+ * OPTION OR FORM IS UNCLEAR, and the reader never guesses past it: an abbreviated long option, `timeout -p`
+ * (coreutils 9.11 only), `env -C` (GNU only), `nice -10`, `sudo -i`, `-s`, `-E`, `-b`, `-S`, `-A` or `-D`, a
+ * shell's own wrapper after another wrapper, and a value that does not read as its type — measured, such a
+ * value makes the wrapper exit without running anything. Left out, and so unclear wherever they name the
+ * gate: `time`, a keyword in bash and zsh but a program under dash that Debian and Ubuntu do not install;
+ * `stdbuf`, which on macOS dyld kills at load for some commands; `ionice`, `chrt` and `taskset`, which run
+ * nothing when the kernel refuses what they ask; and `xargs`, `watch` and `parallel`, which change how or
+ * whether the command runs. An over-refusal is recoverable; deleting a hook the reader misread is not.
  *
  * NAMING THE GATE FILE means a word, or a piece of one split at blanks, quotes, `= : ,`, `$`, parens,
  * braces and shell operators, whose basename is exactly the gate file. So
@@ -354,10 +382,177 @@ const MENTIONS = new Set([
   'chmod', 'chown', 'mkdir', 'diff', 'cmp', 'realpath', 'readlink', 'basename', 'dirname',
   'sha256sum', 'shasum', 'md5sum', 'shellcheck',
 ]);
-/** Words that lead a program without being one. Only `env` takes assignments. */
-const RESERVED = new Set(['!', '{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do', 'done', 'while', 'until', 'time']);
-const WRAPPERS = new Set(['exec', 'command', 'nohup', 'env']);
+/** Words that lead a program without being one, where the shell reads them: never after a wrapper, which hands the
+ *  word after it to the system as the name of a program. `time` is not one of them (WRAPPERS in the header). */
+const RESERVED = new Set(['!', '{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do', 'done', 'while', 'until']);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const INTEGER = /^[+-]?\d+$/;
+const DIGITS = /^\d+$/;
+/** timeout's DURATION: a decimal number, then an optional unit. */
+const DURATION = /^(?:\d+(?:\.\d*)?|\.\d+)[smhd]?$/;
+/** env -S's value, where it is only plain words: anything its own quoting, escapes or `${}` would change is not. */
+const PLAIN_WORDS = /^[A-Za-z0-9_.,:\/@%+=\t -]*$/;
+/** The signals Linux and macOS both name. timeout reads a name in any case, with or without `SIG`, or a number. */
+const SIGNALS = new Set(['HUP', 'INT', 'QUIT', 'ILL', 'TRAP', 'ABRT', 'BUS', 'FPE', 'KILL', 'USR1', 'SEGV', 'USR2', 'PIPE', 'ALRM', 'TERM', 'CHLD', 'CONT', 'STOP', 'TSTP', 'TTIN', 'TTOU', 'URG', 'XCPU', 'XFSZ', 'VTALRM', 'PROF', 'WINCH', 'IO', 'SYS']);
+const matches = (pattern) => (value) => pattern.test(value);
+const isSignal = (value) => /^(?:[1-9]|[12]\d|3[01])$/.test(value) || SIGNALS.has(value.toUpperCase().replace(/^SIG/, ''));
+const nonEmpty = (value) => value !== '';
+const anyValue = () => true;
+
+/**
+ * The grammar of each wrapper the reader strips (WRAPPERS in the header).
+ *   options       each short letter and each `--long` name it takes: `null` for a flag, or a test its value must pass
+ *   aliases       a long name that is the same option as a short letter, for `once`
+ *   once          a value option may be given only once
+ *   lone          a lone `-` is an option (env's `-i`)
+ *   endOfOptions  `--` ends the options
+ *   operands      a test for each word it reads after its options and before the command
+ *   assignments   `NAME=value` words before the command: `always`, or `before --`
+ *   split         the option whose value it splits into words and reads as if they had been written out
+ *   shell         the shell's own: a word the shell reads only first in the command, and not a program on every system
+ */
+const WRAPPER_GRAMMARS = Object.freeze({
+  command: Object.freeze({ options: { p: null }, endOfOptions: true, shell: true }),
+  exec: Object.freeze({ options: {}, shell: true }),
+  nohup: Object.freeze({ options: {}, endOfOptions: true }),
+  nice: Object.freeze({ options: { n: matches(INTEGER) }, endOfOptions: true }),
+  env: Object.freeze({
+    options: { i: null, v: null, u: matches(VARIABLE_NAME), S: matches(PLAIN_WORDS) },
+    lone: true,
+    endOfOptions: true,
+    assignments: 'always',
+    split: 'S',
+  }),
+  timeout: Object.freeze({
+    options: {
+      v: null,
+      k: matches(DURATION),
+      s: isSignal,
+      '--verbose': null,
+      '--foreground': null,
+      '--preserve-status': null,
+      '--kill-after': matches(DURATION),
+      '--signal': isSignal,
+    },
+    endOfOptions: true,
+    operands: [matches(DURATION)],
+  }),
+  caffeinate: Object.freeze({ options: { d: null, i: null, m: null, s: null, u: null, t: matches(DIGITS), w: matches(DIGITS) }, endOfOptions: true }),
+  sudo: Object.freeze({
+    options: {
+      B: null,
+      H: null,
+      n: null,
+      P: null,
+      u: nonEmpty,
+      g: nonEmpty,
+      p: anyValue,
+      '--bell': null,
+      '--set-home': null,
+      '--non-interactive': null,
+      '--preserve-groups': null,
+      '--user': nonEmpty,
+      '--group': nonEmpty,
+      '--prompt': anyValue,
+    },
+    aliases: { '--user': 'u', '--group': 'g', '--prompt': 'p' },
+    once: true,
+    endOfOptions: true,
+    assignments: 'before --',
+  }),
+});
+
+/** The grammar for a word in a program's place, or null. A shell's own wrapper is its bare word, and only before any
+ *  other wrapper; any other is a program, known by its name or by a path to it. */
+function wrapperGrammar(word, wrapped) {
+  const grammar = Object.hasOwn(WRAPPER_GRAMMARS, word) ? WRAPPER_GRAMMARS[word] : null;
+  if (grammar?.shell) return wrapped ? null : grammar;
+  const name = basename(word);
+  const program = Object.hasOwn(WRAPPER_GRAMMARS, name) ? WRAPPER_GRAMMARS[name] : null;
+  return program && !program.shell ? program : null;
+}
+
+/**
+ * One wrapper's arguments read by its grammar, from `start`: `{ words, index, values }` — the command's words (env -S
+ * puts words in), where the command the wrapper runs begins, and every word it took as a value, operand or assignment —
+ * or null for any word the grammar does not account for.
+ */
+function unwrap(grammar, source, start) {
+  let words = source;
+  let index = start;
+  let ended = false;
+  const values = [];
+  const given = new Set();
+  const take = (name, test, value) => {
+    if (value === undefined || !test(value)) return false;
+    const key = grammar.aliases?.[name] ?? name;
+    if (grammar.once && given.has(key)) return false;
+    given.add(key);
+    values.push(value);
+    return true;
+  };
+
+  while (index < words.length) {
+    const word = words[index];
+    if (word === '--') {
+      if (!grammar.endOfOptions) return null;
+      index += 1;
+      ended = true;
+      break;
+    }
+    if (word === '-' && grammar.lone) {
+      index += 1;
+      continue;
+    }
+    if (!word.startsWith('-') || word === '-') break;
+    let next = index + 1;
+    let split = null;
+    if (word.startsWith('--')) {
+      const equals = word.indexOf('=');
+      const name = equals === -1 ? word : word.slice(0, equals);
+      if (!Object.hasOwn(grammar.options, name)) return null;
+      const test = grammar.options[name];
+      if (test === null) {
+        if (equals !== -1) return null;
+      } else if (equals !== -1) {
+        if (!take(name, test, word.slice(equals + 1))) return null;
+      } else {
+        if (!take(name, test, words[next])) return null;
+        next += 1;
+      }
+    } else {
+      for (let at = 1; at < word.length; at += 1) {
+        const letter = word[at];
+        if (!Object.hasOwn(grammar.options, letter)) return null;
+        const test = grammar.options[letter];
+        if (test === null) continue;
+        const attached = word.slice(at + 1);
+        const value = attached === '' ? words[next] : attached;
+        if (!take(letter, test, value)) return null;
+        if (attached === '') next += 1;
+        if (letter === grammar.split) split = value;
+        break;
+      }
+    }
+    index = next;
+    if (split !== null) words = [...words.slice(0, index), ...split.split(/[ \t]+/).filter((piece) => piece !== ''), ...words.slice(index)];
+  }
+
+  for (const test of grammar.operands ?? []) {
+    if (index >= words.length || !test(words[index])) return null;
+    values.push(words[index]);
+    index += 1;
+  }
+  if (grammar.assignments) {
+    for (; index < words.length && words[index].includes('='); index += 1) {
+      if ((ended && grammar.assignments !== 'always') || !ASSIGNMENT.test(words[index])) return null;
+      values.push(words[index]);
+    }
+  }
+  return { words, index, values };
+}
 const SHELL_SCRIPT_OPTION = /^-[A-Za-z]*c[A-Za-z]*$/;
 const PIECE_BOUNDARY = /[\s'"`$=:,(){}<>;|&]+/;
 /** Substitutions and nested `-c` scripts deeper than this are not followed, only searched for the gate. */
@@ -369,7 +564,8 @@ function namesGate(text, gateFile) {
 }
 
 /** RUNS, UNCLEAR or NONE for one simple command. */
-function simpleCommandGateUse({ words, substitutions, heredocs, pipesOut }, gateFile, depth) {
+function simpleCommandGateUse({ words: parsed, substitutions, heredocs, pipesOut }, gateFile, depth) {
+  let words = parsed;
   let use = NONE;
   for (const inner of substitutions) {
     use = Math.max(use, gateUse(inner, gateFile, depth + 1) === RUNS ? RUNS : namesGate(inner, gateFile) ? UNCLEAR : NONE);
@@ -378,21 +574,28 @@ function simpleCommandGateUse({ words, substitutions, heredocs, pipesOut }, gate
   const unclearIfNamed = (list) => Math.max(use, list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
 
   let index = 0;
-  let assignmentsLead = true;
+  // Past a wrapper, the next word is the program it runs: no reserved word or assignment leads it any more, and a wrapper
+  // takes its own assignments by its grammar.
+  let wrapped = false;
   for (;;) {
-    while (assignmentsLead && index < words.length && ASSIGNMENT.test(words[index])) {
+    while (!wrapped && index < words.length && ASSIGNMENT.test(words[index])) {
       // A variable holding the gate's path may run it later.
       if (namesGate(words[index], gateFile)) use = Math.max(use, UNCLEAR);
       index += 1;
     }
-    assignmentsLead = true;
     if (index >= words.length) return use;
-    if (RESERVED.has(words[index])) {
+    const grammar = wrapperGrammar(words[index], wrapped);
+    if (!wrapped && RESERVED.has(words[index])) {
       index += 1;
-    } else if (WRAPPERS.has(basename(words[index]))) {
-      assignmentsLead = basename(words[index]) === 'env';
-      index += 1;
-      if (index < words.length && words[index].startsWith('-')) return unclearIfNamed(words.slice(index));
+    } else if (grammar) {
+      const inner = unwrap(grammar, words, index + 1);
+      // A form the grammar does not pin: never guess what runs past it.
+      if (inner === null) return unclearIfNamed(words.slice(index));
+      // A value the wrapper took that names the gate file is somewhere the gate may run from.
+      if (inner.values.some((value) => namesGate(value, gateFile))) use = Math.max(use, UNCLEAR);
+      words = inner.words;
+      index = inner.index;
+      wrapped = true;
     } else {
       break;
     }
@@ -554,7 +757,7 @@ export function unownedReason(kind, ownShape) {
     return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this, and so does a hook written under an interpreter this installer does not know by name.`;
   }
   if (kind === 'unclear') {
-    return 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a word after an interpreter\'s options, a pipe, a substitution, a variable, a here-document or a function — so it is never adopted: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.';
+    return 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, a word after an interpreter\'s options, a pipe, a substitution, a variable, a here-document or a function — so it is never adopted: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.';
   }
   return 'runs this gate, or may, under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.';
 }

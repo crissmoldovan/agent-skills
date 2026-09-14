@@ -294,8 +294,10 @@ test('where the command cannot say whether the gate runs, the hook is unclear: n
     // An argument of a program this reader does not know.
     'AGENT_SKILLS_PROGRESS_GATE=block /usr/local/bin/hook-wrapper --gate=/pack/report-progress-gate.mjs',
     'AGENT_SKILLS_PROGRESS_GATE=block hook-wrapper --gate=report-progress-gate.mjs',
-    'timeout 5 node /pack/report-progress-gate.mjs',
     'xargs node < /pack/report-progress-gate.mjs.list /pack/report-progress-gate.mjs',
+    // A wrapper form no rule pins, and `time`, which under dash is a program Debian and Ubuntu do not install.
+    'timeout --no-such-option 5 node /pack/report-progress-gate.mjs',
+    'time node /pack/report-progress-gate.mjs',
     'eval "node /pack/report-progress-gate.mjs"',
     // After an interpreter's options, which may or may not run it.
     'node --check /pack/report-progress-gate.mjs',
@@ -319,7 +321,7 @@ test('where the command cannot say whether the gate runs, the hook is unclear: n
     assert.equal(classifyHook(hook(command), PROGRESS), 'unclear', command);
   }
   for (const command of [
-    'sudo bash /pack/release-notes-gate.sh',
+    'sudo -i bash /pack/release-notes-gate.sh',
     'bash -n /pack/release-notes-gate.sh',
     "bash <<'EOF'\nbash /pack/release-notes-gate.sh\nEOF",
     'AGENT_SKILLS_RELEASE_NOTES_GATE=block /usr/local/bin/hook-wrapper /pack/release-notes-gate.sh',
@@ -404,7 +406,116 @@ test('a describe somebody else wrote vetoes ownership; the installer\'s own desc
   assert.equal(classifyHook(hook('AGENT_SKILLS_PROGRESS_GATE=block echo /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), null);
   assert.equal(classifyHook(hook("AGENT_SKILLS_PROGRESS_GATE=block '/bin/echo' '/pack/report-progress-gate.mjs'", ownDescribe), PROGRESS), null);
   assert.equal(classifyHook(hook("AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck '/pack/release-notes-gate.sh'", releaseDescribe), RELEASE), null);
-  assert.equal(classifyHook(hook('timeout 5 node /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), 'unclear');
+  assert.equal(classifyHook(hook('timeout --no-such-option 5 node /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), 'unclear');
+  // A wrapper the reader pins is not such a place: what it runs is read, and that runs the gate.
+  assert.equal(classifyHook(hook('timeout 5 node /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), 'ours');
+});
+
+// ---------------------------------------------------------------------------
+// Wrappers: commands whose documented form is `wrapper [options] [operands] COMMAND [args]` and which execute COMMAND.
+// The reader strips each by its pinned grammar, as many times as they nest, and reads what is left by the rules above.
+// Every form below was run, not read about: under macOS 14's /bin/sh and zsh, and under dash with GNU coreutils 9.1
+// (Debian 12) and 9.4 (Ubuntu 24.04), plus coreutils 9.11 for timeout. sudo's grammar is pinned from its manual, 1.9.13 on
+// both systems, because running it needs a password; caffeinate was run on macOS, the only system that has it.
+// ---------------------------------------------------------------------------
+
+const WRAPPED_NODE = "'/usr/local/bin/node'";
+const WRAPPED_GATE = "'/pack/adapters/claude-code/report-progress-gate.mjs'";
+const WRAPPED_RELEASE_GATE = "'/pack/adapters/claude-code/release-notes-gate.sh'";
+const wrappedProgress = (wrapper) => `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${wrapper} ${WRAPPED_NODE} ${WRAPPED_GATE}`;
+const wrappedRelease = (wrapper) => `AGENT_SKILLS_RELEASE_NOTES_GATE=block ${wrapper} bash ${WRAPPED_RELEASE_GATE}`;
+
+/** Forms that run the command after them on every system above. */
+const RUNNING_WRAPPERS = Object.freeze([
+  // timeout: the operand DURATION, then every option coreutils 9.1, 9.4 and 9.11 share.
+  'timeout 5', 'timeout 0', 'timeout 0.5', 'timeout .5', 'timeout 5.', 'timeout 1m', 'timeout 2h', 'timeout 1d', 'timeout 10s',
+  'timeout -k 1 5', 'timeout -k1 5', 'timeout --kill-after=1 5', 'timeout --kill-after 1 5',
+  'timeout -s KILL 5', 'timeout -s kill 5', 'timeout -s SIGTERM 5', 'timeout -s 9 5', 'timeout --signal=HUP 5', 'timeout --signal INT 5',
+  'timeout -v 5', 'timeout -vk 1 5', 'timeout --verbose 5', 'timeout --preserve-status 5', 'timeout --foreground 5', 'timeout -- 5',
+  // nice: GNU's and BSD's shared -n, and `--`.
+  'nice', 'nice -n 10', 'nice -n10', 'nice -n -5', 'nice -n +5', 'nice --',
+  'nohup', 'nohup --',
+  // env: the options GNU and BSD share, and assignments to variable names.
+  'env', 'env FOO=1', 'env FOO=1 BAR=', 'env -i', 'env -', 'env -i FOO=1', 'env -u FOO', 'env -uFOO', 'env -iu FOO', 'env -v', 'env --', 'env -- FOO=1',
+  // The shell's own, first in the command.
+  'command', 'command -p', 'command --', 'exec',
+  'caffeinate', 'caffeinate -i', 'caffeinate -dimsu', 'caffeinate -d -i', 'caffeinate -t 5', 'caffeinate -t5', 'caffeinate -w 1', 'caffeinate --',
+  // sudo: the options both systems' manuals list for running a command that decide nothing else first.
+  'sudo', 'sudo -u x', 'sudo -ux', 'sudo --user=x', 'sudo --user x', 'sudo -g staff', 'sudo -p prompt', 'sudo -n', 'sudo -B -H -n -P', 'sudo -nH',
+  'sudo --non-interactive --set-home', 'sudo --bell --preserve-groups', 'sudo FOO=1', 'sudo -u x FOO=1', 'sudo --',
+  // Nested, as deep as anyone writes them.
+  'sudo -u x timeout 5', 'nice -n 10 nohup timeout -s KILL 5', 'env FOO=1 sudo -n timeout 5', 'command -p timeout 5 env -i', 'exec sudo -n nice',
+]);
+
+/** Forms the reader does not pin, so it cannot tell what runs. */
+const UNPINNED_WRAPPERS = Object.freeze([
+  // The wrapper itself refuses them, on every system measured, and runs nothing.
+  'timeout --no-such-option 5', 'timeout 5x', 'timeout -s NOPE 5', 'timeout',
+  'nice -n x', 'env -0', 'command -v', 'command -V', 'nohup --help', 'caffeinate -z', 'caffeinate -t abc', 'caffeinate -w abc', 'caffeinate --help',
+  // They run the command on one system and not the other.
+  'timeout -p 5', 'timeout -f 5', 'env -C /tmp', 'env -P /bin', 'nice --adjustment=3', 'exec --', 'exec -a name', 'env =x',
+  // They run it by a rule this reader does not follow: an abbreviated long option, nice's obsolete -N, a -S string with
+  // quoting or expansion of its own, a word env takes as an assignment that names no variable.
+  'timeout --sig=KILL 5', 'nice -10', "env -S 'FOO=${HOME}'", "env -S '\"node\"'", 'env ./x=y',
+  // sudo: a value given twice, which it refuses, and the forms that decide something first — a shell, a background job,
+  // a helper or stdin for the password, a policy that may refuse the option, another root, directory or host, no command.
+  'sudo -u a -u b', 'sudo -i', 'sudo -s', 'sudo -b', 'sudo -A', 'sudo -S', 'sudo -E', 'sudo -k', 'sudo -D /tmp', 'sudo -R /tmp',
+  'sudo -T 5', 'sudo -C 5', 'sudo -h host', 'sudo -e', 'sudo -l', 'sudo -- FOO=1',
+  // Programs that change how or whether the command runs, which are not wrappers here.
+  'xargs', 'watch', 'parallel', 'flock /tmp/lock', 'ionice -c 3', 'chrt -o 0', 'taskset 1', 'stdbuf -oL', 'time', 'time -p', '/usr/bin/command',
+  // One unpinned layer anywhere in a nest is enough; the shell's own run only first in the command.
+  'sudo -u x timeout --no-such-option 5', 'timeout 5 sudo -i', 'nice -n 10 time', 'nice command', 'timeout 5 exec',
+  // After a wrapper, a reserved word is only the name of a program.
+  'nohup !', 'timeout 5 if',
+]);
+
+test('the held regression: a gate wrapped in timeout runs, so its own describe takes it with no flag and --adopt takes it without one', () => {
+  const progress = "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 timeout 5 '/usr/local/bin/node' '/pack/adapters/claude-code/report-progress-gate.mjs'";
+  const release = "AGENT_SKILLS_RELEASE_NOTES_GATE=block timeout 5 bash '/pack/adapters/claude-code/release-notes-gate.sh'";
+  assert.equal(classifyHook(hook(progress, ownDescribe), PROGRESS), 'ours');
+  assert.equal(classifyHook(hook(progress), PROGRESS), 'adoptable');
+  assert.equal(classifyHook(hook(release, releaseDescribe), RELEASE), 'ours');
+  assert.equal(classifyHook(hook(release), RELEASE), 'adoptable');
+  assert.equal(classifyHook(hook(progress, { describe: 'theirs' }), PROGRESS), 'foreign');
+});
+
+test('every wrapper form the reader pins runs the command after it, and wrappers nest', () => {
+  for (const wrapper of RUNNING_WRAPPERS) {
+    for (const [command, identity, describe] of [[wrappedProgress(wrapper), PROGRESS, ownDescribe], [wrappedRelease(wrapper), RELEASE, releaseDescribe]]) {
+      assert.equal(classifyHook(hook(command), identity), 'adoptable', command);
+      assert.equal(classifyHook(hook(command, describe), identity), 'ours', command);
+      assert.equal(classifyHook(hook(command, { describe: 'theirs' }), identity), 'foreign', command);
+    }
+  }
+  // What a wrapper runs is read by the rules for any command: a mention stays a mention, and a shell's -c script is read.
+  for (const command of [
+    `timeout 5 cat ${WRAPPED_GATE}`,
+    `sudo -u x rm -f ${WRAPPED_GATE}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block nice -n 10 echo ${WRAPPED_GATE}`,
+    `env FOO=1 ls -l ${WRAPPED_GATE}`,
+  ]) {
+    assert.equal(classifyHook(hook(command), PROGRESS), null, command);
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), null, command);
+  }
+  assert.equal(classifyHook(hook(`timeout 5 sh -c "node ${WRAPPED_GATE}"`), PROGRESS), 'adoptable');
+  // env -S splits a string of plain words into arguments, and env reads them as if they had been written out.
+  assert.equal(classifyHook(hook("env -S 'FOO=1 node' '/pack/report-progress-gate.mjs'"), PROGRESS), 'adoptable');
+  assert.equal(classifyHook(hook("env -S 'node /pack/report-progress-gate.mjs'"), PROGRESS), 'adoptable');
+  assert.equal(classifyHook(hook("env -S '-i node' /pack/report-progress-gate.mjs"), PROGRESS), 'adoptable');
+});
+
+test('a wrapper form the reader does not pin is unclear, describe or not: it never guesses past a wrapper', () => {
+  for (const wrapper of UNPINNED_WRAPPERS) {
+    for (const [command, identity, describe] of [[wrappedProgress(wrapper), PROGRESS, ownDescribe], [wrappedRelease(wrapper), RELEASE, releaseDescribe]]) {
+      assert.equal(classifyHook(hook(command), identity), 'unclear', command);
+      assert.equal(classifyHook(hook(command, describe), identity), 'unclear', command);
+      assert.equal(classifyHook(hook(command, { describe: 'theirs' }), identity), 'foreign', command);
+    }
+  }
+  // A value a wrapper option takes that names the gate file is a place the gate may run from.
+  assert.equal(classifyHook(hook(`sudo -p ${WRAPPED_GATE} node /pack/other.mjs`), PROGRESS), 'unclear');
+  // With nothing of the gate in it, an unpinned wrapper is nobody's business.
+  assert.equal(classifyHook(hook('timeout --no-such-option 5 node /pack/other.mjs'), PROGRESS), null);
 });
 
 test('anything that is not a hook with a string command belongs to nobody, and throws nothing', () => {
