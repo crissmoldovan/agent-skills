@@ -7,8 +7,8 @@
  * behalf: a hook that can end a turn is the user's decision to arm, and a gate
  * installed by an agent on its own initiative is a gate nobody consented to.
  *
- * Two hooks, because the gate needs both halves and neither is useful alone —
- * three when the user names skills to treat as external agents:
+ * Three hooks, because the gate needs both halves and a turn boundary — four when
+ * the user names skills to treat as external agents:
  *
  *   SubagentStart, matcher `*`    arms a per-session marker when a subagent is
  *                                 started, of any kind, foreground or
@@ -21,6 +21,9 @@
  *                                 which is the difference between a guard people
  *                                 keep and one they rip out after it blocks "yes,
  *                                 that file is in src/".
+ *   UserPromptSubmit, matcher `*` clears the Stop half's record of a block it spent
+ *                                 in the previous turn, so each turn can block once
+ *                                 and no more. Arms nothing, prints nothing.
  *   PostToolUse, matcher `Skill`  written ONLY when `--skills` named something.
  *                                 Arms on an exact skill name, never on command
  *                                 text. With no list this hook does not exist, so
@@ -28,6 +31,7 @@
  *
  * That is the set at coverage 2. At coverage 1 the arming half is `PostToolUse` matcher
  * `Agent` in place of `SubagentStart`, and there is no `Skill` hook — see THE COVERAGE LEVEL.
+ * `UserPromptSubmit` is written at both.
  *
  * There is no third hook for background work, and that is not an omission: the
  * `Stop` payload already carries `background_tasks[]`, so a workflow launched in
@@ -41,8 +45,7 @@
  *            have blocked to stderr. The turn always ends. This is the mode to
  *            live with for a day before arming the other one.
  *   block    The gate returns `{"decision":"block"}` and the turn continues for
- *            one more round so the report can be written. Once per turn is the intent,
- *            not a guarantee the gate can keep alone: see WHY A NEW INSTALL GETS 1.
+ *            one more round so the report can be written — at most once per turn.
  *
  * What the gate can and cannot do is fixed and small: it matches strings against
  * the turn's final message. It sees whether the three section labels are there
@@ -55,10 +58,13 @@
  * 8 consecutive `Stop` blocks, and that budget is SHARED across every `Stop` hook
  * from every settings source (`adapters/HOOK-OUTPUT-NOTES.md`). When it runs out
  * the headless result is `subtype: "success"`, `is_error: false`, `result: ""` —
- * an empty answer reported as a clean run. The gate aims to spend at most one block
- * per turn so that it is never the hook that walks a session into that. Where
- * something arms it again within the turn, the harness's `stop_hook_active` is what
- * holds that line (WHY A NEW INSTALL GETS 1). It is
+ * an empty answer reported as a clean run. The gate spends at most one block per turn
+ * so that it is never the hook that walks a session into that: its record of a spent
+ * block, which nothing inside the turn touches, and the `UserPromptSubmit` hook that
+ * clears it at the next turn start, hold that line (the gate's own header, THE RECORD
+ * OF A SPENT BLOCK). The commands declare that hook as
+ * `AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit`; a command without it, as
+ * every installer through 0.19.0 wrote, runs the gate exactly as 0.19.0 did. It is
  * also why this is ONE gate rather than two: a second blocking `Stop` hook does not
  * get its own budget, it competes for this one, and two gates disagreeing about the
  * same turn can spend two blocks on one missing report.
@@ -80,15 +86,11 @@
  * Updating and changing enforcement are separate actions, and the output names which
  * one happened.
  *
- * WHY A NEW INSTALL GETS 1. At either level, the gate's record of a spent block does not survive
- * something arming it again later in the same turn. At coverage 1 that is an `Agent` dispatch in
- * the continuation round, which rewrites the marker as unspent. At coverage 2 it is also a
- * subagent starting, or a register that changes again after the gate stood down and deleted the
- * marker. Either way, only the harness's `stop_hook_active` stands between that and a second
- * block out of the eight every `Stop` hook on the machine shares. Measured against the gate
- * directly: with `stop_hook_active` absent both levels block a second time, and with it set
- * neither does; v0.16.1's gate behaves the same. Coverage 2 opens more of those doors, and the
- * register opens one that needs no tool call at all. That is a cost a user should choose, not
+ * WHY A NEW INSTALL GETS 1. Coverage 2 holds more turns: it arms on every subagent kind, on a named
+ * skill, and on a change in the harness's list of background work, which arms a turn with no tool
+ * call at all. Through 0.19.0 it also had more ways to spend a second block in a turn, and neither
+ * level could prevent one without the harness's `stop_hook_active`. The record of a spent block now
+ * closes that at both levels, but holding more turns is still a cost a user should choose, not
  * inherit.
  *
  * THE HOOK SET FOLLOWS THE LEVEL, or keeping a level would be a lie. Coverage 1 arms on one
@@ -129,6 +131,8 @@ import {
   GATE_ENV_FLAG,
   GATE_MODES,
   SKILLS_ENV_FLAG,
+  TURN_HOOK_ENV_FLAG,
+  TURN_HOOK_EVENT,
   isEntrypoint,
   resolveCoverage,
   resolveMode,
@@ -161,6 +165,9 @@ const IDENTITY = Object.freeze({ envFlag: GATE_ENV_FLAG, gateFile: HOOK_MARKER, 
 export const STOP_MATCHER = '*';
 export const SUBAGENT_MATCHER = '*';
 export const SKILL_MATCHER = 'Skill';
+/** `UserPromptSubmit` takes no matcher; `*` is what the `Stop` half, which takes none either, was
+ *  observed working with. */
+export const TURN_MATCHER = '*';
 /** `PostToolUse` matcher `Agent`: v0.16.1's arming half, and coverage 1's — the one signal
  *  that level reads. Coverage 2 writes `SubagentStart` in its place. */
 export const AGENT_MATCHER = 'Agent';
@@ -191,9 +198,8 @@ const USAGE = `Usage: install-report-progress-gate.mjs [--mode observe|block] [-
 
 observe  report to stderr what the gate would have blocked; never ends a turn. (default)
 block    hold the turn for one more round when an armed turn ends without a progress
-         report. Once per turn is the intent at either level; if something arms the gate
-         again later in the same turn, the harness's own backstop (stop_hook_active) is
-         what prevents a second block.
+         report, at most once per turn at either level. A UserPromptSubmit hook, written
+         beside the others, clears the record of the spent block when the next turn starts.
 
 --coverage 1  arm on one thing: a subagent dispatched through the Agent tool. What a new
               install gets when no level is given.
@@ -260,7 +266,10 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
     throw new Error('refusing to write: --skills needs coverage 2 — the gate at coverage 1 never reads a skill list');
   }
 
-  const base = `${GATE_ENV_FLAG}=${mode} ${COVERAGE_ENV_FLAG}=${coverage}`;
+  // The turn hook is declared in every command, so the Stop half knows a UserPromptSubmit half was
+  // written beside it — and a command from an older installer, which does not declare it, keeps the
+  // behaviour it was installed with.
+  const base = `${GATE_ENV_FLAG}=${mode} ${COVERAGE_ENV_FLAG}=${coverage} ${TURN_HOOK_ENV_FLAG}=${TURN_HOOK_EVENT}`;
   const command = `${base} ${shellQuote(nodePath)} ${shellQuote(gatePath)}`;
   // The allowlist rides only on the hook that reads it, so the Stop and SubagentStart
   // commands stay identical whether or not a list was configured.
@@ -269,14 +278,6 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
   const armed = coverage === 2
     ? 'a turn that started a subagent, invoked a listed external-agent skill, or in which the harness started or stopped listing a background task'
     : 'a turn that dispatched a subagent through the Agent tool';
-  // What stops a second block. This string used to say "once, never twice", and that was not the
-  // gate's to promise at either level: its record of a spent block does not survive a re-arm later
-  // in the same turn. Live at coverage 2, a Stop re-armed from the register with the record gone
-  // and only the harness's stop_hook_active held it (adapters/HOOK-OUTPUT-NOTES.md, 2026-09-14);
-  // at coverage 1 an Agent dispatch in the continuation round rewrites the record as unspent.
-  const rearm = coverage === 2
-    ? 'a subagent starting, or the background list changing, later in the same turn can re-arm it without the record of the block it spent'
-    : 'a further Agent dispatch later in the same turn re-arms it without the record of the block it spent';
 
   return {
     stop: {
@@ -284,8 +285,16 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
       command,
       timeout: STOP_TIMEOUT_SECONDS,
       describe: mode === 'block'
-        ? `${DESCRIBE_PREFIX} (block): on ${armed}, holds the turn for one more round when the final message has no "what is done / what is running / what is next" report. It means to do that once per turn, but ${rearm}, so it is the harness's own stop_hook_active that prevents a second block; it matches the report's shape only and cannot verify anything in it, and ${removal}.`
+        ? `${DESCRIBE_PREFIX} (block): on ${armed}, holds the turn for one more round when the final message has no "what is done / what is running / what is next" report, once per turn — the spent block is recorded where nothing inside the turn touches it, and the UserPromptSubmit half clears that record when the next turn starts; it matches the report's shape only and cannot verify anything in it, and ${removal}.`
         : `${DESCRIBE_PREFIX} (observe): on ${armed}, writes to stderr what a blocking gate would have refused in the final message and never holds the turn; it matches the report's shape only and cannot verify anything in it, and ${removal}.`,
+    },
+    // The turn boundary, at both levels: what lets the Stop half keep its record of a spent block for
+    // exactly one turn.
+    turnStart: {
+      type: 'command',
+      command,
+      timeout: POST_TOOL_TIMEOUT_SECONDS,
+      describe: `${DESCRIBE_PREFIX} (${mode}, turn start): clears the Stop half's record of a block it spent in the previous turn, so it can block once in this one; it arms nothing and prints nothing, and ${removal}.`,
     },
     // Exactly one arming half per level. Writing the half a level ignores would cost a Node
     // start per event for nothing; omitting the half it reads would leave a gate that never fires.
@@ -378,6 +387,7 @@ function eventGroups(settings, event) {
  */
 const HOOK_PLAN = Object.freeze([
   { event: 'Stop', matcher: STOP_MATCHER, key: 'stop' },
+  { event: TURN_HOOK_EVENT, matcher: TURN_MATCHER, key: 'turnStart' },
   { event: 'SubagentStart', matcher: SUBAGENT_MATCHER, key: 'subagentStart' },
   { event: 'PostToolUse', matcher: AGENT_MATCHER, key: 'agentTool' },
   { event: 'PostToolUse', matcher: SKILL_MATCHER, key: 'skill' },
@@ -547,7 +557,8 @@ export function readInstalledGate(settings, { adopt = false } = {}) {
     unknown = `its hooks run at different levels: ${candidates.map((entry) => `${hookLabel(entry)} at ${entry.coverage}`).join(', ')}`;
   }
   const skills = [...new Set(candidates.flatMap((entry) => entry.skills))];
-  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown, skills };
+  const events = [...new Set(candidates.map((entry) => entry.event))];
+  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown, skills, events };
 }
 
 /** One line naming where the level came from. A silent level is the defect this replaced. */
@@ -742,11 +753,15 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       const count = existing.skills.length;
       stdout.write(`Skill list not kept — the gate already in this file treated ${existing.skills.join(', ')} as external agent${count === 1 ? '' : 's'}, and this run named no --skills. Pass --skills ${existing.skills.join(',')}${coverage === 1 ? ' --coverage 2' : ''} to keep ${count === 1 ? 'it' : 'them'}.\n`);
     }
+    // The hook that makes "once per turn" true is new, and an update that adds it says so.
+    if (existing && !existing.events.includes(TURN_HOOK_EVENT)) {
+      stdout.write(`Added a ${TURN_HOOK_EVENT} hook: the gate already in this file had none, so its record of a spent block did not outlast a re-arm later in the same turn. With it, the gate blocks at most once per turn.\n`);
+    }
     stdout.write((coverage === 1 ? [
       '',
       'ARMED ON ONE THING, and on nothing else:',
       '  - a subagent dispatched through the Agent tool in this turn (PostToolUse, matcher',
-      '    Agent). That is v0.16.1\'s gate exactly.',
+      '    Agent). That is v0.16.1\'s arming signal exactly.',
       '',
       'Every other turn ends exactly as it would with the gate absent — with one exception,',
       'costing one block, once: the marker is per session and is cleared by the Stop that',
@@ -768,10 +783,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       '',
       'WHAT --coverage 2 ADDS, AND WHAT IT COSTS. It arms on a subagent of any kind starting,',
       'on a skill you name, and on a change in the harness\'s list of background work. The',
-      'cost: more turns are held, and more ways to arm the gate again within one turn. A',
-      'change in that list after the gate has stood down arms a later Stop afresh with no',
-      'tool call at all. At either level, what then stops a second block is the harness\'s',
-      'own stop_hook_active, not this gate\'s memory.',
+      'cost: more turns are held — a change in that list arms a turn with no tool call at',
+      'all. Neither level blocks more than once in a turn.',
       '',
     ] : [
       '',
@@ -816,22 +829,17 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     ]).join('\n'));
     if (options.mode === 'block') {
       stdout.write([
-        'Block mode holds the turn for one more round, once, and then stands down: if the',
-        'next message still has no report, the turn ends anyway. That ceiling is not',
-        'politeness. Claude Code ends a turn after 8 consecutive Stop blocks, the budget is',
+        'Block mode holds the turn for one more round, at most once per turn, and then stands',
+        'down: if the next message still has no report, the turn ends anyway. That ceiling is',
+        'not politeness. Claude Code ends a turn after 8 consecutive Stop blocks, the budget is',
         'shared with every other Stop hook you have installed, and when it runs out the',
         'result comes back as a success with an empty answer.',
-        ...(coverage === 2 ? [
-          '"Once" is the intent rather than a guarantee. The gate\'s record of the spent block',
-          'does not survive a subagent starting, or the background list changing again after',
-          'the gate stood down, so a later Stop of the same turn can arm afresh. At either',
-          'level, the harness\'s stop_hook_active is what stops a second block.',
-        ] : [
-          '"Once" is the intent rather than a guarantee. Another Agent dispatch later in the',
-          'same turn re-arms the gate and rewrites its record of the spent block, so a later',
-          'Stop can arm afresh. At either level, the harness\'s stop_hook_active is what stops',
-          'a second block.',
-        ]),
+        'What keeps it to once is a record of the spent block that nothing inside the turn',
+        'touches, and the UserPromptSubmit hook written beside the gate, which clears that',
+        'record when the next turn starts. UserPromptSubmit was observed firing at every turn',
+        'start and never inside a continuation; a turn it does not fire for (slash-command',
+        'turns are untested) cannot block at all, rather than blocking twice. Keep the hooks',
+        'together: without that one, the gate blocks once per session, not once per turn.',
         '',
       ].join('\n'));
     } else {

@@ -48,7 +48,8 @@ output side"). Same rule: it outranks this file if they ever disagree.
   refuses a turn's final message when that turn started a subagent, invoked a
   listed external-agent skill, or changed the harness's own list of background
   work — and the message carries no progress report. Plus the `SubagentStart`
-  marker writer that arms the first of those. Nothing to do with the journal —
+  marker writer that arms the first of those, and the `UserPromptSubmit` hook that
+  clears its record of a spent block when a turn starts. Nothing to do with the journal —
   separate install, separate flag, separate settings entries. See "The
   progress-report gate" below.
 - `install-report-progress-gate.mjs` — writes and removes those hooks in a
@@ -275,9 +276,9 @@ already in that settings file, and says so: `Kept coverage 1 (already installed 
 this file)`. Only `--coverage` changes it, and then the output names the change:
 `Set coverage 2 (was 1)`. A new install with no `--coverage` gets coverage 1.
 
-It writes two entries into `~/.claude/settings.json` (or the `--settings` file
-you name), and which two depends on the level. At **coverage 2** they are these,
-plus a third only if you named skills:
+It writes three entries into `~/.claude/settings.json` (or the `--settings` file
+you name), and which three depends on the level. At **coverage 2** they are these,
+plus a fourth only if you named skills:
 
 - **`SubagentStart`, matcher `*`** — arms a per-session marker when a subagent is
   started: foreground or backgrounded, of any `agent_type`. This replaced
@@ -293,16 +294,19 @@ plus a third only if you named skills:
   Returns `{"decision":"block","reason":…}` at exit 0 when the final message
   carries no report. Nothing armed, no gate: a turn that delegated nothing and
   changed nothing ends exactly as it would with the hook absent.
+- **`UserPromptSubmit`, matcher `*`** — clears the `Stop` half's record of a block it
+  spent in the previous turn, so each turn can block once and no more. It arms
+  nothing and prints nothing. Written at both levels; see "One block per turn" below.
 - **`PostToolUse`, matcher `Skill`** — written **only** when `--skills` named
   something. Arms on an exact skill name. With no list, this hook does not exist
   at all, so the default install gains no invocation on the `Skill` path.
 
-At **coverage 1** the pair is `Stop` and **`PostToolUse`, matcher `Agent`** —
-v0.16.1's pair exactly — because an `Agent`-tool dispatch is the one signal the
-gate reads at that level. There is no `SubagentStart` hook and no `Skill` hook
+At **coverage 1** the arming half is **`PostToolUse`, matcher `Agent`** —
+v0.16.1's arming half exactly — beside `Stop` and `UserPromptSubmit`, because an
+`Agent`-tool dispatch is the one signal the gate reads at that level. There is no `SubagentStart` hook and no `Skill` hook
 there, and `--skills` at coverage 1 is refused rather than written: the gate at
-that level never reads a skill list. Moving between levels replaces the pair
-rather than adding to it, and removal scans **every** event key in your settings
+that level never reads a skill list. Moving between levels replaces the hooks
+rather than adding to them, and removal scans **every** event key in your settings
 for hooks this installer wrote, not just the ones the current level writes. (Before that change, the moment the installer stopped writing
 `PostToolUse`, an already-installed user's `PostToolUse` hook became unremovable
 by `--remove`.)
@@ -371,10 +375,8 @@ coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. If an
 update also changes the mode — `--mode` still defaults to `observe` — it says that
 too, and so does one that drops a `--skills` list it did not repeat.
 
-**A new install gets coverage 1**, because coverage 2 holds more turns and has more
-ways to arm a turn again after it has blocked, including a register change that needs
-no tool call (below), and the budget a second block draws on is shared with every
-other `Stop` hook on the machine.
+**A new install gets coverage 1**, because coverage 2 holds more turns, including a
+turn armed by a register change that needs no tool call (below).
 The pack's rule is that a hook able to end a turn is off until a human arms it; the
 wider level is a thing to opt into, not to inherit.
 
@@ -469,18 +471,31 @@ harness's own backstop rather than relied on as the ceiling — observed, with t
 marker directory made unwritable after arming, a gate that trusted it returned
 `decision: "block"` on three consecutive `Stop`s. One block, then it stands down.
 
-**At either level that is the intent rather than a guarantee, and the difference is
-named here rather than discovered.** At coverage 2, standing down *deletes* the
-marker, and the marker is where the spent block is recorded. So a turn can block on
-one `Stop`, stand down on the next, and, if the register changes again, arm afresh on
-a third with no record left that it already spoke. A subagent starting later in the
-turn does the same, because arming rewrites the marker as unspent. Coverage 1, and
-v0.16.1 before it, have that second hole: an `Agent` dispatch in the continuation
-round rewrites the marker, and the next `Stop` blocks again unless something else
-stops it. Measured against the gate directly, with `stop_hook_active` absent, both
-levels blocked a second time. `stop_hook_active` catches it live, but that is the
-harness's backstop, not this gate's own memory, and the paragraph above is exactly
-the reason not to lean on it. `SubagentStop` is
+**The record of a spent block is a file of its own, and a turn start clears it.**
+Through 0.19.0 the marker was that record, and nothing inside a turn could be allowed
+to touch it, yet arming rewrote it as unspent and standing down deleted it. A turn
+could block, stand down, and then arm again with no record that it had already spoken.
+The next arm could be another `Agent` dispatch, a subagent starting, or the register
+changing again. Measured against that gate with `stop_hook_active` absent, both levels
+blocked a second time. So a block is now also written to `<session>.spent.json`
+before it is emitted, and nothing inside the turn touches that file. The
+installer writes a **`UserPromptSubmit`** hook at both levels, which deletes it and
+prints nothing. That event fires at the start of every turn, including the turn a
+background completion's `<task-notification>` starts, and never inside a `Stop`-forced
+continuation. Text that arrives during a foreground tool call is folded into the
+current turn without it, which keeps a spent block spent. A hook that prints nothing
+adds nothing to the model's request (all OBSERVED, `../HOOK-OUTPUT-NOTES.md`, fourth
+addendum of 2026-09-14). If a turn starts without it, the failure is a missed block,
+never a second one. Slash-command turns were not tested.
+
+Every command the installer writes declares that hook as
+`AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit`, and the gate reads the
+record only when the command declares it. A command an older installer wrote does not
+declare it, and its settings file has no hook to clear the record. Reading the record
+there would make that gate block once per session. So under those hooks the gate
+decides exactly as 0.19.0 did, and after a re-arm only `stop_hook_active` stops a
+second block. The reason it prints then does not promise once per turn. Re-running
+the installer adds the hook, and says that it did. `SubagentStop` is
 deliberately not wired: it has no 8-block backstop at all, so a bug there would
 hang a child agent instead of costing one continuation.
 

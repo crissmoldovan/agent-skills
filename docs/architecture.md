@@ -45,7 +45,8 @@ the conversation, in a hook the user wired into their own harness.
   missing, plus the arming half the chosen coverage level reads — `PostToolUse` matcher
   `Agent` at coverage 1; `SubagentStart` at coverage 2, with `PostToolUse` matcher `Skill` only
   for a named skill list, while the harness's own register of background work is read out of
-  the `Stop` payload itself. It is installed and removed by `install-report-progress-gate.mjs`,
+  the `Stop` payload itself. At both levels a `UserPromptSubmit` hook clears its record of a
+  spent block when a turn starts, which is what holds it to one block per turn. It is installed and removed by `install-report-progress-gate.mjs`,
   and covered by `test/report-progress-gate.test.mjs`.
 - `adapters/claude-code/release-notes-gate.sh` is the mechanical half of the `release-notes`
   skill: a `PreToolUse` hook on `Bash` that refuses a publish, a forge release-create, a

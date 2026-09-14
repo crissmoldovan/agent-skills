@@ -513,14 +513,19 @@ test('the architecture page names the report-progress gate by the hooks its inst
 });
 
 test('no page says the report-progress gate cannot block twice at coverage 1', async () => {
-  // These sentences shipped, and they were false: an Agent dispatch after a block re-arms coverage 1
-  // exactly as a subagent re-arms coverage 2, and at both levels only the harness's stop_hook_active
-  // holds the second Stop (measured in test/report-progress-gate.test.mjs). Released CHANGELOG
-  // entries are history and are not checked here.
+  // These sentences shipped, and they were false: an Agent dispatch after a block re-armed coverage 1
+  // exactly as a subagent re-armed coverage 2, and through 0.19.0 only the harness's stop_hook_active
+  // held the second Stop at both levels (test/report-progress-gate.test.mjs still pins that behaviour
+  // for a gate installed without the UserPromptSubmit hook). Released CHANGELOG entries are history
+  // and are not checked here.
   const { readFileSync } = await import('node:fs');
   for (const page of ['README.md', 'adapters/claude-code/README.md', 'skills/report-progress/SKILL.md']) {
     const text = readFileSync(new URL(`../${page}`, import.meta.url), 'utf8');
     assert.doesNotMatch(text, /coverage 1 does not have this shape|structurally incapable|a shape coverage 1 cannot/i, page);
     assert.doesNotMatch(text, /At coverage 2, once per turn is the intent/, page);
+    // True through 0.19.0 and not since: a record of the spent block, cleared by a UserPromptSubmit hook
+    // when each turn starts, holds the ceiling at both levels. Each page names that hook.
+    assert.doesNotMatch(text, /once per turn is the intent rather than a guarantee|aims to act once per turn|that is the intent rather than a guarantee/i, page);
+    assert.match(text, /UserPromptSubmit/, `${page} does not name the hook that keeps one block per turn`);
   }
 });
