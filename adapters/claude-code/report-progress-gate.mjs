@@ -78,10 +78,13 @@
  *     the skill exists to stop, manufactured by the gate meant to prevent it.
  *   - background work that starts and finishes inside one turn. The register is
  *     sampled at `Stop`, so it is never sampled in time to see it.
- *   - anything about a session resumed in a fresh CLI process: `background_tasks[]`
- *     belongs to the process, not to the session id (OBSERVED, ../NOTES.md
- *     addendum 2026-09-14), so the first `Stop` after a resume starts from empty
- *     and can read as a burst of disappearances. One block, once.
+ *   - which process a `Stop` came from. `background_tasks[]` belongs to the CLI
+ *     process, not to the session id (OBSERVED, ../NOTES.md addendum 2026-09-14),
+ *     and nothing in the payload names the process. A resume is covered by the
+ *     `SessionStart` half, under A RESUME below. A gate installed without that half
+ *     still reads the first `Stop` after a resume as a burst of disappearances, and
+ *     pays one block. Two processes holding one session id at once share one
+ *     baseline; that was not tested.
  *
  * IT CHECKS SHAPE, NOT TRUTH, and every string it prints says so. It can see
  * that three section labels are present and that a running row carries a state
@@ -157,6 +160,21 @@
  * also arrives on it, and the gate still does not arm there: every completion it
  * could catch is already visible to the `Stop` hook as a disappearance from the
  * register, one turn later at the latest, at no additional cost.
+ *
+ * A RESUME. `SessionStart` is wired at coverage 2 for one thing, and it arms nothing and
+ * prints nothing. The installer writes it on matcher `resume`, and this file acts only on
+ * `source: "resume"`: `compact` fires inside the running process with its register
+ * intact, and `startup` and `clear` begin a session id that has no baseline to misread.
+ * The event fires with `source: "resume"` for `--resume` and `--continue`, before the
+ * resumed process's first `Stop` (OBSERVED, ../HOOK-OUTPUT-NOTES.md, fourth and fifth
+ * addenda of 2026-09-14). So it leaves a note (`resumeFile`), and that session's next
+ * `Stop` drops the disappearances. It drops them only when none of the baseline's tasks
+ * is still listed, which a new process, whose register starts empty, cannot do. On
+ * `--fork-session` the event carries the PARENT's session id (OBSERVED, fourth addendum),
+ * so the note can reach the parent's next `Stop` instead of the fork's. The fork has no
+ * baseline to misread. The parent keeps every disappearance while any of its tasks is
+ * still listed, and can miss one only when all of them went away in that same turn. That
+ * is a missed block, never an extra one.
  *
  * The four rules in `journal-hook.mjs` hold here too, and this file states them
  * again because it is the one that can end a turn:
@@ -258,6 +276,10 @@ export const SKILLS_ENV_FLAG = 'AGENT_SKILLS_PROGRESS_GATE_SKILLS';
 export const TURN_HOOK_ENV_FLAG = 'AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK';
 /** The event that marks a turn start, and the one value of `TURN_HOOK_ENV_FLAG` that declares it. */
 export const TURN_HOOK_EVENT = 'UserPromptSubmit';
+
+/** The event that marks a session resumed in a fresh CLI process, and the one `source` it acts on. */
+export const SESSION_START_EVENT = 'SessionStart';
+export const RESUME_SOURCE = 'resume';
 
 /** A workflow's own children. Excluded from `SubagentStart` arming — see `armsForSubagentStart`. */
 export const WORKFLOW_SUBAGENT_TYPE = 'workflow-subagent';
@@ -527,17 +549,27 @@ export function runningTaskIds(backgroundTasks) {
  * turn in which background work was started, or in which a background result arrived.
  *
  * An ABSENT baseline is EMPTY, not unknown. A session's first `Stop` has neither, so
- * absent-as-empty is right there; where it is wrong — a swept temp directory, or a session
- * resumed in a fresh CLI process, whose register starts empty again — it costs one block,
- * once. The other reading would make the FIRST appearance of any task unarmable, which is
- * the one that matters most.
+ * absent-as-empty is right there. Where it is wrong, as with a swept temp directory, it costs
+ * one block, once. The other reading would make the FIRST appearance of any task unarmable,
+ * which is the one that matters most.
+ *
+ * `resumed` covers the opposite case: a baseline that is present, but was written by a process
+ * that no longer exists. That is a session resumed in a fresh CLI process, whose register starts
+ * empty. The `SessionStart` half notes the resume, and without `resumed` the first `Stop` would
+ * read every old task as gone.
  */
-export function registerEdge({ current = [], previous = [] } = {}) {
+export function registerEdge({ current = [], previous = [], resumed = false } = {}) {
   const now = new Set(Array.isArray(current) ? current : []);
   const before = new Set(Array.isArray(previous) ? previous : []);
+  // A NEW PROCESS CANNOT STILL LIST ANY OF THE OLD PROCESS'S TASKS, because its register starts empty. So
+  // after a resume the disappearances are dropped only when none of the baseline is listed now. Where one
+  // still is, this `Stop` came from the process that wrote the baseline, which is what the parent of a
+  // fork looks like, since the fork's `SessionStart` carried the parent's id. What went away there really
+  // went away.
+  const newProcess = resumed === true && ![...before].some((id) => now.has(id));
   return {
     appeared: [...now].filter((id) => !before.has(id)),
-    disappeared: [...before].filter((id) => !now.has(id)),
+    disappeared: newProcess ? [] : [...before].filter((id) => !now.has(id)),
   };
 }
 
@@ -838,6 +870,32 @@ export function clearRegisterBaseline(file) {
 }
 
 /**
+ * Where a RESUME NOTE lives. This file's `SessionStart` half leaves one when a session is resumed in a
+ * fresh CLI process, and that session's next coverage-2 `Stop` spends it. See the header's A RESUME.
+ */
+export function resumeFile(env = process.env, sessionId = '') {
+  return sessionPath(env, sessionId, '.resumed.json');
+}
+
+export function writeResumeNote(file) {
+  return writeJsonAtomically(file, { version: MARKER_VERSION, resumedAt: Date.now() });
+}
+
+/** True when a note is on disk and within MARKER_MAX_AGE_MS. A stale note is the same as none. */
+export function readResumeNote(file, nowMs = Date.now()) {
+  try {
+    const at = Number(JSON.parse(readFileSync(file, 'utf8'))?.resumedAt);
+    return Number.isFinite(at) && nowMs - at <= MARKER_MAX_AGE_MS && nowMs >= at - MARKER_MAX_AGE_MS;
+  } catch {
+    return false; // absent, unreadable, or hand-edited: no resume on record
+  }
+}
+
+export function clearResumeNote(file) {
+  removeQuietly(file);
+}
+
+/**
  * The Stop decision, with the file system factored out so every branch is testable.
  *
  * `disarm` means "delete the marker": the turn is over as far as this gate is concerned,
@@ -977,6 +1035,15 @@ async function main() {
     return;
   }
 
+  if (payload.hook_event_name === SESSION_START_EVENT) {
+    // A session resumed in a fresh CLI process. Only `resume` means a new process on an existing session.
+    // `compact` fires inside the running process with its register intact, and `startup` and `clear`
+    // begin a session id with no baseline to misread. Coverage 1 never reads the register, so it notes
+    // nothing. Silent, like every half that is not `Stop`.
+    if (coverage === 2 && payload.source === RESUME_SOURCE) writeResumeNote(resumeFile(process.env, payload.session_id ?? ''));
+    return;
+  }
+
   if (payload.hook_event_name === 'PostToolUse') {
     // Scoped twice: the installer's matcher keeps the harness from invoking this on
     // unrelated tools at all, and this check keeps a hand-widened matcher from arming
@@ -1007,7 +1074,12 @@ async function main() {
   if (coverage === 2) {
     const baseline = registerFile(process.env, payload.session_id ?? '');
     const current = runningTaskIds(payload.background_tasks);
-    edge = registerEdge({ current, previous: readRegisterBaseline(baseline) });
+    // The first Stop that reads a resume note spends it, whatever that Stop then decides. A stale note
+    // goes too.
+    const note = resumeFile(process.env, payload.session_id ?? '');
+    const resumed = readResumeNote(note);
+    clearResumeNote(note);
+    edge = registerEdge({ current, previous: readRegisterBaseline(baseline), resumed });
     // Persisted BEFORE the decision, and on every `Stop` whatever the decision is. The
     // second `Stop` of a blocked turn must see no edge at all: a gate that recomputed the
     // same change would arm itself again on work it has already spoken about once.

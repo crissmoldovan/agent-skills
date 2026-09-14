@@ -276,9 +276,9 @@ already in that settings file, and says so: `Kept coverage 1 (already installed 
 this file)`. Only `--coverage` changes it, and then the output names the change:
 `Set coverage 2 (was 1)`. A new install with no `--coverage` gets coverage 1.
 
-It writes three entries into `~/.claude/settings.json` (or the `--settings` file
-you name), and which three depends on the level. At **coverage 2** they are these,
-plus a fourth only if you named skills:
+It writes three entries at coverage 1 and four at coverage 2 into
+`~/.claude/settings.json` (or the `--settings` file you name). At **coverage 2**
+they are these, plus a fifth only if you named skills:
 
 - **`SubagentStart`, matcher `*`** — arms a per-session marker when a subagent is
   started: foreground or backgrounded, of any `agent_type`. This replaced
@@ -297,13 +297,17 @@ plus a fourth only if you named skills:
 - **`UserPromptSubmit`, matcher `*`** — clears the `Stop` half's record of a block it
   spent in the previous turn, so each turn can block once and no more. It arms
   nothing and prints nothing. Written at both levels; see "One block per turn" below.
+- **`SessionStart`, matcher `resume`** — notes that the session was resumed in a
+  fresh CLI process, whose background list starts empty, so the next `Stop` does
+  not read the old process's tasks as gone. It arms nothing and prints nothing.
+  Coverage 2 only; see "A resume is handled" below.
 - **`PostToolUse`, matcher `Skill`** — written **only** when `--skills` named
   something. Arms on an exact skill name. With no list, this hook does not exist
   at all, so the default install gains no invocation on the `Skill` path.
 
 At **coverage 1** the arming half is **`PostToolUse`, matcher `Agent`** —
 v0.16.1's arming half exactly — beside `Stop` and `UserPromptSubmit`, because an
-`Agent`-tool dispatch is the one signal the gate reads at that level. There is no `SubagentStart` hook and no `Skill` hook
+`Agent`-tool dispatch is the one signal the gate reads at that level. There is no `SubagentStart` hook, no `SessionStart` hook and no `Skill` hook
 there, and `--skills` at coverage 1 is refused rather than written: the gate at
 that level never reads a skill list. Moving between levels replaces the hooks
 rather than adding to them, and removal scans **every** event key in your settings
@@ -524,15 +528,39 @@ of these is one block, once:
 - a background result arriving while you ask something trivial arms that trivial
   turn. This is the skill's own trigger ("a background result arrived") and also
   the shape most likely to annoy;
-- a resumed session starts in a fresh CLI process whose background list is empty
-  again — the list belongs to the process, not to the session id (`../NOTES.md`
-  addendum, 2026-09-14) — so the first `Stop` after a resume can read as a burst
-  of disappearances. A swept temp directory does the same in the other direction.
-  This one has no fix, deliberately. Measured, nothing in the `Stop` payload or the
-  hook's environment identifies the CLI process; the hook's parent pid is the CLI
-  only where the shell execs the command, and a baseline scoped to it would suppress
-  every real disappearance wherever that does not hold (`../HOOK-OUTPUT-NOTES.md`,
-  second addendum of 2026-09-14).
+- a swept temp directory loses the baseline, so tasks still running read as new
+  at the next `Stop`.
+
+**A resume is handled, at coverage 2.** A resumed session starts in a fresh CLI
+process whose background list is empty again, because the list belongs to the
+process, not to the session id (`../NOTES.md` addendum, 2026-09-14). So through
+0.19.0 the first `Stop` after a resume read as a burst of disappearances and cost a
+block. Nothing in the `Stop` payload or the hook's environment identifies the CLI
+process. The hook's parent pid is the CLI only where the shell execs the command,
+and a baseline scoped to it would suppress every real disappearance wherever that
+does not hold (`../HOOK-OUTPUT-NOTES.md`, second addendum of 2026-09-14).
+
+So the installer writes a **`SessionStart`** hook on matcher `resume`. It fires for
+`--resume` and `--continue` before the resumed process's first `Stop`, and it was
+observed not firing on a fresh start. The gate acts only on `source: "resume"`.
+`compact` keeps its process and register, and `startup` and `clear` start a session
+id with no baseline. The hook leaves `<session>.resumed.json`, and that session's
+next `Stop` spends it. That `Stop` drops the disappearances only when none of the
+baseline's tasks is still listed, which a new process, whose register starts empty,
+cannot do.
+
+`--fork-session` fires the hook with the **parent's** session id, so the note can
+reach the parent's next `Stop` rather than the fork's. The fork has no baseline to
+misread. The parent keeps every disappearance while any of its tasks is still
+listed, and misses one only when all of them went away in that same turn. A gate
+installed without the hook still pays one block after a resume. Re-running the
+installer adds the hook, and says that it did.
+
+Measured end to end on Claude Code 2.1.181, with a scripted model and a baseline
+left by the old process: `--resume` and `--continue` each ended without a block.
+The same resume without the hook blocked once (`../HOOK-OUTPUT-NOTES.md`, fifth
+addendum of 2026-09-14). Two processes holding one session id at once share one
+baseline; that was not tested.
 
 **What it cannot see at all**, kept accurate rather than aspirational:
 

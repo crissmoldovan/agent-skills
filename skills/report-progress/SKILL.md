@@ -99,9 +99,11 @@ it, because the gate does no matching of command text, ever; the individual chil
 workflow; background work that starts and finishes inside one turn; and how long anything has
 been running, because no hook event carries a clock. A disappearance from the harness's list
 is not a completion and the gate never reports it as one — terminal states belong to
-`agent-lifecycle`. Its marker is also keyed by session rather than by turn, so a turn that
-armed and then died without a `Stop`, a background result arriving during a trivial turn, and
-a session resumed in a fresh process each cost one block for work the turn did not do.
+`agent-lifecycle`. Its marker is also keyed by session rather than by turn. So a turn that
+armed and then died without a `Stop` costs one block for work the turn did not do, and so does a
+background result arriving during a trivial turn. A session resumed in a fresh process does not
+cost a block at coverage 2: a `SessionStart` hook the installer writes on matcher `resume` notes
+the resume, so the old process's work is not read as gone.
 
 ### The five rules
 

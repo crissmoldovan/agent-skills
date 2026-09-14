@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Install, or remove, the pair of Claude Code hooks that make a progress report
+ * Install, or remove, the Claude Code hooks that make a progress report
  * non-skippable on turns that dispatched a subagent.
  *
  * A user runs this. Nothing runs it for them, and no skill may run it on their
  * behalf: a hook that can end a turn is the user's decision to arm, and a gate
  * installed by an agent on its own initiative is a gate nobody consented to.
  *
- * Three hooks, because the gate needs both halves and a turn boundary — four when
- * the user names skills to treat as external agents:
+ * Four hooks at coverage 2, because the gate needs both halves, a turn boundary and,
+ * where it reads background work, a resume boundary. There are five when the user
+ * names skills to treat as external agents:
  *
  *   SubagentStart, matcher `*`    arms a per-session marker when a subagent is
  *                                 started, of any kind, foreground or
@@ -24,16 +25,21 @@
  *   UserPromptSubmit, matcher `*` clears the Stop half's record of a block it spent
  *                                 in the previous turn, so each turn can block once
  *                                 and no more. Arms nothing, prints nothing.
+ *   SessionStart, matcher `resume` notes that the session was resumed in a fresh CLI
+ *                                 process, whose list of background work starts
+ *                                 empty, so the next Stop does not read the old
+ *                                 process's tasks as gone. Arms nothing, prints
+ *                                 nothing.
  *   PostToolUse, matcher `Skill`  written ONLY when `--skills` named something.
  *                                 Arms on an exact skill name, never on command
  *                                 text. With no list this hook does not exist, so
  *                                 the default install gains no invocation here.
  *
  * That is the set at coverage 2. At coverage 1 the arming half is `PostToolUse` matcher
- * `Agent` in place of `SubagentStart`, and there is no `Skill` hook — see THE COVERAGE LEVEL.
- * `UserPromptSubmit` is written at both.
+ * `Agent` in place of `SubagentStart`, and there is no `Skill` hook and no `SessionStart` hook —
+ * see THE COVERAGE LEVEL. `UserPromptSubmit` is written at both.
  *
- * There is no third hook for background work, and that is not an omission: the
+ * No hook arms on background work, and that is not an omission: the
  * `Stop` payload already carries `background_tasks[]`, so a workflow launched in
  * a turn is in that turn's own register and a finished task has left it by the
  * next one. The gate arms on the CHANGE, never on the presence — a dev server
@@ -98,9 +104,10 @@
  * coverage 1 written under the coverage-2 pair wrote no marker and never blocked — a gate
  * reporting itself installed while being off, which trades a silent widening for a silent
  * disarming. So coverage 1 writes `Stop` + `PostToolUse` matcher `Agent`, which is
- * v0.16.1's pair, and coverage 2 writes `Stop` + `SubagentStart`, plus `PostToolUse`
- * matcher `Skill` for a configured list. A skill list at coverage 1 is refused rather than
- * written: the gate at that level never reads one.
+ * v0.16.1's pair. Coverage 2 writes `Stop` + `SubagentStart`, plus `SessionStart` matcher
+ * `resume` because that level reads the register, and `PostToolUse` matcher `Skill` for a
+ * configured list. Both write `UserPromptSubmit`. A skill list at coverage 1 is refused rather
+ * than written: the gate at that level never reads one.
  *
  * OWNERSHIP IS READ FROM THE COMMAND. Claude Code drops `describe` from every hook entry whenever
  * it writes a settings file, and keeps `command`, `matcher` and `timeout` byte for byte
@@ -130,6 +137,8 @@ import {
   COVERAGE_ENV_FLAG,
   GATE_ENV_FLAG,
   GATE_MODES,
+  RESUME_SOURCE,
+  SESSION_START_EVENT,
   SKILLS_ENV_FLAG,
   TURN_HOOK_ENV_FLAG,
   TURN_HOOK_EVENT,
@@ -168,6 +177,9 @@ export const SKILL_MATCHER = 'Skill';
 /** `UserPromptSubmit` takes no matcher; `*` is what the `Stop` half, which takes none either, was
  *  observed working with. */
 export const TURN_MATCHER = '*';
+/** `SessionStart` matcher `resume`: observed firing on `--resume` and not on a fresh start
+ *  (adapters/HOOK-OUTPUT-NOTES.md, fifth addendum of 2026-09-14). The gate checks `source` again. */
+export const RESUME_MATCHER = RESUME_SOURCE;
 /** `PostToolUse` matcher `Agent`: v0.16.1's arming half, and coverage 1's — the one signal
  *  that level reads. Coverage 2 writes `SubagentStart` in its place. */
 export const AGENT_MATCHER = 'Agent';
@@ -244,7 +256,7 @@ export function resolveGatePath() {
 }
 
 /**
- * The two hook entries, built together because installing one without the other is a
+ * The hook entries, built together because installing one without the other is a
  * broken gate: a Stop hook with nothing to arm it never fires, and a marker writer with
  * no Stop hook writes files nobody reads.
  *
@@ -295,6 +307,13 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
       command,
       timeout: POST_TOOL_TIMEOUT_SECONDS,
       describe: `${DESCRIBE_PREFIX} (${mode}, turn start): clears the Stop half's record of a block it spent in the previous turn, so it can block once in this one; it arms nothing and prints nothing, and ${removal}.`,
+    },
+    // A resume, at coverage 2 only: the level that reads the register is the only level a resume can mislead.
+    sessionStart: coverage !== 2 ? null : {
+      type: 'command',
+      command,
+      timeout: POST_TOOL_TIMEOUT_SECONDS,
+      describe: `${DESCRIBE_PREFIX} (${mode}, resume): notes that this session was resumed in a fresh process, whose list of background work starts empty, so the next Stop does not read the old process's tasks as gone; it arms nothing and prints nothing, and ${removal}.`,
     },
     // Exactly one arming half per level. Writing the half a level ignores would cost a Node
     // start per event for nothing; omitting the half it reads would leave a gate that never fires.
@@ -377,10 +396,11 @@ function eventGroups(settings, event) {
 /**
  * Every place this version can write, and the level decides which: `buildHookEntries` returns
  * `null` for each entry the chosen level does not read, and a null row is not written.
- * Coverage 1 is `Stop` plus `PostToolUse` matcher `Agent` — v0.16.1's pair exactly. Coverage 2
- * is `Stop` plus `SubagentStart`, one event that covers every subagent kind, foreground and
- * backgrounded alike, and `PostToolUse` matcher `Skill` only for a configured list; the second
- * family, work in flight at a turn end, needs no event of its own at all, because the harness
+ * Coverage 1 is `Stop` plus `PostToolUse` matcher `Agent`, which is v0.16.1's pair, plus
+ * `UserPromptSubmit`. Coverage 2 is `Stop` plus `SubagentStart`, one event that covers every
+ * subagent kind, foreground and backgrounded alike. It adds `UserPromptSubmit`, `SessionStart`
+ * matcher `resume`, and `PostToolUse` matcher `Skill` only for a configured list. The second
+ * family, work in flight at a turn end, needs no ARMING event of its own, because the harness
  * already hands the `Stop` payload its own register of it.
  *
  * `removeHooks` deliberately does NOT read this list. See its own comment.
@@ -388,6 +408,7 @@ function eventGroups(settings, event) {
 const HOOK_PLAN = Object.freeze([
   { event: 'Stop', matcher: STOP_MATCHER, key: 'stop' },
   { event: TURN_HOOK_EVENT, matcher: TURN_MATCHER, key: 'turnStart' },
+  { event: SESSION_START_EVENT, matcher: RESUME_MATCHER, key: 'sessionStart' },
   { event: 'SubagentStart', matcher: SUBAGENT_MATCHER, key: 'subagentStart' },
   { event: 'PostToolUse', matcher: AGENT_MATCHER, key: 'agentTool' },
   { event: 'PostToolUse', matcher: SKILL_MATCHER, key: 'skill' },
@@ -757,6 +778,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     if (existing && !existing.events.includes(TURN_HOOK_EVENT)) {
       stdout.write(`Added a ${TURN_HOOK_EVENT} hook: the gate already in this file had none, so its record of a spent block did not outlast a re-arm later in the same turn. With it, the gate blocks at most once per turn.\n`);
     }
+    if (coverage === 2 && existing && !existing.events.includes(SESSION_START_EVENT)) {
+      stdout.write(`Added a ${SESSION_START_EVENT} hook (matcher ${RESUME_MATCHER}): without it, the first turn after resuming a session in a fresh process read the old process's background work as gone, and cost one block.\n`);
+    }
     stdout.write((coverage === 1 ? [
       '',
       'ARMED ON ONE THING, and on nothing else:',
@@ -799,13 +823,14 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       '    listed. A task that is merely still running arms nothing, so a dev server left in',
       '    the background does not make every turn for the rest of the session owe a report.',
       '',
-      'Every other turn ends exactly as it would with the gate absent — with three exceptions,',
+      'Every other turn ends exactly as it would with the gate absent — with two exceptions,',
       'each costing one block, once, and each worth hearing about before rather than after:',
       '  - the marker is per session and is cleared by the Stop that ends the turn, so a turn',
       '    that armed and then died without one (a crash, a kill) leaves it behind;',
-      '  - a background result arriving while you ask something trivial arms that trivial turn;',
-      '  - resuming a session in a fresh CLI process starts the background list empty again,',
-      '    so the first turn after a resume can read as a disappearance.',
+      '  - a background result arriving while you ask something trivial arms that trivial turn.',
+      'Resuming a session in a fresh CLI process starts the background list empty again. The',
+      'SessionStart hook written beside the gate (matcher resume) notes the resume, so that',
+      'first turn does not read the old process\'s work as gone.',
       '',
       'It checks the SHAPE of the final message: that a "what is done", a "what is',
       'running" and a "what is next" section are present, and that a running row carries',

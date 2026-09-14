@@ -432,22 +432,27 @@ Six limits, stated here because a guard that is misread is worse than no guard:
   turn that armed and then died without a `Stop` — a crash, a kill — leaves the marker behind,
   so the next turn in that session pays one block for a dispatch it did not make. One block,
   then cleared.
-- **Resuming a session that had background work costs one block, and no fix for that is
-  offered, because every fix available is a guess.** At coverage 2 the baseline is kept under
-  the session id, which `--resume` keeps, while the harness's background list belongs to the CLI
-  process, which a resume replaces. So the first `Stop` after resuming reads the old work as gone
-  and blocks once. Telling that apart from a task that really went away needs something that
-  identifies the process, and nothing reliable does: measured, the `Stop` payload and the hook's
-  environment carry no process identity. The hook's parent pid was the CLI on the machine it was
-  measured on only because the shell exec'd the command; where that does not hold, the parent is a
-  new shell on every call, and a baseline scoped to it would silently suppress every real
-  disappearance. `SessionStart` does report `source: "resume"`, on an event the gate does not wire
-  ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14).
-- **Coverage 2 writes a second file per session,** `<session>.register.json`, beside the marker
-  in the temp directory: the baseline the next turn's edge is compared against, which has to
-  survive the `Stop` that deletes the marker. It is removed only when a later `Stop` finds the
-  register empty, so a session that ends with something still running leaves one behind until
-  the operating system sweeps its temp directory.
+- **At coverage 2, resuming a session does not cost a block, provided the gate's `SessionStart`
+  hook is installed.** The baseline is kept under the session id, which `--resume` keeps. The
+  harness's background list belongs to the CLI process, which a resume replaces. The `Stop`
+  payload and the hook's environment carry no process identity. The hook's parent pid is the CLI
+  only where the shell execs the command, so nothing can be keyed on it. Instead, the installer
+  writes a `SessionStart` hook on matcher `resume`. It fires for `--resume` and `--continue` before
+  the resumed process's first `Stop`, and leaves a note. That `Stop` drops the disappearances when
+  none of the old tasks is still listed, which a new process cannot do. On `--fork-session` the
+  event carries the parent's session id, so the note can reach the parent's next `Stop` instead.
+  There a disappearance is kept while any of the parent's tasks is still listed. It is missed only
+  when all of them went away in that same turn. A gate installed without the hook still pays one
+  block after a resume
+  ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), fourth and fifth addenda of
+  2026-09-14).
+- **It keeps small per-session files in the temp directory, beside the marker.** Coverage 2
+  keeps `<session>.register.json`, the baseline the next turn's edge is compared against, which
+  has to survive the `Stop` that deletes the marker. It is removed only when a later `Stop` finds
+  the register empty. A session that ends with something still running leaves one behind until
+  the operating system sweeps its temp directory. At both levels, a spent block leaves
+  `<session>.spent.json` until the next turn starts. At coverage 2, a resume leaves
+  `<session>.resumed.json` until that session's next `Stop`.
 
 ### The `release-notes` gate — Claude Code `PreToolUse`
 

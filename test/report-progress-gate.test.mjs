@@ -2212,3 +2212,151 @@ test('an update that drops a skill list says so, and one that repeats the list s
   assert.equal(again.status, 0, again.stderr);
   assert.doesNotMatch(again.stdout, /Skill list not kept/, 'a list that was already gone was reported as dropped');
 });
+
+// ---------------------------------------------------------------------------
+// A resume is not a burst of disappearances.
+//
+// The harness's register of background work belongs to the CLI process, not to the session id. So the
+// first Stop of a session resumed in a fresh process sees an empty register against the baseline the old
+// process left behind. Through 0.19.0 that read as every task disappearing, and cost one block.
+//
+// At coverage 2 the installer now writes a SessionStart hook on matcher `resume`. SessionStart fires
+// with source "resume" for --resume and --continue, before the resumed process's first Stop
+// (adapters/HOOK-OUTPUT-NOTES.md, fourth addendum of 2026-09-14). The hook leaves a note. The next Stop
+// of that session drops the disappearances, but only when none of the baseline's tasks is still listed.
+// A new process cannot still list one, because its register starts empty.
+//
+// On --fork-session, SessionStart carries the PARENT's session id, so the note can reach the parent's
+// next Stop instead. There, every disappearance is kept for as long as any of the parent's tasks is
+// still listed.
+// ---------------------------------------------------------------------------
+
+const sessionStartPayload = (source, extra = {}) => ({ hook_event_name: 'SessionStart', session_id: 'sess-abc123', source, ...extra });
+const resumeNotes = async (directory) => (await readdir(directory)).filter((name) => name.endsWith('.resumed.json'));
+
+/** A block, and the continuation Stop the harness always follows it with, so no marker is left mid-turn. */
+async function blockedThenContinued(gateAt, body) {
+  const result = await gateAt.stop(body);
+  if (blockedBy(result)) await gateAt.stop({ ...body, stop_hook_active: true });
+  return blockedBy(result);
+}
+
+test('coverage 2 writes a SessionStart hook on matcher resume; coverage 1 writes none, and moving levels or --remove takes it out', async () => {
+  const directory = await scratch('gate-resume-hook');
+  const settingsPath = path.join(directory, 'settings.json');
+  const installed = await runInstaller(['--mode', 'block', '--coverage', '2', '--settings', settingsPath]);
+  assert.equal(installed.status, 0, installed.stderr);
+  let written = await readJson(settingsPath);
+  assert.ok(hasOurHook(written, 'SessionStart', 'resume'), 'coverage 2 wrote no SessionStart hook on matcher resume');
+  assert.equal(ourCommand(written, 'SessionStart', 'resume'), ourCommand(written, 'Stop', '*'), 'the SessionStart hook runs a different command from the Stop half');
+  assert.doesNotMatch(installed.stdout, /the first turn after a resume can read as a disappearance/, 'the output still charges a block for a resume');
+
+  const narrowed = await runInstaller(['--mode', 'block', '--coverage', '1', '--settings', settingsPath]);
+  assert.equal(narrowed.status, 0, narrowed.stderr);
+  written = await readJson(settingsPath);
+  assert.equal(written.hooks.SessionStart, undefined, 'coverage 1 kept a SessionStart hook that level never reads');
+  assert.doesNotMatch(narrowed.stdout, /SessionStart/);
+
+  assert.equal((await runInstaller(['--mode', 'block', '--coverage', '2', '--settings', settingsPath])).status, 0);
+  const removed = await runInstaller(['--remove', '--settings', settingsPath]);
+  assert.equal(removed.status, 0, removed.stderr);
+  assert.deepEqual(await readJson(settingsPath), {});
+});
+
+test('installed at coverage 2, a resume in a fresh process does not read as a burst of disappearances, and its hook prints nothing', async () => {
+  const gateAt = await installedGate('gate-resume-e2e', 2);
+  // The old process: a task was running at its last turn end.
+  await gateAt.prompt();
+  assert.equal((await gateAt.stop(stopWith(GOOD_REPORT, [runningTask('b1')]))).stdout, '');
+  // A new process resumes the session: SessionStart, then the turn, whose register starts empty.
+  const started = await runWrittenCommand(ourCommand(gateAt.settings, 'SessionStart', 'resume'), sessionStartPayload('resume'), gateAt.markers);
+  assert.equal(started.status, 0);
+  assert.equal(started.stdout, '', 'the SessionStart hook printed to stdout');
+  assert.equal(started.stderr, '', 'the SessionStart hook printed to stderr');
+  await gateAt.prompt();
+  assert.equal((await gateAt.stop(stopWith(BAD_REPORT, []))).stdout, '', 'the first Stop after a resume blocked on work the new process never had');
+  assert.deepEqual(await resumeNotes(gateAt.markers), [], 'the first Stop after the resume left the note behind');
+});
+
+test('a real disappearance in one process still arms, before a resume and after one', async () => {
+  const gateAt = await installedGate('gate-resume-real-disappearance', 2);
+  await gateAt.prompt();
+  await gateAt.stop(stopWith(GOOD_REPORT, [runningTask('b1')]));
+  await gateAt.prompt();
+  assert.equal(await blockedThenContinued(gateAt, stopWith(BAD_REPORT, [])), true, 'a task that went away inside one process did not arm');
+
+  // After a resume, the note is spent on the first Stop, and the resumed process's own tasks count again.
+  await runWrittenCommand(ourCommand(gateAt.settings, 'SessionStart', 'resume'), sessionStartPayload('resume'), gateAt.markers);
+  await gateAt.prompt();
+  assert.equal((await gateAt.stop(stopWith(GOOD_REPORT, [runningTask('c1')]))).stdout, '');
+  await gateAt.prompt();
+  assert.equal(await blockedThenContinued(gateAt, stopWith(BAD_REPORT, [])), true, 'a task the resumed process started, and lost, did not arm');
+});
+
+test('only a SessionStart with source "resume" marks a resume: startup, compact, clear and no source leave a disappearance armed', async () => {
+  for (const source of ['startup', 'compact', 'clear', '', undefined]) {
+    const gateAt = await installedGate(`gate-resume-source-${source}`, 2);
+    const body = sessionStartPayload(source);
+    if (source === undefined) delete body.source;
+    await gateAt.prompt();
+    await gateAt.stop(stopWith(GOOD_REPORT, [runningTask('b1')]));
+    // Through the written command, the way a hand-widened matcher would deliver it.
+    const started = await runWrittenCommand(ourCommand(gateAt.settings, 'SessionStart', 'resume'), body, gateAt.markers);
+    assert.equal(started.stdout, '', `source ${source}: printed`);
+    assert.deepEqual(await resumeNotes(gateAt.markers), [], `source ${source}: left a resume note`);
+    await gateAt.prompt();
+    assert.equal(await blockedThenContinued(gateAt, stopWith(BAD_REPORT, [])), true, `source ${source}: a real disappearance was dropped`);
+  }
+});
+
+test('a resume note that reaches a process still listing its own tasks drops nothing, as the parent of a fork does', async () => {
+  // --fork-session fires SessionStart with source "resume" under the PARENT's session id, while the fork's
+  // own events carry a new id. The fork has no baseline of its own, so nothing reads as gone there.
+  for (const [scenario, parentNow, expectBlock] of [
+    ['the parent is unchanged', ['b1', 'b2'], false],
+    ['the parent lost b2 while still listing b1', ['b1'], true],
+  ]) {
+    const gateAt = await installedGate(`gate-resume-fork-${slug(scenario)}`, 2);
+    await gateAt.prompt();
+    await gateAt.stop(stopWith(GOOD_REPORT, [runningTask('b1'), runningTask('b2')]));
+    await runWrittenCommand(ourCommand(gateAt.settings, 'SessionStart', 'resume'), sessionStartPayload('resume'), gateAt.markers);
+    await runWrittenCommand(ourCommand(gateAt.settings, 'UserPromptSubmit', '*'), promptPayload({ session_id: 'sess-fork-1' }), gateAt.markers);
+    assert.equal((await gateAt.stop(stopWith(BAD_REPORT, [], { session_id: 'sess-fork-1' }))).stdout, '', `${scenario}: the fork read the parent's tasks as its own disappearances`);
+
+    await gateAt.prompt();
+    const blocked = await blockedThenContinued(gateAt, stopWith(BAD_REPORT, parentNow.map((id) => runningTask(id))));
+    assert.equal(blocked, expectBlock, `${scenario}: expected ${expectBlock ? 'a block' : 'no block'} in the parent`);
+  }
+});
+
+test('at coverage 1 a SessionStart writes nothing and prints nothing: that level never reads the register', async () => {
+  const directory = await scratch('gate-resume-coverage-1');
+  const command = `${GATE_ENV_FLAG}=block ${COVERAGE_ENV_FLAG}=1 ${TURN_HOOK_ENV_FLAG}=UserPromptSubmit '${process.execPath}' '${gate}'`;
+  const result = await runWrittenCommand(command, sessionStartPayload('resume'), directory);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
+  assert.deepEqual(await readdir(directory).catch(() => []), []);
+});
+
+test('registerEdge: after a resume, disappearances are dropped only when none of the baseline is still listed', () => {
+  assert.deepEqual(registerEdge({ current: [], previous: ['b1', 'b2'], resumed: true }), { appeared: [], disappeared: [] });
+  assert.deepEqual(registerEdge({ current: ['c1'], previous: ['b1'], resumed: true }), { appeared: ['c1'], disappeared: [] });
+  assert.deepEqual(registerEdge({ current: ['b1'], previous: ['b1', 'b2'], resumed: true }), { appeared: [], disappeared: ['b2'] });
+  assert.deepEqual(registerEdge({ current: [], previous: ['b1'] }), { appeared: [], disappeared: ['b1'] });
+});
+
+test('updating a coverage-2 install without the resume hook says it adds it, once; coverage 1 never mentions it', async () => {
+  const { settingsPath } = await settingsFile('gate-update-adds-resume-hook', strippedSettings('2'));
+  const updated = await runInstaller(['--mode', 'block', '--settings', settingsPath]);
+  assert.equal(updated.status, 0, updated.stderr);
+  assert.match(updated.stdout, /Added a SessionStart hook/);
+  const again = await runInstaller(['--mode', 'block', '--settings', settingsPath]);
+  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /Added a SessionStart hook/, 'an install that already had the hook was told it was added');
+
+  const { settingsPath: level1 } = await settingsFile('gate-update-resume-hook-level1', strippedSettings('1'));
+  const one = await runInstaller(['--mode', 'block', '--settings', level1]);
+  assert.equal(one.status, 0, one.stderr);
+  assert.doesNotMatch(one.stdout, /SessionStart/);
+});
