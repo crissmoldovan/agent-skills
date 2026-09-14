@@ -506,18 +506,37 @@ export function removeHooks(settings, { adopt = false } = {}) {
 
 /**
  * The leading `NAME=value` assignments of a command, as the shell reads them: it stops at the
- * first word that is not one. Values this script writes are bare words or single-quoted.
+ * first word that is not one. A value is read only where the shell reads it literally — bare
+ * characters with no expansion or operator among them, single quotes, double quotes holding no
+ * `$`, backtick or backslash, and a backslash-escaped character — and the first value that is
+ * anything else ends the scan, exactly as the first command word does.
  */
 function leadingAssignments(command) {
-  const assignments = {};
-  const pattern = /^\s*([A-Za-z_][A-Za-z0-9_]*)=('(?:[^']|'\\'')*'|[^\s']*)(?=\s|$)/;
+  const assignments = [];
+  const pattern = /^\s*([A-Za-z_][A-Za-z0-9_]*)=((?:'[^']*'|"[^"$`\\]*"|\\[^\n]|[A-Za-z0-9_.,:\/@%+=-])*)(?=\s|$)/;
   let rest = String(command);
   for (let match = pattern.exec(rest); match; match = pattern.exec(rest)) {
     const [whole, name, raw] = match;
-    assignments[name] = raw.startsWith("'") ? raw.slice(1, -1).split(`'\\''`).join("'") : raw;
+    const value = raw.replace(/'([^']*)'|"([^"]*)"|\\([^\n])/g, (_, single, double, escaped) => single ?? double ?? escaped);
+    assignments.push({ name, value });
     rest = rest.slice(whole.length);
   }
   return assignments;
+}
+
+/**
+ * What a command sets one of the gate's variables to, read the way the shell hands it to the gate —
+ * or `legible: false` when the command sets it anywhere this reader cannot follow: after `env`,
+ * `cd … &&` or `export`, from an expansion, or anywhere else the leading assignments do not account
+ * for. Measured before this existed: `env …COVERAGE=2`, a `cd … &&` in front, an `export`, and a
+ * double-quoted `"2"` each ran the gate at coverage 2 and were each read as 1, so adopting them
+ * narrowed the gate while printing "Kept coverage 1". A level that cannot be read cannot be kept.
+ */
+function readAssignment(command, name) {
+  const assigned = leadingAssignments(command).filter((entry) => entry.name === name);
+  const mentions = String(command).match(new RegExp(`(?<![A-Za-z0-9_])${name}=`, 'g'))?.length ?? 0;
+  if (mentions !== assigned.length) return { legible: false, value: undefined };
+  return { legible: true, value: assigned.at(-1)?.value };
 }
 
 /**
@@ -529,9 +548,13 @@ function leadingAssignments(command) {
  *
  * Only hooks this installer wrote are read — plus, under `--adopt`, the hooks it is about to
  * adopt, so adopting with no `--coverage` keeps the level the adopted command was running at,
- * exactly as a bare re-run keeps its own. `Stop` is preferred, because that is the hook
- * where the level changes what a turn can cost; any other of ours stands in when there is no
- * `Stop`. Returns `null` when the file holds no gate of ours.
+ * exactly as a bare re-run keeps its own. The mode is read from `Stop` by preference, because
+ * that is the hook that holds a turn; any other of ours stands in when there is no `Stop`.
+ *
+ * THE LEVEL IS KEPT ONLY WHEN THERE IS ONE LEVEL TO KEEP. If any of those hooks sets the level
+ * where `readAssignment` cannot follow it, or two of them run at different levels, `coverage` is
+ * `null` and `unknown` says why: the caller then needs `--coverage`, because any level it picked
+ * would be a guess printed as "Kept". Returns `null` when the file holds no gate of ours.
  */
 export function readInstalledGate(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) return null;
@@ -540,18 +563,36 @@ export function readInstalledGate(settings, { adopt = false } = {}) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
         if (!plainObject(hook) || typeof hook.command !== 'string') continue;
-        if (isOurs(hook)) candidates.push({ event, hook, adopted: false });
-        else if (adopt && isAdoptable(hook)) candidates.push({ event, hook, adopted: true });
+        let adopted;
+        if (isOurs(hook)) adopted = false;
+        else if (adopt && isAdoptable(hook)) adopted = true;
+        else continue;
+        const level = readAssignment(hook.command, COVERAGE_ENV_FLAG);
+        const mode = readAssignment(hook.command, GATE_ENV_FLAG);
+        candidates.push({
+          event,
+          matcher: group.matcher,
+          adopted,
+          coverage: level.legible ? resolveCoverage({ [COVERAGE_ENV_FLAG]: level.value }) : null,
+          mode: mode.legible ? resolveMode({ [GATE_ENV_FLAG]: mode.value }) : null,
+        });
       }
     }
   }
   if (candidates.length === 0) return null;
   // `Stop` first; within an event, a hook this installer wrote over one it is adopting.
   const stops = candidates.filter((entry) => entry.event === 'Stop');
-  const { hook, adopted } = stops.find((entry) => !entry.adopted) ?? stops[0]
+  const lead = stops.find((entry) => !entry.adopted) ?? stops[0]
     ?? candidates.find((entry) => !entry.adopted) ?? candidates[0];
-  const env = leadingAssignments(hook.command);
-  return { coverage: resolveCoverage(env), mode: resolveMode(env), adopted };
+  const unreadable = candidates.find((entry) => entry.coverage === null);
+  const levels = new Set(candidates.map((entry) => entry.coverage));
+  let unknown = null;
+  if (unreadable) {
+    unknown = `the command of its ${hookLabel(unreadable)} hook sets ${COVERAGE_ENV_FLAG} somewhere other than a plain assignment at the start of the command — after env, cd … &&, or export, or from an expansion — so this installer cannot read the level the gate really runs at`;
+  } else if (levels.size > 1) {
+    unknown = `its hooks run at different levels: ${candidates.map((entry) => `${hookLabel(entry)} at ${entry.coverage}`).join(', ')}`;
+  }
+  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown };
 }
 
 /** One line naming where the level came from. A silent level is the defect this replaced. */
@@ -560,6 +601,7 @@ function describeLevel({ named, existing, coverage }) {
   const change = `Pass --coverage ${other} to ${other > coverage ? 'widen' : 'narrow'} it`;
   if (named !== null) {
     if (!existing) return `Set coverage ${coverage}.`;
+    if (existing.coverage === null) return `Set coverage ${coverage} (no single level could be read from the gate already in this file).`;
     return existing.coverage === coverage
       ? `Set coverage ${coverage} (unchanged).`
       : `Set coverage ${coverage} (was ${existing.coverage}).`;
@@ -574,6 +616,9 @@ function describeLevel({ named, existing, coverage }) {
 /** Mode keeps its documented default; when that default changes an installed gate, say so. */
 function describeModeChange({ modeGiven, existing, mode }) {
   if (!existing || existing.mode === mode) return null;
+  if (existing.mode === null) {
+    return modeGiven ? null : `Mode ${mode}, the default — the mode the gate already in this file ran in could not be read from its command. Pass --mode observe or --mode block to choose it.`;
+  }
   if (modeGiven) return `Set mode ${mode} (was ${existing.mode}).`;
   if (existing.mode === 'off') {
     return `Mode ${mode}, the default — the gate already in this file was disarmed (off), and this run armed it again. To keep it disarmed, set ${GATE_ENV_FLAG}=off in its commands again, or run this script with --remove.`;
@@ -705,6 +750,11 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     // Named, then installed, then the default. The middle step is the point: re-running this
     // script to pick up a new version must never be the thing that changes what it enforces.
     const existing = readInstalledGate(settings, { adopt: options.adopt });
+    // Checked before the fallback below, which would otherwise turn an unreadable level into the
+    // default and print it as kept.
+    if (options.coverage === null && existing && existing.coverage === null) {
+      throw new Error(`refusing to write: there is no single coverage level to keep in ${settingsPath}: ${existing.unknown}. Name the level with --coverage 1 or --coverage 2.`);
+    }
     const coverage = options.coverage ?? existing?.coverage ?? DEFAULT_COVERAGE_LEVEL;
     if (coverage === 1 && options.skills.length > 0) {
       const source = options.coverage !== null

@@ -1828,3 +1828,72 @@ test('a hook running the gate under somebody else\'s describe is never adopted, 
   assert.doesNotMatch(aloneOutput, /--remove --adopt|again with --adopt/);
   assert.equal(await readFile(alone, 'utf8'), text);
 });
+
+// ---------------------------------------------------------------------------
+// Keeping a level means reading the level the gate REALLY runs at, which is whatever the shell
+// hands it. Each hand-wired shape below ran the gate at coverage 2 when executed, and each was read
+// as 1 by the installer, so `--adopt` narrowed the gate and printed "Kept coverage 1".
+// ---------------------------------------------------------------------------
+
+const hookAt = (command, timeout) => ({ type: 'command', command, timeout });
+const slug = (text) => text.replace(/\W+/g, '-');
+
+test('adopting refuses to keep a level it cannot read the way the shell does, and names why', async () => {
+  const program = `'${process.execPath}' '${gate}'`;
+  const level2 = `${GATE_ENV_FLAG}=block ${COVERAGE_ENV_FLAG}=2`;
+  const shapes = {
+    'after env': `env ${level2} ${program}`,
+    'after cd &&': `cd / && ${level2} ${program}`,
+    'exported first': `export ${level2}; ${program}`,
+    'from an expansion': `${GATE_ENV_FLAG}=block ${COVERAGE_ENV_FLAG}=\${GATE_LEVEL:-2} ${program}`,
+  };
+  for (const [shape, command] of Object.entries(shapes)) {
+    // What the hook really does, run the way the harness runs it: SubagentStart arms only at level 2.
+    const markers = path.join(await scratch(`gate-unreadable-run-${slug(shape)}`), 'markers');
+    await runWrittenCommand(command, subagentStart(), markers);
+    const ran = await runWrittenCommand(command, stopPayload(BAD_REPORT), markers);
+    assert.equal(parsedBlock(ran.stdout).decision, 'block', `${shape}: the fixture does not run the gate at coverage 2`);
+
+    const { settingsPath, text } = await settingsFile(`gate-unreadable-${slug(shape)}`, {
+      hooks: { Stop: [{ matcher: '*', hooks: [hookAt(command, 10)] }], SubagentStart: [{ matcher: '*', hooks: [hookAt(command, 5)] }] },
+    });
+    const refused = await runInstaller(['--mode', 'block', '--adopt', '--settings', settingsPath]);
+    assert.equal(refused.status, 1, `${shape}: kept a level it could not read`);
+    assert.doesNotMatch(refused.stdout, /Kept coverage/);
+    assert.match(refused.stderr, /no single coverage level to keep/);
+    assert.match(refused.stderr, /SubagentStart \(matcher \*\)|Stop \(matcher \*\)/);
+    assert.match(refused.stderr, /--coverage 1 or --coverage 2/);
+    assert.equal(await readFile(settingsPath, 'utf8'), text, `${shape}: a refused run changed the file`);
+
+    const named = await runInstaller(['--mode', 'block', '--coverage', '2', '--adopt', '--settings', settingsPath]);
+    assert.equal(named.status, 0, named.stderr);
+    assert.match(named.stdout, /Set coverage 2 \(no single level could be read/);
+    assert.ok(ourCommand(await readJson(settingsPath), 'Stop', '*').includes(`${COVERAGE_ENV_FLAG}=2 `));
+    assert.ok(hasOurHook(await readJson(settingsPath), 'SubagentStart', '*'));
+  }
+});
+
+test('adopting reads a double-quoted level and mode as the shell does, and refuses hooks that disagree', async () => {
+  const quoted = `${GATE_ENV_FLAG}="block" ${COVERAGE_ENV_FLAG}="2" '${process.execPath}' '${gate}'`;
+  const markers = path.join(await scratch('gate-quoted-run'), 'markers');
+  await runWrittenCommand(quoted, subagentStart(), markers);
+  assert.equal(parsedBlock((await runWrittenCommand(quoted, stopPayload(BAD_REPORT), markers)).stdout).decision, 'block');
+
+  const { settingsPath } = await settingsFile('gate-quoted-level', {
+    hooks: { Stop: [{ matcher: '*', hooks: [hookAt(quoted, 10)] }], SubagentStart: [{ matcher: '*', hooks: [hookAt(quoted, 5)] }] },
+  });
+  const kept = await runInstaller(['--adopt', '--settings', settingsPath]);
+  assert.equal(kept.status, 0, kept.stderr);
+  assert.match(kept.stdout, /Kept coverage 2 \(read from the adopted hook\)/);
+  assert.doesNotMatch(kept.stdout, /disarmed \(off\)/, 'a double-quoted "block" was read as off');
+  assert.match(kept.stdout, /ran in block mode/);
+  assert.ok(ourCommand(await readJson(settingsPath), 'Stop', '*').includes(`${COVERAGE_ENV_FLAG}=2 `));
+
+  const { settingsPath: mixed, text } = await settingsFile('gate-disagreeing-levels', {
+    hooks: { Stop: [{ matcher: '*', hooks: [undescribedHook(10)] }], SubagentStart: [{ matcher: '*', hooks: [undescribedHook(5, '2')] }] },
+  });
+  const refused = await runInstaller(['--mode', 'block', '--adopt', '--settings', mixed]);
+  assert.equal(refused.status, 1, 'kept one of two disagreeing levels');
+  assert.match(refused.stderr, /different levels: Stop \(matcher \*\) at 1, SubagentStart \(matcher \*\) at 2/);
+  assert.equal(await readFile(mixed, 'utf8'), text);
+});
