@@ -477,6 +477,171 @@ external web docs:
   SubagentStop, etc.) ... absent for session-lifecycle hooks."* — matches the
   observation above.
 
+## Addendum, 2026-09-14 — the in-flight register, `SubagentStart`, settings-key tolerance
+
+**OBSERVED.** Five headless runs on Claude Code 2.1.181, macOS, in a throwaway
+directory outside any repository, with `--setting-sources project` (so none of
+the machine's own hooks loaded) and a `--settings` file whose only hooks appended
+their raw payload to a log. Run to answer probes P1–P4 of
+`docs/superpowers/notes/2026-09-14-report-progress-gate-coverage.md`, which
+blocked the `report-progress` gate's register work on them. Three of the runs
+were driven over `--input-format stream-json` on a single process, because of
+the first finding below.
+
+### `background_tasks[]` belongs to the PROCESS, not to the session id
+
+A `claude -p` run that starts background work, followed by `claude -p --resume
+<the same session id>`, reports the **same `session_id`** on both `Stop` payloads
+and an **empty `background_tasks[]`** on the second one. Three `sleep` shells
+listed as `running` at the first `Stop` were simply not there at the next.
+
+The register is the live CLI process's own list. Resuming a session in a new
+process starts it empty, and anything a hook remembered under that session id
+from the previous process describes work that process took with it. A hook that
+keys state by `session_id` — every hook in this repository does — must treat the
+first `Stop` after a resume as a fresh start rather than as evidence that
+something ended.
+
+Multi-turn observation of a live register therefore needs one process:
+`--input-format stream-json`, writing one user message per turn and waiting for
+each `result` line before sending the next.
+
+### P1 — ids ARE stable across `Stop`s within one process
+
+Two background shells launched in turn 1 kept byte-identical `id`s across four
+consecutive `Stop` payloads in the same process:
+
+```
+STOP#1 msg="READY" ids= bejhcps9x:shell:running bf5ghd4gt:shell:running
+STOP#2 msg="TWO"   ids= bejhcps9x:shell:running bf5ghd4gt:shell:running
+STOP#3 msg="THREE" ids= bejhcps9x:shell:running bf5ghd4gt:shell:running
+STOP#4 msg="FOUR"  ids= bejhcps9x:shell:running bf5ghd4gt:shell:running
+```
+
+Repeated in a second run with a third shell (`bwcx6g2up`, identical over three
+`Stop`s). An id-set comparison between consecutive `Stop`s is therefore sound
+**within a process**, and says nothing across one.
+
+### P2 — the register matched every launch, and completion REMOVES the entry
+
+The register was compared against the only independent source of the same ids:
+the launch's own `PostToolUse`. A backgrounded `Bash` call returns
+`tool_response.backgroundTaskId`; a backgrounded `Agent` call has its
+`SubagentStart.agent_id`. Across the runs, **six launches produced six register
+entries with exactly those ids** — none missing, none extra, no filtering seen:
+
+```
+post Bash bgId=bkmqf9cbf cmd=sleep 420        (tool_response keys: stdout,
+post Bash bgId=bm85swcf3 cmd=sleep 421         stderr, interrupted, isImage,
+post Bash bgId=bo5202l4p cmd=sleep 422         noOutputExpected, backgroundTaskId)
+STOP#1 ids= bkmqf9cbf bm85swcf3 bo5202l4p
+```
+
+**A completed task disappears from the array rather than changing status.**
+Observed twice, for both kinds:
+
+```
+STOP#1 tasks=[{"id":"bwcx6g2up","type":"shell","status":"running", ...},
+              {"id":"ab23da7e0210096d6","type":"subagent","status":"running", ...}]
+STOP#2 tasks=[{"id":"bwcx6g2up","type":"shell","status":"running", ...}]
+```
+
+and, for a shell that finished between two turns:
+
+```
+STOP#1 "READY" tasks=[{"id":"b8lbyvudm","type":"shell","status":"running", ...}]
+STOP#2          tasks=[]
+```
+
+`status` was the string `"running"` on **every** entry in every payload captured.
+No terminal status value was ever seen on this array, so a consumer cannot learn
+from it that anything completed — only that it is no longer listed. Absence is
+not a terminal state and must not be reported as one.
+
+### `type` has a third value, and a `subagent` entry's `id` is its `agent_id`
+
+`../NOTES.md` and the 2026-09-14 probe both recorded `type` as `"shell"` or
+`"workflow"`. A **backgrounded `Agent`-tool subagent** is a third shape:
+
+```json
+{"id":"ab23da7e0210096d6","type":"subagent","status":"running",
+ "description":"Reply with pong","agent_type":"general-purpose"}
+```
+
+Its `id` is the same value as the `agent_id` on that subagent's own
+`SubagentStart`/`SubagentStop`, and the entry carries `agent_type` where a shell
+carries `command`. So a backgrounded subagent is visible **twice** — once as a
+`SubagentStart`, once as a register entry. Do not enumerate the `type` values in
+code: count entries by `status` and `id` and let an unknown `type` through.
+
+### A background completion produces a turn of its own
+
+Confirmed, and it matters to anything that acts at `Stop`. When the backgrounded
+subagent finished, the harness delivered a `UserPromptSubmit` whose `prompt` was
+a `<task-notification>` block (`<task-id>`, `<tool-use-id>`, `<output>` …), the
+model answered it, and a **full `Stop` fired for that answer** — ahead of the
+next real user message, which arrived as its own `UserPromptSubmit` afterwards:
+
+```
+SubagentStop  id=ab23da7e0210096d6
+UserPromptSubmit prompt="<task-notification>…"
+STOP#2 msg="The subagent replied: **pong**"    tasks=[…the shell only…]
+UserPromptSubmit prompt="Use the Bash tool in the foreground to run sleep 45…"
+STOP#3 …
+```
+
+A `Stop` hook therefore sees the arrival of a background result as an ordinary
+turn end, one turn after the fact at the latest, with the finished entry already
+gone from the register.
+
+### P3 — `SubagentStart` is a valid settings key, and an unknown key did not poison the file
+
+`SubagentStart` in `settings.json` under matcher `*` was accepted and fired, with
+exactly these keys (lean, as `../NOTES.md` already records):
+
+```
+SubagentStart agent_id=a8ac5a4997d438a4a agent_type="general-purpose"
+  keys=session_id,transcript_path,cwd,agent_id,agent_type,hook_event_name
+```
+
+A settings file carrying a **deliberately invented** event key beside a real one:
+
+```json
+{"hooks": {"Stop": [ … ], "ThisEventDoesNotExistAtAll": [ … ]}}
+```
+
+still fired its `Stop` hook. So an unknown event key was tolerated rather than
+invalidating the file on this build. Two limits on that result: it is one build
+(2.1.181), and `--help` states that in print mode "settings files that fail
+validation are silently ignored (no error dialog is shown)" — the failure this
+probe was checking for is silent by design, which is exactly why it was checked
+by whether a *sibling* hook still fired rather than by looking for an error.
+
+### P4 — matcher `*` works for `SubagentStart`
+
+Every `SubagentStart` above was installed under `matcher: "*"`, the same matcher
+the `Stop` half already uses. No event-specific matcher syntax was needed.
+
+### Still open
+
+- **P5, the per-invocation cost of a Node hook process on a real machine** — not
+  measured. Nothing in the gate's design turns on it; it is the number to have
+  before anyone proposes a `PostToolUse` matcher `*` hook.
+- **P6, whether a `workflow-subagent`'s `SubagentStart` can fire while no turn is
+  open** — not attempted; no Workflow was run in these five runs, so
+  `agent_type: "workflow-subagent"` is carried from the 2026-09-14 probe and not
+  re-observed here.
+- **Interactive sessions** — everything above is headless. Background work and
+  idle arrivals are where an interactive session is most likely to differ.
+
+### Cleanup
+
+The throwaway directory, its settings files and its logs live outside this
+repository and outside `~/.claude/`. Nothing in `~/.claude/settings.json` was
+read, written, or needed: every run passed `--setting-sources project` from a
+directory with no project settings, plus its own `--settings` file. Background
+`sleep` processes started by the probe were left to exit on their own timers.
+
 ## Step 4 — Codex
 
 **Could not gather any evidence. No Codex CLI is installed on this machine.**

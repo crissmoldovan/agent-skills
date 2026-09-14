@@ -5,6 +5,139 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.17.0
+
+**What.** Two things: a twenty-fifth skill, `layer-repository-docs`, and a widened
+`report-progress` gate. The gate armed on one signal — `PostToolUse` with `tool_name` `Agent` —
+and now arms on **two families of work the user cannot see**. **Opaque delegation** (family A)
+moves to `SubagentStart`, which fires for every subagent kind, foreground or backgrounded, and
+optionally to a list of skill names the user names as external agents (`--skills codex`, exact
+match on `tool_input.skill`, empty by default, and no hook is written at all when the list is
+empty). **Work still in flight at a turn end** (family B) needs no new hook event: `Stop` already
+carries `background_tasks[]`, the harness's own register of background shells, workflows and
+backgrounded subagents, so the gate compares the ids running now against the ids running at the
+session's previous `Stop` and arms on the **change** — something appeared, or something that was
+running is no longer listed. A task that is merely still running arms nothing, so a dev server
+left in the background does not make every turn owe a report. One check is added, on armed turns
+only: a report may not say "Running: none", or claim there is no lifecycle evidence, while the
+register in that same payload lists tasks as running. `test/report-progress-gate.test.mjs` grows
+from 41 tests to 79. Minor, by this repository's rule that a new skill is a minor: twenty-four
+skills become twenty-five.
+
+**Why.** "Long-running tool" was asked for as a third family and is not one. A foreground call
+that took six minutes is over by the time the turn ends and the user watched it happen — they were
+blocked on it; a background task that has been running for six minutes is family B and always was.
+That collapse is what removed the only part of this needing a wall clock the harness does not
+have: no hook event carries a timestamp of any kind, so "long-running" is defined mechanically as
+*still listed as running at a turn end*, and there is no threshold because there is nothing to
+compare one against. The gate enforced a report for one kind of delegated work and was blind to
+the rest — a workflow, a backgrounded subagent, a background shell left running when the user
+stopped reading. The silence it was built to prevent was available through four doors and closed
+on one.
+
+`layer-repository-docs` makes a repository's documentation legible when an organisation has more
+repositories than anyone can track: three layers as roles rather than required files — a quick
+start in every repository, a manual once one outgrows its README, and a single organisation-wide
+handbook every other repository links to and none copies — plus one home per fact and a tier
+ladder, so a small repository is not made to grow structure it has not earned. It exists for the
+two passes that decide whether a documentation rewrite is fit to hand over and that nothing else
+catches: a **loss audit**, which splits every replaced file into atomic facts and rules and gives
+each a verdict, because everything it finds is absent from the new draft and absence does not read
+as an error; and a **newcomer test**, in which a reader carrying none of the drafting context
+follows the documentation in a clean clone, because a fact-check passes every sentence that is
+true and has no way to notice the required field nobody wrote down. Six carried references hold
+the depth. It writes the documentation people read; the context files agents load remain
+`derive-codebase-context`'s.
+
+**Impact.** **Additive, and behaviour-compatible until you opt in.** No export, flag, command or
+return shape was removed or renamed, and no runtime dependency was added.
+
+- **If you already have this gate installed, your live hook starts executing the new file the
+  moment this lands** — an installed hook points at a checkout, so updating the pack updates the
+  code that runs, with no installer step in between. That is safe only because the new behaviour
+  is behind a level the installer writes into the hook command,
+  `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2`. **Absent, `1`, or anything unrecognised is v0.16.1's
+  behaviour exactly, register included** — at coverage 1 the register is not read at all, not for
+  arming and not for the contradiction checks. So anyone running an installed copy gets the new
+  code immediately and the old behaviour until they re-run the installer. The level exists because
+  the two new hooks cannot appear in your settings without you running the installer, but the
+  register half rides on the `Stop` hook that is already there: without it, updating the pack alone
+  would have widened a gate you armed under different terms. An unrecognised value falls back to
+  the narrower armed level rather than to `off`, so a typo can neither widen a gate that can end a
+  turn nor silently disable one.
+- *Who must do something:* **nobody, unless they want the wider coverage** — and anyone who does
+  should **re-run the installer**, which is also the fix for a defect in `--remove`. `--remove` now
+  scans every event key in your settings rather than the list this version happens to write:
+  without that, the moment the installer stopped writing `PostToolUse`, an existing `PostToolUse`
+  hook became unremovable and would have stayed behind arming a marker nothing reads. Re-installing
+  replaces the v0.16.1 pair rather than orphaning half of it.
+- *Known limitation of coverage 2 — it can spend more than one block on a turn.* Measured: the
+  gate blocks on the first `Stop`, stands down on the second, and **standing down deletes the
+  marker**, which is the only memory it has of the block it just spent; if the register changes
+  again, a third `Stop` arms fresh and blocks again. v0.16.1 was structurally incapable of this,
+  because only a tool event could arm and the marker was always there to be read. Live, this is
+  caught by `stop_hook_active` — but this gate's stated stance is that `stop_hook_active` is the
+  harness's backstop, not the gate's own memory, and the 8-block budget that ends a turn is
+  **shared** with every other `Stop` hook on the machine, whose exhaustion is reported as a success
+  with an empty answer. Coverage 1 does not have this shape.
+- *New state on disk, and it accumulates.* Coverage 2 writes a second file per session,
+  `<session>.register.json`, beside the marker in the temp directory — the baseline the next
+  turn's edge is computed against, which has to survive the `Stop` that deletes the marker. It is
+  removed only when a later `Stop` finds the register empty, so **a session that ends with a dev
+  server still running leaves one behind** until the operating system sweeps its temp directory.
+  These are small JSON files and nothing reads a stale one — anything older than six hours is
+  treated as absent — but they are new state v0.16.1 never wrote.
+- *What it still does not see, stated rather than left to be discovered:* a **foreground external
+  agent** — a bare `codex exec` in a `Bash` call — unless you list the skill that runs it.
+  **Automatic detection of external agents is not shipped, and was deferred by decision, not
+  overlooked**; the reasoning is recorded in the design note. That path carries no distinguishing
+  tool name (`tool_name` is `Bash`; the only signal is `tool_input.command`, which is text), and
+  **this gate does no command-text matching anywhere** — not for `codex`, not for any binary, not
+  behind a flag. The sibling release gate's eight defects over five rounds were four repeats of one
+  bug, a regex reading argument text as command structure, found twice more after two structural
+  guards were written to stop it; and there a false positive merely denied a command, where here it
+  would demand a progress report because a commit message mentioned codex. Backgrounding such a
+  call makes it a register entry with its own id, exactly tracked, with no guessing. Also unseen:
+  the individual children of a workflow, background work that starts and finishes inside one turn,
+  and how long anything has been running.
+- *Two decisions worth recording, because both are non-obvious.* **A workflow of twelve agents
+  owes one row, not twelve** — the bar is one row per unit the harness itself registers, because
+  twelve is not a number this gate can see and twelve rows carrying states nobody observed would be
+  invention wearing a status block, produced by the gate meant to prevent it. And **`SubagentStop`
+  is deliberately not wired**: internal compaction summarisation is itself a subagent dispatch,
+  seen as a `SubagentStop` with `agent_type: ""` and no matching `SubagentStart`, so arming on it
+  would demand a progress report on the turn after every `/compact`. `PostToolUse` matcher
+  `Workflow` is not wired either — it fires at `duration_ms` 3–5, the launch rather than the work,
+  while the dispatching turn's `Stop` fires with the workflow still running, so the register
+  answers the workflow case and the gate never reads that event at all.
+- *A disappearance is not a completion.* There is no terminal status on `background_tasks[]` to
+  read — a finished entry is removed rather than re-labelled — so the gate concludes that a report
+  is owed and never what happened. Terminal states belong to `agent-lifecycle`.
+- *Still off until armed, and still zero bytes on a passing turn.* The gate exits without reading
+  its input unless `AGENT_SKILLS_PROGRESS_GATE` is `block` or `observe`, no skill and no agent may
+  install it on a user's behalf, and a turn that delegated nothing and changed nothing ends exactly
+  as it would with the hook absent. Its stand-down notes go to stderr, which the harness does not
+  deliver to the model at exit 0.
+- *Blast radius of the new skill:* additive. `layer-repository-docs` adds a catalogue row and a use
+  example, and moves the pack count from twenty-four to twenty-five in the README, CONTRIBUTING and
+  the architecture and composition guides. No existing skill's frontmatter `description` changed,
+  so nothing an agent selects on moved.
+- *Contributors:* `npm run verify` at the repository root still requires Node.js 24 or newer. Three
+  regressions against v0.16.1 were found by measuring the widened gate and fixed before this
+  shipped, each mutation-checked by reverting it alone and confirming a red test: both contradiction
+  checks refused **honest** reports, because the patterns were scanned over the whole running block,
+  so "state running, last observed just now — none of the tests failed", "Failures: none so far",
+  "(queue empty)" and a report quoting the no-evidence sentence while explaining it all read as
+  denials — a denial now requires the section to carry **no row**; a stale marker cost the gate the
+  memory of a block it had just spent, because the spent-block record inherited the stale marker's
+  own `armedAt` and read back as stale, leaving `stop_hook_active` as the only brake; and one
+  malformed hook group made `--remove` skip an entire event key, so a live `Stop` hook survived
+  `--remove` while the run printed "Removed 1", and the same skip hid a foreign gate hook from the
+  scan that exists to stop two gates sharing one 8-block budget. Tolerance is now per group: an
+  unreadable group is stepped over and put back untouched.
+- *Distribution:* the Skills CLI resolves this repository's default branch, so the update reaches
+  users through `npx skills update --global --yes` with no dist-tag to manage.
+
 ## 0.16.1
 
 **What.** `adapters/claude-code/release-notes-gate.sh` — the optional Claude Code `PreToolUse`

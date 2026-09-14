@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-and `work-in-external-repo`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, and `layer-repository-docs`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -39,35 +39,72 @@ is told during long work and reads `agent-lifecycle` for its "what is running" s
 `work-in-external-repo` owns the route to a target repository and the tree the work happens
 in, and hands over to `land-complex-change` once that tree is right. Both are usable alone.
 
+`layer-repository-docs` writes the documentation people read — a quick start in every
+repository, a manual once one outgrows its README, and one organisation-wide handbook the
+others link to rather than copy — and owns the loss audit and newcomer test that decide
+whether a rewrite is fit to hand over. The context files agents load remain
+`derive-codebase-context`'s; it delegates evidence to `investigate-codebase` and makes no
+placement decision (`workspace-governance`).
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-### `layer-repository-docs` (new skill)
+### `layer-repository-docs` (entry points, an announcement, and one report contract)
 
-**What.** A twenty-fifth skill: make a repository's documentation legible when an organisation
-has more repositories than anyone can track. Three layers as roles rather than required files —
-a quick start in every repository, a manual once one outgrows its README, and a single
-organisation-wide handbook every other repository links to and none copies — plus the other
-document kinds beside them, one home per fact, and a tier ladder so a small repository is not
-made to grow structure it has not earned. Seven carried references hold the depth:
-`references/entry-points.md`, `references/layer-contents.md`, `references/document-kinds.md`,
-`references/one-home-per-fact.md`, `references/loss-audit.md`, `references/newcomer-test.md` and
-`references/claim-check.md`.
+**What.** The skill shipped in 0.17.0 as one seven-step procedure with no way in: a word after its
+name — `check`, `need`, `update`, `ensure` — bound to nothing. It now has three entry points, and a
+run announces the one it chose in a single line before it reads anything, rather than asking.
+`audit` (also `check`, `need`, `review`, no word at all, or any word not listed) writes nothing in
+the repository. `draft` (also `ensure`, `write`, `layer`) writes only the files it named first, plus
+pointer-only edits and one-line status corrections where the drafts would otherwise contradict a
+document they route readers to. `update` takes the diff from the previous baseline to `HEAD`, writes
+overtaken passages, and keeps working documents in a separate patch under their own edit rules. Each
+one's scope, permitted writes, steps and output are in the new `references/entry-points.md`, the
+seventh carried reference.
 
-**Why.** The shape is the easy half. The skill exists for the two passes that decide whether a
-documentation rewrite is fit to hand over, and that nothing else catches: a **loss audit**, which
-splits every replaced file into its facts and rules and gives each a verdict, because everything
-it finds is absent from the new draft and absence does not read as an error; and a **newcomer
-test**, in which a reader carrying none of the drafting context follows the documentation in a
-clean clone, because a fact-check passes every sentence that is true and has no way to notice the
-required field nobody wrote down.
+All three end in one report contract — a verdict line with counts, the ranked findings, the owner's
+decisions, then what was run against what was inferred — capped at about eighty lines, with longer
+tables in linked files, everything inline where no file can be written, and every total counted from
+rows that were saved. A total whose rows exist nowhere is a failed run rather than a short one.
 
-**Boundaries.** It writes the documentation people read; the context files agents load belong to
-`derive-codebase-context`. It delegates evidence to `investigate-codebase`, places no credential
-(`secure-credential-setup`), makes no placement decision (`workspace-governance`), and opens no
-pull request (`land-complex-change`, `request-blocks-review`).
+Nine smaller changes come from the same evidence: the repository's standing directions are read
+before the rot pass, so a subject its owner has closed is held back rather than raised again;
+findings say whether the repository already tracks them; loss-audit rows are saved before any total
+is quoted, and an `update` gets a sixth verdict, `corrected`; a documents-only repository gets a real
+newcomer task; any edit made in the overreach pass sends the newcomer test back to a clean state; the
+newcomer's clone has its remote removed by name; the description check is no longer trapped inside
+the drafting step; and "the draft" is defined for a run that drafts nothing.
+
+**Why.** Six sessions were given the skill and one message each — five a bare word, one a prose
+request with no command word — in throwaway clones of four repositories, and a second session graded
+every run against the repository's source. The method held: nothing was committed or pushed, nothing
+leaked, and nearly every finding re-checked was true. The entry is what failed. Two runs given the
+identical word produced reports that could not be compared. Reports reached 333 lines with no fixed
+shape, and one never reached its owner at all while the run reported it delivered. An `update`
+re-verified everything over a documentation-only diff. One run quoted loss-audit totals its own
+working file contradicted. The prose run failed too, which is why the report contract matters as much
+as the vocabulary.
+
+The same scenarios re-run against this change, independently graded: announcements before the first
+read in all three, reports of 76, 81 and 83 lines in the contract's order, writes inside each entry
+point's boundary, and the `update` narrowed from a full re-verification to thirteen claims with the
+newcomer test recorded as "not run: no task path changed". Two misses remain, both recorded publicly.
+
+**What it does not change.** No frontmatter field was added: `argument-hint` and the other
+argument-declaring fields are Claude Code's rather than the open Agent Skills specification's, whose
+reference validator is documented as rejecting unknown fields — documented, not run here. `$ARGUMENTS`
+is a body token rather than a field, and what an agent that does not substitute it would show a reader
+is untested. The selection is prose, so a harness with no slash commands matches the same words in a
+sentence. Nothing is removed: a plain-English request reaches the same procedure it did in 0.17.0.
+
+**New public page.** [`docs/layer-repository-docs/evaluation.md`](layer-repository-docs/evaluation.md)
+records how the skill is exercised against real repositories, what the trial found, which checks run
+on every change today against which are only planned, and what is still unmeasured — including that
+the trial runs were not isolated, so their safety result is not attributable to the skill alone, and
+that the no-word default has never been run.
+
 
 **Entry points.** A request enters through one of three, and the run announces which in one line
 before it reads anything, rather than asking: `audit` (also `check`, `need`, no word at all, or a
