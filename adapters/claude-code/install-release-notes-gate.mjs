@@ -63,6 +63,7 @@ import {
   findUnownedHooks,
   hookLabel,
   isReadableGroup,
+  leadingAssignments,
   plainObject,
   readableGroups,
 } from './hook-ownership.mjs';
@@ -101,6 +102,8 @@ const USAGE = `Usage: install-release-notes-gate.mjs [--mode observe|block] [--a
 observe  report to stderr what the gate would have refused; never stops a release. (default)
 block    refuse a publish, release-create, release tag or version-bump commit when the
          version being released is not mentioned in the project's release notes.
+         --mode is not carried over: a re-run that changes the mode of the gate already in
+         the settings file says so.
 
 --adopt  treat a hook that runs the gate WITHOUT the AGENT_SKILLS_RELEASE_NOTES_GATE=
          assignment leading its command — a hand-wiring — as this installer's own: --remove
@@ -197,6 +200,58 @@ function unownedLines(unowned) {
 
 function countOf(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** What `release-notes-gate.sh` makes of its flag: lower-cased, blanks removed, `block` or `1` blocks,
+ *  `observe` observes, anything else — unset included — is off. */
+function gateModeOf(value) {
+  const raw = String(value ?? '').toLowerCase().replace(/\s/g, '');
+  if (raw === 'block' || raw === '1') return 'block';
+  if (raw === 'observe') return 'observe';
+  return 'off';
+}
+
+/**
+ * The mode the gate already in this file runs in, so that a re-run which changes it can say so. `--mode`
+ * defaults to `observe` and is not carried over; before this installer recognised a hook the harness had
+ * stripped of `describe`, a bare re-run over a block-mode gate refused, and once it did recognise one the
+ * same re-run disarmed it to observe in silence.
+ *
+ * Read only from a hook an install is about to replace — this installer's own, and under `--adopt` a
+ * hand-wiring — and only from the leading assignment the shell hands the gate. `null` when there is no
+ * such hook; `{ mode: null }` when a hook also sets the flag anywhere else, because a mode that cannot be
+ * read cannot be reported as changed.
+ */
+export function readInstalledMode(settings, { adopt = false } = {}) {
+  if (!plainObject(settings)) return null;
+  let adopted = null;
+  for (const event of eventKeys(settings)) {
+    for (const group of readableGroups(settings, event) ?? []) {
+      for (const hook of group.hooks) {
+        const kind = classifyHook(hook, IDENTITY);
+        if (kind !== 'ours' && !(adopt && kind === 'adoptable')) continue;
+        const assigned = leadingAssignments(hook.command).filter((entry) => entry.name === GATE_ENV_FLAG);
+        const mentions = hook.command.match(new RegExp(`(?<![A-Za-z0-9_])${GATE_ENV_FLAG}=`, 'g'))?.length ?? 0;
+        const found = { mode: mentions === assigned.length ? gateModeOf(assigned.at(-1)?.value) : null };
+        if (kind === 'ours') return found;
+        adopted ??= found;
+      }
+    }
+  }
+  return adopted;
+}
+
+/** One line when this run changed the mode of the gate already in the file; `null` when it did not. */
+function describeModeChange({ modeGiven, existing, mode }) {
+  if (!existing || existing.mode === mode) return null;
+  if (existing.mode === null) {
+    return modeGiven ? null : `Mode ${mode}, the default — the mode the gate already in this file ran in could not be read from its command. Pass --mode observe or --mode block to choose it.`;
+  }
+  if (modeGiven) return `Set mode ${mode} (was ${existing.mode}).`;
+  if (existing.mode === 'off') {
+    return `Mode ${mode}, the default — the gate already in this file was disarmed (off), and this run armed it again. To keep it disarmed, set ${GATE_ENV_FLAG}=off in its command again, or run this script with --remove.`;
+  }
+  return `Mode ${mode}, the default — the gate already in this file ran in ${existing.mode} mode. Pass --mode ${existing.mode} to keep it.`;
 }
 
 /** The groups for the one event this script WRITES into, validated. Anything shaped unexpectedly
@@ -316,7 +371,7 @@ async function writeSettings(settingsPath, settings) {
 }
 
 function parseArguments(argv) {
-  const options = { mode: null, settingsPath: null, remove: false, adopt: false, help: false };
+  const options = { mode: null, modeGiven: false, settingsPath: null, remove: false, adopt: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--mode') {
@@ -336,6 +391,7 @@ function parseArguments(argv) {
     return options;
   }
   // The default is the mode that cannot cost anyone a release.
+  options.modeGiven = options.mode !== null;
   options.mode ??= 'observe';
   if (!MODES.includes(options.mode)) throw new Error(`--mode must be one of: ${MODES.join(', ')}`);
   return options;
@@ -396,6 +452,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     const entry = buildHookEntry({ mode: options.mode, gatePath: resolveGatePath() });
     // Named before installing, because installing edits `settings` in place.
     const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.kind === 'adoptable') : [];
+    // Read before installing, for the same reason: installing replaces the hook this reads.
+    const existing = readInstalledMode(settings, { adopt: options.adopt });
     const updated = installHook(settings, { entry, adopt: options.adopt });
     await writeSettings(settingsPath, updated);
 
@@ -405,6 +463,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate without the ${GATE_ENV_FLAG}= assignment, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
         : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.\n`);
     }
+    const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
+    if (modeChange) stdout.write(`${modeChange}\n`);
     stdout.write([
       '',
       'It looks at Bash commands only, and only at four shapes: npm/pnpm/yarn publish and',

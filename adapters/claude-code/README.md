@@ -611,7 +611,9 @@ trigger — there is no earlier event to arm a marker on, and nothing is kept be
 Scoped to `Bash` so the hook is not invoked on `Read`, `Edit` or anything else.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking a second
-copy beside it. It recognises that hook by its command, as the progress gate's installer
+copy beside it. `--mode` still defaults to `observe` and is not carried over, so a re-run that
+changes the mode of the gate already in the file says so: `Mode observe, the default — the gate
+already in this file ran in block mode. Pass --mode block to keep it.` It recognises that hook by its command, as the progress gate's installer
 does: `AGENT_SKILLS_RELEASE_NOTES_GATE=` leading it, and an argument whose basename is exactly
 `release-notes-gate.sh`. Until this version it went by `describe`, which Claude Code drops
 whenever it writes the file, so on a rewritten file `--remove` printed "No release-notes gate
