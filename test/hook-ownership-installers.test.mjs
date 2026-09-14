@@ -11,13 +11,15 @@ import { fileURLToPath } from 'node:url';
 // in a temp directory, with HOME pointed at that directory too.
 //
 // The rule these pin (adapters/claude-code/hook-ownership.mjs):
-//   - a hook is an installer's own, with no flag, only when its WHOLE command is exactly a shape a
-//     released version of that installer wrote;
+//   - a hook is an installer's own, with no flag, when its WHOLE command is the installer's exact shape
+//     with an interpreter that installer writes, or when it runs the gate under that installer's describe;
+//   - the exact shape is never unclear: with any other interpreter `--adopt` takes it;
 //   - `--adopt` takes a hook in any other shape only when that hook RUNS the gate;
 //   - a hook that only names the gate file — as an argument to echo, cat, rm — is not the gate at all,
-//     and nothing touches it;
+//     and nothing touches it, whatever describe it wears;
 //   - a hook where the installer cannot tell whether the gate runs is named, and never taken, with or
 //     without a flag.
+// test/hook-ownership-v0.19.0.test.mjs holds all of it against 0.19.0's own installers, row by row.
 //
 // The regression behind them: the first command-based ownership check took any hook that began with
 // the gate's own assignment and NAMED the gate file anywhere in that command. A bare `--remove` deleted
@@ -114,6 +116,8 @@ const MENTIONS = Object.freeze({
     "echo '/pack/report-progress-gate.mjs'",
     // A redirection target is written to, not run.
     'AGENT_SKILLS_PROGRESS_GATE=block echo armed &> /pack/report-progress-gate.mjs',
+    // The installer's exact shape, with a program that only prints in the interpreter's place.
+    "AGENT_SKILLS_PROGRESS_GATE=block '/bin/echo' '/pack/report-progress-gate.mjs'",
   ],
   release: [
     'AGENT_SKILLS_RELEASE_NOTES_GATE=block echo /pack/release-notes-gate.sh',
@@ -122,6 +126,7 @@ const MENTIONS = Object.freeze({
     'AGENT_SKILLS_RELEASE_NOTES_GATE=off rm -f /tmp/release-notes-gate.sh',
     'echo /pack/release-notes-gate.sh',
     'AGENT_SKILLS_RELEASE_NOTES_GATE=block echo armed >| /pack/release-notes-gate.sh',
+    "AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck '/pack/release-notes-gate.sh'",
   ],
 });
 
@@ -219,8 +224,11 @@ const HAND_WIRINGS = Object.freeze({
     `NODE_OPTIONS=--no-warnings ${OWN_PROGRESS}`,
     `AGENT_SKILLS_PROGRESS_GATE="block" ${q(NODE)} ${q(PACKED_PROGRESS)}`,
     `AGENT_SKILLS_PROGRESS_GATE=block node ${q(PACKED_PROGRESS)}`,
-    `AGENT_SKILLS_PROGRESS_GATE=block ${q('/usr/local/bin/bun')} ${q(PACKED_PROGRESS)}`,
     `AGENT_SKILLS_PROGRESS_GATE=block ${q(NODE)} ${PACKED_PROGRESS}`,
+    // The exact shape with an interpreter no Node-compatible runtime is called, which this reader does not
+    // know as one either: adoptable, never unclear, because the installer's own shape is never unclear.
+    `AGENT_SKILLS_PROGRESS_GATE=block ${q('/usr/local/bin/node-lts')} ${q(PACKED_PROGRESS)}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${q('/usr/local/bin/hook-wrapper')} ${q(PACKED_PROGRESS)}`,
   ],
   release: [
     `${OWN_RELEASE} && rm -rf /tmp/x`,
@@ -228,6 +236,8 @@ const HAND_WIRINGS = Object.freeze({
     `AGENT_SKILLS_RELEASE_NOTES_GATE=block ${q('/bin/bash')} ${q(PACKED_RELEASE)}`,
     `AGENT_SKILLS_RELEASE_NOTES_GATE=block sh ${q(PACKED_RELEASE)}`,
     `AGENT_SKILLS_RELEASE_NOTES_GATE=block AGENT_SKILLS_PROGRESS_GATE=off bash ${q(PACKED_RELEASE)}`,
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash5 ${q(PACKED_RELEASE)}`,
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block ${q('/opt/homebrew/bin/bash5')} ${q(PACKED_RELEASE)}`,
   ],
 });
 
@@ -289,9 +299,12 @@ test('every command a released version of either installer wrote is recognised w
   const cases = [
     ...progressShapes(NODE, PACKED_PROGRESS).map((command) => ['progress', command]),
     ...progressShapes("/opt/my node's/bin/node", "/srv/it's a pack/report-progress-gate.mjs").map((command) => ['progress', command]),
-    // process.execPath under the names node is installed as: Debian and Ubuntu's nodejs package, and Windows.
+    // process.execPath under the names a Node-compatible runtime goes by: Debian and Ubuntu's nodejs package,
+    // Windows, a versioned binary, and bun.
     ...progressShapes('/usr/bin/nodejs', PACKED_PROGRESS).map((command) => ['progress', command]),
     ...progressShapes('C:\\Program Files\\nodejs\\node.exe', PACKED_PROGRESS).map((command) => ['progress', command]),
+    ...progressShapes('/usr/local/bin/node-20', PACKED_PROGRESS).map((command) => ['progress', command]),
+    ...progressShapes('/opt/bun/bin/bun', PACKED_PROGRESS).map((command) => ['progress', command]),
     ...releaseShapes(PACKED_RELEASE).map((command) => ['release', command]),
     ...releaseShapes("/srv/it's a pack/release-notes-gate.sh").map((command) => ['release', command]),
   ];
@@ -401,13 +414,18 @@ test('the live shape of both gates, describe stripped, is recognised by a re-run
   assert.equal(await progressFires(settings, path.join(home, 'markers-after')), true, 'the re-installed progress gate never blocks');
   assert.equal(await releaseFires(settings, project), true, 'the re-installed release-notes gate never refuses');
 
+  // With no flags at all — "just re-run the installer" — both keep block mode, and the gates still fire.
   const bare = await runInstaller('progress', ['--settings', file], home);
   assert.equal(bare.status, 0, bare.stderr);
   assert.match(bare.stdout, /Kept coverage 2 \(already installed in this file\)/);
-  assert.match(bare.stdout, /ran in block mode\. Pass --mode block to keep it/);
+  assert.match(bare.stdout, /^Kept mode block \(already installed in this file\)\./m);
   const bareRelease = await runInstaller('release', ['--settings', file], home);
   assert.equal(bareRelease.status, 0, bareRelease.stderr);
-  assert.match(bareRelease.stdout, /ran in block mode\. Pass --mode block to keep it/);
+  assert.match(bareRelease.stdout, /^Kept mode block \(already installed in this file\)\./m);
+  assert.doesNotMatch(`${bare.stdout}${bareRelease.stdout}`, quiet);
+  const rerun = await readJson(file);
+  assert.equal(await progressFires(rerun, path.join(home, 'markers-bare')), true, 'a re-run with no flags left a progress gate that never blocks');
+  assert.equal(await releaseFires(rerun, project), true, 'a re-run with no flags left a release-notes gate that never refuses');
 
   for (const kind of ['progress', 'release']) {
     const removed = await runInstaller(kind, ['--remove', '--settings', file], home);
@@ -465,5 +483,61 @@ test('an installer run under a node binary with another name recognises the hook
     assert.equal(removed.status, 0, `strip=${strip}: --remove left the hooks it wrote: ${removed.stderr}`);
     assert.doesNotMatch(`${removed.stdout}${removed.stderr}`, /--adopt|not gone/);
     assert.deepEqual(await readJson(file), {}, `strip=${strip}: --remove left the hooks it wrote`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Where the harness has not dropped it, the installer's own describe on a hook that runs the gate says the installer
+// wrote it, whatever the command became. 0.19.0 took such a hook with no flag, by that describe alone. It also took a
+// hook that only mentions the gate file under that describe, and that is the one thing this does not do again.
+// ---------------------------------------------------------------------------
+
+const OWN_DESCRIBES = Object.freeze({
+  progress: 'agent-skills report-progress gate (block): written before a hand edit.',
+  release: 'agent-skills release-notes gate (block): written before a hand edit.',
+});
+
+test('a hook under the installer\'s own describe that runs the gate is its own with no flag; one that only mentions the gate file is left alone', async () => {
+  const runs = {
+    progress: `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 node ${q(PACKED_PROGRESS)}`,
+    release: `${OWN_RELEASE} 2>/dev/null`,
+  };
+  const mentions = {
+    progress: `AGENT_SKILLS_PROGRESS_GATE=block ${q('/bin/echo')} ${q(PACKED_PROGRESS)}`,
+    release: `AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck ${q(PACKED_RELEASE)}`,
+  };
+  for (const kind of ['progress', 'release']) {
+    const { event, matcher, nothingInstalled } = INSTALLERS[kind];
+    const described = (command) => ({ type: 'command', command, describe: OWN_DESCRIBES[kind] });
+
+    const removeHome = await scratch(`ownership-described-${kind}`);
+    const removeFile = path.join(removeHome, 'settings.json');
+    await writeFile(removeFile, JSON.stringify({ hooks: { [event]: [{ matcher, hooks: [described(runs[kind])] }] } }, null, 2));
+    const removed = await runInstaller(kind, ['--remove', '--settings', removeFile], removeHome);
+    assert.equal(removed.status, 0, `${kind}: ${removed.stderr}`);
+    assert.doesNotMatch(`${removed.stdout}${removed.stderr}`, /--adopt|not gone|Adopted/);
+    assert.deepEqual(await readJson(removeFile), {}, `${kind}: --remove left a hook under its own describe that runs the gate`);
+
+    const installHome = await scratch(`ownership-described-install-${kind}`);
+    const installFile = path.join(installHome, 'settings.json');
+    await writeFile(installFile, JSON.stringify({ hooks: { [event]: [{ matcher, hooks: [described(runs[kind])] }] } }, null, 2));
+    const installed = await runInstaller(kind, ['--settings', installFile], installHome);
+    assert.equal(installed.status, 0, `${kind}: ${installed.stderr}`);
+    assert.match(installed.stdout, /^Kept mode block \(already installed in this file\)\./m);
+    assert.doesNotMatch(`${installed.stdout}${installed.stderr}`, /refusing|--adopt|Adopted/);
+    const written = (await readJson(installFile)).hooks[event].flatMap((group) => group.hooks);
+    assert.ok(written.every((entry) => entry.command !== runs[kind]), `${kind}: an install left the hook it replaces`);
+
+    for (const flags of [[], ['--adopt']]) {
+      const { home, file, text } = await settingsWith(kind, mentions[kind]);
+      const mention = JSON.parse(text);
+      mention.hooks[event][0].hooks[0].describe = OWN_DESCRIBES[kind];
+      await writeFile(file, JSON.stringify(mention, null, 2));
+      const before = await readFile(file, 'utf8');
+      const result = await runInstaller(kind, ['--remove', ...flags, '--settings', file], home);
+      assert.equal(result.status, 0, `${kind} ${flags.join(' ')}: ${result.stderr}`);
+      assert.match(result.stdout, nothingInstalled, `${kind} ${flags.join(' ')}: read a mention under its own describe as the gate`);
+      assert.equal(await readFile(file, 'utf8'), before, `${kind} ${flags.join(' ')}: took a hook that only mentions the gate file`);
+    }
   }
 });

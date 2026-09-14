@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { classifyHook, leadingAssignments, shellCommands } from '../adapters/claude-code/hook-ownership.mjs';
+import * as ownership from '../adapters/claude-code/hook-ownership.mjs';
 import * as progressInstaller from '../adapters/claude-code/install-report-progress-gate.mjs';
 import * as releaseInstaller from '../adapters/claude-code/install-release-notes-gate.mjs';
+
+const { classifyHook, leadingAssignments, shellCommands } = ownership;
 
 // ---------------------------------------------------------------------------
 // Which hooks an installer may call its own, read from the command.
@@ -15,45 +17,60 @@ import * as releaseInstaller from '../adapters/claude-code/install-release-notes
 // fourth addenda of 2026-09-14). So `describe` cannot be how an installer recognises what it wrote,
 // and the command is the one field left to recognise it by.
 //
-// Because the command is kept byte for byte, the rule can be exact: a hook is an installer's own only
-// when its whole command is a shape a released version of that installer wrote. Everything else is
-// sorted by whether it RUNS the gate — `adoptable` — or only names it — nobody's — or cannot be told —
-// `unclear`, which no flag takes.
+// Because the command is kept byte for byte, the rule can be exact. A command in an installer's EXACT
+// SHAPE — its own assignments, one interpreter word, the single-quoted gate, nothing else — is never
+// unclear: it is the installer's own when the interpreter is one that installer writes, nobody's when
+// the "interpreter" only reads files, and adoptable otherwise. Any other command is sorted by whether it
+// RUNS the gate — `adoptable` — or only names it — nobody's — or cannot be told — `unclear`, which no flag
+// takes. The installer's own describe, where the harness has not dropped it, makes a hook that runs the
+// gate its own, as 0.19.0's did.
 // ---------------------------------------------------------------------------
 
-const PROGRESS = Object.freeze({
-  envFlag: 'AGENT_SKILLS_PROGRESS_GATE',
-  gateFile: 'report-progress-gate.mjs',
-  describePrefix: 'agent-skills report-progress gate',
-  variables: Object.freeze([
-    'AGENT_SKILLS_PROGRESS_GATE',
-    'AGENT_SKILLS_PROGRESS_GATE_COVERAGE',
-    'AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK',
-    'AGENT_SKILLS_PROGRESS_GATE_SKILLS',
-  ]),
-  // A released installer wrote `process.execPath`: `node` on most machines, `nodejs` from Debian and Ubuntu's own
-  // package, `node.exe` on Windows — and, whatever it is called, the binary running the installer now.
-  interpreter: Object.freeze({ quotedPathTo: Object.freeze([...new Set(['node', 'nodejs', 'node.exe', path.basename(process.execPath)])]) }),
-});
-const RELEASE = Object.freeze({
-  envFlag: 'AGENT_SKILLS_RELEASE_NOTES_GATE',
-  gateFile: 'release-notes-gate.sh',
-  describePrefix: 'agent-skills release-notes gate',
-  variables: Object.freeze(['AGENT_SKILLS_RELEASE_NOTES_GATE']),
-  interpreter: Object.freeze({ word: 'bash' }),
-});
+/** What each installer hands the rule in production; the first test pins what is in it. */
+const PROGRESS = progressInstaller.HOOK_IDENTITY;
+const RELEASE = releaseInstaller.HOOK_IDENTITY;
 
 const hook = (command, extra = {}) => ({ type: 'command', command, ...extra });
 /** How both installers quote a word into a command. */
 const q = (value) => `'${String(value).split("'").join(`'\\''`)}'`;
+const ownDescribe = { describe: 'agent-skills report-progress gate (block): …' };
+const releaseDescribe = { describe: 'agent-skills release-notes gate (block): …' };
 
 /** The two commands the installers write, in the exact shape the harness was observed to keep. */
 const PROGRESS_COMMAND = "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/local/bin/node' '/pack/adapters/claude-code/report-progress-gate.mjs'";
 const RELEASE_COMMAND = "AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '/pack/adapters/claude-code/release-notes-gate.sh'";
 
-test('each installer hands the ownership rule its own identity, and these tests use that identity', () => {
-  assert.deepEqual(progressInstaller.HOOK_IDENTITY, PROGRESS);
-  assert.deepEqual(releaseInstaller.HOOK_IDENTITY, RELEASE);
+test('each installer hands the ownership rule its own identity', () => {
+  const { interpreter: progressInterpreter, ...progress } = PROGRESS;
+  assert.deepEqual(progress, {
+    envFlag: 'AGENT_SKILLS_PROGRESS_GATE',
+    gateFile: 'report-progress-gate.mjs',
+    describePrefix: 'agent-skills report-progress gate',
+    variables: ['AGENT_SKILLS_PROGRESS_GATE', 'AGENT_SKILLS_PROGRESS_GATE_COVERAGE', 'AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK', 'AGENT_SKILLS_PROGRESS_GATE_SKILLS'],
+  });
+  // It writes process.execPath, single-quoted: a Node-compatible runtime's name, or whatever the binary running it is called.
+  assert.deepEqual(progressInterpreter, { quoted: true, pattern: ownership.NODE_RUNTIME_NAME, names: [path.basename(process.execPath)] });
+
+  const { interpreter: releaseInterpreter, ...release } = RELEASE;
+  assert.deepEqual(release, {
+    envFlag: 'AGENT_SKILLS_RELEASE_NOTES_GATE',
+    gateFile: 'release-notes-gate.sh',
+    describePrefix: 'agent-skills release-notes gate',
+    variables: ['AGENT_SKILLS_RELEASE_NOTES_GATE'],
+  });
+  // It writes the bare word `bash` on every machine.
+  assert.deepEqual(releaseInterpreter, { quoted: false, names: ['bash'] });
+});
+
+test('a Node-compatible runtime name is one pattern: node, nodejs or bun, an optional version, an optional .exe, in any case', () => {
+  const pattern = ownership.NODE_RUNTIME_NAME;
+  assert.ok(pattern instanceof RegExp, 'hook-ownership.mjs exports no NODE_RUNTIME_NAME');
+  for (const name of ['node', 'nodejs', 'node.exe', 'node-20', 'node22', 'node_22', 'node-22.11.0', 'node-v22', 'nodejs20', 'nodejs-22', 'node22.exe', 'bun', 'bun.exe', 'bun-1.1', 'Node.exe', 'NODEJS']) {
+    assert.match(name, pattern, name);
+  }
+  for (const name of ['nodemon', 'node-gyp', 'nodenv', 'node.js', 'node-lts', 'node-', 'node22x', 'my-node', 'node.exe.bak', 'bunx', 'deno', 'python3', 'bash', 'report-progress-gate.mjs']) {
+    assert.doesNotMatch(name, pattern, name);
+  }
 });
 
 test('the command each installer writes is its own, with or without the describe the harness drops', () => {
@@ -89,9 +106,14 @@ test('every shape a released version of either installer wrote is its own, and s
     `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1 ${turn} ${program}`,
     `AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 ${turn} ${skills} ${program}`,
     "AGENT_SKILLS_PROGRESS_GATE=off AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1 '/bin/node' '/pack/report-progress-gate.mjs'",
-    // process.execPath under the names node is installed as: Debian and Ubuntu's nodejs package, and Windows.
+    // process.execPath under the names a Node-compatible runtime goes by: Debian and Ubuntu's nodejs package,
+    // Windows, a versioned binary, and bun, whose own execPath is the bun binary.
     "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/bin/nodejs' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block 'C:\\Program Files\\nodejs\\node.exe' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/bin/node-20' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=observe '/opt/node22/bin/node22' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1 '/opt/bun/bin/bun' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block 'C:\\bun\\bun.exe' '/pack/report-progress-gate.mjs'",
   ]) {
     assert.equal(classifyHook(hook(command), PROGRESS), 'ours', command);
   }
@@ -114,7 +136,7 @@ test('every shape a released version of either installer wrote is its own, and s
   }
 });
 
-test('only the exact shape is owned: anything before, around or after it makes a hook that runs the gate a hand-wiring', () => {
+test('only the exact shape, with an interpreter the installer writes, is owned: anything else that runs the gate is a hand-wiring', () => {
   for (const command of [
     // After it: a compound command, an argument, a redirection, a comment.
     `${PROGRESS_COMMAND} && rm -rf /tmp/x`,
@@ -130,7 +152,7 @@ test('only the exact shape is owned: anything before, around or after it makes a
     'AGENT_SKILLS_PROGRESS_GATE="block" \'/bin/node\' \'/pack/report-progress-gate.mjs\'',
     "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=${LEVEL:-2} '/bin/node' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block node '/pack/report-progress-gate.mjs'",
-    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/local/bin/bun' '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/local/bin/node-lts' '/pack/report-progress-gate.mjs'",
     "AGENT_SKILLS_PROGRESS_GATE=block '/bin/node' /pack/report-progress-gate.mjs",
     // The gate's own variables without the arming one.
     "AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/bin/node' '/pack/report-progress-gate.mjs'",
@@ -152,16 +174,65 @@ test('only the exact shape is owned: anything before, around or after it makes a
 });
 
 test('the interpreter an installer writes is the binary that ran it, whatever that binary is called', () => {
-  // A released installer wrote process.execPath. Where that binary is called something this reader does not know as an
-  // interpreter — a versioned `node-22` — the command it wrote is still exactly its shape, and it is still its own.
-  const ranUnder = { ...PROGRESS, interpreter: { quotedPathTo: ['node-22'] } };
-  const command = "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/bin/node-22' '/pack/report-progress-gate.mjs'";
+  // A released installer wrote process.execPath. Where that binary's name is outside the Node-runtime pattern, the command
+  // it wrote is still exactly its shape, and an installer running under that same name takes it with no flag.
+  const ranUnder = { ...PROGRESS, interpreter: { ...PROGRESS.interpreter, names: ['gate-runner'] } };
+  const command = "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '/usr/bin/gate-runner' '/pack/report-progress-gate.mjs'";
   assert.equal(classifyHook(hook(command), ranUnder), 'ours');
-  assert.equal(classifyHook(hook(command, { describe: `${PROGRESS.describePrefix} (block): …` }), ranUnder), 'ours');
+  assert.equal(classifyHook(hook(command, ownDescribe), ranUnder), 'ours');
   assert.equal(classifyHook(hook(command, { describe: 'theirs' }), ranUnder), 'foreign');
+  // Anything around the shape leaves the structural reading, where a program it does not know leaves it unable to tell.
   assert.equal(classifyHook(hook(`${command} && true`), ranUnder), 'unclear');
-  // Under an installer that did not run as `node-22`, nothing says that program runs the gate.
-  assert.equal(classifyHook(hook(command), { ...PROGRESS, interpreter: { quotedPathTo: ['node'] } }), 'unclear');
+  // Under an installer running as anything else, that shape is adoptable — never unclear, which no flag takes. The
+  // installer that wrote it under `node-20` and re-read it under `node-22` could not even adopt it (measured).
+  assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable');
+});
+
+test('a command in the installer\'s exact shape is never unclear: its own interpreter owns it, one that only reads files nobody, any other --adopt', () => {
+  const lead = 'AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2';
+  const gate = "'/pack/adapters/claude-code/report-progress-gate.mjs'";
+  // A Node-compatible runtime's name, single-quoted, as the installer writes process.execPath: its own, describe or not.
+  for (const node of ['/usr/bin/node-20', '/opt/node22/bin/node22', '/opt/bun/bin/bun', 'C:\\bun\\bun.exe', '/usr/bin/nodejs', '/usr/local/bin/node']) {
+    assert.equal(classifyHook(hook(`${lead} ${q(node)} ${gate}`), PROGRESS), 'ours', node);
+    assert.equal(classifyHook(hook(`${lead} ${q(node)} ${gate}`, ownDescribe), PROGRESS), 'ours', node);
+  }
+  // Any other program in the interpreter's place, quoted or bare: adoptable, since everything else is pinned and a user
+  // passing --adopt has made the call; the installer's own describe makes it its own; somebody else's never.
+  for (const program of [q('/usr/local/bin/node-lts'), q('/usr/bin/deno'), q('/usr/local/bin/hook-wrapper'), q('/usr/bin/python3'), 'node-lts', 'hook-wrapper', 'node']) {
+    const command = `${lead} ${program} ${gate}`;
+    assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', command);
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'ours', command);
+    assert.equal(classifyHook(hook(command, { describe: 'theirs' }), PROGRESS), 'foreign', command);
+  }
+  // A program that only prints, reads, lists, copies or deletes files runs nothing of the gate, whatever describe it wears.
+  for (const program of [q('/bin/echo'), q('/bin/cat'), q('/usr/bin/grep'), q('/bin/rm'), q('/bin/cp'), q('/bin/ls'), 'echo', 'shellcheck']) {
+    const command = `${lead} ${program} ${gate}`;
+    assert.equal(classifyHook(hook(command), PROGRESS), null, command);
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), null, command);
+  }
+
+  // The release-notes installer writes the bare word bash: that is its own; any other interpreter word is adoptable.
+  const releaseGate = "'/pack/adapters/claude-code/release-notes-gate.sh'";
+  const releaseLead = 'AGENT_SKILLS_RELEASE_NOTES_GATE=block';
+  for (const program of ['bash5', q('/opt/homebrew/bin/bash5'), 'fish', q('/bin/bash'), q('bash'), 'sh']) {
+    const command = `${releaseLead} ${program} ${releaseGate}`;
+    assert.equal(classifyHook(hook(command), RELEASE), 'adoptable', command);
+    assert.equal(classifyHook(hook(command, releaseDescribe), RELEASE), 'ours', command);
+  }
+  for (const program of ['shellcheck', q('/usr/bin/shellcheck'), 'cat']) {
+    const command = `${releaseLead} ${program} ${releaseGate}`;
+    assert.equal(classifyHook(hook(command), RELEASE), null, command);
+    assert.equal(classifyHook(hook(command, releaseDescribe), RELEASE), null, command);
+  }
+
+  // Outside the shape, a program the structural reading does not know leaves it unable to tell, describe or not.
+  for (const extra of [{}, ownDescribe]) {
+    assert.equal(classifyHook(hook(`${lead} ${q('/usr/local/bin/node-lts')} ${gate} && true`, extra), PROGRESS), 'unclear');
+    assert.equal(classifyHook(hook(`${lead} ${q('/usr/local/bin/hook-wrapper')} --gate ${gate}`, extra), PROGRESS), 'unclear');
+  }
+  // …but a Node-compatible name is an interpreter there too, so a versioned binary in a hand-wiring runs the gate.
+  assert.equal(classifyHook(hook(`cd / && ${lead} ${q('/usr/bin/node-22')} ${gate}`), PROGRESS), 'adoptable');
+  assert.equal(classifyHook(hook(`/opt/bun/bin/bun.exe ${gate} | cat`), PROGRESS), 'adoptable');
 });
 
 test('the basename must be exactly the gate file: a command that merely contains its name does not run it', () => {
@@ -300,22 +371,40 @@ test('the gate runs as the program of a simple command, or as the script straigh
   }
 });
 
-test('a describe somebody else wrote vetoes ownership; the installer\'s own describe does not grant it', () => {
+test('a describe somebody else wrote vetoes ownership; the installer\'s own describe grants it to a hook that runs the gate, and to nothing else', () => {
   assert.equal(classifyHook(hook(PROGRESS_COMMAND, { describe: 'written by some other tool' }), PROGRESS), 'foreign');
   // A describe somebody typed, even an empty one, is not the absence of one.
   assert.equal(classifyHook(hook(PROGRESS_COMMAND, { describe: '' }), PROGRESS), 'foreign');
   assert.equal(classifyHook(hook(PROGRESS_COMMAND, { describe: 5 }), PROGRESS), 'foreign');
   assert.equal(classifyHook(hook("node '/pack/report-progress-gate.mjs'", { describe: 'theirs' }), PROGRESS), 'foreign');
   assert.equal(classifyHook(hook(RELEASE_COMMAND, { describe: 'theirs' }), RELEASE), 'foreign');
+  // The other installer's describe is somebody else's.
+  assert.equal(classifyHook(hook(RELEASE_COMMAND, { describe: `${PROGRESS.describePrefix} (block): …` }), RELEASE), 'foreign');
   // …and a hook that does not run the gate is nobody's business, whatever its describe says.
   assert.equal(classifyHook(hook('someone-elses-hook', { describe: 'theirs' }), PROGRESS), null);
   assert.equal(classifyHook(hook('echo /pack/report-progress-gate.mjs', { describe: 'theirs' }), PROGRESS), null);
 
-  // The command decides for a hook wearing this installer's describe too.
-  const ownDescribe = { describe: `${PROGRESS.describePrefix} (block): …` };
-  assert.equal(classifyHook(hook("node '/pack/report-progress-gate.mjs'", ownDescribe), PROGRESS), 'adoptable');
+  // The installer's own describe, still on a hook the harness has not rewritten, is the installer's word that it wrote
+  // that hook: on a hook that runs the gate in any shape, it is the installer's own, with no flag, as in 0.19.0.
+  for (const command of [
+    "node '/pack/report-progress-gate.mjs'",
+    "cd / && AGENT_SKILLS_PROGRESS_GATE=block '/bin/node' '/pack/report-progress-gate.mjs'",
+    `${PROGRESS_COMMAND} && rm -rf /tmp/x`,
+    "AGENT_SKILLS_PROGRESS_GATE=block '/usr/bin/deno' '/pack/report-progress-gate.mjs'",
+  ]) {
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'ours', command);
+    assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', command);
+  }
+  assert.equal(classifyHook(hook("bash '/elsewhere/release-notes-gate.sh'", releaseDescribe), RELEASE), 'ours');
+  assert.equal(classifyHook(hook(`${RELEASE_COMMAND} 2>/dev/null`, releaseDescribe), RELEASE), 'ours');
+
+  // Never to a hook that only mentions the gate file, which 0.19.0 took by that describe, and never to one where
+  // whether the gate runs cannot be told.
   assert.equal(classifyHook(hook('echo something else entirely', ownDescribe), PROGRESS), null);
   assert.equal(classifyHook(hook('AGENT_SKILLS_PROGRESS_GATE=block echo /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), null);
+  assert.equal(classifyHook(hook("AGENT_SKILLS_PROGRESS_GATE=block '/bin/echo' '/pack/report-progress-gate.mjs'", ownDescribe), PROGRESS), null);
+  assert.equal(classifyHook(hook("AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck '/pack/release-notes-gate.sh'", releaseDescribe), RELEASE), null);
+  assert.equal(classifyHook(hook('timeout 5 node /pack/report-progress-gate.mjs', ownDescribe), PROGRESS), 'unclear');
 });
 
 test('anything that is not a hook with a string command belongs to nobody, and throws nothing', () => {

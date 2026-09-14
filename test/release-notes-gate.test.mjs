@@ -704,35 +704,47 @@ test('--remove finds the gate under any event key, and writes nothing when it re
   assert.deepEqual(await readdir(dir), [], '--remove created a settings file that did not exist');
 });
 
-test('a re-run that changes the mode of the gate already in the file says so, over a stripped hook too', async () => {
-  // `--mode` still defaults to observe and is not carried over. Through 0.19.0 a bare re-run over the live
-  // shape — a block-mode hook the harness had stripped of describe — refused. Once the installer recognised
-  // that hook by its command, the same bare re-run disarmed block mode to observe and said nothing about it
-  // (measured on a copy of a real settings file).
-  for (const [hook, flags, expected] of [
-    [strippedReleaseHook('block'), [], /^Mode observe, the default — the gate already in this file ran in block mode\. Pass --mode block to keep it\.$/m],
-    [{ ...strippedReleaseHook('block'), describe: `${DESCRIBE_PREFIX} (block): …` }, [], /^Mode observe, the default — the gate already in this file ran in block mode\./m],
-    [strippedReleaseHook('block'), ['--mode', 'observe'], /^Set mode observe \(was block\)\.$/m],
-    [strippedReleaseHook('observe'), ['--mode', 'block'], /^Set mode block \(was observe\)\.$/m],
-    [strippedReleaseHook('off'), [], /^Mode observe, the default — the gate already in this file was disarmed \(off\), and this run armed it again\./m],
+test('a re-run with no --mode keeps the mode of the gate already in the file, over a stripped hook too, and says which happened', async () => {
+  // Through 0.19.0, `--mode` defaulted to observe on every run. A user who re-ran the installer
+  // to update, as a release note says to, switched a block gate to observe. The mode is kept now, and only
+  // --mode changes it.
+  const unnoted = await project({ version: '1.4.0', noted: ['1.3.0'] });
+  for (const [hook, flags, expected, mode] of [
+    [strippedReleaseHook('block'), [], /^Kept mode block \(already installed in this file\)\. Pass --mode observe to change it\.$/m, 'block'],
+    [{ ...strippedReleaseHook('block'), describe: `${DESCRIBE_PREFIX} (block): …` }, [], /^Kept mode block \(already installed in this file\)\./m, 'block'],
+    [strippedReleaseHook('observe'), [], /^Kept mode observe \(already installed in this file\)\. Pass --mode block to change it\.$/m, 'observe'],
+    [strippedReleaseHook('off'), [], /^Kept mode off \(already installed in this file\): the gate is disarmed/m, 'off'],
+    [strippedReleaseHook('block'), ['--mode', 'observe'], /^Set mode observe \(was block\)\.$/m, 'observe'],
+    [strippedReleaseHook('observe'), ['--mode', 'block'], /^Set mode block \(was observe\)\.$/m, 'block'],
+    [strippedReleaseHook('off'), ['--mode', 'block'], /^Set mode block \(was off\)\.$/m, 'block'],
   ]) {
+    const run = `${hook.command} with ${flags.join(' ') || 'no flags'}`;
     const { file } = await settingsFileWith('release-notes-mode-change', { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [hook] }] } });
     const result = await runInstaller([...flags, '--settings', file]);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, expected, `${hook.command} with ${flags.join(' ') || 'no flags'}`);
+    assert.equal(result.status, 0, `${run}: ${result.stderr}`);
+    assert.match(result.stdout, expected, run);
+    assert.doesNotMatch(result.stdout, /Mode observe, the default|armed it again/, run);
+    const hooks = releaseHooks(JSON.parse(await readFile(file, 'utf8')));
+    assert.equal(hooks.length, 1, run);
+    assert.ok(hooks[0].command.startsWith(`${GATE_ENV_FLAG}=${mode} bash `), `${run}: wrote ${hooks[0].command}`);
+    // What was written does what its mode says, run from the command through /bin/sh.
+    const refused = await runWrittenCommand(hooks[0].command, bashCall('npm publish', unnoted));
+    if (mode === 'block') assertRefused(refused, '1.4.0');
+    else assertAllowed(refused);
   }
 
-  // No change, no line — and a fresh install has no mode to change.
-  for (const [mode, flags] of [['block', ['--mode', 'block']], ['observe', []], ['observe', ['--mode', 'observe']]]) {
+  // A mode named and unchanged prints no mode line, and a new install with no --mode is observe.
+  for (const mode of ['block', 'observe']) {
     const { file } = await settingsFileWith('release-notes-mode-same', { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [strippedReleaseHook(mode)] }] } });
-    const result = await runInstaller([...flags, '--settings', file]);
+    const result = await runInstaller(['--mode', mode, '--settings', file]);
     assert.equal(result.status, 0, result.stderr);
-    assert.doesNotMatch(result.stdout, /^(?:Mode |Set mode )/m, `${mode} with ${flags.join(' ') || 'no flags'} reported a mode change that did not happen`);
+    assert.doesNotMatch(result.stdout, /^(?:Kept mode |Set mode |Mode )/m, `--mode ${mode} over ${mode} reported a mode change that did not happen`);
   }
   const dir = await scratch('release-notes-mode-fresh');
-  const fresh = await runInstaller(['--mode', 'block', '--settings', path.join(dir, 'settings.json')]);
+  const fresh = await runInstaller(['--settings', path.join(dir, 'settings.json')]);
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.doesNotMatch(fresh.stdout, /^(?:Mode |Set mode )/m);
+  assert.match(fresh.stdout, /^Installed the observe release-notes gate into /m);
+  assert.doesNotMatch(fresh.stdout, /^(?:Kept mode |Set mode |Mode )/m);
 });
 
 // ---------------------------------------------------------------------------

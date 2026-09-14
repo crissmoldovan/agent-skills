@@ -22,6 +22,11 @@
  *   block    The gate returns `permissionDecision: "deny"` and the release
  *            command does not run.
  *
+ * A re-run with no `--mode` keeps the mode of the gate already in the file — `off` too, when a user
+ * disarmed it by hand — and says so; only `--mode` changes it, and only a new install with no `--mode`
+ * gets `observe`. Re-running this installer is how a user picks up a fix, and it must not be the thing
+ * that changes what the gate enforces.
+ *
  * What the gate can and cannot do is fixed and small: it checks that the version
  * being released is MENTIONED in a file that records releases. It cannot tell
  * whether the paragraph under that mention says why the release happened or what
@@ -39,21 +44,23 @@
  * (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14). Until now this installer
  * recognised its hook by `describe`, so on a rewritten file `--remove` printed "No release-notes gate
  * was installed … Nothing changed." and exited 0 with the hook still running, and an install refused.
- * A hook is now this installer's, with no flag, only when its WHOLE command is exactly the shape every
+ * A hook is now this installer's, with no flag, when its WHOLE command is exactly the shape every
  * released version wrote (`HOOK_IDENTITY` below, checked by `./hook-ownership.mjs`):
  * `AGENT_SKILLS_RELEASE_NOTES_GATE=<value>` and no other assignment, then the bare word `bash`, then
  * the gate path, single-quoted, whose basename is exactly `release-notes-gate.sh`, and nothing after
- * it. The harness keeps the command byte for byte, so that shape survives every rewrite. A `describe`
- * written by anything else is a statement of ownership, and that hook is never taken, with or without
- * a flag.
+ * it. The harness keeps the command byte for byte, so that shape survives every rewrite. Where the
+ * harness has not dropped it, this installer's own `describe` on a hook that runs the gate, in any
+ * shape, makes that hook this installer's too, as it did through 0.19.0. A `describe` written by
+ * anything else is a statement of ownership, and that hook is never taken, with or without a flag.
  *
- * `--adopt` is for a hook that RUNS the gate in any other shape, which is a hand-wiring. It is refused
- * on install and named on removal; with `--adopt` it is removed or replaced. `--remove` never reports
- * the gate gone while any hook still runs it, and exits 1 when one does. A hook that only MENTIONS the
- * gate file — an argument of echo, cat, shellcheck, rm and the like — is not the gate, and nothing here
- * touches it. A hook where this installer cannot tell whether the gate runs is named and never taken,
- * with or without `--adopt`: over-reporting a hook is recoverable, and deleting one that is not the
- * gate is not.
+ * `--adopt` is for a hook with no describe that RUNS the gate in any other shape: a hand-wiring, or the
+ * shape above with another interpreter word in place of `bash` (`/bin/bash`, `sh`), which is never read
+ * as unclear. It is refused on install and named on removal; with `--adopt` it is removed or replaced.
+ * `--remove` never reports the gate gone while any hook still runs it, and exits 1 when one does. A hook
+ * that only MENTIONS the gate file — an argument of echo, cat, shellcheck, rm and the like, in that shape
+ * or any other — is not the gate, and nothing here touches it, whatever describe it wears. A hook where
+ * this installer cannot tell whether the gate runs is named and never taken, with or without `--adopt`:
+ * over-reporting a hook is recoverable, and deleting one that is not the gate is not.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -80,8 +87,13 @@ export const HOOK_MARKER = 'release-notes-gate.sh';
 export const DESCRIBE_PREFIX = 'agent-skills release-notes gate';
 /** The arming flag the gate reads. `off`, unset or anything else is off. */
 export const GATE_ENV_FLAG = 'AGENT_SKILLS_RELEASE_NOTES_GATE';
-/** The two armed modes this installer can write. `off` is not a mode; it is the default. */
+/** The two armed modes `--mode` takes. `off` is not one; it is what the gate is unless armed. */
 export const MODES = Object.freeze(['observe', 'block']);
+/** Every mode a hook this installer writes can carry: `off` too, which only a re-run keeping a gate that was
+ *  disarmed by hand writes, because a re-run keeps the mode it finds. */
+export const WRITABLE_MODES = Object.freeze([...MODES, 'off']);
+/** What a new install gets when `--mode` is not given: the mode that cannot cost anyone a release. */
+export const DEFAULT_MODE = 'observe';
 
 /** The one event the gate needs, and the tool it is scoped to. */
 export const HOOK_EVENT = 'PreToolUse';
@@ -101,15 +113,18 @@ export const TIMEOUT_SECONDS = 10;
  * exact shape of the one command every released version wrote, from `git log -p` on this file across
  * the tags:
  *   v0.16.0–this version  AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<gate>'
- * `bash` is `buildHookEntry`'s default `shellPath`, written bare, and no release passed another;
- * `<gate>` is this file's sibling through `shellQuote`.
+ * `bash` is `buildHookEntry`'s default `shellPath`, written bare, and no release passed another, so the
+ * name does not change from one machine to the next and the interpreter this installer owns is that one
+ * bare word. Any other interpreter word in that shape — `/bin/bash`, `sh`, a `bash5` — is adoptable, never
+ * unclear; under this installer's own describe it is its own. `<gate>` is this file's sibling through
+ * `shellQuote`.
  */
 export const HOOK_IDENTITY = Object.freeze({
   envFlag: GATE_ENV_FLAG,
   gateFile: HOOK_MARKER,
   describePrefix: DESCRIBE_PREFIX,
   variables: Object.freeze([GATE_ENV_FLAG]),
-  interpreter: Object.freeze({ word: 'bash' }),
+  interpreter: Object.freeze({ quoted: false, names: Object.freeze(['bash']) }),
 });
 const IDENTITY = HOOK_IDENTITY;
 /** How an unowned hook's line describes the shape it is not. */
@@ -120,18 +135,22 @@ export { hookLabel };
 const USAGE = `Usage: install-release-notes-gate.mjs [--mode observe|block] [--adopt] [--settings <path>]
        install-release-notes-gate.mjs --remove [--adopt] [--settings <path>]
 
-observe  report to stderr what the gate would have refused; never stops a release. (default)
+observe  report to stderr what the gate would have refused; never stops a release. (default
+         for a new install)
 block    refuse a publish, release-create, release tag or version-bump commit when the
          version being released is not mentioned in the project's release notes.
-         --mode is not carried over: a re-run that changes the mode of the gate already in
-         the settings file says so.
+         With no --mode, re-running this script keeps the mode of the gate already in the
+         settings file — off too, if you disarmed it by hand — and says so: "Kept mode block
+         (already installed in this file)". Only --mode changes it.
 
 --adopt  also take a hook that RUNS the gate in a shape this installer never writes — a
-         hand-wiring: --remove removes it, and an install replaces it. Not needed for this
-         installer's own hook: a hook whose whole command is exactly what it writes — the
-         AGENT_SKILLS_RELEASE_NOTES_GATE= assignment, bash, and the gate path, single-quoted,
-         and nothing else — is recognised with no flag, including after Claude Code has
-         dropped its describe. Never taken, with or without --adopt: a hook whose describe
+         hand-wiring, or its own shape with another interpreter than bash: --remove removes
+         it, and an install replaces it. Not needed for this installer's own hook: a hook
+         whose whole command is exactly what it writes — the AGENT_SKILLS_RELEASE_NOTES_GATE=
+         assignment, bash, and the gate path, single-quoted, and nothing else — is recognised
+         with no flag, including after Claude Code has dropped its describe, and so is a hook
+         that runs the gate under this installer's own describe. Never taken, with or without
+         --adopt: a hook whose describe
          something else wrote, and a hook where this installer cannot tell whether the gate
          runs (the gate file as an argument of a program it does not know, for one). A hook
          that only mentions the gate file, as echo, cat or shellcheck do, is not the gate and
@@ -191,19 +210,17 @@ export function resolveGatePath() {
  * produce a hook that fails to launch on every Bash call.
  */
 export function buildHookEntry({ mode, gatePath, shellPath = 'bash' }) {
-  if (!MODES.includes(mode)) throw new Error(`mode must be one of: ${MODES.join(', ')}`);
+  if (!WRITABLE_MODES.includes(mode)) throw new Error(`mode must be one of: ${WRITABLE_MODES.join(', ')}`);
 
   const command = `${GATE_ENV_FLAG}=${mode} ${shellPath} ${shellQuote(gatePath)}`;
   const removal = 'remove it by running this installer with --remove';
-
-  return {
-    type: 'command',
-    command,
-    timeout: TIMEOUT_SECONDS,
-    describe: mode === 'block'
-      ? `${DESCRIBE_PREFIX} (block): refuses a publish, release-create, release tag or version-bump commit when the version being released is not mentioned in the project's release notes; it checks that a note is present and cannot check what it says, it allows anything it cannot resolve, and ${removal}.`
-      : `${DESCRIBE_PREFIX} (observe): writes to stderr what a blocking gate would have refused about a release command and never stops one; it checks that a note is present and cannot check what it says, it allows anything it cannot resolve, and ${removal}.`,
+  const describes = {
+    block: `${DESCRIBE_PREFIX} (block): refuses a publish, release-create, release tag or version-bump commit when the version being released is not mentioned in the project's release notes; it checks that a note is present and cannot check what it says, it allows anything it cannot resolve, and ${removal}.`,
+    observe: `${DESCRIBE_PREFIX} (observe): writes to stderr what a blocking gate would have refused about a release command and never stops one; it checks that a note is present and cannot check what it says, it allows anything it cannot resolve, and ${removal}.`,
+    off: `${DESCRIBE_PREFIX} (off): disarmed — it refuses nothing and reports nothing until ${GATE_ENV_FLAG} in this command is block or observe, which this installer's --mode sets; ${removal}.`,
   };
+
+  return { type: 'command', command, timeout: TIMEOUT_SECONDS, describe: describes[mode] };
 }
 
 /**
@@ -236,15 +253,15 @@ function gateModeOf(value) {
 }
 
 /**
- * The mode the gate already in this file runs in, so that a re-run which changes it can say so. `--mode`
- * defaults to `observe` and is not carried over; before this installer recognised a hook the harness had
- * stripped of `describe`, a bare re-run over a block-mode gate refused, and once it did recognise one the
- * same re-run disarmed it to observe in silence.
+ * The mode the gate already in this file runs in, so that a re-run with no `--mode` keeps it and a re-run that
+ * changes it says so. Through 0.19.0 `--mode` defaulted to `observe` on every run, so re-running this
+ * installer to update — which is what a release note tells a user to do — switched a block gate to observe.
  *
  * Read only from a hook an install is about to replace — this installer's own, and under `--adopt` a
- * hand-wiring — and only from the leading assignment the shell hands the gate. `null` when there is no
- * such hook; `{ mode: null }` when a hook also sets the flag anywhere else, because a mode that cannot be
- * read cannot be reported as changed.
+ * hand-wiring — and only from the leading assignment the shell hands the gate, resolved as
+ * `release-notes-gate.sh` resolves it, so a gate disarmed by hand reads `off`. `null` when there is no such
+ * hook; `{ mode: null }` when a hook also sets the flag anywhere else, because a mode that cannot be read
+ * cannot be kept or reported as changed. `adopted` says whether it came from a hook being adopted.
  */
 export function readInstalledMode(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) return null;
@@ -256,7 +273,7 @@ export function readInstalledMode(settings, { adopt = false } = {}) {
         if (kind !== 'ours' && !(adopt && kind === 'adoptable')) continue;
         const assigned = leadingAssignments(hook.command).filter((entry) => entry.name === GATE_ENV_FLAG);
         const mentions = hook.command.match(new RegExp(`(?<![A-Za-z0-9_])${GATE_ENV_FLAG}=`, 'g'))?.length ?? 0;
-        const found = { mode: mentions === assigned.length ? gateModeOf(assigned.at(-1)?.value) : null };
+        const found = { mode: mentions === assigned.length ? gateModeOf(assigned.at(-1)?.value) : null, adopted: kind !== 'ours' };
         if (kind === 'ours') return found;
         adopted ??= found;
       }
@@ -265,17 +282,28 @@ export function readInstalledMode(settings, { adopt = false } = {}) {
   return adopted;
 }
 
-/** One line when this run changed the mode of the gate already in the file; `null` when it did not. */
-function describeModeChange({ modeGiven, existing, mode }) {
-  if (!existing || existing.mode === mode) return null;
-  if (existing.mode === null) {
-    return modeGiven ? null : `Mode ${mode}, the default — the mode the gate already in this file ran in could not be read from its command. Pass --mode observe or --mode block to choose it.`;
+/**
+ * The mode this run writes: the one `--mode` names; with none, the mode of the gate already in the file — `off`
+ * included, so a gate disarmed by hand stays disarmed; with neither, `DEFAULT_MODE`. A mode that cannot be read
+ * from the installed hook is not guessed at: that run gets the default and says so.
+ */
+export function resolveInstallMode({ named = null, existing = null } = {}) {
+  return named ?? existing?.mode ?? DEFAULT_MODE;
+}
+
+/** One line saying which mode this run wrote and where it came from, when a gate was already in the file. */
+function describeMode({ named, existing, mode }) {
+  if (!existing) return null;
+  if (named === null) {
+    if (existing.mode === null) {
+      return `Mode ${mode}, the default — the mode the gate already in this file ran in could not be read from its command. Pass --mode observe or --mode block to choose it.`;
+    }
+    const source = existing.adopted ? 'read from the adopted hook' : 'already installed in this file';
+    if (mode === 'off') return `Kept mode off (${source}): the gate is disarmed, and refuses and reports nothing. Pass --mode observe or --mode block to arm it.`;
+    return `Kept mode ${mode} (${source}). Pass --mode ${mode === 'block' ? 'observe' : 'block'} to change it.`;
   }
-  if (modeGiven) return `Set mode ${mode} (was ${existing.mode}).`;
-  if (existing.mode === 'off') {
-    return `Mode ${mode}, the default — the gate already in this file was disarmed (off), and this run armed it again. To keep it disarmed, set ${GATE_ENV_FLAG}=off in its command again, or run this script with --remove.`;
-  }
-  return `Mode ${mode}, the default — the gate already in this file ran in ${existing.mode} mode. Pass --mode ${existing.mode} to keep it.`;
+  if (existing.mode === null || existing.mode === mode) return null;
+  return `Set mode ${mode} (was ${existing.mode}).`;
 }
 
 /** The groups for the one event this script WRITES into, validated. Anything shaped unexpectedly
@@ -414,10 +442,10 @@ function parseArguments(argv) {
     if (options.mode) throw new Error('--remove takes no --mode');
     return options;
   }
-  // The default is the mode that cannot cost anyone a release.
+  // No default here: a re-run keeps the mode of the gate already in the file, so the default — for a new
+  // install only — is resolved once the file has been read (`resolveInstallMode`).
   options.modeGiven = options.mode !== null;
-  options.mode ??= 'observe';
-  if (!MODES.includes(options.mode)) throw new Error(`--mode must be one of: ${MODES.join(', ')}`);
+  if (options.modeGiven && !MODES.includes(options.mode)) throw new Error(`--mode must be one of: ${MODES.join(', ')}`);
   return options;
 }
 
@@ -473,22 +501,26 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       return 1;
     }
 
-    const entry = buildHookEntry({ mode: options.mode, gatePath: resolveGatePath() });
+    // Read before installing, because installing replaces the hook this reads — and before the entry is built,
+    // because with no --mode the mode it writes is the one this reads. Updating never changes what the gate enforces.
+    const existing = readInstalledMode(settings, { adopt: options.adopt });
+    const mode = resolveInstallMode({ named: options.mode, existing });
+    const entry = buildHookEntry({ mode, gatePath: resolveGatePath() });
     // Named before installing, because installing edits `settings` in place.
     const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.kind === 'adoptable') : [];
-    // Read before installing, for the same reason: installing replaces the hook this reads.
-    const existing = readInstalledMode(settings, { adopt: options.adopt });
     const updated = installHook(settings, { entry, adopt: options.adopt });
     await writeSettings(settingsPath, updated);
 
-    stdout.write(`Installed the ${options.mode} release-notes gate into ${settingsPath}.\n`);
+    stdout.write(mode === 'off'
+      ? `Installed the release-notes gate into ${settingsPath}, disarmed (off), as the gate already there was.\n`
+      : `Installed the ${mode} release-notes gate into ${settingsPath}.\n`);
     if (options.adopt) {
       stdout.write(adoptable.length > 0
         ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate in a shape this installer never writes, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
         : 'Adopted none: no hook in this file ran this gate in a shape this installer never writes.\n');
     }
-    const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
-    if (modeChange) stdout.write(`${modeChange}\n`);
+    const modeLine = describeMode({ named: options.mode, existing, mode });
+    if (modeLine) stdout.write(`${modeLine}\n`);
     stdout.write([
       '',
       'It looks at Bash commands only, and only at four shapes: npm/pnpm/yarn publish and',
@@ -506,7 +538,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       'the design rather than a failed installation.',
       '',
     ].join('\n'));
-    if (options.mode === 'block') {
+    if (mode === 'block') {
       stdout.write([
         'Block mode returns a permission denial, so the release command does not run. That',
         'decision shape is documented by the harness and was not observed firing in this',
@@ -514,7 +546,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         'this hook before depending on block mode to stop anything.',
         '',
       ].join('\n'));
-    } else {
+    } else if (mode === 'observe') {
       stdout.write([
         'Observe mode never stops a release. It writes what it would have refused to stderr.',
         'Whether Claude Code surfaces a PreToolUse hook\'s stderr at exit 0 is not something',
@@ -522,14 +554,23 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         'way you will notice the gate working.',
         '',
       ].join('\n'));
+    } else {
+      stdout.write([
+        'Off: the hook still runs before every Bash call and decides nothing, as it did before',
+        'this run. Arm it with --mode observe or --mode block.',
+        '',
+      ].join('\n'));
     }
-    stdout.write([
-      `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${options.mode} to`,
-      `${GATE_ENV_FLAG}=off in the command this wrote, and change nothing else in it: this`,
-      'installer recognises its hook only while the command is exactly what it writes. Remove',
-      'it entirely: run this script with --remove.',
+    stdout.write((mode === 'off' ? [
+      'Remove it entirely: run this script with --remove.',
       '',
-    ].join('\n'));
+    ] : [
+      `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${mode} to`,
+      `${GATE_ENV_FLAG}=off in the command this wrote, and change nothing else in it: this`,
+      'installer recognises its hook only while the command is exactly what it writes, and a',
+      're-run keeps the gate off. Remove it entirely: run this script with --remove.',
+      '',
+    ]).join('\n'));
     stdout.write(`\nHook written:\n${JSON.stringify(entry, null, 2)}\n`);
     return 0;
   } catch (error) {

@@ -1624,18 +1624,59 @@ test('moving between levels replaces the gate and never stacks or orphans a hook
   }
 });
 
-test('an update that changes the mode of the gate already installed says so', async () => {
-  const directory = await scratch('gate-coverage-mode-notice');
+test('a re-run with no --mode keeps the mode of the gate already installed and says so; only --mode changes it', async () => {
+  // Through 0.19.0, a re-run with no --mode over a block gate installed observe, loudly. A user who just re-ran
+  // the installer to update switched their gate to observe. The mode is kept the way the level is.
+  const directory = await scratch('gate-mode-kept');
   const settingsPath = path.join(directory, 'settings.json');
-  assert.equal((await runInstaller(['--mode', 'block', '--settings', settingsPath])).status, 0);
+  const fresh = await runInstaller(['--settings', settingsPath]);
+  assert.equal(fresh.status, 0, fresh.stderr);
+  assert.match(fresh.stdout, /^Installed the observe report-progress gate into /m, 'a new install with no --mode is not observe');
+  assert.doesNotMatch(fresh.stdout, /^(?:Kept|Set) mode /m, 'a new install reported a mode it kept or changed');
+
+  const armed = await runInstaller(['--mode', 'block', '--settings', settingsPath]);
+  assert.equal(armed.status, 0, armed.stderr);
+  assert.match(armed.stdout, /^Set mode block \(was observe\)\.$/m);
+
+  for (const run of [1, 2]) {
+    const bare = await runInstaller(['--settings', settingsPath]);
+    assert.equal(bare.status, 0, bare.stderr);
+    assert.match(bare.stdout, /^Installed the block report-progress gate into /m, `re-run ${run}: the gate was not reinstalled in block mode`);
+    assert.match(bare.stdout, /^Kept mode block \(already installed in this file\)\. Pass --mode observe to change it\.$/m);
+    assert.doesNotMatch(bare.stdout, /Mode observe, the default/);
+    assert.ok(ourCommand(await readJson(settingsPath), 'Stop', '*').startsWith(`${GATE_ENV_FLAG}=block `), `re-run ${run} moved the gate off block`);
+    assert.equal(await writtenGateBlocks(await readJson(settingsPath), 1, path.join(directory, `markers-${run}`)), true, `re-run ${run}: the kept gate never blocks`);
+  }
+
+  const changed = await runInstaller(['--mode', 'observe', '--settings', settingsPath]);
+  assert.equal(changed.status, 0, changed.stderr);
+  assert.match(changed.stdout, /^Set mode observe \(was block\)\.$/m);
+  const same = await runInstaller(['--mode', 'observe', '--settings', settingsPath]);
+  assert.doesNotMatch(same.stdout, /^(?:Kept|Set) mode /m, 'a mode named and unchanged was reported');
+});
+
+test('a gate disarmed by hand stays disarmed on a re-run with no --mode, and --mode arms it', async () => {
+  const directory = await scratch('gate-mode-off-kept');
+  const settingsPath = path.join(directory, 'settings.json');
+  assert.equal((await runInstaller(['--mode', 'block', '--coverage', '2', '--settings', settingsPath])).status, 0);
+  // Disarmed the way the installer says to: the value, and nothing else. Then the harness rewrites the file.
+  const disarmed = stripDescribes(await readJson(settingsPath));
+  for (const hook of gateHooks(disarmed)) hook.command = hook.command.replace(`${GATE_ENV_FLAG}=block `, `${GATE_ENV_FLAG}=off `);
+  await writeFile(settingsPath, JSON.stringify(disarmed, null, 2));
 
   const bare = await runInstaller(['--settings', settingsPath]);
   assert.equal(bare.status, 0, bare.stderr);
-  assert.match(bare.stdout, /already in this file ran in block mode/);
-  assert.match(bare.stdout, /--mode block/);
+  assert.match(bare.stdout, /^Kept mode off \(already installed in this file\): the gate is disarmed/m);
+  assert.doesNotMatch(bare.stdout, /armed it again/);
+  const kept = await readJson(settingsPath);
+  assert.equal(gateHooks(kept).length, 4);
+  assert.ok(gateHooks(kept).every((hook) => hook.command.startsWith(`${GATE_ENV_FLAG}=off `)), 'a re-run armed a disarmed gate');
+  assert.equal(await writtenGateBlocks(kept, 2, path.join(directory, 'markers-off')), false, 'a disarmed gate blocked');
 
-  const same = await runInstaller(['--mode', 'observe', '--settings', settingsPath]);
-  assert.doesNotMatch(same.stdout, /already in this file ran in/, 'a mode that did not change was reported as changed');
+  const armed = await runInstaller(['--mode', 'block', '--settings', settingsPath]);
+  assert.equal(armed.status, 0, armed.stderr);
+  assert.match(armed.stdout, /^Set mode block \(was off\)\.$/m);
+  assert.equal(await writtenGateBlocks(await readJson(settingsPath), 2, path.join(directory, 'markers-armed')), true);
 });
 
 test('a foreign hook wearing the gate name is still refused before any level is read or written', async () => {
@@ -1968,8 +2009,9 @@ test('adopting reads a double-quoted level and mode as the shell does, and refus
   // No installer ever wrote double quotes, so this hook is adopted, not recognised as installed.
   assert.match(kept.stdout, /Adopted 2 hooks/);
   assert.match(kept.stdout, /Kept coverage 2 \(read from the adopted hook\)/);
-  assert.doesNotMatch(kept.stdout, /disarmed \(off\)/, 'a double-quoted "block" was read as off');
-  assert.match(kept.stdout, /ran in block mode/);
+  assert.doesNotMatch(kept.stdout, /disarmed \(off\)|Kept mode off/, 'a double-quoted "block" was read as off');
+  assert.match(kept.stdout, /^Kept mode block \(read from the adopted hook\)\. Pass --mode observe to change it\.$/m);
+  assert.ok(ourCommand(await readJson(settingsPath), 'Stop', '*').startsWith(`${GATE_ENV_FLAG}=block `), 'adopting with no --mode moved the gate off block');
   assert.ok(ourCommand(await readJson(settingsPath), 'Stop', '*').includes(`${COVERAGE_ENV_FLAG}=2 `));
 
   const { settingsPath: mixed, text } = await settingsFile('gate-disagreeing-levels', {

@@ -9,37 +9,51 @@
  *
  * WHAT A HOOK IS, for a hook with a string command (`classifyHook`):
  *
- *   ours       Its WHOLE command is exactly a shape a released version of the installer wrote
- *              (`isInstallerShape`), and no `describe` somebody else wrote sits on it. Taken with no flag.
- *   adoptable  It RUNS the gate (`gateUse`), in any other shape. Named and refused; taken only under
- *              `--adopt`.
- *   unclear    It names the gate file where this reader cannot tell whether the gate runs. Named, and
- *              never taken, with or without a flag: over-reporting a hook is recoverable, and deleting
- *              one that is not the gate is not.
+ *   ours       It runs the gate, no `describe` somebody else wrote sits on it, and either its WHOLE command
+ *              is the installer's exact shape with an interpreter that installer writes (`installerShape`),
+ *              or it carries that installer's own `describe`. Taken with no flag.
+ *   adoptable  It runs the gate and has no `describe`, in any other shape: the exact shape with any other
+ *              interpreter, or a command that RUNS the gate (`gateUse`). Named and refused; taken only
+ *              under `--adopt`.
+ *   unclear    Outside the exact shape, it names the gate file where this reader cannot tell whether the
+ *              gate runs. Named, and never taken, with or without a flag, with or without the installer's
+ *              describe: over-reporting a hook is recoverable, and deleting one that is not the gate is not.
  *   foreign    It runs the gate, or may, under a `describe` somebody else wrote. Named, never taken.
- *   null       It does not run the gate: it never names the gate file, or only MENTIONS it.
+ *   null       It does not run the gate: it never names the gate file, or only MENTIONS it — whatever
+ *              `describe` it wears.
+ *
+ * THE INSTALLER'S OWN DESCRIBE. Claude Code drops `describe` when it rewrites the file, but where it has not,
+ * a describe that starts with the installer's `describePrefix` is that installer's statement that it wrote
+ * the hook. 0.19.0 took every hook wearing it with no flag, so a hook that still wears it and runs the gate,
+ * in any shape, is the installer's own. A hook that only mentions the gate file is not taken under it (0.19.0
+ * took one), and neither is one where whether the gate runs cannot be told.
  *
  * THE EXACT SHAPE. The command, read as blank-separated words made only of literal characters
  * (letters, digits and `_ . , : / @ % + = -`) and single-quoted runs joined by `\'` — the only quoting
  * either installer has emitted — is:
  *   1. one or more assignments, each to one of the installer's own `variables`, none twice, the
  *      arming `envFlag` among them, each value either literal characters or exactly single-quoted;
- *   2. the interpreter: for `{ quotedPathTo: [names] }`, one single-quoted word whose basename is
- *      exactly one of those names; for `{ word: 'bash' }`, the bare word `bash` and nothing else;
+ *   2. ONE interpreter word, either literal characters or exactly single-quoted;
  *   3. the gate path: one single-quoted word whose basename is exactly `gateFile`;
  *   4. nothing more — no further word, operator, redirection, comment or expansion.
- * Each installer's `HOOK_IDENTITY` lists the shapes its released versions wrote. Claude Code keeps the
- * command byte for byte, so the shape an installer emitted is the shape it finds again. A command in that
- * shape runs the gate by construction, so it is not read again for whether it does: the interpreter an
- * installer wrote is the binary that ran it, and a name this reader does not know as an interpreter (a
- * versioned `node-22`) must not turn the installer's own hook unclear.
+ * Everything in it is pinned but the interpreter, so a command in that shape is read by its interpreter alone,
+ * and it is NEVER unclear:
+ *   - it is the installer's own when the interpreter is written the way that installer writes one, as its
+ *     `HOOK_IDENTITY.interpreter` says: `{ quoted: true, pattern, names }` is single-quoted with a basename that
+ *     matches `pattern` or is exactly one of `names`; `{ quoted: false, names }` is exactly one of `names`, bare;
+ *   - it is nobody's when the interpreter is a program in `MENTIONS`: `'/bin/echo' '<gate>'` prints a path;
+ *   - it is adoptable otherwise. The interpreter is the one thing in it that differs from what the installer
+ *     wrote, and a user who passes `--adopt` over it has made that call. What must not happen is what did: an
+ *     installer run as `node-22` read the hooks it had written as `node-20` as unclear, which no flag takes,
+ *     where 0.19.0 took them.
+ * Claude Code keeps the command byte for byte, so the shape an installer emitted is the shape it finds again.
  *
  * RUNS THE GATE is structural, over the command's simple commands as `sh` splits them. In some simple
  * command, past its leading assignments, the reserved words `! { } if then else elif fi do done while
  * until time`, and the wrappers `exec`, `command`, `nohup` and `env` (only `env` takes assignments):
  *   - the program's basename is exactly the gate file; or
- *   - the program is an interpreter in `INTERPRETERS` or a shell in `SHELLS`, and the very next word's
- *     basename is exactly the gate file; or
+ *   - the program is an interpreter — a name matching `NODE_RUNTIME_NAME`, or `.` or `source` — or a shell
+ *     in `SHELLS`, and the very next word's basename is exactly the gate file; or
  *   - the program is a shell given `-c`, and the gate runs in that script; or
  *   - the gate runs inside a `$(…)`, backtick or `<(…)` substitution.
  * A gate path that is an argument of a command that prints, reads, lists, tests, copies, moves or
@@ -313,8 +327,24 @@ const NONE = 0;
 const UNCLEAR = 1;
 const RUNS = 2;
 
+/**
+ * The name of a binary that runs a Node ES module given as its first argument: `node`, `nodejs` or `bun`, then an
+ * optional version (`-20`, `22`, `_22`, `-v22.11.0`), then an optional `.exe`, in any case.
+ *
+ * WHY A PATTERN, AND THIS ONE. The report-progress installer writes `process.execPath`, so the name in its hooks is
+ * whatever the binary that ran it was called, on that machine, at that time, and the hooks outlive that binary. The
+ * official builds, nvm, volta, asdf and Homebrew install `node`; Debian and Ubuntu's own package installs `nodejs`; a
+ * side-by-side install is named after its version; Windows adds `.exe` and ignores case, as macOS does by default; and
+ * bun, which runs both the installer and the gate, reports its own binary as `process.execPath`. A list of names grew
+ * one measured miss at a time (`nodejs`, then `node-22`); a runtime stem, a version and an extension is that family
+ * in one line. It stays narrow on purpose — `nodemon`, `node-gyp` and `bunx` are not runtimes — and a name outside it is
+ * not refused: in an installer's exact shape it is adoptable, and under the installer's own describe its own.
+ */
+export const NODE_RUNTIME_NAME = /^(?:node|nodejs|bun)(?:[-_]?v?\d+(?:\.\d+)*)?(?:\.exe)?$/i;
+/** Besides a Node-compatible runtime, the shell's own words for running a file in place. */
+const SOURCING = new Set(['.', 'source']);
 /** Programs whose next word is the script they run. */
-const INTERPRETERS = new Set(['node', 'nodejs', 'node.exe', 'bun', '.', 'source']);
+const isInterpreter = (program) => SOURCING.has(program) || NODE_RUNTIME_NAME.test(program);
 /** Shells: the next word is the script they run, and `-c` hands them a script as text. */
 const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'sh.exe', 'bash.exe']);
 /** Programs that print, read, list, test, copy, move or delete a file and never run it. */
@@ -390,7 +420,7 @@ function simpleCommandGateUse({ words, substitutions, heredocs, pipesOut }, gate
     if (at === 0 && rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
     return unclearIfNamed(rest);
   }
-  if (INTERPRETERS.has(program)) {
+  if (isInterpreter(program)) {
     if (rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
     return unclearIfNamed(rest);
   }
@@ -456,34 +486,38 @@ function installerWords(command) {
 }
 
 /**
- * True only when the whole command is exactly the installer's shape: see THE EXACT SHAPE in the header.
+ * The command read as the installer's exact shape (THE EXACT SHAPE in the header): `null` when it is not in that
+ * shape, and otherwise `{ owned, mention }` — `owned` when its interpreter is written the way this installer writes
+ * one, `mention` when that word is a program that only prints, reads, lists, copies or deletes files.
  *
  * @param {string} command
- * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quotedPathTo?: string | readonly string[], word?: string } }} identity
+ * @param {{ envFlag: string, gateFile: string, variables?: readonly string[], interpreter?: { quoted?: boolean, pattern?: RegExp, names?: readonly string[] } }} identity
  */
-export function isInstallerShape(command, { envFlag, gateFile, variables = [envFlag], interpreter } = {}) {
+export function installerShape(command, { envFlag, gateFile, variables = [envFlag], interpreter } = {}) {
   const words = installerWords(command);
-  if (words === null || !plainObject(interpreter)) return false;
+  if (words === null || !plainObject(interpreter)) return null;
   const assigned = new Set();
   let index = 0;
   for (; index < words.length; index += 1) {
     const match = ASSIGNMENT_NAME.exec(words[index].raw);
     if (!match) break;
     const [prefix, name] = match;
-    if (!variables.includes(name) || assigned.has(name)) return false;
+    if (!variables.includes(name) || assigned.has(name)) return null;
     const raw = words[index].raw.slice(prefix.length);
-    if (!LITERAL_RUN.test(raw) && raw !== singleQuoted(words[index].value.slice(prefix.length))) return false;
+    if (!LITERAL_RUN.test(raw) && raw !== singleQuoted(words[index].value.slice(prefix.length))) return null;
     assigned.add(name);
   }
-  if (!assigned.has(envFlag) || words.length - index !== 2) return false;
+  if (!assigned.has(envFlag) || words.length - index !== 2) return null;
   const [program, gate] = words.slice(index);
-  const names = [interpreter.quotedPathTo].flat().filter((name) => typeof name === 'string' && name !== '');
-  const interpreterMatches = typeof interpreter.word === 'string'
-    ? program.raw === interpreter.word
-    : names.length > 0
-      && program.raw === singleQuoted(program.value)
-      && names.includes(basename(program.value));
-  return interpreterMatches && gate.raw === singleQuoted(gate.value) && basename(gate.value) === gateFile;
+  if (gate.raw !== singleQuoted(gate.value) || basename(gate.value) !== gateFile) return null;
+  const quoted = program.raw === singleQuoted(program.value);
+  if (!quoted && !LITERAL_RUN.test(program.raw)) return null;
+  // Single-quoted, the installer wrote a path, and its basename is the name; bare, the word is the name.
+  const name = quoted ? basename(program.value) : program.raw;
+  const names = [interpreter.names].flat().filter((entry) => typeof entry === 'string' && entry !== '');
+  const owned = quoted === (interpreter.quoted === true)
+    && (names.includes(name) || (interpreter.pattern instanceof RegExp && interpreter.pattern.test(name)));
+  return { owned, mention: MENTIONS.has(basename(program.value)) };
 }
 
 /**
@@ -495,15 +529,20 @@ export function isInstallerShape(command, { envFlag, gateFile, variables = [envF
  */
 export function classifyHook(hook, identity) {
   if (!plainObject(hook) || typeof hook.command !== 'string' || !plainObject(identity)) return null;
-  // The installer's own shape runs the gate by construction (see THE EXACT SHAPE in the header).
-  const own = isInstallerShape(hook.command, identity);
-  const use = own ? RUNS : gateUse(hook.command, identity.gateFile);
+  // The exact shape is read by its interpreter alone, and is never unclear (THE EXACT SHAPE in the header).
+  const shape = installerShape(hook.command, identity);
+  const use = shape ? (shape.mention ? NONE : RUNS) : gateUse(hook.command, identity.gateFile);
   if (use === NONE) return null;
-  const describedByAnother = Object.hasOwn(hook, 'describe')
-    && !(typeof hook.describe === 'string' && hook.describe.startsWith(identity.describePrefix));
-  if (describedByAnother) return 'foreign';
+  if (Object.hasOwn(hook, 'describe')) {
+    // A describe is a statement of ownership: somebody else's vetoes it, and this installer's own grants it to a
+    // hook that runs the gate (THE INSTALLER'S OWN DESCRIBE in the header).
+    const prefix = identity.describePrefix;
+    const ownDescribe = typeof prefix === 'string' && prefix !== '' && typeof hook.describe === 'string' && hook.describe.startsWith(prefix);
+    if (!ownDescribe) return 'foreign';
+    return use === RUNS ? 'ours' : 'unclear';
+  }
   if (use === UNCLEAR) return 'unclear';
-  return own ? 'ours' : 'adoptable';
+  return shape?.owned ? 'ours' : 'adoptable';
 }
 
 /**
@@ -512,7 +551,7 @@ export function classifyHook(hook, identity) {
  */
 export function unownedReason(kind, ownShape) {
   if (kind === 'adoptable') {
-    return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this.`;
+    return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this, and so does a hook written under an interpreter this installer does not know by name.`;
   }
   if (kind === 'unclear') {
     return 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a word after an interpreter\'s options, a pipe, a substitution, a variable, a here-document or a function — so it is never adopted: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.';
