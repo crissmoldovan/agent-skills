@@ -45,13 +45,17 @@ output side"). Same rule: it outranks this file if they ever disagree.
   than replacing it). Now includes a `PreCompact` block (Floor 1 needs it;
   nothing before this task ever wired that event at all).
 - `report-progress-gate.mjs` — the progress-report gate: a `Stop` hook that
-  refuses a turn's final message when that turn dispatched a subagent and the
-  message carries no progress report, plus the `PostToolUse` marker writer that
-  arms it. Nothing to do with the journal — separate install, separate flag,
-  separate settings entries. See "The progress-report gate" below.
-- `install-report-progress-gate.mjs` — writes and removes that pair of hooks in
-  a settings file. `--mode observe|block`, `--remove`, atomic tmp+rename, and a
-  refusal to touch a hook wearing the gate's name that it did not write itself.
+  refuses a turn's final message when that turn started a subagent, invoked a
+  listed external-agent skill, or changed the harness's own list of background
+  work — and the message carries no progress report. Plus the `SubagentStart`
+  marker writer that arms the first of those. Nothing to do with the journal —
+  separate install, separate flag, separate settings entries. See "The
+  progress-report gate" below.
+- `install-report-progress-gate.mjs` — writes and removes those hooks in a
+  settings file. `--mode observe|block`, `--skills <names>`, `--remove`, atomic
+  tmp+rename, removal that scans every event key rather than only the ones this
+  version writes, and a refusal to touch a hook wearing the gate's name that it
+  did not write itself.
 - `release-notes-gate.sh` — the release-notes gate: a `PreToolUse` hook on `Bash`
   that refuses a publish, a `gh`/`glab release create`, a release-looking `git
   tag`, or a version-bump commit when the version being released is not mentioned
@@ -247,21 +251,86 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 # arm it
 node adapters/claude-code/install-report-progress-gate.mjs --mode block
 
+# …and, optionally, treat named skills as external agents (exact names, no default)
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --skills codex
+
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 ```
 
 It writes two entries into `~/.claude/settings.json` (or the `--settings` file
-you name), and needs both:
+you name), and a third only if you named skills:
 
-- **`PostToolUse`, matcher `Agent`** — arms a per-session marker when a subagent
-  is dispatched. The tool is named `Agent` on this harness, not `Task`
-  (`../NOTES.md`). Scoped to that matcher so the hook is not invoked at all on
-  the hundreds of `Read` and `Bash` calls around it.
-- **`Stop`, matcher `*`** — reads the marker and returns
-  `{"decision":"block","reason":…}` at exit 0 when the final message carries no
-  report. No marker, no gate: a turn that dispatched nothing ends exactly as it
-  would with the hook absent.
+- **`SubagentStart`, matcher `*`** — arms a per-session marker when a subagent is
+  started: foreground or backgrounded, of any `agent_type`. This replaced
+  `PostToolUse` matcher `Agent`, which saw only `Agent`-tool dispatches and only
+  in the foreground sense. Two `agent_type` values are excluded on purpose:
+  `workflow-subagent`, because a workflow's children start asynchronously at
+  times no turn owns and the register below already covers workflow work at a
+  turn-anchored point; and `""`, which is what internal compaction
+  summarisation fires as (`../NOTES.md`) and which would otherwise demand a
+  progress report on the turn after a `/compact`.
+- **`Stop`, matcher `*`** — reads the marker **and** the harness's own list of
+  background work, which arrives in that same payload as `background_tasks[]`.
+  Returns `{"decision":"block","reason":…}` at exit 0 when the final message
+  carries no report. Nothing armed, no gate: a turn that delegated nothing and
+  changed nothing ends exactly as it would with the hook absent.
+- **`PostToolUse`, matcher `Skill`** — written **only** when `--skills` named
+  something. Arms on an exact skill name. With no list, this hook does not exist
+  at all, so the default install gains no invocation on the `Skill` path.
+
+`PostToolUse` matcher `Agent` is no longer written. The gate still honours it, so
+a settings entry left by v0.16.1 keeps arming rather than sitting inert — but
+re-running the installer removes it, and removal now scans **every** event key in
+your settings for hooks this installer wrote, not just the ones this version
+happens to write. (Before that change, the moment the installer stopped writing
+`PostToolUse`, an already-installed user's `PostToolUse` hook became unremovable
+by `--remove`.)
+
+### Work in flight: no hook of its own, and the edge rather than the level
+
+The second family needs no new event. `Stop` already carries the harness's own
+register of background work — `{id, type, status, description, …}`, where `type`
+has been seen as `shell`, `workflow` and `subagent` — so a workflow launched in a
+turn is in that turn's own register, and a finished task has left it by the next
+one. The gate compares the ids running now against the ids running at this
+session's previous `Stop` and arms on the **change**:
+
+- an id present now and absent before → something was dispatched;
+- an id present before and absent now → something that was running is no longer
+  listed. **That is not a report that it completed.** There is no terminal status
+  on this array to read — a finished task is removed rather than re-labelled — so
+  the gate concludes only that a report is owed, never what happened, and its
+  reason string is written to say exactly that. Terminal states belong to
+  `agent-lifecycle` and are immutable once set; nothing in a `Stop` hook may
+  imply one from a single snapshot omission.
+- both sets equal → nothing new; stay silent. Arming on the *level* would demand
+  a report on every turn for as long as a dev server sits in the background,
+  which is the noise that gets a gate uninstalled.
+
+This is also the whole of the Workflow answer, and it is why `PostToolUse` matcher
+`Workflow` is **not** wired: that event fires at `duration_ms` 3–5 — the launch,
+not the work — while the dispatching turn's `Stop` fires with the workflow still
+running, so arming there would demand a report about work that has produced
+nothing yet.
+
+The baseline lives in its own file beside the marker (`<session>.register.json`),
+because the marker is deleted by the `Stop` that ends a turn and the baseline has
+to survive that. An absent baseline is read as **empty**, not unknown: a session's
+first `Stop` has neither, and the other reading would make the first appearance of
+any task unarmable.
+
+### The coverage level, `AGENT_SKILLS_PROGRESS_GATE_COVERAGE`
+
+The installer writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2` into the command
+alongside the mode. Absent, `1`, or anything unrecognised is v0.16.1's behaviour
+**exactly** — one signal, `PostToolUse` with `tool_name` `Agent`, and no register
+read at all. It exists because the two new hooks cannot appear in your settings
+without you running the installer, but the register half rides on the `Stop` hook
+that is already there: without the level, updating the pack alone would widen a
+gate you armed under different terms. An unrecognised value falls back to `1`
+rather than to `off`, so a typo can neither widen a gate that can end a turn nor
+silently disable one you installed.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking
 a second copy beside it, so changing mode is one command. A hook wearing the
@@ -289,6 +358,22 @@ cannot see whether `npm test` was ever run, whether `child-7f2` exists, or
 whether `40s ago` was an observation rather than a guess. A message that
 satisfies this gate can still be a fabrication.
 
+**One check goes further, and it is contradiction detection rather than
+verification.** When the register in that same payload lists *n* tasks as
+running, the report may not assert the absence of what the harness just stated:
+not `Running: none` (`running-declared-empty-while-tasks-in-flight`), and not the
+no-evidence sentence (`no-evidence-claimed-while-tasks-in-flight`), which is for
+a run with no evidence source at all — and the register is one. The gate still
+cannot tell whether any row is *true*; it can now tell when one denies something
+it is holding in its hand. It cannot refuse an honest report either, because an
+honest report about *n* running tasks says neither of those things. There is
+deliberately **no** row-count check and **no** id matching: a report may
+legitimately group ("2 background shells, both running"), and forcing it to echo
+harness ids would buy a number nobody could verify. The bar is **one row per unit
+the harness itself registers** — a workflow of twelve agents owes one row, not
+twelve, because twelve is not a number this gate can see and twelve invented
+states would be the fabrication the skill exists to stop.
+
 **One block per turn, and the reason says so.** Claude Code ends a turn after 8
 consecutive `Stop` blocks; that budget is **shared** across every `Stop` hook
 from every settings source, and when it runs out the headless result comes back
@@ -304,21 +389,57 @@ so it can never be the hook that walks a session into that. `SubagentStop` is
 deliberately not wired: it has no 8-block backstop at all, so a bug there would
 hang a child agent instead of costing one continuation.
 
-**What it is careful not to do.** It does not fire on a turn that dispatched no
-subagent, which is the whole reason it is survivable — a guard that blocks "yes,
-that file is in `src/`" gets uninstalled within a day, and an uninstalled guard
-enforces nothing. One hole in that, because it is a cost a user should hear about
-rather than discover: the marker is keyed by session and cleared by the `Stop`
-that ends the turn, so a turn that dispatched a subagent and then died without a
-`Stop` — a crash, a kill — leaves one behind, and the next turn in that session
-pays one block for a dispatch it did not make. A marker older than six hours
-(`MARKER_MAX_AGE_MS`) is treated as stale and cleared without a block, which
-bounds how long a stranded one can cost anything. That is why the reason says "a
-subagent was dispatched" and not "this turn dispatched a subagent": the marker
-cannot support the second. It never prints `hookSpecificOutput.additionalContext`
-on `Stop`: that channel was observed to force continuations exactly like a block
-does, so its stand-down notice goes to stderr, which Claude Code does not deliver
-to the model at exit 0. Every path exits 0.
+**What it is careful not to do.** It does not fire on a turn that delegated
+nothing and changed nothing, which is the whole reason it is survivable — a guard
+that blocks "yes, that file is in `src/`" gets uninstalled within a day, and an
+uninstalled guard enforces nothing. It never prints
+`hookSpecificOutput.additionalContext` on `Stop`: that channel was observed to
+force continuations exactly like a block does, so its stand-down notice goes to
+stderr, which Claude Code does not deliver to the model at exit 0. It never echoes
+harness-supplied text into a reason — not a task's `description`, not its
+`command`, not a workflow's name: counts it computed are facts, text it copied is
+somebody else's prose arriving in a channel the model reads as instructions. Every
+path exits 0, and a passing turn puts **zero bytes** into the model's context.
+
+**What it costs when it is wrong, named rather than left to be discovered.** Each
+of these is one block, once:
+
+- the marker is keyed by session and cleared by the `Stop` that ends the turn, so
+  a turn that armed and then died without one — a crash, a kill — leaves one
+  behind, and the next turn in that session pays a block for a dispatch it did not
+  make. A marker older than six hours (`MARKER_MAX_AGE_MS`) is stale and cleared
+  without a block, which bounds how long a stranded one can cost anything. That is
+  why the reason says "a subagent was dispatched" and not "this turn dispatched a
+  subagent": the marker cannot support the second;
+- a background result arriving while you ask something trivial arms that trivial
+  turn. This is the skill's own trigger ("a background result arrived") and also
+  the shape most likely to annoy;
+- a resumed session starts in a fresh CLI process whose background list is empty
+  again — the list belongs to the process, not to the session id (`../NOTES.md`
+  addendum, 2026-09-14) — so the first `Stop` after a resume can read as a burst
+  of disappearances. A swept temp directory does the same in the other direction.
+
+**What it cannot see at all**, kept accurate rather than aspirational:
+
+- a **foreground external agent** — a bare `codex exec` in a `Bash` call — unless
+  you listed the skill that runs it. That path carries no distinguishing tool name
+  (`tool_name` is `Bash`; the only signal is `tool_input.command` text), and this
+  gate does no command-text matching for any binary, not behind a flag. The
+  sibling release gate's eight defects over five rounds were four repeats of one
+  bug — a regex reading argument text as command structure — and a false positive
+  there merely denied a command, where a false positive here would demand a
+  progress report because a commit message mentioned codex. Backgrounding such a
+  call makes it a register entry with its own id, exactly tracked, no guessing;
+- the **individual children of a workflow**. One registered entry, one row;
+- **background work that starts and finishes inside one turn**. The register is
+  sampled at `Stop`, so it is never sampled in time to see it. The exact fix would
+  be arming from the launching call's `tool_response.backgroundTaskId` — a
+  structural field, not text — which costs a `PostToolUse` hook on every `Bash`
+  call in the session and is not worth it for work that short;
+- **how long anything has been running.** No hook event carries a wall-clock
+  timestamp, and nothing fires between `PreToolUse` and `PostToolUse`. "Long
+  running" here means, mechanically, *still listed as running at a turn end* —
+  there is no threshold, because there is no clock to compare one against.
 
 ## The release-notes gate (separate hook, off by default)
 

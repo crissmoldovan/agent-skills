@@ -18,8 +18,11 @@
   `PostToolUse:Agent` and covers every foreground subagent kind; externalised agents get a
   structured skill-name allowlist and **no command-text matching, ever**; long-running foreground
   tools are **not worth arming on** and that part should not be built.
-- **Status:** design only. Nothing in this note is implemented. The ordered work list at the end
-  is unstarted, and three probes below **block** implementation of the largest piece.
+- **Status:** design as written, then IMPLEMENTED on the same branch — see the implementation
+  addendum at the end of this file, which records the blocking probes' results, the two places
+  the implementation departs from this design, and the release note owed at the next version
+  bump. Everything between this line and that addendum is the design as it stood before any of
+  it was built, and is left unedited on purpose.
 
 **No number in this note was measured.** The costs stated here are structural — counts of hook
 invocations per turn — and the one number that would decide a cost argument (per-invocation Node
@@ -545,3 +548,116 @@ under every combination above.
 - **Other harnesses.** This is the Claude Code adapter only. The Codex adapter in `adapters/codex/`
   has a different event surface and is out of scope; nothing here should be copied across without
   its own probe.
+
+---
+
+## Implementation addendum, 2026-09-14 — what was built, and what the probes changed
+
+The note above is the design. This section records that it was implemented on the same
+branch, what the blocking probes returned, where the implementation departs from the design,
+and the release note that is **owed at the next version bump** — the repository refuses
+staged prose under `docs/releases.md`'s `## Unreleased` while `package.json`'s version
+already has a `CHANGELOG.md` entry, and bumping that version is a release act with its own
+checklist, so the note is parked here rather than staged early.
+
+### The probes returned, and none of them blocks
+
+Recorded in full, with payloads, as the 2026-09-14 addendum in `adapters/NOTES.md`.
+
+- **P1 — ids stable across `Stop`s?** YES, within one CLI process: two shells kept
+  byte-identical ids across four consecutive `Stop`s. The edge rule stands.
+- **P2 — is the register complete?** Every launch's own id — `tool_response.backgroundTaskId`
+  for a backgrounded `Bash`, `agent_id` for a backgrounded `Agent` — appeared in the register,
+  six for six, across four runs. And a finished entry is **removed** rather than re-labelled:
+  no terminal status value was ever seen on the array. The disappearance edge ships, and it is
+  the only way a completion is visible at all.
+- **P3 — is `SubagentStart` an accepted settings key, and what does an unknown key do?**
+  Accepted and fired. An invented key beside a real one did not invalidate the file: the
+  sibling `Stop` hook still fired.
+- **P4 — matcher semantics.** `matcher: "*"` works, the same as the `Stop` half already uses.
+- **P5** (per-invocation Node cost) and **P6** (idle `workflow-subagent` starts) remain
+  unmeasured and unattempted. Neither gates anything here; both are still open.
+
+**One probe finding changed the design's shape.** `background_tasks[]` belongs to the CLI
+PROCESS, not to the session id. A `claude -p` run that backgrounds three shells, resumed with
+`--resume <the same session id>`, reports that same `session_id` and an **empty** register.
+Since both files this gate writes are keyed by session id, the first `Stop` after a resume
+reads as a burst of disappearances: one block, once. It is the same shape as the temp-sweep
+hole the design already accepted, and it is now named in the installer's output, the gate's
+header, the adapter README and the skill.
+
+A second finding widened one line of code: `type` has a **third** value. A backgrounded
+`Agent` subagent registers as `{"type":"subagent", "id": <the agent_id>, "agent_type": …}`.
+The design's shape table said `shell|workflow`. `runningTaskIds` therefore never enumerates
+`type` at all — it reads `status` and `id`, and a fourth kind stays visible.
+
+### Where the implementation departs from the design
+
+- **The `Agent`-tool branch was kept, not replaced.** The design said `SubagentStart`
+  *replaces* `PostToolUse` matcher `Agent`. The INSTALLER does replace it — coverage 2 writes
+  no `PostToolUse:Agent` hook. The gate FILE still honours one, at every level, so a settings
+  entry written by v0.16.1 keeps arming instead of sitting inert. Silence is the worse failure
+  for a hook whose whole job is to not be skippable, and re-running the installer removes the
+  old entry anyway.
+- **A stale marker no longer short-circuits the whole decision.** v0.16.1 returned "stale,
+  stand down" the moment the marker aged out. With a second arming family that carries no
+  marker, that would have let a six-hour-old file suppress a live register edge, so the stale
+  marker is dropped and the edge is still evaluated.
+- **The release note is parked here** rather than staged in `docs/releases.md`. See above.
+- **`docs/releases.md`, `CHANGELOG.md` and `package.json` are untouched.** No version was
+  bumped, nothing was tagged, nothing was published.
+
+### The release note, owed at the next version bump
+
+> **What.** The `report-progress` gate armed on one signal — `PostToolUse` with `tool_name`
+> `Agent`. It now arms on two families. **Opaque delegation** moves to `SubagentStart`, which
+> fires for every subagent kind, foreground or backgrounded, and optionally to a
+> user-configured list of skill names treated as external agents (`--skills codex`, exact
+> match, empty by default, and no hook is written when the list is empty). **Work in flight at
+> a turn end** needs no new event at all: `Stop` already carries `background_tasks[]`, the
+> harness's own register of background shells, workflows and backgrounded subagents, so the
+> gate compares the ids running now against the ids running at the session's previous `Stop`
+> and arms on the **change** — something appeared, or something that was running is no longer
+> listed. A task that is merely still running arms nothing. One check is added, on armed turns
+> only: a report may not say "Running: none", or claim there is no lifecycle evidence, while
+> the register in that same payload lists tasks as running.
+> `test/report-progress-gate.test.mjs` grows from 41 tests to 76. No skill was added or
+> removed; twenty-four stay twenty-four.
+>
+> **Why.** The gate enforced a report for one kind of delegated work and was blind to the
+> rest: a Workflow, a backgrounded subagent, an external agent, a background shell left
+> running when the user stopped reading. The silence it was built to prevent was available
+> through four doors and closed on one.
+>
+> **What this buys.** The register answers the Workflow question without the gate ever reading
+> the `Workflow` tool's own event — that one fires at `duration_ms` 3–5, the launch rather
+> than the work, while the dispatching turn's `Stop` fires with the workflow still running. It
+> answers "long-running" by redefining it as something a field can settle: still listed as
+> running at a turn end. No hook event carries a wall-clock timestamp, so there is no
+> threshold to set, and arming on a foreground call's `duration_ms` was considered and
+> declined — it measures work the user already watched, blocked, in full view.
+>
+> **What it still does not see.** A foreground external agent (a bare `codex exec` in a `Bash`
+> call) unless the skill that runs it is listed. That path carries no distinguishing tool
+> name, and matching command text is refused outright, for any binary, not behind a flag: the
+> sibling release gate found the same defect — a regex reading argument text as command
+> structure — four times in one round and twice more after two structural guards were written
+> to stop it, and there a false positive merely denied a command. Here it would demand a
+> progress report because a commit message mentioned codex. Backgrounding such a call makes it
+> a register entry with its own id, exactly tracked. Also unseen: a workflow's individual
+> children (one registered entry owes one row, not twelve), and background work that starts
+> and finishes inside one turn.
+>
+> **Compatibility, and why there is a flag.** The two new hooks cannot appear in a user's
+> settings without them re-running the installer. The register half rides on the `Stop` hook
+> already installed, so updating the pack alone would have widened an armed gate silently. The
+> installer now writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2` into the command; absent, `1`,
+> or anything unrecognised is v0.16.1's behaviour **exactly**, register included. An
+> unrecognised value falls back to the narrower armed level rather than to `off`, so a typo
+> can neither widen a gate that can end a turn nor silently disable one.
+>
+> **One thing to do if you have this gate installed.** Re-run the installer. `--remove` now
+> scans every event key in your settings rather than the list this version happens to write —
+> without that, the moment the installer stopped writing `PostToolUse`, an existing
+> `PostToolUse` hook became unremovable and would have stayed there arming a marker nothing
+> reads. Re-installing also replaces the v0.16.1 pair rather than orphaning half of it.

@@ -49,27 +49,49 @@ off until a user installs it, and gone when they run that installer with `--remo
 paragraphs above are unchanged by it: this file still executes nothing, and nothing in this
 skill can install the gate or arm it on a user's behalf.
 
-**What it does.** On a turn that dispatched a subagent through the `Agent` tool it reads that
-turn's final message and returns `{"decision":"block"}` when the shape is absent, which holds
-the turn for one more round so the report can be written. Nearly, but not exactly, only such a
-turn: its marker is keyed by session and cleared by the `Stop` that ends the turn, so a turn
-that dispatched and then died without one leaves the marker behind, and the next turn in that
-session pays a single block for a dispatch it did not make. It has an `observe` mode that
-reports what it would have blocked and never holds anything. In either mode it acts at most
-once per turn and then stands down, because Claude Code ends a turn after 8 consecutive blocks
-and that budget is shared with every other `Stop` hook on the machine.
+**What arms it.** Three things, and nothing else: a subagent started in this turn (any kind,
+foreground or backgrounded); a skill the user has listed as an external agent, matched by
+exact name; and a **change** in the harness's own list of background work between this turn's
+end and the last one — something appeared, or something that was running is no longer listed.
+A task that is merely still running arms nothing, so a dev server left in the background does
+not make every turn owe a report. On an armed turn it reads the final message and returns
+`{"decision":"block"}` when the shape is absent, holding the turn for one more round so the
+report can be written. It has an `observe` mode that reports what it would have blocked and
+never holds anything. In either mode it acts at most once per turn and then stands down,
+because Claude Code ends a turn after 8 consecutive blocks and that budget is shared with
+every other `Stop` hook on the machine.
 
 **What it can check.** That a "what is done", a "what is running" and a "what is next" section
 label are present; that a running row carries a literal state and a freshness token, or that
 the exact no-evidence sentence below stands in its place; and that an empty section says so.
-It is string matching, and that is the only reason it is enforcement rather than more
-instructions — no model sits in its path, so there is nothing there to talk round.
+Where the harness listed work as still running, it additionally refuses a report that says
+"Running: none" or that claims there is no lifecycle evidence — that is contradiction
+detection, not verification: it catches a report denying something the harness stated in the
+same payload, and it cannot refuse an honest report, because an honest report about *n*
+running tasks says neither of those things. It is string matching, and that is the only reason
+it is enforcement rather than more instructions — no model sits in its path, so there is
+nothing there to talk round.
+
+**What the bar is.** One row per unit the harness itself registers. A workflow of twelve
+agents owes **one** row, not twelve: twelve is not a number the gate can see, the parent cannot
+observe those children's state, and twelve rows carrying invented states would be rule 5's
+invention wearing a status block — produced by the gate meant to prevent it.
 
 **What it cannot check.** Whether any number in the report is real. It cannot tell whether
 `npm test` was ever run, whether `child-7f2` exists, or whether "40s ago" was an observation
 rather than a guess. A message that satisfies the gate can still be a fabrication, and the
 five rules and the checklist at the end of this file are what catch that. The gate replaces
 neither, and a passing turn is not a verified report.
+
+**What it cannot see at all**, so that nobody mistakes its silence for a clean bill: a
+foreground external agent — a bare `codex exec` — unless the user listed the skill that runs
+it, because the gate does no matching of command text, ever; the individual children of a
+workflow; background work that starts and finishes inside one turn; and how long anything has
+been running, because no hook event carries a clock. A disappearance from the harness's list
+is not a completion and the gate never reports it as one — terminal states belong to
+`agent-lifecycle`. Its marker is also keyed by session rather than by turn, so a turn that
+armed and then died without a `Stop`, a background result arriving during a trivial turn, and
+a session resumed in a fresh process each cost one block for work the turn did not do.
 
 ### The five rules
 
