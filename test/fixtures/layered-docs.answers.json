@@ -136,7 +136,7 @@
         "audit",
         "draft"
       ],
-      "note": "The quick-start contract bans flags. Their home is the script's own usage header, which the manual links to; the manual's commands table does not list them either. Checkable by reading the README, with no drafting involved."
+      "note": "The quick-start contract bans flags; their home is the script's own usage header. Checkable by reading the README, with no drafting involved. The manual does not route to that header either, and its commands table names the flags too — recorded as a known extra, not as this defect."
     },
     {
       "id": "D12",
@@ -220,11 +220,11 @@
     },
     {
       "file": "docs/MANUAL.md",
-      "what": "The deploy row in the commands table names flags, which belong to the script's usage header."
+      "what": "The deploy row in the commands table names flags, and nothing in the manual routes a reader to the script's usage header, where they belong."
     },
     {
       "file": "docs/MANUAL.md",
-      "what": "'Sources re-read at <sha>' is true for the revision it names and is overtaken by the three commits after it — the delta an update reads."
+      "what": "'Sources re-read at <sha>' is true for the revision it names. Four commits follow it: the one that adds the documents, then three that change sources — the delta an update reads."
     },
     {
       "file": "scripts/deploy.sh",
