@@ -366,7 +366,13 @@ no-evidence sentence (`no-evidence-claimed-while-tasks-in-flight`), which is for
 a run with no evidence source at all — and the register is one. The gate still
 cannot tell whether any row is *true*; it can now tell when one denies something
 it is holding in its hand. It cannot refuse an honest report either, because an
-honest report about *n* running tasks says neither of those things. There is
+honest report about *n* running tasks says neither of those things. A denial here
+means a section with **no row in it**: a running section that carries a literal
+state *and* a freshness is a row, and the check stands down whatever words sit
+beside it — `state running, last observed just now — none of the tests failed`,
+`Failures: none so far`, `(queue empty)`, or a report quoting the no-evidence
+sentence while explaining it. Each of those was measured refusing an honest
+report before that guard existed. There is
 deliberately **no** row-count check and **no** id matching: a report may
 legitimately group ("2 background shells, both running"), and forcing it to echo
 harness ids would buy a number nobody could verify. The bar is **one row per unit

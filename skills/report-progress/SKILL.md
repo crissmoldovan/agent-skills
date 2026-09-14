@@ -68,7 +68,8 @@ Where the harness listed work as still running, it additionally refuses a report
 "Running: none" or that claims there is no lifecycle evidence — that is contradiction
 detection, not verification: it catches a report denying something the harness stated in the
 same payload, and it cannot refuse an honest report, because an honest report about *n*
-running tasks says neither of those things. It is string matching, and that is the only reason
+running tasks says neither of those things. A denial is a running section with no row in it;
+a row carrying a state and a freshness stands, whatever words sit beside it. It is string matching, and that is the only reason
 it is enforcement rather than more instructions — no model sits in its path, so there is
 nothing there to talk round.
 

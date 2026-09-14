@@ -99,7 +99,11 @@
  * real lie by string matching and cannot refuse an honest report, because an
  * honest report about n running tasks says neither of those two things. There is
  * no row-count check and no id matching: a report may legitimately group, and
- * forcing it to echo harness ids would buy a number nobody could verify.
+ * forcing it to echo harness ids would buy a number nobody could verify. A DENIAL IS
+ * A SECTION WITH NO ROW IN IT — both patterns are scanned over the whole running block,
+ * so without that guard "state running, last observed just now — none of the tests
+ * failed" read as "Running: none" and refused an honest report (measured, five shapes);
+ * see `findReportFailures`.
  *
  * ONE BLOCK PER TURN, and the reason says so out loud. Claude Code ends a turn
  * after 8 consecutive blocks, that budget is SHARED with every other `Stop`
@@ -527,6 +531,17 @@ export function findReportFailures(message, { runningTaskCount = 0 } = {}) {
   // payload is one, so it stands in for the section only when there is nothing in flight.
   const standsIn = noEvidence && !inFlight;
 
+  // A DENIAL IS A SECTION WITH NOTHING IN IT, not a word that appears somewhere inside one.
+  // Both contradiction checks below are gated on this, and that is not fussiness: the patterns
+  // they use are scanned over the WHOLE running block, so "state running, last observed just
+  // now — none of the tests failed", "Failures: none so far" and "(queue empty)" all match
+  // `declaresEmpty`, and a report may quote the no-evidence sentence while explaining it. Each
+  // of those was measured to block an honest report before this guard existed. A section that
+  // carries a real row — a literal state AND a freshness, which is everything this gate can
+  // ask of a row — is not denying anything, whatever words sit beside it.
+  const running = runningBlock(message);
+  const carriesRow = running !== '' && hasStateToken(running) && hasFreshnessToken(running);
+
   for (const id of SECTION_IDS) {
     if (id === 'running' && standsIn) continue;
     if (!hasSectionLabel(message, id)) {
@@ -534,7 +549,7 @@ export function findReportFailures(message, { runningTaskCount = 0 } = {}) {
     }
   }
 
-  if (noEvidence && inFlight) {
+  if (noEvidence && inFlight && !carriesRow) {
     failures.push({
       code: 'no-evidence-claimed-while-tasks-in-flight',
       detail: `the report says there is no lifecycle evidence, while the harness register in this same payload lists ${tally} still running`,
@@ -544,9 +559,8 @@ export function findReportFailures(message, { runningTaskCount = 0 } = {}) {
   // The no-evidence sentence stands in place of the section, states and freshness included.
   if (standsIn) return failures;
 
-  const running = runningBlock(message);
   if (running === '') return failures;
-  if (declaresEmpty(running)) {
+  if (declaresEmpty(running) && !carriesRow) {
     if (inFlight) {
       failures.push({
         code: 'running-declared-empty-while-tasks-in-flight',
@@ -928,8 +942,19 @@ async function main() {
     // so nothing wrote one. The record therefore has to be brought into being here,
     // `armedAt` included — without it the next Stop reads the record as stale, and the gate
     // has forgotten it already spoke.
+    //
+    // `armedAt` is STAMPED FRESH rather than carried over, and that is load-bearing now that a
+    // stale marker no longer short-circuits the decision. A stale marker left by a crashed turn
+    // is dropped for ARMING, but it was still spread into this record — so the record of the
+    // block came back out of `readMarker` wearing a timestamp six hours old, read as stale
+    // again, and `blocked: true` was discarded every time. Measured: a stale marker plus a
+    // register that kept changing blocked on three consecutive Stops, leaving `stop_hook_active`
+    // as the only thing between this gate and the shared 8-block budget — which is exactly what
+    // the paragraph above refuses to rely on. The block IS this turn's arming event, so now is
+    // the right time to stamp.
     const spent = {
-      ...(marker && typeof marker === 'object' && !Array.isArray(marker) ? marker : { version: MARKER_VERSION, armedAt: Date.now(), dispatches: 0 }),
+      ...(marker && typeof marker === 'object' && !Array.isArray(marker) ? marker : { version: MARKER_VERSION, dispatches: 0 }),
+      armedAt: Date.now(),
       causes: decision.causes,
       blocked: true,
       blockedAt: Date.now(),

@@ -745,6 +745,35 @@ test('the exact hook pair v0.16.1 wrote is removed in full', () => {
   assert.deepEqual(pruned, { model: 'claude-sonnet-4-6' });
 });
 
+test('one malformed group does not hide our hook, or a foreign one, in the key beside it', () => {
+  // Skipping the whole EVENT KEY on one bad group is the unremovable-hook bug wearing a
+  // politer face: measured, our own live Stop hook survived `--remove` while the run printed
+  // "Removed 1 … hook". A group whose `hooks` is not an array holds no hook entries for us to
+  // find, so skipping just that group reaches everything else and loses nothing.
+  const malformed = { matcher: 'written-by-something-else' };
+  const settings = {
+    hooks: {
+      Stop: [{ matcher: '*', hooks: [legacyHook(10)] }, malformed],
+      SubagentStart: [{ matcher: '*', hooks: [legacyHook(5)] }],
+    },
+  };
+  const { settings: pruned, removed } = removeHooks(settings);
+  assert.equal(removed, 2);
+  assert.ok(!JSON.stringify(pruned).includes(DESCRIBE_PREFIX), 'a hook of ours survived --remove while the run reported success');
+  assert.deepEqual(pruned.hooks.Stop, [malformed], 'a group this script cannot read was not put back untouched');
+
+  // The same whole-key skip hid a FOREIGN gate from the scan that refuses to stack two of them.
+  const foreign = {
+    hooks: {
+      SessionStart: [
+        { matcher: 'written-by-something-else' },
+        { matcher: '*', hooks: [{ type: 'command', command: `node /elsewhere/${HOOK_MARKER}`, describe: 'somebody else wrote this' }] },
+      ],
+    },
+  };
+  assert.throws(() => installHooks(foreign, { entries: build('block') }), /already runs this gate/);
+});
+
 test('removal leaves an event key it cannot understand exactly as it found it', () => {
   // Scanning every key means meeting keys this script knows nothing about. A malformed one
   // holds none of our hooks, so it is skipped rather than refused: `--remove` must not fail
@@ -881,6 +910,38 @@ test('an honest report about work in flight passes, which is the whole point of 
   assert.equal(hasFreshnessToken('last observed just now (harness register at turn end)'), true);
 });
 
+test('an absence word inside a live row is not a denial, and neither is quoting the sentence', () => {
+  // MEASURED FALSE POSITIVES, all five of them, before the `carriesRow` guard existed. Both
+  // contradiction patterns are scanned over the WHOLE running block, so any of these refused
+  // an honest report about work that really was running — which is the one thing the check is
+  // documented as unable to do. A section carrying a literal state AND a freshness is a row,
+  // not a denial, whatever words sit beside it.
+  const honest = [
+    'Done: 3 commits.\nRunning: dev server, state running, last observed just now — none of the tests have failed yet.\nNext: land it.',
+    'Done: 3 commits.\nRunning:\n- dev server, state running, last observed just now. Failures: none so far.\nNext: land it.',
+    'Done: 3 commits.\nRunning: indexer, state running, last observed just now (queue empty).\nNext: land it.',
+    'Done: 3 commits.\nRunning: dev server, state running, last observed just now. There is no work left to dispatch.\nNext: land it.',
+    `Done: 3 commits.\nRunning: dev server, state running, last observed just now.\nNext: land it.\n\nAside: with no evidence at all the skill says to write "${NO_EVIDENCE_SENTENCE}" instead.`,
+  ];
+  for (const message of honest) {
+    assert.deepEqual(findReportFailures(message, { runningTaskCount: 2 }), [], `refused an honest report: ${message.split('\n')[1]}`);
+  }
+  // …and the guard did not cost the check its teeth. Each of these carries no row at all.
+  const denials = [
+    ['Done: 3.\nRunning: none.\nNext: land.', 'running-declared-empty-while-tasks-in-flight'],
+    ['Done: 3.\nRunning: none — nothing is currently running.\nNext: land.', 'running-declared-empty-while-tasks-in-flight'],
+    ['Done: 3.\nRunning: n/a\nNext: land.', 'running-declared-empty-while-tasks-in-flight'],
+    ['Done: 3.\nRunning: none, though the review agent is running.\nNext: land.', 'running-declared-empty-while-tasks-in-flight'],
+    [`Done: 3.\n${NO_EVIDENCE_SENTENCE}\nNext: land.`, 'no-evidence-claimed-while-tasks-in-flight'],
+  ];
+  for (const [message, code] of denials) {
+    const codes = findReportFailures(message, { runningTaskCount: 2 }).map((failure) => failure.code);
+    assert.ok(codes.includes(code), `a denial went uncaught (${codes.join(', ') || 'no failures'}): ${message.split('\n')[1]}`);
+  }
+  // At coverage 1 none of this exists, in either direction: v0.16.1 read no register at all.
+  for (const [message] of denials) assert.deepEqual(findReportFailures(message), []);
+});
+
 // ---------------------------------------------------------------------------
 // The Stop decision, with the new arming family factored in.
 // ---------------------------------------------------------------------------
@@ -1001,6 +1062,36 @@ test('end to end: the appearance edge arms a turn, a steady register does not, a
 
   const fourth = await runGate(stopWith(BAD_REPORT, [runningTask('b1')]), { env });
   assert.equal(parsedBlock(fourth.stdout).decision, 'block');
+});
+
+test('a stale marker does not cost the gate its memory of the block it just spent', async () => {
+  // A stale marker is dropped for ARMING but was still spread into the record of the spent
+  // block, `armedAt` and all — so the record came back stale on the next Stop, `blocked: true`
+  // was discarded, and the gate blocked again. Measured at three consecutive Stops, which
+  // leaves `stop_hook_active` as the only thing between this gate and the shared 8-block
+  // budget. The gate is documented as not relying on that, so the timestamp is stamped fresh.
+  const directory = await scratch('gate-stale-spend');
+  const env = { AGENT_SKILLS_PROGRESS_GATE_DIR: directory, ...LEVEL2 };
+  await writeFile(markerFile(env, 'sess-abc123'), JSON.stringify({
+    version: 2,
+    armedAt: Date.now() - MARKER_MAX_AGE_MS - 60_000,
+    dispatches: 1,
+    causes: ['agent-tool'],
+    blocked: false,
+  }));
+
+  const first = await runGate(stopWith(BAD_REPORT, [runningTask('b1')]), { env });
+  assert.equal(parsedBlock(first.stdout).decision, 'block');
+  const spent = JSON.parse(await readFile(markerFile(env, 'sess-abc123'), 'utf8'));
+  assert.equal(spent.blocked, true);
+  assert.ok(
+    Date.now() - Number(spent.armedAt) < MARKER_MAX_AGE_MS,
+    'the spent block was recorded with a timestamp the next Stop will read as stale',
+  );
+
+  // No `stop_hook_active`: the harness's backstop is deliberately not what is being tested.
+  const second = await runGate(stopWith(BAD_REPORT, [runningTask('b1'), runningTask('b2')]), { env });
+  assert.equal(second.stdout, '', 'the gate spent a second block on a turn it had already spoken on');
 });
 
 test('an absent baseline is read as empty, so the first task the gate ever sees arms', async () => {

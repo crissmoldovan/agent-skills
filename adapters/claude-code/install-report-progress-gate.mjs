@@ -218,18 +218,28 @@ function wearsOurName(hook) {
 }
 
 /**
- * The groups for one event, if and only if they are shaped the way this script understands.
- * `null` means "leave that key alone", and it is not an error: SCANNING is now done over
- * every key in `settings.hooks` rather than over this module's own event list, so it meets
- * keys written by other tools, by other versions of this one, and by hand. A malformed one
- * holds none of our hooks, and refusing the whole run because of somebody else's typo three
- * keys away would make `--remove` fail exactly when a user is trying to get rid of us.
+ * The groups under one event key that are shaped the way this script understands — GROUP BY
+ * GROUP, never all-or-nothing.
+ *
+ * SCANNING is done over every key in `settings.hooks` rather than over this module's own event
+ * list, so it meets keys written by other tools, by other versions of this one, and by hand.
+ * Refusing the whole run because of somebody else's typo three keys away would make `--remove`
+ * fail exactly when a user is trying to get rid of us.
+ *
+ * Skipping the whole KEY on one bad group is the same failure wearing a politer face, and it is
+ * worse than failing loudly: with a malformed group beside it, our own `Stop` hook in the good
+ * group survived `--remove` while the run printed "Removed 1 … hook" (measured). A group whose
+ * `hooks` is not an array holds no hook entries for us to find, so skipping just that group
+ * loses nothing and reaches everything else.
  */
+function isReadableGroup(group) {
+  return plainObject(group) && Array.isArray(group.hooks);
+}
+
 function readableGroups(settings, event) {
   const value = settings.hooks?.[event];
   if (!Array.isArray(value)) return null;
-  if (!value.every((group) => plainObject(group) && Array.isArray(group.hooks))) return null;
-  return value;
+  return value.filter(isReadableGroup);
 }
 
 /** Every event key present in the file. A snapshot, because the callers delete keys. */
@@ -336,8 +346,9 @@ export function removeHooks(settings) {
       removed += group.hooks.length - kept.length;
       group.hooks = kept;
     }
-    // Prune what we emptied, so removing leaves no residue behind.
-    settings.hooks[event] = groups.filter((group) => group.hooks.length > 0);
+    // Prune what we emptied, so removing leaves no residue behind — and only what we emptied.
+    // A group this script could not read is somebody else's, and is put back untouched.
+    settings.hooks[event] = settings.hooks[event].filter((group) => !isReadableGroup(group) || group.hooks.length > 0);
     if (settings.hooks[event].length === 0) delete settings.hooks[event];
   }
   if (plainObject(settings.hooks) && Object.keys(settings.hooks).length === 0) delete settings.hooks;
