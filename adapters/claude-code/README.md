@@ -52,10 +52,10 @@ output side"). Same rule: it outranks this file if they ever disagree.
   separate install, separate flag, separate settings entries. See "The
   progress-report gate" below.
 - `install-report-progress-gate.mjs` — writes and removes those hooks in a
-  settings file. `--mode observe|block`, `--coverage 1|2`, `--skills <names>`, `--remove`, atomic
-  tmp+rename, removal that scans every event key rather than only the ones this
-  version writes, and a refusal to touch a hook wearing the gate's name that it
-  did not write itself.
+  settings file. `--mode observe|block`, `--coverage 1|2`, `--skills <names>`, `--remove`,
+  `--adopt`, atomic tmp+rename, removal that scans every event key rather than only the
+  ones this version writes, and a refusal to touch a hook that runs the gate but is not
+  its own.
 - `release-notes-gate.sh` — the release-notes gate: a `PreToolUse` hook on `Bash`
   that refuses a publish, a `gh`/`glab release create`, a release-looking `git
   tag`, or a version-bump commit when the version being released is not mentioned
@@ -66,8 +66,13 @@ output side"). Same rule: it outranks this file if they ever disagree.
   separate flag, separate settings entry. See "The release-notes gate" below.
 - `install-release-notes-gate.mjs` — writes and removes that one hook in a
   settings file. Same contract as the installer above: `--mode observe|block`,
-  `--remove`, atomic tmp+rename, and a refusal to touch a hook wearing the gate's
-  name that it did not write itself.
+  `--remove`, `--adopt`, atomic tmp+rename, removal that scans every event key, and a
+  refusal to touch a hook that runs the gate but is not its own.
+- `hook-ownership.mjs` — how both installers tell their own hooks from anybody
+  else's, now that Claude Code drops `describe` whenever it writes a settings file:
+  the gate's assignment leading the command, and an argument whose basename is
+  exactly the gate file. A `describe` somebody else wrote vetoes that. No hook runs
+  it; the two installers import it.
 
 ## Installing it
 
@@ -260,7 +265,7 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block --covera
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 
-# …including a hook that runs the gate with no describe, as an older install or a hand-wiring leaves
+# …including a hand-wired hook that runs the gate without the AGENT_SKILLS_PROGRESS_GATE= assignment
 node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
 
@@ -379,26 +384,35 @@ and never blocking — installed, and off. So each level writes exactly the armi
 it reads.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking
-a second copy beside it, so changing mode is one command. A hook wearing the
-gate's filename that this installer did not write is refused, not overwritten, and
-`--remove` names it, by event and matcher, rather than reporting the gate gone: it
-exits 1 while any hook still runs the gate. (It used to print "No report-progress
-gate was installed … Nothing changed." over two such hooks.)
+a second copy beside it, so changing mode is one command.
 
-**`--adopt`** covers the one kind of such hook this installer can vouch for: a hook
-that runs the gate with **no `describe` key at all**. Claude Code leaves exactly that
-of this installer's own hooks. It drops `describe` from every hook entry whenever it
-writes a settings file, and adding a plugin marketplace is enough
-(`../HOOK-OUTPUT-NOTES.md`, third addendum of 2026-09-14). After that, a bare re-run
-refuses and `--remove` exits 1 until `--adopt` is added. An older copy of this
-installer, or a hand-wiring, leaves the same. A command this installer cannot read
-the level from (one that sets the level after `env`, `cd … &&` or `export`, or from
-an expansion) is refused until `--coverage` names the level, and so are hooks that
-run at different levels. With `--adopt`, `--remove` removes it and
-an install replaces it, keeping the level its command runs at when no `--coverage`
-is named, and both say how many they adopted. A hook whose `describe` something else
-wrote is never adopted, with or without the flag: somebody else put it there, and it
-is theirs to remove.
+**It recognises what it wrote by the command, not by `describe`.** Claude Code drops
+`describe` from every hook entry whenever it writes a settings file — adding a plugin
+marketplace, granting a permission, a `/config` toggle — and keeps `command`, `matcher`
+and `timeout` byte for byte (`../HOOK-OUTPUT-NOTES.md`, third and fourth addenda of
+2026-09-14). So a hook is this installer's when its command starts with the
+`AGENT_SKILLS_PROGRESS_GATE=` assignment and runs a file whose basename is exactly
+`report-progress-gate.mjs`; `hook-ownership.mjs` holds that rule for both gate
+installers. A bare re-run or a bare `--remove` over hooks the harness has rewritten
+just works, where through 0.19.0 both needed `--adopt`. A file whose name merely
+contains the gate's — `install-report-progress-gate.mjs`, `report-progress-gate.mjs.bak`
+— is not the gate, and no flag makes it one. Keep the assignment when you disarm the
+gate by hand: change its value to `off`, because deleting it makes the hook a
+hand-wiring.
+
+A hook that runs the gate **without** that assignment leading its command is refused,
+not overwritten, and `--remove` names it, by event and matcher, rather than reporting
+the gate gone: it exits 1 while any hook still runs the gate. (It used to print "No
+report-progress gate was installed … Nothing changed." over two such hooks.)
+**`--adopt`** takes such a hook — a hand-wiring, a `cd … &&` or an `env` in front — as
+this installer's own: `--remove` removes it and an install replaces it, keeping the
+level its command runs at when no `--coverage` is named, and both say how many they
+adopted. A command this installer cannot read the level from (one that sets the level
+after `env`, `cd … &&` or `export`, or from an expansion) is refused until `--coverage`
+names the level, and so are hooks that run at different levels. A hook whose
+`describe` something else wrote is never taken, with or without the flag, even over
+the exact command this installer writes: somebody else put it there, and it is theirs
+to remove.
 
 It is deliberately **not** in `settings-fragment.json`. That fragment is the
 journal hook's, and it is meant to be copied wholesale — a gate that can end a
@@ -543,6 +557,9 @@ node adapters/claude-code/install-release-notes-gate.mjs --mode block
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-release-notes-gate.mjs --remove
+
+# …including a hand-wired hook that runs the gate without the AGENT_SKILLS_RELEASE_NOTES_GATE= assignment
+node adapters/claude-code/install-release-notes-gate.mjs --remove --adopt
 ```
 
 It writes **one** entry into `~/.claude/settings.json` (or the `--settings` file you name):
@@ -551,9 +568,16 @@ trigger — there is no earlier event to arm a marker on, and nothing is kept be
 Scoped to `Bash` so the hook is not invoked on `Read`, `Edit` or anything else.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking a second
-copy beside it. A hook wearing the gate's filename that this installer did not write is
-refused, not overwritten: somebody else put it there, and it is theirs to remove. It is
-deliberately not in `settings-fragment.json`, for the same reason the progress gate is not —
+copy beside it. It recognises that hook by its command, as the progress gate's installer
+does: `AGENT_SKILLS_RELEASE_NOTES_GATE=` leading it, and an argument whose basename is exactly
+`release-notes-gate.sh`. Until this version it went by `describe`, which Claude Code drops
+whenever it writes the file, so on a rewritten file `--remove` printed "No release-notes gate
+was installed … Nothing changed." and exited 0 with the hook still running. `--remove` now
+scans every event key, never reports the gate gone while any hook still runs it, and exits 1
+when one does; it also leaves the file untouched when it removed nothing. A hook that runs the
+gate without that assignment is refused, not overwritten, until `--adopt` takes it; one under
+a `describe` somebody else wrote is never taken — somebody else put it there, and it is theirs
+to remove. It is deliberately not in `settings-fragment.json`, for the same reason the progress gate is not —
 that fragment is the journal hook's and is meant to be copied wholesale, and a hook that can
 refuse a tool call must never arrive that way.
 

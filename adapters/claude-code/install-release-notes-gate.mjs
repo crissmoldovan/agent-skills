@@ -33,6 +33,22 @@
  * allowed, silently, because that is a different convention and not a violation. So
  * an armed gate that never fires is the expected outcome in such a repository, not a
  * sign that the installation failed.
+ *
+ * OWNERSHIP IS READ FROM THE COMMAND. Claude Code drops `describe` from every hook entry whenever
+ * it writes a settings file, and keeps `command`, `matcher` and `timeout` byte for byte
+ * (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14). Until now this installer
+ * recognised its hook by `describe`, so on a rewritten file `--remove` printed "No release-notes gate
+ * was installed … Nothing changed." and exited 0 with the hook still running, and an install refused.
+ * A hook is now this installer's when its command carries the fingerprint `./hook-ownership.mjs`
+ * defines: `AGENT_SKILLS_RELEASE_NOTES_GATE=` among its leading assignments, and an argument whose
+ * basename is exactly `release-notes-gate.sh`. Every command this installer has written has that
+ * shape. A `describe` written by anything else is a statement of ownership, and that hook is never
+ * taken, with or without a flag.
+ *
+ * `--adopt` is for what is left: a hook that runs the gate WITHOUT the assignment leading its command,
+ * which is a hand-wiring. It is refused on install and named on removal; with `--adopt` it is removed
+ * or replaced. `--remove` never reports the gate gone while any hook still runs it, and exits 1 when
+ * one does.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -41,9 +57,20 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-/** Every hook this script writes carries the gate's filename in its command. */
+import {
+  classifyHook,
+  eventKeys,
+  findUnownedHooks,
+  hookLabel,
+  isReadableGroup,
+  plainObject,
+  readableGroups,
+} from './hook-ownership.mjs';
+
+/** The gate file. A hook is this installer's when an argument of its command has exactly this basename… */
 export const HOOK_MARKER = 'release-notes-gate.sh';
-/** …and this prefix in its `describe`, which is how we know a hook is ours. */
+/** …and the gate's own assignment leads that command. This prefix still starts every `describe`
+ *  written, and a describe that does not start with it vetoes ownership. */
 export const DESCRIBE_PREFIX = 'agent-skills release-notes gate';
 /** The arming flag the gate reads. `off`, unset or anything else is off. */
 export const GATE_ENV_FLAG = 'AGENT_SKILLS_RELEASE_NOTES_GATE';
@@ -55,30 +82,39 @@ export const HOOK_EVENT = 'PreToolUse';
 export const BASH_MATCHER = 'Bash';
 
 /**
- * The session waits on this before every Bash call, so the ceiling is small. The gate makes
- * no network call: it reads a command string, a package.json, a release-note file, and in the
+ * The session waits on this before every Bash call, so the ceiling is small. The gate makes no
+ * network call: it reads a command string, a package.json, a release-note file, and in the
  * commit branch a staged diff. A hook that has not finished in this budget is a wedged hook,
  * and killing it is right — Claude Code treats a killed hook as no decision, which is the
  * fail-open answer this gate wants anyway.
  */
 export const TIMEOUT_SECONDS = 10;
 
-const USAGE = `Usage: install-release-notes-gate.mjs [--mode observe|block] [--settings <path>]
-       install-release-notes-gate.mjs --remove [--settings <path>]
+/** What `./hook-ownership.mjs` needs to tell this installer's hook from anybody else's. */
+const IDENTITY = Object.freeze({ envFlag: GATE_ENV_FLAG, gateFile: HOOK_MARKER, describePrefix: DESCRIBE_PREFIX });
+
+export { hookLabel };
+
+const USAGE = `Usage: install-release-notes-gate.mjs [--mode observe|block] [--adopt] [--settings <path>]
+       install-release-notes-gate.mjs --remove [--adopt] [--settings <path>]
 
 observe  report to stderr what the gate would have refused; never stops a release. (default)
 block    refuse a publish, release-create, release tag or version-bump commit when the
          version being released is not mentioned in the project's release notes.
+
+--adopt  treat a hook that runs the gate WITHOUT the AGENT_SKILLS_RELEASE_NOTES_GATE=
+         assignment leading its command — a hand-wiring — as this installer's own: --remove
+         removes it, and an install replaces it. Not needed for this installer's own hook:
+         every command it writes starts with that assignment, and that is how it recognises
+         it, including after Claude Code has dropped its describe. A hook whose describe
+         something else wrote is never adopted. Without --adopt, --remove names every
+         hand-wiring it left and exits 1, and an install refuses and names them.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;
 
 function shellQuote(value) {
   return `'${String(value).split("'").join(`'\\''`)}'`;
-}
-
-function plainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
@@ -118,7 +154,8 @@ export function resolveGatePath() {
  * desktop launch inherits no shell profile at all — so a gate that depended on an exported
  * variable would be armed in a terminal session and silently inert in every other one. Here
  * the mode is visible in `settings.json`, on the line that runs it, and editing that one word
- * to `off` is how a user disarms the gate without uninstalling it.
+ * to `off` is how a user disarms the gate without uninstalling it. It is also, now, how this
+ * installer recognises the hook as its own.
  *
  * The interpreter is named explicitly rather than relying on the script's execute bit and
  * shebang. A checkout that lost the mode bit — a zip download, a copy through a filesystem
@@ -141,16 +178,29 @@ export function buildHookEntry({ mode, gatePath, shellPath = 'bash' }) {
   };
 }
 
-function isOurs(hook) {
-  return plainObject(hook) && typeof hook.describe === 'string' && hook.describe.startsWith(DESCRIBE_PREFIX);
+/**
+ * Every hook that runs this gate but is not this installer's: where it sits, and which kind it is —
+ * `adoptable` (a hand-wiring; `--adopt` can take it) or `foreign` (a describe something else wrote;
+ * never adopted). Scanned over every event key, because a hook nobody can see is a hook nobody can
+ * remove.
+ */
+export function findUnownedGateHooks(settings) {
+  return findUnownedHooks(settings, IDENTITY);
 }
 
-function wearsOurName(hook) {
-  return plainObject(hook) && typeof hook.command === 'string' && hook.command.includes(HOOK_MARKER);
+/** One line per unowned hook, saying what it is and what can be done about it. */
+function unownedLines(unowned) {
+  return unowned.map((hook) => (hook.kind === 'adoptable'
+    ? `  - ${hookLabel(hook)}: runs this gate, but its command does not start with the ${GATE_ENV_FLAG}= assignment every command this installer writes starts with, so it is not recognised as this installer's own. A hand-wiring looks like this.`
+    : `  - ${hookLabel(hook)}: runs this gate under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.`));
 }
 
-/** The groups for one event, validated. Anything shaped unexpectedly is refused rather
- *  than reshaped: this file is editing a settings file it does not own. */
+function countOf(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** The groups for the one event this script WRITES into, validated. Anything shaped unexpectedly
+ *  is refused rather than reshaped: this file is editing a settings file it does not own. */
 function eventGroups(settings, event) {
   if (!Object.hasOwn(settings, 'hooks')) return [];
   if (!plainObject(settings.hooks)) throw new Error('refusing to write: the settings "hooks" key is not an object');
@@ -164,24 +214,29 @@ function eventGroups(settings, event) {
 
 /**
  * Merge the hook into a parsed settings object without disturbing anything else in it.
- * A hook that wears our name but that we did not write is somebody else's decision, so it
- * is refused rather than replaced.
+ * A hook that runs the gate but is not this installer's is somebody else's decision, so it
+ * is refused rather than replaced — scanned under every event key, and named, so the refusal
+ * is something a user can act on. `--adopt` lifts it for a hand-wiring, never for a hook under
+ * somebody else's describe.
  */
-export function installHook(settings, { entry }) {
+export function installHook(settings, { entry, adopt = false }) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
 
-  for (const group of eventGroups(settings, HOOK_EVENT)) {
-    for (const hook of group.hooks) {
-      if (wearsOurName(hook) && !isOurs(hook)) {
-        throw new Error(`refusing to write: a ${HOOK_EVENT} hook already runs this gate but was not written by this installer. Remove it by hand first.`);
-      }
+  const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && hook.kind === 'adoptable'));
+  if (blockers.length > 0) {
+    const lines = ['refusing to write: each hook below already runs this gate but was not written by this installer.', ...unownedLines(blockers)];
+    if (blockers.some((hook) => hook.kind === 'adoptable')) {
+      lines.push(`Run this script again with --adopt to treat each hook that runs this gate without the ${GATE_ENV_FLAG}= assignment as this installer's own and replace it.`);
     }
+    throw new Error(lines.join('\n'));
   }
+  // Validated only where we are about to WRITE.
+  eventGroups(settings, HOOK_EVENT);
 
   // Drop any previous copy of ours wherever it sits, so re-running this to change mode
   // replaces the gate instead of stacking a second one beside it — which would ask the same
   // question twice and print the same refusal twice.
-  const { settings: cleaned } = removeHook(settings);
+  const { settings: cleaned } = removeHook(settings, { adopt });
   const hooks = plainObject(cleaned.hooks) ? cleaned.hooks : {};
   const groups = Array.isArray(hooks[HOOK_EVENT]) ? hooks[HOOK_EVENT] : [];
   let group = groups.find((candidate) => candidate.matcher === BASH_MATCHER);
@@ -195,23 +250,43 @@ export function installHook(settings, { entry }) {
   return cleaned;
 }
 
-/** Remove only our own hook, and leave the file exactly as we found it otherwise. */
-export function removeHook(settings) {
+/**
+ * Remove only our own hook, and leave the file exactly as we found it otherwise.
+ *
+ * EVENT-AGNOSTIC, like the report-progress installer's removal: every key under `settings.hooks` is
+ * scanned, so a hook of ours moved by hand, or left under a key a later version stops writing, is
+ * still reachable. A group this script cannot read is somebody else's and is put back untouched.
+ *
+ * With `adopt`, a hand-wiring goes too. `removed` counts every hook taken out, adopted ones included;
+ * `unowned` is what still runs the gate afterwards, so no caller can report the gate gone while a
+ * hook is still running it.
+ */
+export function removeHook(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
   let removed = 0;
-  const groups = eventGroups(settings, HOOK_EVENT);
-  if (groups.length > 0) {
+  let adopted = 0;
+  for (const event of eventKeys(settings)) {
+    const groups = readableGroups(settings, event);
+    if (groups === null || groups.length === 0) continue;
     for (const group of groups) {
-      const kept = group.hooks.filter((hook) => !isOurs(hook));
+      const kept = group.hooks.filter((hook) => {
+        const kind = classifyHook(hook, IDENTITY);
+        if (kind === 'ours') return false;
+        if (adopt && kind === 'adoptable') {
+          adopted += 1;
+          return false;
+        }
+        return true;
+      });
       removed += group.hooks.length - kept.length;
       group.hooks = kept;
     }
     // Prune what we emptied, so removing leaves no residue behind.
-    settings.hooks[HOOK_EVENT] = groups.filter((group) => group.hooks.length > 0);
-    if (settings.hooks[HOOK_EVENT].length === 0) delete settings.hooks[HOOK_EVENT];
+    settings.hooks[event] = settings.hooks[event].filter((group) => !isReadableGroup(group) || group.hooks.length > 0);
+    if (settings.hooks[event].length === 0) delete settings.hooks[event];
   }
   if (plainObject(settings.hooks) && Object.keys(settings.hooks).length === 0) delete settings.hooks;
-  return { settings, removed };
+  return { settings, removed, adopted, unowned: findUnownedGateHooks(settings) };
 }
 
 async function readSettings(settingsPath) {
@@ -241,7 +316,7 @@ async function writeSettings(settingsPath, settings) {
 }
 
 function parseArguments(argv) {
-  const options = { mode: null, settingsPath: null, remove: false, help: false };
+  const options = { mode: null, settingsPath: null, remove: false, adopt: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--mode') {
@@ -251,6 +326,7 @@ function parseArguments(argv) {
       index += 1;
       options.settingsPath = argv[index] ?? '';
     } else if (argument === '--remove') options.remove = true;
+    else if (argument === '--adopt') options.adopt = true;
     else if (argument === '--help' || argument === '-h') options.help = true;
     else throw new Error(`unknown argument: ${argument}`);
   }
@@ -283,19 +359,52 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   try {
     const settings = await readSettings(settingsPath);
     if (options.remove) {
-      const { settings: pruned, removed } = removeHook(settings);
-      await writeSettings(settingsPath, pruned);
-      stdout.write(removed > 0
-        ? `Removed ${removed} release-notes gate hook${removed === 1 ? '' : 's'} from ${settingsPath}.\nNo release will be refused again unless you install it back.\n`
-        : `No release-notes gate was installed in ${settingsPath}. Nothing changed.\n`);
-      return 0;
+      // Named before removal, because removal edits `settings` in place.
+      const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.kind === 'adoptable') : [];
+      const { settings: pruned, removed, adopted, unowned } = removeHook(settings, { adopt: options.adopt });
+      // Written only when something was removed: a run that removed nothing leaves the file byte
+      // for byte as it found it, and creates no file that did not exist.
+      if (removed > 0) await writeSettings(settingsPath, pruned);
+      const report = [];
+      if (removed > 0) report.push(`Removed ${countOf(removed, 'release-notes gate hook')} from ${settingsPath}.`);
+      if (options.adopt) {
+        report.push(adopted > 0
+          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate without the ${GATE_ENV_FLAG}= assignment — ${adoptable.map(hookLabel).join(', ')}.`
+          : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.`);
+      }
+      // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No release-notes gate
+      // was installed … Nothing changed." and exited 0 while the harness-rewritten hook kept running.
+      if (unowned.length === 0) {
+        report.push(removed > 0
+          ? 'No release will be refused again unless you install it back.'
+          : `No release-notes gate was installed in ${settingsPath}. Nothing changed.`);
+        stdout.write(`${report.join('\n')}\n`);
+        return 0;
+      }
+      if (report.length > 0) stdout.write(`${report.join('\n')}\n`);
+      const still = [
+        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
+        ...unownedLines(unowned),
+      ];
+      if (unowned.some((hook) => hook.kind === 'adoptable')) {
+        still.push(`To remove each hook that runs this gate without the ${GATE_ENV_FLAG}= assignment as this installer's own, run this script again with --remove --adopt.`);
+      }
+      stderr.write(`${still.join('\n')}\n`);
+      return 1;
     }
 
     const entry = buildHookEntry({ mode: options.mode, gatePath: resolveGatePath() });
-    const updated = installHook(settings, { entry });
+    // Named before installing, because installing edits `settings` in place.
+    const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.kind === 'adoptable') : [];
+    const updated = installHook(settings, { entry, adopt: options.adopt });
     await writeSettings(settingsPath, updated);
 
     stdout.write(`Installed the ${options.mode} release-notes gate into ${settingsPath}.\n`);
+    if (options.adopt) {
+      stdout.write(adoptable.length > 0
+        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate without the ${GATE_ENV_FLAG}= assignment, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
+        : `Adopted none: no hook in this file ran this gate without the ${GATE_ENV_FLAG}= assignment.\n`);
+    }
     stdout.write([
       '',
       'It looks at Bash commands only, and only at four shapes: npm/pnpm/yarn publish and',
@@ -332,8 +441,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     }
     stdout.write([
       `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${options.mode} to`,
-      `${GATE_ENV_FLAG}=off in the command this wrote. Remove it entirely: run this`,
-      'script with --remove.',
+      `${GATE_ENV_FLAG}=off in the command this wrote — keep the assignment itself, because it is`,
+      'how this installer recognises the hook as its own. Remove it entirely: run this script',
+      'with --remove.',
       '',
     ].join('\n'));
     stdout.write(`\nHook written:\n${JSON.stringify(entry, null, 2)}\n`);

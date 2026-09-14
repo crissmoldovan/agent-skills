@@ -54,6 +54,10 @@ the conversation, in a hook the user wired into their own harness.
   `install-release-notes-gate.mjs`. It is covered by `test/release-notes-gate.test.mjs`. It
   enforces presence only, and it allows every case it cannot resolve — including a project
   with no release-note file at all, where an armed gate correctly never fires.
+- `adapters/claude-code/hook-ownership.mjs` is how both gate installers recognise their own
+  hooks: by the command — the gate's assignment leading it, and an argument whose basename is
+  exactly the gate file — because Claude Code drops `describe` whenever it writes a settings
+  file. It is covered by `test/hook-ownership.test.mjs`.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.
