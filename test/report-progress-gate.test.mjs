@@ -2406,3 +2406,38 @@ test('updating a coverage-2 install without the resume hook says it adds it, onc
   assert.equal(one.status, 0, one.stderr);
   assert.doesNotMatch(one.stdout, /SessionStart/);
 });
+
+test('a block the gate could not show is not left on record as spent', async () => {
+  // Both halves of the ceiling have to land, or neither counts. The register edge arms a turn
+  // with no marker on disk at all, so the record of the spent block is written first and the
+  // marker second — and when the marker write fails after the record landed, the block is never
+  // shown. Leaving the record behind silences the rest of that turn over a block the reader
+  // never saw, which is the one failure mode this gate's ceiling exists to avoid in the other
+  // direction: the block is refused, so the record of it must go too.
+  const directory = await scratch('gate-marker-unwritable');
+  const env = { AGENT_SKILLS_PROGRESS_GATE_DIR: directory, ...LEVEL2, [TURN_HOOK_ENV_FLAG]: 'UserPromptSubmit' };
+  // A directory sitting where the marker belongs: the atomic rename onto it fails, while the
+  // spent record beside it writes normally.
+  await mkdir(markerFile(env, 'sess-abc123'));
+
+  const refused = await runGate(stopWith(BAD_REPORT, [runningTask('t1')]), { env });
+  assert.equal(refused.status, 0);
+  assert.equal(refused.stdout, '', 'blocked without being able to write the marker');
+  assert.match(refused.stderr, /could not record a spent block/);
+  const records = (await readdir(directory)).filter((name) => name.endsWith('.spent.json'));
+  assert.deepEqual(records, [], 'a block that was never shown was left on record as spent');
+});
+
+test('the refusal tells the model to load the skill, not only what shape to type', async () => {
+  // Measured in live sessions: the gate fired, the turn came back with the three headings, and
+  // the skill was never loaded — the shape satisfied the string match while everything the skill
+  // is actually for (verified numbers kept apart from claimed ones, the user-facing consequence,
+  // corrections said out loud) was absent. A gate that describes a shape teaches the shape.
+  const reason = buildBlockReason(findReportFailures(BAD_REPORT), { turnHook: true });
+  assert.match(reason, /[Ll]oad the `report-progress` skill/);
+  // And it still may not claim the gate checks anything, which the reason's own guard asserts.
+  assert.doesNotMatch(reason, /\b(?:verified|confirms|proves|guarantees)\b/i);
+  // It must not become a dependency: an agent without the skill installed still gets the shape.
+  assert.match(reason, /not installed/i);
+  assert.ok(reason.length <= 4000, `reason is ${reason.length} characters`);
+});
