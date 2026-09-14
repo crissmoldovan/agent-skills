@@ -160,11 +160,11 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          and nothing else — is recognised with no flag, including after Claude Code has
          dropped its describe, and so is a hook that runs the gate under this installer's own
          describe. Never taken, with or without --adopt: a hook whose describe something else
-         wrote; a hook it cannot fully read that lacks that setting or that path; and a hook
-         that only mentions the gate file, as echo, cat or shellcheck do, or only writes to
-         it, which is not the gate. Without --adopt a hook it cannot fully read is never
-         taken: --remove names every hook it left that runs the gate, or may, and exits 1, and
-         an install refuses and names them.
+         wrote; a hook it cannot fully read that lacks that setting or that path; a hook that
+         writes to the gate file, even one that also runs it; and a hook that only mentions
+         the gate file, as echo, cat or shellcheck do, which is not the gate. Without --adopt
+         a hook it cannot fully read is never taken: --remove names every hook it left that
+         runs the gate, or may, and exits 1, and an install refuses and names them.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;

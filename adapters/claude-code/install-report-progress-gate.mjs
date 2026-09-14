@@ -299,10 +299,10 @@ block    hold the turn for one more round when an armed turn ends without a prog
          Code has dropped its describe, and so is a hook that runs the gate under this
          installer's own describe. Never taken, with or without --adopt: a hook whose describe
          something else wrote; a hook it cannot fully read that lacks that setting or that
-         path; and a hook that only mentions the gate file, as echo, cat or rm do, or only
-         writes to it, which is not the gate. Without --adopt a hook it cannot fully read is
-         never taken: --remove names every hook it left that runs the gate, or may, and exits
-         1, and an install refuses and names them.
+         path; a hook that writes to the gate file, even one that also runs it; and a hook that
+         only mentions the gate file, as echo, cat or rm do, which is not the gate. Without
+         --adopt a hook it cannot fully read is never taken: --remove names every hook it left
+         that runs the gate, or may, and exits 1, and an install refuses and names them.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;

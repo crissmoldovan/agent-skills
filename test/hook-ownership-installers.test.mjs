@@ -707,3 +707,54 @@ test('a hook the installer cannot fully read that sets this gate\'s own variable
   const commands = Object.values(TAKEN_OVER).flat().length;
   assert.equal(runs, commands * 2 * 4, 'a run over a hook --adopt takes over did not happen');
 });
+
+// ---------------------------------------------------------------------------
+// A command that writes to the gate file. Read as running the gate, `bash '<gate>' 2>'<gate>'` — which empties the gate before
+// bash opens it — was taken with no flag under the installer's own describe, and by --adopt without one. It is a write target:
+// no flag takes it, and because whether the gate runs cannot be told, --remove names it and exits 1 and an install refuses.
+// ---------------------------------------------------------------------------
+
+const WRITES_GATE = Object.freeze({
+  progress: [
+    `AGENT_SKILLS_PROGRESS_GATE=block ${q(NODE)} ${q(PACKED_PROGRESS)} >${q(PACKED_PROGRESS)}`,
+    `AGENT_SKILLS_PROGRESS_GATE=block timeout 5 ${q(NODE)} ${q(PACKED_PROGRESS)} >>${q(PACKED_PROGRESS)}`,
+  ],
+  release: [
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q(PACKED_RELEASE)} 2>${q(PACKED_RELEASE)}`,
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q(PACKED_RELEASE)}; : >${q(PACKED_RELEASE)}`,
+    `AGENT_SKILLS_RELEASE_NOTES_GATE=block nice -10 echo ${q(PACKED_RELEASE)} $(: >${q(PACKED_RELEASE)})`,
+  ],
+});
+
+test('a hook that writes to the gate file is never taken, with any flag or describe: --remove names it and exits 1, and an install refuses', async () => {
+  let runs = 0;
+  for (const [kind, commands] of Object.entries(WRITES_GATE)) {
+    const { event, label, nothingInstalled } = INSTALLERS[kind];
+    for (const command of commands) {
+      for (const described of [false, true]) {
+        for (const flags of [['--remove'], ['--remove', '--adopt'], [], ['--adopt']]) {
+          const { home, file, text } = await settingsWith(kind, command);
+          let start = text;
+          if (described) {
+            const parsed = JSON.parse(text);
+            parsed.hooks[event][0].hooks[0].describe = OWN_DESCRIBES[kind];
+            start = JSON.stringify(parsed, null, 2);
+            await writeFile(file, start);
+          }
+          const run = `${kind} ${flags.join(' ') || 'bare'} over ${JSON.stringify(command)}${described ? ' under its own describe' : ''}`;
+          const result = await runInstaller(kind, [...flags, '--settings', file], home);
+          const output = `${result.stdout}${result.stderr}`;
+          assert.equal(result.status, 1, `${run}: took a hook that writes to the gate file\n${output}`);
+          assert.equal(await readFile(file, 'utf8'), start, `${run}: changed the file`);
+          assert.ok(output.includes(label), `${run}: did not name the hook`);
+          assert.match(output, /cannot tell whether/, run);
+          assert.match(output, /nothing in it writes to the gate file/, `${run}: did not say why --adopt does not take it`);
+          assert.doesNotMatch(output, /Took over|Adopted [1-9]|again with --adopt|again with --remove --adopt/, `${run}: took it, or advised a flag that would not take it`);
+          assert.doesNotMatch(output, nothingInstalled, run);
+          runs += 1;
+        }
+      }
+    }
+  }
+  assert.equal(runs, Object.values(WRITES_GATE).flat().length * 2 * 4, 'a run over a hook that writes to the gate did not happen');
+});

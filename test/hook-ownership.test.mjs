@@ -729,3 +729,50 @@ test('--adopt takes over a hook this reader could not fully read only when it se
     { event: 'Stop', matcher: '*', kind: 'adoptable', overridable: false },
   ]);
 });
+
+// ---------------------------------------------------------------------------
+// A command that writes to the gate file is never read as running it. The shell opens a redirection before it runs the
+// program, so `bash '<gate>' >'<gate>'` empties the gate and runs an empty file; `>>`, `<>` and a later `: >'<gate>'` change
+// the gate around the run. Read as running the gate, such a hook was taken with no flag under the installer's own describe,
+// and by --adopt without one, although it is a write target. It is unclear now, and --adopt never takes it over.
+// ---------------------------------------------------------------------------
+
+test('a command that writes to the gate file is never read as running it, and --adopt never takes it over', () => {
+  const { takenAs, findUnownedHooks } = ownership;
+  const G = WRAPPED_GATE;
+  const RG = WRAPPED_RELEASE_GATE;
+  const N = WRAPPED_NODE;
+  const P = 'AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2';
+  const R = 'AGENT_SKILLS_RELEASE_NOTES_GATE=block';
+  const writesGate = [
+    ...['>', '2>', '>|', '&>', '>>', '2>>', '>&', '1<>'].flatMap((op) => [[`${P} ${N} ${G} ${op}${G}`, PROGRESS], [`${R} bash ${RG} ${op}${RG}`, RELEASE]]),
+    [`${P} timeout 5 ${N} ${G} >${G}`, PROGRESS],
+    [`${R} env FOO=1 bash ${RG} 2>${RG}`, RELEASE],
+    [`${P} : >${G}; ${P} ${N} ${G}`, PROGRESS],
+    [`${R} bash ${RG}; : >${RG}`, RELEASE],
+    [`${R} bash ${RG} $(: >${RG})`, RELEASE],
+    [`${P} sh -c ${q('node /pack/adapters/claude-code/report-progress-gate.mjs >/pack/adapters/claude-code/report-progress-gate.mjs')}`, PROGRESS],
+    [`${R} nice -10 echo ${RG} $(: >${RG})`, RELEASE],
+    [`${R} echo hi 1<>${RG}`, RELEASE],
+  ];
+  for (const [command, identity] of writesGate) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      const entry = hook(command, extra);
+      assert.equal(classifyHook(entry, identity), 'unclear', `${command} ${JSON.stringify(extra)}`);
+      for (const adopt of [false, true]) assert.equal(takenAs(entry, identity, { adopt }), null, `${command} ${JSON.stringify(extra)} adopt=${adopt}`);
+    }
+    assert.deepEqual(findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity), [{ event: 'Stop', matcher: '*', kind: 'unclear', overridable: false }], command);
+  }
+
+  // Writing any other file is not writing the gate, and a write target that runs nothing of the gate is still nobody's.
+  for (const [command, identity, kind] of [
+    [`${P} ${N} ${G} 2>/dev/null`, PROGRESS, 'adoptable'],
+    [`${P} ${N} ${G} >>/tmp/gate.log`, PROGRESS, 'adoptable'],
+    [`${R} bash ${RG} 2>${q('/tmp/release-notes-gate.sh.log')}`, RELEASE, 'adoptable'],
+    [`${P} timeout 5 >${G} node -e 0`, PROGRESS, null],
+    [`${R} nice -10 bash ${RG} 2>/dev/null`, RELEASE, 'unclear'],
+  ]) {
+    assert.equal(classifyHook(hook(command), identity), kind, command);
+  }
+  assert.equal(takenAs(hook(`${R} nice -10 bash ${RG} 2>/dev/null`), RELEASE, { adopt: true }), 'override');
+});

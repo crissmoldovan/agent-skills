@@ -66,7 +66,11 @@
  * file a redirection reads from (`<`, `<>`, a here-string, a here-document's delimiter: what arrives on
  * stdin an interpreter may run), a substitution the gate does not run in, and every command in a text that
  * defines a function. A file a redirection WRITES to is not a word of the command and runs nothing:
- * `timeout 5 >'<gate>' node x` runs `node x` and truncates the gate, so it is nobody's hook.
+ * `timeout 5 >'<gate>' node x` runs `node x` and truncates the gate, so it is nobody's hook. And a command that
+ * WRITES TO THE GATE FILE is never read as running it, only as UNCLEAR — through a redirection of its own or of a
+ * substitution in it, `>`, `>>`, `>|`, `&>`, `>&` and `<>` alike: the shell opens `>'<gate>'` before the program
+ * starts, so `bash '<gate>' >'<gate>'` runs an empty file, and `>>`, `<>` or a later `: >'<gate>'` change the gate
+ * around the run.
  *
  * WRAPPERS are commands whose documented form is `wrapper [options] [operands] COMMAND [args]` and which
  * execute COMMAND. The reader strips each by the grammar pinned for it in `WRAPPER_GRAMMARS`, as many times
@@ -109,8 +113,11 @@
  *      variable, `envFlag`;
  *   2. a word of one of its simple commands, or a file one of its redirections reads, is the gate path: its
  *      basename is exactly `gateFile`, and it is not an option (`-…`) and holds no `=` and no shell operator,
- *      so `--gate=<path>`, `GATE=<path>`, a `sh -c` script and a `$(…)` that end in the gate's name are not it;
- *   3. none of its redirections writes to a file named like the gate.
+ *      so `--gate=<path>`, `GATE=<path>`, a `$(…)` and a `sh -c` script holding an operator are not it. A word
+ *      may hold blanks — a checkout path with a space in it — so a quoted phrase, or a `sh -c` script with no
+ *      operator, whose last path segment is the gate file counts;
+ *   3. nothing in it writes to a file named like the gate: none of its redirections, nor one in a substitution in
+ *      it, `<>` included.
  * The installer names every hook it took this way, by event and matcher, on a line of its own (`tookOverLine`):
  * a silent override is the defect this replaced. Without `--adopt` nothing changes. And a hook this reader can
  * read and knows runs nothing of the gate — a mention, a write target — is `null`, not `unclear`: no flag takes it.
@@ -225,8 +232,8 @@ function readHeredocBodies(text, start, pending) {
  * one character; a `#` that begins a word starts a comment. A `$(…)`, backtick or `<(…)` substitution
  * stays in the word it belongs to, as the literal text it is written as, because nothing here evaluates
  * anything. A redirection's target is not a word of the command: it is kept apart as a file the command
- * reads from (`<`, `<&`, `<>`, `<<<`, a here-document's delimiter) or writes to (`>`, `>>`, `>|`, `>&`,
- * `&>`), and an unquoted run of digits right against `<` or `>` is the descriptor it redirects, not a word
+ * reads from (`<`, `<&`, `<<<`, a here-document's delimiter), writes to (`>`, `>>`, `>|`, `>&`, `&>`) or
+ * both (`<>`), and an unquoted run of digits right against `<` or `>` is the descriptor it redirects, not a word
  * either — so `timeout 5>/dev/null node x` is `timeout node x`. A here-document's body is data; `name=(…)`
  * is one word. An unbalanced quote or substitution runs to the end of the text.
  */
@@ -241,7 +248,7 @@ function parseShell(command) {
   let word = null;
   // Whether any of the word so far was quoted, escaped or substituted: `2>x` redirects descriptor 2, `'2'>x` does not.
   let wordQuoted = false;
-  // `in` or `out` while the next word is a redirection's target: a file, not a word of the command.
+  // `in`, `out` or `both` while the next word is a redirection's target: a file, not a word of the command.
   let redirection = null;
 
   const endWord = () => {
@@ -386,8 +393,8 @@ function parseShell(command) {
       }
       endCommand();
     } else if (REDIRECTION.has(char)) {
-      // `<>` opens its file for reading too.
-      startRedirection(char === '<' || text[index - 1] === '<' ? 'in' : 'out');
+      // `<>` opens its file for reading and for writing.
+      startRedirection(char === '<' ? 'in' : text[index - 1] === '<' ? 'both' : 'out');
     } else {
       word = (word ?? '') + char;
     }
@@ -625,6 +632,12 @@ function namesGate(text, gateFile) {
   return String(text).split(PIECE_BOUNDARY).some((piece) => basename(piece) === gateFile);
 }
 
+/** True when a redirection in these simple commands, or in a substitution inside them, writes to a file named like the gate. */
+function writesToGate(commands, gateFile, depth = 0) {
+  return commands.some(({ redirections, substitutions }) => redirections.some(({ direction, target }) => direction !== 'in' && namesGate(target, gateFile))
+    || (depth < MAX_DEPTH && substitutions.some((inner) => writesToGate(parseShell(inner).commands, gateFile, depth + 1))));
+}
+
 /** RUNS, UNCLEAR or NONE for one simple command. */
 function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirections, pipesOut }, gateFile, depth) {
   let words = parsed;
@@ -634,7 +647,7 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
   }
   if (heredocs.some((body) => namesGate(body, gateFile))) use = Math.max(use, UNCLEAR);
   // What a command reads on stdin an interpreter may run. What it writes to, it does not run.
-  if (redirections.some(({ direction, target }) => direction === 'in' && namesGate(target, gateFile))) use = Math.max(use, UNCLEAR);
+  if (redirections.some(({ direction, target }) => direction !== 'out' && namesGate(target, gateFile))) use = Math.max(use, UNCLEAR);
   const unclearIfNamed = (list) => Math.max(use, list.some((word) => namesGate(word, gateFile)) ? UNCLEAR : NONE);
 
   let index = 0;
@@ -701,6 +714,8 @@ function gateUse(text, gateFile, depth = 0) {
   const { commands, definesFunction } = parseShell(text);
   let use = NONE;
   for (const simple of commands) use = Math.max(use, simpleCommandGateUse(simple, gateFile, depth));
+  // A command that writes to the gate file may empty it before the gate runs, or change it around the run (the header).
+  if (use === RUNS && writesToGate(commands, gateFile, depth)) use = UNCLEAR;
   // A function body runs only if the function is called, which is not something to guess at.
   return definesFunction ? Math.min(use, UNCLEAR) : use;
 }
@@ -823,10 +838,9 @@ function isGatePath(word, gateFile) {
 function carriesGateSettingAndPath(command, { envFlag, gateFile }) {
   if (!leadingAssignments(command).some((entry) => entry.name === envFlag)) return false;
   const { commands } = parseShell(command);
-  const redirections = commands.flatMap((simple) => simple.redirections);
-  if (redirections.some(({ direction, target }) => direction === 'out' && namesGate(target, gateFile))) return false;
+  if (writesToGate(commands, gateFile)) return false;
   return commands.some((simple) => simple.words.some((word) => isGatePath(word, gateFile)))
-    || redirections.some(({ direction, target }) => direction === 'in' && isGatePath(target, gateFile));
+    || commands.some((simple) => simple.redirections.some(({ direction, target }) => direction === 'in' && isGatePath(target, gateFile)));
 }
 
 /**
@@ -857,10 +871,10 @@ export function unownedReason(kind, ownShape, { overridable = false, envFlag = '
     return `runs this gate, but its command is not exactly the command this installer writes — ${ownShape}, and nothing else — so it is not recognised as this installer's own. A hand-wiring looks like this, and so does a hook written under an interpreter this installer does not know by name.`;
   }
   if (kind === 'unclear') {
-    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a here-document or a function — so no run without --adopt takes it';
+    const where = 'names this gate\'s file where this installer cannot tell whether the gate runs — an argument of a program it does not know, a wrapper form it does not recognise, a word after an interpreter\'s options, what a command reads on stdin, a pipe, a substitution, a variable, a here-document, a function, or a command that also writes to the gate file — so no run without --adopt takes it';
     return overridable
       ? `${where}. It sets ${envFlag} and names the gate path, so --adopt takes it over and says so: check first that it is the gate, because removing a hook that is not the gate cannot be undone.`
-      : `${where}, and neither does --adopt, which takes such a hook only when its leading assignments set ${envFlag} and one of its words is the gate path: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.`;
+      : `${where}, and neither does --adopt, which takes such a hook only when its leading assignments set ${envFlag}, one of its words is the gate path, and nothing in it writes to the gate file: removing a hook that is not the gate cannot be undone. If it does run the gate, remove it by hand.`;
   }
   return 'runs this gate, or may, under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.';
 }

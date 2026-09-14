@@ -482,8 +482,10 @@ put it there, and it is theirs to remove.
 know (`xargs`, `time`, a wrapper script), comes after a wrapper option or form it does not
 recognise (**Wrappers**, below), follows an interpreter's options
 (`node --check`), is piped on from a command that prints or reads it, is what a command
-reads on stdin (`node <'<gate>'`, a here-string), or sits in a variable, a here-document, a
-substitution or a function body — is named, with or without this installer's own `describe`:
+reads on stdin (`node <'<gate>'`, a here-string), sits in a variable, a here-document, a
+substitution or a function body, or shares its command with a write to the gate file
+(`node '<gate>' 2>'<gate>'` empties the gate before node opens it) — is named, with or without
+this installer's own `describe`:
 `--remove` exits 1 and an install refuses. Over-reporting a hook can be undone; deleting one
 that was not the gate cannot. (0.19.0 took such a hook under its own describe with no flag; this
 version needs `--adopt` for it.)
@@ -495,10 +497,13 @@ some hand-wrapped hook that does run the gate, so `--adopt` takes one over when 
    variables does not count, and neither does one after a wrapper or one set from an expansion
    (`AGENT_SKILLS_PROGRESS_GATE=$MODE`);
 2. one of its words is the gate path, whose basename is exactly `report-progress-gate.mjs`: a word
-   of its own, or the file a command reads on stdin, not the end of `--gate=…`, `GATE=…`, a
-   `sh -c` script or a `$(…)`.
+   of its own, or the file a command reads on stdin, not the end of `--gate=…`, `GATE=…`, a `$(…)`
+   or a `sh -c` script holding an operator. A word may hold blanks, for a checkout path with a
+   space in it, so a quoted phrase or a `sh -c` script with no operator that ends in the gate path
+   counts.
 
-A hook that also writes to the gate file is not taken over. When `--adopt` takes one, the installer
+A hook that also writes to the gate file — through a redirection of its own or of a substitution in
+it, `>>` and `<>` included — is not taken over. When `--adopt` takes one, the installer
 says so, naming each by event and matcher, and keeps the level and mode read from its command, as it
 does for a hand-wiring:
 
