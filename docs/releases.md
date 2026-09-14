@@ -59,30 +59,6 @@ verdict it produces authorizes nothing beyond itself.
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-### `isolated-change-validation` — the sandbox a change is proven in
-
-A twenty-sixth skill, for work that must stay outside the repository until it is accepted. It
-owns the physical lane and the evidence ladder: source identity frozen in a hash manifest before
-the first edit, two path sets a run must match exactly, one observed RED per behaviour watched at
-the hash rather than in the prose, the gate order the parent runs itself instead of believing a
-builder's report, review on independent axes that fail closed on a hash mismatch, and a static
-scan that is unfinished while any hit is unclassified.
-
-Two carried references hold the depth. `references/evidence-contract.md` gives the shapes — the
-baseline manifest and its declared omissions, the frozen-install record whose first half is
-written before the command runs, a gate result labelled with what it does not prove, a reviewer
-report, the scan classification, and a final verdict whose process failures, residual risks and
-skipped gates stay separate fields. `references/handoff-bundle.md` is the other half of an
-unattended run: every lane preserved and labelled by acceptance state — accepted, working but not
-accepted, the dirty checkout, external-repository deltas, the local workflow changes — with a
-manifest, a verifier the next agent runs first, the authority boundaries, and a pickup prompt
-that names the lane and the next gate rather than saying "continue the work".
-
-The boundary it holds is the one a green run erodes: technical acceptance in a sandbox authorizes
-nothing. Transfer, commit, push, publication, visibility, signing, account and billing changes and
-live-provider calls each stay separate acts.
-
-
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
