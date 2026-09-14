@@ -123,9 +123,16 @@ placeholder look like a second credential, a retention job the documents named a
 implemented, an edit rule outside the skill's vocabulary, markers the key placed in files that did
 not carry them, notes that named the wrong home for flags, and an ambiguity about whether reporting a
 credential's location reopens a closed subject. Those are corrected, and a run's true findings that
-the fixture did not plant are now listed as known extras so that a scorer can classify them. **The
-fixture as committed has not been measured since those last corrections**, which removed defects
-and clarified the key rather than planting new ones.
+the fixture did not plant are now listed as known extras so that a scorer can classify them. Later that day the fixture was measured by the one case that had never run: the skill's name typed
+with no word at all. The run chose `audit` and said why, asked nothing, wrote nothing in the
+repository, and reported every defect keyed to an audit but one, with no false positive; its report
+kept to the contract, and every total in it matched the rows it saved. The miss was the undocumented
+schedule, which shares its sentence with the trigger mismatch. **Its announcement, though, exists only
+in the report it wrote at the end**: its transcript holds no line before the work, and it had read the
+files' contents first. The three re-runs before it announced ahead of their first read. The rule is
+followed sometimes, not reliably. The same scoring found three last problems in the fixture — a note
+in the key that described the manual wrongly, a loose commit count, and a port the server hard-coded,
+which another process on the host was using — and all three are fixed without planting anything new.
 
 ## Deterministic checks
 
@@ -153,6 +160,10 @@ Planned for the trial harness, and not written yet:
   for the skills in a live session.
 - **Repeat runs and cross-run comparison** are not known to be supported by the eval tooling, so
   the consistency case is compared by script.
+- **The announcement is not reliable.** It is the rule a reader depends on to redirect a run before
+  it spends anything, and one of the four measured runs made it only in its final report. A check that
+  the announcement precedes the first content read has to read the transcript, not the report — which
+  is how this one was caught.
 - **The runs were not isolated.** The sessions were launched from inside one of the repositories,
   whose own standing rules for agent sessions already forbid committing, pushing and copying
   addresses, and it was not recorded which runs inherited them. The safety result is therefore not
@@ -162,8 +173,8 @@ Planned for the trial harness, and not written yet:
 - **The trial repositories are private**, so they cannot ship here. The fixture below stands in for
   them, and it is smaller than any of them: it exercises the shapes, not the scale.
 - **Coverage.** One model, one owner's repositories, and six runs over the seven cases — the
-  audit-layered case twice, for the consistency case, and the no-word case not yet run at all,
-  although three documents state it as behaviour. Every newcomer test in the first trial ran
+  audit-layered case twice, for the consistency case, and the no-word case not run until the
+  fixture existed. Every newcomer test in the first trial ran
   degraded, because no run could dispatch a context-free child. The skill's
   central defence against a drafting session marking its own homework is therefore the least tested
   part of it.
