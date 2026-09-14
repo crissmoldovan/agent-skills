@@ -44,6 +44,30 @@ in, and hands over to `land-complex-change` once that tree is right. Both are us
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+### `layer-repository-docs` (new skill)
+
+**What.** A twenty-fifth skill: make a repository's documentation legible when an organisation
+has more repositories than anyone can track. Three layers as roles rather than required files —
+a quick start in every repository, a manual once one outgrows its README, and a single
+organisation-wide handbook every other repository links to and none copies — plus the other
+document kinds beside them, one home per fact, and a tier ladder so a small repository is not
+made to grow structure it has not earned. Six carried references hold the depth:
+`references/layer-contents.md`, `references/document-kinds.md`, `references/one-home-per-fact.md`,
+`references/loss-audit.md`, `references/newcomer-test.md` and `references/claim-check.md`.
+
+**Why.** The shape is the easy half. The skill exists for the two passes that decide whether a
+documentation rewrite is fit to hand over, and that nothing else catches: a **loss audit**, which
+splits every replaced file into its facts and rules and gives each a verdict, because everything
+it finds is absent from the new draft and absence does not read as an error; and a **newcomer
+test**, in which a reader carrying none of the drafting context follows the documentation in a
+clean clone, because a fact-check passes every sentence that is true and has no way to notice the
+required field nobody wrote down.
+
+**Boundaries.** It writes the documentation people read; the context files agents load belong to
+`derive-codebase-context`. It delegates evidence to `investigate-codebase`, places no credential
+(`secure-credential-setup`), makes no placement decision (`workspace-governance`), and opens no
+pull request (`land-complex-change`, `request-blocks-review`).
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
