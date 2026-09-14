@@ -452,7 +452,8 @@ A hook with no `describe` that **runs** the gate in any other shape is a hand-wi
 runs the gate when, in some simple command of it, the gate file is the program, or is the
 word straight after an interpreter given no options (a Node-compatible runtime as above,
 `sh`, `bash`, `zsh`, `dash`, `ksh`, `sh.exe`, `bash.exe`, `.`, `source`), or runs inside a
-`sh -c` script or a `$(…)`, backtick or `<(…)` substitution. Such a
+`sh -c` script or a `$(…)`, backtick or `<(…)` substitution — past any wrapper it reads
+(**Wrappers**, below), such as `timeout 5` or `sudo -u x`. Such a
 hook is refused, not overwritten, and `--remove` names it, by event and matcher, rather
 than reporting the gate gone: it exits 1 while any hook still runs the gate. (It used to
 print "No report-progress gate was installed … Nothing changed." over two such hooks.)
@@ -468,10 +469,12 @@ different levels.
 argument of `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm` or a similar
 command that prints, reads, lists, copies or deletes files, in the exact shape or any other — is
 not the gate: `--remove` ignores it, and an install writes the gate beside it, whatever
-`describe` it wears. (0.19.0 took such a hook under its own describe, and under `--adopt`; that
-is the one hook this version leaves where 0.19.0 took it.) A hook where the installer
+`describe` it wears. (0.19.0 took such a hook under its own describe, and under `--adopt`. It is
+one of two kinds of hook this version leaves where 0.19.0 took it; the other is a wrapper form
+it does not recognise, **Wrappers** below.) A hook where the installer
 **cannot tell** whether the gate runs — the file is an argument of a program it does not
-know (`timeout`, `sudo`, `xargs`, a wrapper), follows an interpreter's options
+know (`xargs`, `time`, a wrapper script), comes after a wrapper option or form it does not
+recognise (**Wrappers**, below), follows an interpreter's options
 (`node --check`), is piped on from a command that prints or reads it, or sits in a
 variable, a here-document, a substitution or a function body — is named, and never
 taken, with or without `--adopt`: `--remove` exits 1 and an install refuses until you
@@ -479,6 +482,44 @@ remove it by hand. Over-reporting a hook can be undone; deleting one that was no
 gate cannot. A hook whose `describe` something else wrote is never taken either, even
 over the exact command this installer writes: somebody else put it there, and it is
 theirs to remove.
+
+**Wrappers.** A command may start with other commands that run the command after them, and
+the installer strips those before it looks for the gate, as many as are nested. It reads each only
+in the forms its manual gives on both macOS and Linux. Each form was run under macOS's `/bin/sh` and
+zsh, and under dash with GNU coreutils 9.1 and 9.4, before it went in; `sudo`'s grammar comes from its
+manual (1.9.13 on both systems), because running it needs a password. The table is
+`WRAPPER_GRAMMARS` in `hook-ownership.mjs`:
+
+| Wrapper | What it may carry before the command it runs |
+| --- | --- |
+| `command` | `-p`, `--`; only first in the command, where the shell reads it |
+| `exec` | nothing; only first in the command |
+| `nohup` | `--` |
+| `nice` | `-n N` for an integer `N`, `--` |
+| `env` | `-i`, `-`, `-v`, `-u NAME`, `-S` with a string of plain words (split, then read as if written out), `--`, then `NAME=value` words |
+| `timeout` | `-v`, `-k DURATION`, `-s SIGNAL`, `--verbose`, `--foreground`, `--preserve-status`, `--kill-after`, `--signal`, `--`, then a `DURATION` such as `5`, `0.5` or `1m` |
+| `caffeinate` (macOS) | `-d`, `-i`, `-m`, `-s`, `-u`, `-t N`, `-w N`, `--` |
+| `sudo` | `-B`, `-H`, `-n`, `-P`, `-u USER`, `-g GROUP`, `-p PROMPT` and their long names, each value once, `--`, then `NAME=value` words before any `--` |
+
+**An option or form outside that table is refused, never guessed past.** The hook is one the
+installer cannot tell runs the gate, so no flag takes it. That includes:
+
+- an abbreviated long option (`timeout --sig=KILL`);
+- an option only one system has (`timeout -p`, `env -C`, `nice --adjustment`);
+- `sudo -i`, `-s`, `-E`, `-b`, `-S`, `-A` and `-D`;
+- a value that does not read as its type, such as `timeout 5x`, which makes `timeout` exit without
+  running anything;
+- `command` or `exec` after another wrapper.
+
+Some programs are not read as wrappers at all:
+
+- `time`: under dash it is a separate program that Debian and Ubuntu do not install.
+- `stdbuf`: on macOS it can be killed at load before the command starts.
+- `ionice`, `chrt` and `taskset`: they run nothing when the kernel refuses what they ask.
+- `xargs`, `watch` and `parallel`: they change how or whether the command runs.
+
+If the installer refuses a hook it could have taken, you remove that hook by hand. If it deleted a
+hook it had misread, that could not be undone.
 
 It is deliberately **not** in `settings-fragment.json`. That fragment is the
 journal hook's, and it is meant to be copied wholesale — a gate that can end a
@@ -688,11 +729,13 @@ whenever it writes the file, so on a rewritten file `--remove` printed "No relea
 was installed … Nothing changed." and exited 0 with the hook still running. `--remove` now
 scans every event key, never reports the gate gone while any hook still runs it, and exits 1
 when one does; it also leaves the file untouched when it removed nothing. A hook with no
-`describe` that runs the gate in any other shape — a `2>/dev/null` or `&& …` after it — is
+`describe` that runs the gate in any other shape — a `2>/dev/null` or `&& …` after it, or a
+wrapper from the progress gate's **Wrappers** table in front of it, such as `timeout 5` — is
 refused, not overwritten, until `--adopt` takes it. A hook that only mentions the gate file, as
 `echo`, `cat` or `shellcheck` do, is not the gate and is left alone, whatever its `describe`
-says. One where the installer cannot tell whether the gate runs, and one under a `describe`
-somebody else wrote, are never taken, with or without `--adopt` — they are named, and left for
+says. One where the installer cannot tell whether the gate runs, a wrapper option or form that
+table does not recognise among them, and one under a `describe` somebody else wrote, are never
+taken, with or without `--adopt` — they are named, and left for
 you to remove by hand. It is deliberately not in `settings-fragment.json`, for the same reason the progress gate is not —
 that fragment is the journal hook's and is meant to be copied wholesale, and a hook that can
 refuse a tool call must never arrive that way.

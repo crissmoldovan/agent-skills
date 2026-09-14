@@ -68,11 +68,19 @@ the conversation, in a hook the user wired into their own harness.
   files, and `--adopt` takes it otherwise. Where the harness has not dropped it, the installer's own
   `describe` makes any hook that runs the gate its own, as it did through 0.19.0. Any other hook
   that runs the gate is taken only under `--adopt`; one that merely names the gate file, or where it
-  cannot tell whether the gate runs, never is. A re-run with no `--mode` keeps the mode already
+  cannot tell whether the gate runs, never is. It reads past the wrappers `timeout`, `nice`,
+  `nohup`, `env`, `command`, `exec`, `caffeinate` and `sudo`, nested or not, each only in the forms
+  its manual gives on both macOS and Linux (`WRAPPER_GRAMMARS`). A wrapper option or form outside
+  that table is refused as a hook it cannot tell runs the gate, never guessed past; `time`,
+  `stdbuf`, `ionice`, `chrt`, `taskset`, `xargs`, `watch` and `parallel` are not read as wrappers at
+  all. A re-run with no `--mode` keeps the mode already
   installed, as the report-progress installer keeps its level. It is covered by
   `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
   `test/hook-ownership-v0.19.0.test.mjs`, which runs 0.19.0's installers beside this version's on
-  identical settings files and fails on any row where this version does worse.
+  identical settings files and fails on any row where this version does worse, except three kinds
+  of row it declares and counts: a hook that only mentions the gate file, which it never takes; the
+  release-notes installer's `--remove` exiting 1 over a hook both versions leave; and a wrapper form
+  it does not recognise, which it refuses.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.

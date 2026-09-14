@@ -411,13 +411,18 @@ any other interpreter the same shape is named, and `--adopt` takes it; with one 
 reads files, such as `'/bin/echo'`, it is nobody's. Where the harness has not dropped it, the
 installer's own `describe` on a hook that runs the gate, in any shape, makes that hook its own too,
 as it did through 0.19.0. `--adopt` takes any other hook that runs the gate: the gate file as the
-program, or straight after an interpreter such as `node` or `bash`. A hook that only mentions the
+program, or straight after an interpreter such as `node` or `bash`. That holds past the wrappers
+the installer reads in front of a command — `timeout`, `nice`, `nohup`, `env`, `command`, `exec`,
+`caffeinate` and `sudo`, nested or not (`sudo -u x timeout 5 node …`) — each only in the forms its
+manual gives on both macOS and Linux; the table is in
+[`adapters/claude-code/README.md`](adapters/claude-code/README.md). A hook that only mentions the
 file, as `echo`, `cat` or `rm` do, is not the gate, and nothing touches it, whatever its `describe`
-says. A hook where the installer cannot tell whether the gate runs (the file as an argument of a
-wrapper or `timeout`, after `node --check`, through a pipe or a variable), and a hook under a
-`describe` something else wrote, are never taken, with or without `--adopt`: `--remove` names them
-and exits 1, and an install refuses until they are gone. The release-notes gate's installer below
-recognises its hook the same way.
+says. A hook where the installer cannot tell whether the gate runs, and a hook under a `describe`
+something else wrote, are never taken, with or without `--adopt`: `--remove` names them and exits
+1, and an install refuses until they are gone. Cannot tell covers a wrapper option or form it does
+not recognise (`timeout --sig=KILL`, `sudo -i`), which it refuses rather than guesses past; the
+file as an argument of `xargs`, `time` or a wrapper script; the file after `node --check`; and a
+pipe or a variable. The release-notes gate's installer below recognises its hook the same way.
 
 Six limits, stated here because a guard that is misread is worse than no guard:
 
