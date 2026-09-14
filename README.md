@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-four public, portable Agent Skills for agent operations, reviews, releases
+  Twenty-five public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -37,6 +37,7 @@ harnesses, and tested as part of one release catalogue.
 | `resolve-problem-report` | Take a reported problem end to end: reproduce the claim, find the root cause, offer candidate fixes with trade-offs, spec the chosen one, and land it through review. Symptoms: a user reported X, this is broken in production, a flaky test is hiding something real, someone filed a bug or feature request, this keeps coming back. Use it when the report deserves more than a quick patch; for a one-line fix, just fix it. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
 | `new-ux-discovery` | Find UX improvements a codebase can already support, evidence-backed and ranked — across the CLI, the API, MCP tools, notifications and error text as much as the UI. Symptoms: what should we improve next, where does this feel rough, what's low-hanging UX we could ship this week, turn this diff into a follow-up list, roadmap candidates from the code we already have. Not a visual design pass — for look and feel use a design skill. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
 | `workspace-governance` | Audit repository placement and explain inherited policy. | [Skill](skills/workspace-governance/SKILL.md) · [Guide](docs/workspace-governance/index.md) |
+| `layer-repository-docs` | Make a repository's documentation legible when an organisation has more repos than anyone can track: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context. | [Skill](skills/layer-repository-docs/SKILL.md) · [Layer contents](skills/layer-repository-docs/references/layer-contents.md) · [Loss audit](skills/layer-repository-docs/references/loss-audit.md) · [Newcomer test](skills/layer-repository-docs/references/newcomer-test.md) |
 | `report-progress` | Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn. | [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs) |
 | `work-in-external-repo` | Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository. | [Skill](skills/work-in-external-repo/SKILL.md) |
 
@@ -128,6 +129,12 @@ node <skill-folder>/scripts/install-cli.mjs
 npx skills add crissmoldovan/agent-skills --skill delphi-ground delphi-imagine
 ```
 
+Document a repository in layers — a quick start, a manual, and the organisation's handbook:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill layer-repository-docs
+```
+
 `--agent '*'` means every agent the installed CLI supports, not every agent that
 exists. The CLI reports unsupported clients separately. Preserve the existing
 copy/symlink form unless conversion is explicitly requested.
@@ -135,7 +142,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-four public skills from crissmoldovan/agent-skills.
+Install or update the twenty-five public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
