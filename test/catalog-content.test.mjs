@@ -30,6 +30,9 @@ const visualiseBlastArea = await read('skills/visualise-blast-area/SKILL.md');
 const landComplexChange = await read('skills/land-complex-change/SKILL.md');
 const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
 const layerRepositoryDocs = await read('skills/layer-repository-docs/SKILL.md');
+const isolatedChangeValidation = await read('skills/isolated-change-validation/SKILL.md');
+const isolatedChangeValidationEvidence = await read('skills/isolated-change-validation/references/evidence-contract.md');
+const isolatedChangeValidationHandoff = await read('skills/isolated-change-validation/references/handoff-bundle.md');
 const layerRepositoryDocsEntryPoints = await read('skills/layer-repository-docs/references/entry-points.md');
 const layerRepositoryDocsEvaluation = await read('docs/layer-repository-docs/evaluation.md');
 const newUxDiscovery = await read('skills/new-ux-discovery/SKILL.md');
@@ -62,17 +65,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.20.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.20.0');
-  assert.equal(rootLock.version, '0.20.0');
-  assert.equal(rootLock.packages[''].version, '0.20.0');
+test('v0.21.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.21.0');
+  assert.equal(rootLock.version, '0.21.0');
+  assert.equal(rootLock.packages[''].version, '0.21.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 25);
+  assert.equal(skillNames.length, 26);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-five skills/i);
-  assert.match(composition, /catalog ships twenty-five skills/i);
+  assert.match(architecture, /now ships twenty-six skills/i);
+  assert.match(composition, /catalog ships twenty-six skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -89,7 +92,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-five public, portable Agent Skills/i);
+  assert.match(readme, /twenty-six public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -106,7 +109,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -527,5 +530,21 @@ test('no page says the report-progress gate cannot block twice at coverage 1', a
     // when each turn starts, holds the ceiling at both levels. Each page names that hook.
     assert.doesNotMatch(text, /once per turn is the intent rather than a guarantee|aims to act once per turn|that is the intent rather than a guarantee/i, page);
     assert.match(text, /UserPromptSubmit/, `${page} does not name the hook that keeps one block per turn`);
+  }
+});
+
+test('isolated-change-validation carries no organisation marks and states what it does not own', () => {
+  assert.doesNotMatch(isolatedChangeValidation, /\bCUE\b|\bRGC\b|claude-stream/i);
+  // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
+  for (const sibling of ['land-complex-change', 'blast-area', 'work-in-external-repo', 'request-blocks-review', 'agent-lifecycle', 'report-progress']) {
+    assert.match(isolatedChangeValidation, new RegExp(sibling));
+  }
+  // Technical acceptance authorizes nothing: the boundary the skill exists to hold.
+  assert.match(isolatedChangeValidation, /Technical acceptance is not landing authority/i);
+  // The two lessons the carried references exist for.
+  assert.match(isolatedChangeValidationHandoff, /Every lane is separate, and labelled by its acceptance state/);
+  assert.match(isolatedChangeValidationEvidence, /unclassified_hits/);
+  for (const reference of ['references/evidence-contract.md', 'references/handoff-bundle.md']) {
+    assert.ok(isolatedChangeValidation.includes(reference), `SKILL.md does not link ${reference}`);
   }
 });

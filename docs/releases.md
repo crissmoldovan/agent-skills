@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, and `layer-repository-docs`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, and `isolated-change-validation`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -46,10 +46,41 @@ whether a rewrite is fit to hand over. The context files agents load remain
 `derive-codebase-context`'s; it delegates evidence to `investigate-codebase` and makes no
 placement decision (`workspace-governance`).
 
+`isolated-change-validation` sits one step before the delivery family. It owns the sandbox a
+change is proven in while it is still outside the repository: the physically separate lane, the
+hash manifest that stands in for revision identity where the lane has no git, the gate ladder
+the parent runs itself rather than believing a builder's report, the independent review axes,
+and the bundle an unattended run is handed over in. The moment the change is landing in the
+repository it is `land-complex-change`'s; the map it is budgeted from is `blast-area`'s; and the
+verdict it produces authorizes nothing beyond itself.
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### `isolated-change-validation` — the sandbox a change is proven in
+
+A twenty-sixth skill, for work that must stay outside the repository until it is accepted. It
+owns the physical lane and the evidence ladder: source identity frozen in a hash manifest before
+the first edit, two path sets a run must match exactly, one observed RED per behaviour watched at
+the hash rather than in the prose, the gate order the parent runs itself instead of believing a
+builder's report, review on independent axes that fail closed on a hash mismatch, and a static
+scan that is unfinished while any hit is unclassified.
+
+Two carried references hold the depth. `references/evidence-contract.md` gives the shapes — the
+baseline manifest and its declared omissions, the frozen-install record whose first half is
+written before the command runs, a gate result labelled with what it does not prove, a reviewer
+report, the scan classification, and a final verdict whose process failures, residual risks and
+skipped gates stay separate fields. `references/handoff-bundle.md` is the other half of an
+unattended run: every lane preserved and labelled by acceptance state — accepted, working but not
+accepted, the dirty checkout, external-repository deltas, the local workflow changes — with a
+manifest, a verifier the next agent runs first, the authority boundaries, and a pickup prompt
+that names the lane and the next gate rather than saying "continue the work".
+
+The boundary it holds is the one a green run erodes: technical acceptance in a sandbox authorizes
+nothing. Transfer, commit, push, publication, visibility, signing, account and billing changes and
+live-provider calls each stay separate acts.
 
 
 ## Release checklist
