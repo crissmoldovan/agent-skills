@@ -9,9 +9,12 @@ import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-import { classifyHook } from '../adapters/claude-code/hook-ownership.mjs';
-import { HOOK_IDENTITY as PROGRESS_IDENTITY, buildHookEntries } from '../adapters/claude-code/install-report-progress-gate.mjs';
-import { HOOK_IDENTITY as RELEASE_IDENTITY, buildHookEntry } from '../adapters/claude-code/install-release-notes-gate.mjs';
+import * as ownership from '../adapters/claude-code/hook-ownership.mjs';
+import { HOOK_IDENTITY as PROGRESS_IDENTITY, buildHookEntries, installHooks, removeHooks } from '../adapters/claude-code/install-report-progress-gate.mjs';
+import { HOOK_IDENTITY as RELEASE_IDENTITY, buildHookEntry, installHook, removeHook } from '../adapters/claude-code/install-release-notes-gate.mjs';
+import { GATE_DIR_ENV, markerFile } from '../adapters/claude-code/report-progress-gate.mjs';
+
+const { classifyHook } = ownership;
 
 // ---------------------------------------------------------------------------
 // The release bar, row by row, against 0.19.0's real installers.
@@ -22,9 +25,12 @@ import { HOOK_IDENTITY as RELEASE_IDENTITY, buildHookEntry } from '../adapters/c
 // settings file. The user's guarantee: everything 0.19.0 could do is still possible, at worst by adding --adopt. Every row below
 // is held to the four points of the release bar, IN PRECEDENCE ORDER — where two conflict, the higher one wins:
 //   1. a run with no flag never takes a hook the reader cannot fully read, with or without the installer's own describe;
-//   2. never taken, with any flag (beats point 3): a MENTION, the gate path only as an argument of a program the reader knows
-//      does not run it (echo, cat, grep, rm, unlink, cp, ls, shellcheck, xxd, du, od and the like); a WRITE TARGET, a command that
-//      writes to the gate file; a DIFFERENT FILE whose name merely contains the gate file's; a hook under ANOTHER TOOL'S describe;
+//   2. never taken, with any flag (beats point 3), for exactly one of four reasons, which `neverTakenReason` returns: a MENTION, the
+//      gate file named only as an argument of a program the reader knows does not run it (echo, cat, grep, rm, unlink, cp, ls,
+//      shellcheck, xxd, du, od and the like), only in what flows only into such programs, or only in a shell comment, and nowhere
+//      else in the command; a WRITE TARGET, a command that writes to the gate file through a redirection, in `sh -c`, `eval`, a
+//      here-document or a substitution too; a DIFFERENT FILE, where every path with the gate file's name in it ends in another
+//      name — a lookalike, or the gate file's name only as a directory; a hook under ANOTHER TOOL'S describe;
 //   3. everything else 0.19.0 took or removed with exit 0, the branch takes or removes with the same flags or with --adopt added;
 //   4. --remove is honest: it exits 1 while a hook that runs the gate, or may, is left behind, and it never says no gate was
 //      installed while any hook in the file names the gate file — it names each hook it left, with why.
@@ -154,6 +160,8 @@ const progressForm = (id, progress, { reader = 'unclear', ...rest } = {}) => ({ 
 const releaseForm = (id, release, { reader = 'unclear', ...rest } = {}) => ({ id, only: 'release', progress: exactShape.progress, release, reader: { progress: 'own', release: reader }, ...rest });
 /** Where a form puts the gate file's own directory, for a command that works it out: `"$(dirname '<dir>/x')/<gate>"`. */
 const dirnameOf = (gate) => `"$(dirname ${q(path.join(path.dirname(gate), 'x'))})/${path.basename(gate)}"`;
+/** A glob that matches the gate file in its own directory, the directory quoted: `'<dir>/'*<gate>`. */
+const globOf = (gate) => `${q(`${path.dirname(gate)}/`)}*${path.basename(gate)}`;
 
 /** The mode, and level, a branch install keeps from a hook it takes: `block`; `off` for a command that sets no mode; `unreadable`
  *  for one that sets it where the installer cannot read it, which writes the default, observe, and says so. */
@@ -181,6 +189,8 @@ const ANOTHER_DESCRIBE = 'another-tool: checks every tool call against its own p
 const ANOTHER_TOOL = "another tool's describe";
 /** Point 2's four cases. */
 const POINT_TWO = Object.freeze(['mention', 'write target', 'different file', ANOTHER_TOOL]);
+/** Each of point 2's cases, as the closed set in hook-ownership.mjs names it. */
+const REASON_OF = Object.freeze({ mention: 'mention', 'write target': 'writeTarget', 'different file': 'differentFile', [ANOTHER_TOOL]: 'foreignDescribe' });
 
 /**
  * Hand-written files: both gates at block and coverage 2, beside hooks nobody here wrote, each command built from the `node`
@@ -346,6 +356,30 @@ const HAND_WRITTEN = Object.freeze([
   releaseForm("gap: bash <<'EOF' … bash <gate> … EOF", (gate) => `bash <<'EOF'\nbash ${q(gate)}\nEOF`, { keeps: OFF }),
   // rg runs the file its --pre option names, so it is not a program the reader knows does not run the gate.
   releaseForm('rg --pre <gate>', (gate) => `AGENT_SKILLS_RELEASE_NOTES_GATE=block rg --pre ${q(gate)} x /etc/hosts`, { needs: { release: 'rg' } }),
+
+  // The forms from this round's held review and ship reports. A comment after a command that runs the gate never downgrades the run.
+  { id: '<shape> # note', ...followedBy(' # note'), reader: both('hand-wiring') },
+  {
+    id: '<shape> # <gate file>',
+    progress: (node, gate) => `${exactShape.progress(node, gate)} # ${path.basename(gate)}`,
+    release: (gate) => `${exactShape.release(gate)} # ${path.basename(gate)}`,
+    reader: both('hand-wiring'),
+  },
+  // An option word in the script's place: node exits 9 and bash reads its stdin, and neither runs the gate.
+  {
+    id: "'--gate=<gate>' and '--rcfile=<gate>' in the exact shape",
+    progress: (node, gate) => `${P} ${q(node)} ${q(`--gate=${gate}`)}`,
+    release: (gate) => `${R} bash ${q(`--rcfile=${gate}`)}`,
+    reader: both('unclear'),
+  },
+  // A glob that matches the gate, after the interpreter and as the program itself.
+  { id: "<interpreter> '<dir>/'*<gate>", progress: (node, gate) => `${P} ${q(node)} ${globOf(gate)}`, release: (gate) => `${R} bash ${globOf(gate)}`, reader: both('unclear') },
+  { id: "'<dir>/'*<gate> as the program", progress: (node, gate) => `${P} ${globOf(gate)}`, release: (gate) => `${R} ${globOf(gate)}`, reader: both('unclear') },
+  // The gate file in a shell option before its -c script.
+  releaseForm('bash --rcfile=<gate> -c true', (gate) => `${R} bash --rcfile=${q(gate)} -c true`),
+  // The gate file's name joined to a parameter that holds its directory.
+  progressForm('D=<dir>/; VAR=block node "$D"<gate>', (node, gate) => `D=${q(`${path.dirname(gate)}/`)}; AGENT_SKILLS_PROGRESS_GATE=block node "$D"${path.basename(gate)}`, { keeps: UNREADABLE }),
+  releaseForm('D=<dir>/; VAR=block bash "$D"<gate>', (gate) => `D=${q(`${path.dirname(gate)}/`)}; AGENT_SKILLS_RELEASE_NOTES_GATE=block bash "$D"${path.basename(gate)}`, { keeps: UNREADABLE }),
 ]);
 
 /**
@@ -380,6 +414,15 @@ const SINGLE = Object.freeze([
   { kind: 'progress', category: 'write target', reader: 'unclear', command: `${P} node ${q(packGate('progress'))} >>${q(packGate('progress'))}` },
   { kind: 'progress', category: 'different file', command: `AGENT_SKILLS_PROGRESS_GATE=block node ${q('/pack/adapters/claude-code/install-report-progress-gate.mjs')} --remove` },
   { kind: 'progress', category: 'different file', command: `node ${q(`${packGate('progress')}.bak`)}` },
+  // The gate file named only in a shell comment (point 2a), and its name only as a directory in a path (point 2c): 0.19.0's substring
+  // match took both. `detail` is which kind of mention or different file --remove says it left.
+  { kind: 'progress', category: 'mention', detail: 'comment', command: 'true # report-progress-gate.mjs' },
+  { kind: 'progress', category: 'mention', detail: 'comment', command: 'node other.mjs # uses report-progress-gate.mjs' },
+  { kind: 'progress', category: 'different file', detail: 'directory', command: `node ${packGate('progress')}/index.mjs` },
+  { kind: 'progress', category: 'different file', detail: 'directory', command: `node other.mjs ${packGate('progress')}.d/x` },
+  // What a mention prints, reaching only programs that print or read.
+  { kind: 'progress', category: 'mention', command: `cat ${q(packGate('progress'))} | grep -c decision` },
+  { kind: 'progress', category: 'mention', command: `echo "$(cat ${q(packGate('progress'))})"` },
   { kind: 'progress', category: 'describe only', command: `AGENT_SKILLS_PROGRESS_GATE=block ${q('/opt/agent-skills-hooks/gate-wrapper')} --strict`, keeps: { mode: 'block', coverage: 1 } },
 
   { kind: 'release', category: 'mention', command: `AGENT_SKILLS_RELEASE_NOTES_GATE=block shellcheck ${q(packGate('release'))}`, needs: 'shellcheck' },
@@ -399,6 +442,9 @@ const SINGLE = Object.freeze([
   { kind: 'release', category: 'write target', reader: 'unclear', command: `${R} bash ${q(packGate('release'))} 2>${q(packGate('release'))}` },
   { kind: 'release', category: 'different file', command: `${R} bash ${q(`${packGate('release')}.orig`)}` },
   { kind: 'release', category: 'different file', command: `bash ${q('/pack/adapters/claude-code/my-release-notes-gate.sh')}`, event: 'Stop', matcher: '*' },
+  { kind: 'release', category: 'mention', detail: 'comment', command: 'true # release-notes-gate.sh' },
+  { kind: 'release', category: 'different file', detail: 'directory', command: `bash ${packGate('release')}/run.sh` },
+  { kind: 'release', category: 'mention', command: `xxd ${q(packGate('release'))} | head -1`, needs: 'xxd' },
   { kind: 'release', category: 'describe only', command: `${R} ${q('/opt/agent-skills-hooks/gate-wrapper')} --strict`, keeps: { mode: 'block' } },
 ]);
 
@@ -537,6 +583,8 @@ async function nodeBinaries(names) {
 
 const V019_ADAPTER = await checkoutV019();
 const BINARIES = await nodeBinaries([...new Set(['node', ...INPUTS.flatMap((input) => [input.wrote, input.reran])])]);
+/** HOME for every fired command: nothing fired here reads or writes the real one. */
+const FIRING_HOME = await scratch('ownership-v019-firing-home');
 
 async function loadTable() {
   try {
@@ -708,6 +756,7 @@ async function buildRows(template) {
       reader: { [kind]: entry.reader ?? 'none' },
       needs: entry.needs ? { [kind]: entry.needs } : undefined,
       copy: entry.copy ? { [kind]: entry.copy } : undefined,
+      detail: entry.detail ? { [kind]: entry.detail } : undefined,
     };
     for (const describe of DESCRIBES) {
       const hook = { type: 'command', command, ...(describe === 'present' ? { describe: ownDescribe(kind) } : {}) };
@@ -760,7 +809,7 @@ function readingOf(row) {
 function overrideEvidence(hook, kind) {
   const command = typeof hook.command === 'string' ? hook.command : '';
   const gate = escapeRegExp(KINDS[kind].gate);
-  const names = new RegExp(`(?:^|[\\s'"=:,/(){}<>;|&$\`])${gate}(?![A-Za-z0-9_.-])`).test(command);
+  const names = new RegExp(`(?:^|[\\s'"=:,/(){}<>;|&$\`*])${gate}(?![A-Za-z0-9_.-])`).test(command);
   const writes = new RegExp(`(?:>{1,2}\\|?|&>|<>)\\s*'?[^\\s';|&]*/${gate}(?![A-Za-z0-9_.-])`).test(command);
   const described = typeof hook.describe === 'string' && hook.describe.startsWith(KINDS[kind].describePrefix);
   return (names || described) && !writes;
@@ -805,10 +854,11 @@ function reasonFor(row, reading) {
     if (row.input.category === 'describe only') return /: carries this installer's own describe, but its command never names the gate file/;
     return /: names this gate's file where this installer cannot tell whether the gate runs/;
   }
+  const detail = row.input.detail?.[row.kind];
   return {
-    mention: /: left alone: only mentions the gate file/,
-    'write target': /: left alone: only writes to the gate file/,
-    'different file': /: left alone: names a different file whose name contains the gate file's/,
+    mention: detail === 'comment' ? /: left alone: only mentions the gate file \(comment\): / : /: left alone: only mentions the gate file \(argument\): /,
+    'write target': /: left alone: only writes to the gate file \(redirection\): /,
+    'different file': detail === 'directory' ? /: left alone: names a different file \(directory\): / : /: left alone: names a different file \(name\): /,
   }[row.category];
 }
 
@@ -838,7 +888,7 @@ const STAND_INS = Object.freeze({
 });
 
 const firingKey = (kind, command) => `${kind}\n${command}`;
-const firingEnv = () => childEnv({ PATH: [path.dirname(BINARIES.node), process.env.PATH].filter(Boolean).join(path.delimiter) });
+const firingEnv = () => childEnv({ HOME: FIRING_HOME, PATH: [path.dirname(BINARIES.node), process.env.PATH].filter(Boolean).join(path.delimiter) });
 
 const onPath = new Map();
 function installedHere(program) {
@@ -1056,12 +1106,16 @@ test('the branch against 0.19.0, row by row, held to the release bar in preceden
       ? { ...PROGRESS_IDENTITY, interpreter: { ...PROGRESS_IDENTITY.interpreter, names: [row.input.reran] } }
       : RELEASE_IDENTITY;
     if (row.subjects.length === 0) failed('the row has no subject');
+    const expectedReason = row.category === null ? null : REASON_OF[row.category];
     for (const { hook } of row.subjects) {
       const actual = classifyHook(hook, identity) ?? 'none';
       if (actual !== reading) failed(`the reader reads a subject as ${actual}, and this test states ${reading}`);
       if (reading === 'unclear' && row.category === null && !overrideEvidence(hook, row.kind)) {
         failed("a subject stated as one --adopt takes over neither names the gate file nor carries the installer's describe, or it writes to the gate file");
       }
+      // The row's point-2 case is the one reason the closed set names, and a row with none is one the closed set names nothing for.
+      const reason = ownership.neverTakenReason?.(hook, identity) ?? null;
+      if (reason !== expectedReason) failed(`the closed set names ${reason} for a subject, and this row states ${expectedReason}`);
     }
 
     const expected = expectedBranch(row);
@@ -1208,4 +1262,364 @@ test('the branch against 0.19.0, row by row, held to the release bar in preceden
   t.diagnostic(`start commands: ${firing.size} (fired ${states.fired}, did not fire ${states.silent}, labelled from a documented run ${states.documented}, not fired ${states['not fired']}; ${silentAsDeclared} declared silent and shown so; ${copiesRan} declared to run a copy and shown so); the reader cannot fully read these, and they ran: ${[...unclearRan].join('; ') || 'none'}`);
   t.diagnostic(`labels not from a firing here: ${[...labelled].map(([why, which]) => `${which.join(', ')} — ${why}`).join('; ')}`);
   t.diagnostic(`${writtenChecks.length} distinct gates the branch wrote fired against the real gate`);
+});
+
+// ---------------------------------------------------------------------------
+// NEVER TAKEN IS A CLOSED SET, so point 3 holds by construction.
+//
+// `neverTakenReason` returns point 2's reason for a hook — a mention, a write target, a different file, another tool's describe — or
+// null, and nothing else keeps --adopt from a hook. So for every hook whose command contains the gate file's name, which is how
+// 0.19.0 matched: the installer's own removal and install take it under --adopt, or that function names a reason — and never both,
+// because a hook with a reason is taken by no run, with or without --adopt. Held over every subject of the matrix above, every form
+// this branch's held review and ship reports named, and a generated set, through each installer's own `removeHooks`/`removeHook` and
+// `installHooks`/`installHook`.
+//
+// Then the reasons are proven by running, not by the reader agreeing with itself. Every distinct command the function calls a
+// mention or a different file is fired through /bin/sh, a hook's payload on stdin, twice: at a stand-in that records which file ran,
+// on every run and whatever its input, and at a byte-identical copy of the real gate, armed by its environment (block mode; for the
+// report-progress gate an Agent dispatch it records as a marker, for the release-notes gate its first call to jq). Neither may run the
+// gate file. A command that copies the gate and runs the copy runs another file, which the stand-in shows by its path and content;
+// the armed real gate cannot tell a copy from itself, so for that command alone it may fire.
+// ---------------------------------------------------------------------------
+
+const PACK_DIR = path.dirname(packGate('progress'));
+const OWN_IDENTITY = Object.freeze({ progress: PROGRESS_IDENTITY, release: RELEASE_IDENTITY });
+/** Where the hooks an install writes in place of a subject point: never a subject's own command. */
+const WRITTEN_HERE = '/written/by/this/run';
+/** Each installer's own removal and install, on a settings object. */
+const IN_PROCESS = Object.freeze({
+  progress: Object.freeze({
+    remove: (settings, adopt) => removeHooks(settings, { adopt }).settings,
+    install: (settings, adopt) => installHooks(settings, {
+      adopt,
+      entries: buildHookEntries({ mode: 'block', gatePath: `${WRITTEN_HERE}/${KINDS.progress.gate}`, nodePath: `${WRITTEN_HERE}/node`, coverage: 1 }),
+    }),
+  }),
+  release: Object.freeze({
+    remove: (settings, adopt) => removeHook(settings, { adopt }).settings,
+    install: (settings, adopt) => installHook(settings, { adopt, entry: buildHookEntry({ mode: 'block', gatePath: `${WRITTEN_HERE}/${KINDS.release.gate}` }) }),
+  }),
+});
+
+/** Whether one run of an installer's own code took the subject: it is no longer in the file, byte for byte. A refusal takes nothing. */
+function takenInProcess(run, { event, matcher, hook }) {
+  const settings = { hooks: { [event]: [{ matcher, hooks: [structuredClone(hook)] }] } };
+  let after;
+  try {
+    after = run(settings);
+  } catch (error) {
+    if (/^refusing to write/.test(error.message)) return false;
+    throw error;
+  }
+  return !allHooks(after).some((entry) => isDeepStrictEqual(entry.hook, hook));
+}
+
+/** The forms this branch's held review and ship reports named, with the gate at its pack path. */
+const REPORTED_FORMS = Object.freeze({
+  progress: (G) => {
+    const g = q(G);
+    const name = path.basename(G);
+    return [
+      // Named only in a comment, or only as a directory in a path; and a comment beside a run.
+      `true # ${name}`, `node other.mjs # uses ${name}`, `node ${G}/index.mjs`, `node other.mjs ${G}.d/x`, `node ${g} # note`,
+      // Option words read as the gate path.
+      `${P} ${q('/usr/local/bin/node')} ${q(`--gate=${G}`)}`, `node --gate=${G}`, `node --require=${G} /work/other.mjs`, `node /pack/runner.mjs --gate=${G}`,
+      `bash --rcfile=${G} -c 'node x'`,
+      // Joined parameters and globs: after an interpreter, as the program, and in a mention or a write.
+      `D=${PACK_DIR}/; node "$D"${name}`, `node $D'${name}'`, `node ${PACK_DIR}/*${name}`, `node ${G}*`, `${PACK_DIR}/*${name}`, `D=${PACK_DIR}/; "$D"${name}`,
+      `D=${PACK_DIR}/; cat "$D"${name}`, `D=${PACK_DIR}/; echo x > "$D"${name}`,
+      // Mention-only pipelines, and pipelines that reach something else.
+      `cat ${g} | grep -c x`, `cat ${g} | wc -l`, `echo ${g} | cat`, `xxd ${g} | head -1`, `echo "$(cat ${g})"`,
+      `cat ${g} | node --input-type=module`, `cat ${g} | tee >(node --input-type=module)`, `cat ${g} | (grep -q x; node --input-type=module)`,
+      // The ship report's rows.
+      `timeout --no-such-option 5 node ${g}`, `cat ${g}`, `echo x > ${g}`, `node ${q(`${PACK_DIR}/install-${name}`)}`, `node ${q(`${G}.bak`)}`,
+      // The known limitations, which stay what they are: control flow read by structure, a write through a program argument, and a
+      // glob that matches the gate without its name, which has no gate file name in it to hold.
+      `false && node ${g}`, `if false; then node ${g}; fi`, `PATH=/nonexistent node ${g}`, `sed -i.orig s/a/b/ ${g}`, `dd if=/dev/null of=${G}`,
+      `node ${PACK_DIR}/[r]eport-progress-gate.mjs`,
+      // Contrived names the review listed.
+      `node "${G} "`, `node ${PACK_DIR}/a=${name}`, `node x'${name}'`,
+    ];
+  },
+  release: (G) => {
+    const g = q(G);
+    const name = path.basename(G);
+    return [
+      `true # ${name}`, `true # uses ${G}`, `bash ${G}/run.sh`, `bash other.sh ${G}.d/x`, `bash ${g} # note`,
+      `${R} bash ${q(`--rcfile=${G}`)}`, `source --x=${G}`, `bash --rcfile=${G} -c true`, `bash -c --rcfile=${G}`,
+      `D=${PACK_DIR}/; bash "$D"${name}`, `bash ${PACK_DIR}/*${name}`, `${PACK_DIR}/*${name}`, `${R} ${G}*`, `echo "$D"${name} | sh`,
+      `bash -c "cat ${G}" | wc -c`, `bash -c "cat ${G}" | sh`, `xxd ${g} | head -1`,
+      `sudo -i bash ${g}`, `${R} unlink ${g}`, `${R} shellcheck ${g}`, `${R} nice -10 bash ${g}`,
+      `cat ${g}`, `echo x > ${g}`, `bash ${q(`${G}.orig`)}`, `bash ${q(`${PACK_DIR}/my-${name}`)}`,
+      `bash <<'EOF'\nbash ${G}\nEOF`, `cat <<'EOF'\n${G}\nEOF`, `. ${g}`, `false && bash ${g}`,
+    ];
+  },
+});
+
+/** A generated set: the gate file named in each of these ways, in each of these places, behind each lead and before each tail. */
+const GENERATED = Object.freeze({
+  words: (G, name) => [q(G), G, `"$D"${name}`, `$D'${name}'`, `${PACK_DIR}/*${name}`, `${G}*`, `--gate=${G}`, `${G}/index`, `${G}.d/x`, q(`${PACK_DIR}/install-${name}`), `${G}.bak`, `x'${name}'`, name],
+  places: (run) => [
+    (word) => `${run} ${word}`,
+    (word) => `${run} other.x ${word}`,
+    (word) => `${run} --check ${word}`,
+    (word) => `timeout 5 ${run} ${word}`,
+    (word) => `nice -10 ${run} ${word}`,
+    (word) => word,
+    (word) => `bash ${word} -c true`,
+    (word) => `cat ${word}`,
+    (word) => `rm -f ${word}`,
+    (word) => `echo ${word} | grep -c x`,
+    (word) => `cat ${word} | ${run}`,
+    (word) => `echo "$(cat ${word})"`,
+    (word) => `echo armed > ${word}`,
+    (word) => `true # ${word}`,
+    (word) => `${run} other.x # uses ${word}`,
+    (word) => `timeout -s ${word} 5 true`,
+  ],
+  leads: (flag) => ['', `${flag}=block `, `D=${PACK_DIR}/; `],
+  tails: ['', ' # note', '; true'],
+});
+
+function generatedForms(kind) {
+  const G = packGate(kind);
+  const words = GENERATED.words(G, KINDS[kind].gate);
+  const places = GENERATED.places(kind === 'progress' ? 'node' : 'bash');
+  const commands = [];
+  for (const lead of GENERATED.leads(KINDS[kind].flag)) {
+    for (const word of words) {
+      for (const place of places) {
+        for (const tail of GENERATED.tails) commands.push(`${lead}${place(word)}${tail}`);
+      }
+    }
+  }
+  return { commands, expected: GENERATED.leads(KINDS[kind].flag).length * words.length * places.length * GENERATED.tails.length };
+}
+
+/** Programs a fired command may need that a machine may lack: where one is missing, that command is not fired, and says so. */
+const MAY_BE_MISSING = Object.freeze(['timeout', 'xxd', 'shellcheck', 'nice', 'stdbuf', 'rg', '/usr/local/bin/hook-wrapper', '/usr/bin/shellcheck', '/bin/unlink']);
+const neededBy = (command) => MAY_BE_MISSING.filter((program) => new RegExp(`(?:^|[\\s;&|('"])${escapeRegExp(program)}(?=[\\s'"]|$)`).test(command));
+
+/** The command with the gate's own directory replaced by the one a firing put the gate in. Never this checkout's gates, never sudo. */
+function inPlaceOf(command, gatePath, dir) {
+  const replaced = command.split(`${path.dirname(gatePath)}/`).join(`${dir}/`);
+  assert.ok(!replaced.includes(BRANCH_ADAPTER), `refusing to fire a command that names this checkout's adapters: ${command}`);
+  assert.ok(!/(?:^|[\s;&|(`])sudo\s/.test(replaced), `refusing to run sudo: ${command}`);
+  return replaced;
+}
+
+/** Stand-ins that record every run, whatever their input: the module's own path for the Node gate, `$0` for the shell gate. */
+const RECORDING_STAND_INS = Object.freeze({
+  progress: (log) => [
+    '#!/usr/bin/env node',
+    "import { appendFileSync } from 'node:fs';",
+    "import { fileURLToPath } from 'node:url';",
+    "let self = 'not-a-file';",
+    'try { self = fileURLToPath(import.meta.url); } catch {}',
+    `appendFileSync(${JSON.stringify(log)}, \`\${self}\\n\`);`,
+    '',
+  ].join('\n'),
+  release: (log) => ['#!/bin/sh', `printf '%s\\n' "$0" >> ${q(log)}`, ''].join('\n'),
+});
+
+/**
+ * Fire one command at a recording stand-in. `ran the gate` unless every run it recorded was of another file with the stand-in's own
+ * content — a copy; a path that no longer resolves, or a shell's own name (a sourced script's `$0`), counts as the gate.
+ */
+async function fireRecording(check) {
+  const dir = await scratch('ownership-closed-standin');
+  const log = path.join(await scratch('ownership-closed-log'), 'ran');
+  const gate = path.join(dir, KINDS[check.kind].gate);
+  const content = RECORDING_STAND_INS[check.kind](log);
+  await writeFile(gate, content);
+  await chmod(gate, await gateMode(check.kind));
+  const command = inPlaceOf(check.command, check.gatePath, dir);
+  const payload = JSON.stringify({ hook_event_name: KINDS[check.kind].event, session_id: 'sess-closed-set', token: PAYLOAD_MARK });
+  const result = await spawnCollect('/bin/sh', ['-c', command], { env: firingEnv(), stdin: payload, cwd: dir, timeout: FIRE_TIMEOUT_MS });
+  if (result.timedOut) return 'timed out';
+  if (!existsSync(log)) return 'silent';
+  for (const line of (await readFile(log, 'utf8')).split('\n').filter((entry) => entry !== '')) {
+    let real = null;
+    try {
+      real = await realpath(path.resolve(dir, line));
+    } catch {
+      return 'ran the gate';
+    }
+    if (real === gate || (await readFile(real, 'utf8').catch(() => null)) !== content) return 'ran the gate';
+  }
+  return 'ran another file';
+}
+
+/** Fire one command at a byte-identical copy of the real gate, armed by its environment: `ran` or `silent`. */
+async function fireRealGate(check) {
+  const dir = await scratch('ownership-closed-real');
+  const support = await scratch('ownership-closed-support');
+  const [home, markers, shims] = ['home', 'markers', 'shims'].map((name) => path.join(support, name));
+  for (const made of [home, markers, shims]) await mkdir(made);
+  const gate = path.join(dir, KINDS[check.kind].gate);
+  await copyFile(branchGate(check.kind), gate);
+  await chmod(gate, await gateMode(check.kind));
+  // Armed, the release-notes gate reads its payload and then calls jq: a jq first on PATH that leaves a file is the sign it ran.
+  const jqRan = path.join(support, 'jq-ran');
+  await writeFile(path.join(shims, 'jq'), ['#!/bin/sh', `printf ran >> ${q(jqRan)}`, 'cat >/dev/null 2>&1', 'exit 0', ''].join('\n'));
+  await chmod(path.join(shims, 'jq'), 0o755);
+  const sessionId = 'sess-closed-real';
+  const env = childEnv({
+    HOME: home,
+    PATH: [shims, path.dirname(BINARIES.node), process.env.PATH].filter(Boolean).join(path.delimiter),
+    [KINDS[check.kind].flag]: 'block',
+    [GATE_DIR_ENV]: markers,
+  });
+  // Armed, the report-progress gate records an Agent dispatch as a marker.
+  const payload = check.kind === 'progress'
+    ? { hook_event_name: 'PostToolUse', session_id: sessionId, tool_name: 'Agent', tool_input: { description: 'Reply with done' } }
+    : { hook_event_name: 'PreToolUse', session_id: sessionId, tool_name: 'Bash', tool_input: { command: 'true' } };
+  const command = inPlaceOf(check.command, check.gatePath, dir);
+  const result = await spawnCollect('/bin/sh', ['-c', command], { env, stdin: JSON.stringify(payload), cwd: dir, timeout: FIRE_TIMEOUT_MS });
+  if (result.timedOut) return 'timed out';
+  const ran = check.kind === 'progress' ? existsSync(markerFile({ [GATE_DIR_ENV]: markers }, sessionId)) : existsSync(jqRan);
+  return ran ? 'ran' : 'silent';
+}
+
+/** A command that sets the gate's mode to anything but block, or clears the environment, would keep an armed real gate from showing a run. */
+const DISARMS = Object.freeze({
+  progress: /(?<![A-Za-z0-9_])AGENT_SKILLS_PROGRESS_GATE=(?!block(?![A-Za-z0-9_]))|(?:^|[\s;&|(])env\s+-i?(?:\s|$)|(?<![A-Za-z0-9_])AGENT_SKILLS_PROGRESS_GATE_DIR=|(?:^|[\s;&|(])PATH=/,
+  release: /(?<![A-Za-z0-9_])AGENT_SKILLS_RELEASE_NOTES_GATE=(?!block(?![A-Za-z0-9_]))|(?:^|[\s;&|(])env\s+-i?(?:\s|$)|(?:^|[\s;&|(])PATH=/,
+});
+
+test('never taken is a closed set: every hook with the gate file\'s name in it is taken under --adopt or given one of four reasons, and every mention and different file, fired, does not run the gate', async (t) => {
+  assert.equal(typeof ownership.neverTakenReason, 'function', 'hook-ownership.mjs exports no neverTakenReason');
+  assert.ok(table, `no recorded table at ${fileURLToPath(TABLE_URL)}`);
+  const reasons = ownership.NEVER_TAKEN_REASONS;
+  assert.deepEqual(reasons, ['mention', 'writeTarget', 'differentFile', 'foreignDescribe']);
+
+  const subjects = [];
+  const seen = new Set();
+  const added = { matrix: 0, reported: 0, generated: 0 };
+  const add = (source, subject) => {
+    added[source] += 1;
+    const key = JSON.stringify([subject.kind, subject.event, subject.matcher, subject.hook]);
+    if (seen.has(key)) return;
+    seen.add(key);
+    subjects.push({ source, ...subject });
+  };
+  const rows = await buildRows(table.writes);
+  assert.equal(rows.length, EXPECTED_ROWS, 'the matrix did not build every row it declares');
+  for (const row of rows) {
+    for (const { event, matcher, hook } of row.subjects) add('matrix', { kind: row.kind, event, matcher, hook, gatePath: row.gatePath });
+  }
+  const describes = (kind) => [{}, { describe: ownDescribe(kind) }, { describe: ANOTHER_DESCRIBE }];
+  let generatedExpected = 0;
+  for (const kind of Object.keys(KINDS)) {
+    const { event, matcher } = KINDS[kind];
+    const place = (source, command) => {
+      for (const extra of describes(kind)) add(source, { kind, event, matcher, hook: { type: 'command', command, ...extra }, gatePath: packGate(kind) });
+    };
+    for (const command of REPORTED_FORMS[kind](packGate(kind))) place('reported', command);
+    const { commands, expected } = generatedForms(kind);
+    assert.equal(commands.length, expected, `the generated set for ${kind} did not build every form it declares`);
+    generatedExpected += expected * describes(kind).length;
+    for (const command of commands) place('generated', command);
+  }
+  assert.equal(added.generated, generatedExpected, 'a generated subject was not added');
+
+  // Every hook with the gate file's name in it: taken under --adopt, or one of four reasons and taken by no run. Nothing else.
+  const problems = [];
+  const counts = { withName: 0, withoutName: 0, taken: 0, reasoned: 0 };
+  const byReason = Object.fromEntries(reasons.map((reason) => [reason, 0]));
+  const byDetail = {};
+  const candidates = new Map();
+  for (const subject of subjects) {
+    const { kind, hook } = subject;
+    const label = `${kind} (${subject.source}) ${JSON.stringify(hook)}`;
+    if (typeof hook.command !== 'string' || !hook.command.includes(KINDS[kind].gate)) {
+      counts.withoutName += 1;
+      continue;
+    }
+    counts.withName += 1;
+    const reason = ownership.neverTakenReason(hook, OWN_IDENTITY[kind]);
+    const api = IN_PROCESS[kind];
+    const adoptRemoves = takenInProcess((settings) => api.remove(settings, true), subject);
+    const adoptInstalls = takenInProcess((settings) => api.install(settings, true), subject);
+    if (reason === null) {
+      counts.taken += 1;
+      if (!adoptRemoves || !adoptInstalls) problems.push(`POINT 3: none of the four reasons, and --adopt did not take it (removal took it: ${adoptRemoves}; install took it: ${adoptInstalls}): ${label}`);
+      continue;
+    }
+    if (!reasons.includes(reason)) {
+      problems.push(`the closed set returned ${JSON.stringify(reason)}: ${label}`);
+      continue;
+    }
+    counts.reasoned += 1;
+    byReason[reason] += 1;
+    const plainRemoves = takenInProcess((settings) => api.remove(settings, false), subject);
+    const plainInstalls = takenInProcess((settings) => api.install(settings, false), subject);
+    if (adoptRemoves || adoptInstalls || plainRemoves || plainInstalls) problems.push(`POINT 2: a ${reason} was taken: ${label}`);
+    if (reason !== 'mention' && reason !== 'differentFile') continue;
+    const [found] = ownership.findHooksNamingGate({ hooks: { [subject.event]: [{ matcher: subject.matcher, hooks: [hook] }] } }, OWN_IDENTITY[kind]);
+    const detail = found?.detail ?? null;
+    byDetail[`${reason} ${detail}`] = (byDetail[`${reason} ${detail}`] ?? 0) + 1;
+    const key = `${kind}\n${subject.gatePath}\n${hook.command}`;
+    if (!candidates.has(key)) candidates.set(key, { kind, command: hook.command, gatePath: subject.gatePath, reason, detail, needs: neededBy(hook.command) });
+  }
+  assert.deepEqual(problems, [], `${problems.length} problems over ${subjects.length} subjects:\n${problems.join('\n')}`);
+  assert.equal(counts.taken + counts.reasoned, counts.withName, 'a hook with the gate file\'s name in it was neither taken nor given a reason');
+  for (const reason of reasons) assert.ok(byReason[reason] > 0, `no subject was a ${reason}, so that reason was never held`);
+  for (const detail of ['mention argument', 'mention comment', 'differentFile name', 'differentFile directory']) assert.ok(byDetail[detail] > 0, `no subject was a ${detail}`);
+  assert.ok(counts.withoutName > 0, 'no subject without the gate file\'s name in it, so the limit of the invariant was never met');
+
+  // Fired: no mention and no different file runs the gate file. The harness is first shown to see a run, and a copy.
+  const controls = [
+    { kind: 'progress', command: `node ${q(packGate('progress'))}`, recording: 'ran the gate', real: 'ran' },
+    { kind: 'release', command: `bash ${q(packGate('release'))}`, recording: 'ran the gate', real: 'ran' },
+    { kind: 'release', command: `. ${q(packGate('release'))}`, recording: 'ran the gate', real: 'ran' },
+    { kind: 'progress', command: `cp ${q(packGate('progress'))} ./copy.mjs && node ./copy.mjs`, recording: 'ran another file', real: 'ran' },
+    { kind: 'release', command: `cp ${q(packGate('release'))} ./copy.sh && bash ./copy.sh`, recording: 'ran another file', real: 'ran' },
+    { kind: 'progress', command: `cat ${q(packGate('progress'))}`, recording: 'silent', real: 'silent' },
+  ].map((control) => ({ ...control, gatePath: packGate(control.kind) }));
+  const before = await gateHashes();
+  const controlResults = await inPool(controls, async (control) => [await fireRecording(control), await fireRealGate(control)]);
+  const controlProblems = controls.flatMap((control, index) => {
+    const [recording, real] = controlResults[index];
+    return recording === control.recording && real === control.real ? [] : [`control ${control.command}: stand-in ${recording} (expected ${control.recording}), real gate ${real} (expected ${control.real})`];
+  });
+  assert.deepEqual(controlProblems, [], controlProblems.join('\n'));
+
+  const list = [...candidates.values()];
+  const fired = await inPool(list, async (check) => {
+    for (const program of check.needs) {
+      if (!(await installedHere(program))) return { ...check, skipped: `${program} is not installed here` };
+    }
+    if (DISARMS[check.kind].test(check.command)) return { ...check, disarms: true };
+    return { ...check, recording: await fireRecording(check), real: await fireRealGate(check) };
+  });
+  assert.deepEqual(await gateHashes(), before, 'firing a command changed a real gate file');
+  const firingProblems = [];
+  const outcomes = { 'did not run': 0, 'ran another file': 0, 'not fired': 0 };
+  const notFired = new Map();
+  for (const check of fired) {
+    const label = `${check.kind} ${check.reason} (${check.detail}): ${check.command}`;
+    if (check.disarms) {
+      firingProblems.push(`a command sets the gate's mode, its marker directory or PATH, or clears the environment, so the armed real gate could not show a run: ${label}`);
+    } else if (check.skipped) {
+      outcomes['not fired'] += 1;
+      notFired.set(check.skipped, (notFired.get(check.skipped) ?? 0) + 1);
+      if (check.detail === 'comment' || check.detail === 'directory') firingProblems.push(`not fired (${check.skipped}): ${label}`);
+    } else if (check.recording === 'timed out' || check.real === 'timed out') {
+      firingProblems.push(`timed out: ${label}`);
+    } else if (check.recording === 'ran the gate') {
+      firingProblems.push(`POINT 2: a ${check.reason} ran the gate file: ${label}`);
+    } else if (check.real === 'ran' && check.recording !== 'ran another file') {
+      firingProblems.push(`POINT 2: a ${check.reason} ran the armed real gate: ${label}`);
+    } else {
+      outcomes[check.recording === 'ran another file' ? 'ran another file' : 'did not run'] += 1;
+    }
+  }
+  assert.deepEqual(firingProblems, [], `${firingProblems.length} problems over ${list.length} fired commands:\n${firingProblems.join('\n')}`);
+  assert.equal(Object.values(outcomes).reduce((sum, count) => sum + count, 0), list.length, 'a command was neither fired nor said not to be');
+  assert.ok(outcomes['did not run'] > 0 && outcomes['ran another file'] > 0, `the firing did not exercise both outcomes: ${JSON.stringify(outcomes)}`);
+
+  t.diagnostic(`${subjects.length} distinct subjects (added: matrix ${added.matrix}, reported ${added.reported}, generated ${added.generated}); with the gate file's name ${counts.withName}: taken under --adopt ${counts.taken}, never taken ${counts.reasoned} (${reasons.map((reason) => `${reason} ${byReason[reason]}`).join(', ')}); without it ${counts.withoutName}`);
+  t.diagnostic(`reasons by kind: ${Object.entries(byDetail).map(([detail, count]) => `${detail} ${count}`).join(', ')}`);
+  t.diagnostic(`fired ${list.length} distinct mentions and different files, each at a recording stand-in and an armed copy of the real gate: did not run ${outcomes['did not run']}, ran a copy of the gate ${outcomes['ran another file']}, not fired ${outcomes['not fired']}${notFired.size > 0 ? ` (${[...notFired].map(([why, count]) => `${why}: ${count}`).join(', ')})` : ''}; ${controls.length} controls saw a run, a copy and nothing, as expected`);
 });

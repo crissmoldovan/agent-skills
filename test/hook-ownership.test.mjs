@@ -465,10 +465,10 @@ test('a gate file name joined to a parameter or a glob may be the gate: unclear 
   const naming = [
     ['D=/pack/; cat "$D"report-progress-gate.mjs', 'mention'],
     ['rm -f /pack/*report-progress-gate.mjs', 'mention'],
-    ['D=/pack/; echo armed > "$D"report-progress-gate.mjs', 'write target'],
-    ["node '/pack/my-report-progress-gate.mjs'", 'different file'],
-    ["node '/pack/report-progress-gate.mjs.bak'", 'different file'],
-    ['echo report-progress-gate.mjs-is-not-installed', 'different file'],
+    ['D=/pack/; echo armed > "$D"report-progress-gate.mjs', 'writeTarget'],
+    ["node '/pack/my-report-progress-gate.mjs'", 'differentFile'],
+    ["node '/pack/report-progress-gate.mjs.bak'", 'differentFile'],
+    ['echo report-progress-gate.mjs-is-not-installed', 'differentFile'],
   ];
   const settings = { hooks: { Stop: [{ matcher: '*', hooks: naming.map(([command]) => hook(command)) }] } };
   assert.deepEqual(findHooksNamingGate(settings, PROGRESS).map(({ why }) => why), naming.map(([, why]) => why));
@@ -950,13 +950,13 @@ test('every hook that names the gate file and is not the gate is found, with why
     SubagentStart: [{ matcher: '*', hooks: 'not an array' }],
   } };
   assert.deepEqual(findHooksNamingGate(progress, PROGRESS), [
-    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
-    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
-    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
-    { event: 'Stop', matcher: '*', kind: null, why: 'mention' },
-    { event: 'Stop', matcher: '*', kind: null, why: 'write target' },
-    { event: 'Stop', matcher: '*', kind: null, why: 'different file' },
-    { event: 'Stop', matcher: '*', kind: null, why: 'different file' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention', detail: 'argument' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention', detail: 'argument' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention', detail: 'argument' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'mention', detail: 'comment' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'writeTarget', detail: 'redirection' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'differentFile', detail: 'name' },
+    { event: 'Stop', matcher: '*', kind: null, why: 'differentFile', detail: 'name' },
   ]);
   // …and none of those is a hook that runs the gate, or may.
   assert.deepEqual(findUnownedHooks(progress, PROGRESS).map((entry) => entry.why), ['unreadable']);
@@ -967,14 +967,154 @@ test('every hook that names the gate file and is not the gate is found, with why
     hook("bash '/pack/my-release-notes-gate.sh'"),
     hook(`cat ${G}`),
   ] }] } };
-  assert.deepEqual(findHooksNamingGate(release, RELEASE).map(({ event, why }) => `${event} ${why}`), ['PostToolUse mention', 'PostToolUse write target', 'PostToolUse different file']);
-  // Every reason reads as a line an installer prints.
-  for (const why of ['mention', 'write target', 'different file']) {
-    assert.match(ownership.leftAloneReason(why), /^left alone: /, why);
+  assert.deepEqual(findHooksNamingGate(release, RELEASE).map(({ event, why }) => `${event} ${why}`), ['PostToolUse mention', 'PostToolUse writeTarget', 'PostToolUse differentFile']);
+  // Every reason reads as a line an installer prints, and says which kind it is.
+  const lines = {
+    'mention argument': /^left alone: only mentions the gate file \(argument\): /,
+    'mention comment': /^left alone: only mentions the gate file \(comment\): /,
+    'writeTarget redirection': /^left alone: only writes to the gate file \(redirection\): /,
+    'differentFile name': /^left alone: names a different file \(name\): /,
+    'differentFile directory': /^left alone: names a different file \(directory\): /,
+  };
+  for (const [key, line] of Object.entries(lines)) {
+    const [why, detail] = key.split(' ');
+    assert.match(ownership.leftAloneReason(why, detail), line, key);
   }
-  assert.match(ownership.leftAloneReason('mention'), /only mentions the gate file/);
-  assert.match(ownership.leftAloneReason('write target'), /only writes to the gate file/);
-  assert.match(ownership.leftAloneReason('different file'), /a different file/);
+  assert.equal(new Set(Object.keys(lines).map((key) => ownership.leftAloneReason(...key.split(' ')))).size, Object.keys(lines).length, 'two kinds of hook left alone print the same line');
+});
+
+// ---------------------------------------------------------------------------
+// NEVER TAKEN IS A CLOSED SET. Point 2 of the release bar names exactly four reasons a hook that names the gate file is never
+// taken, with any flag, and `neverTakenReason` is the one function that returns them — `mention`, `writeTarget`, `differentFile`
+// or `foreignDescribe` — or null. Nothing else keeps --adopt from a hook:
+//   mention          the gate file is named only as an argument of a program the reader knows does not run it, only in what flows
+//                    only into such programs, or only in a shell comment, and nowhere else in the command;
+//   writeTarget      the command writes to the gate file through a redirection, in `sh -c`, `eval`, a here-document or a
+//                    substitution too;
+//   differentFile    every path that contains the gate file's name ends in another name: a lookalike, or the name as a directory;
+//   foreignDescribe  a describe another tool wrote.
+// ---------------------------------------------------------------------------
+
+test('never taken is one closed function: a mention, a write target, a different file or another tool\'s describe, or nothing, and nothing else keeps --adopt from a hook', () => {
+  const { neverTakenReason, takenAs, findUnownedHooks, NEVER_TAKEN_REASONS } = ownership;
+  assert.equal(typeof neverTakenReason, 'function', 'hook-ownership.mjs exports no neverTakenReason');
+  assert.deepEqual(NEVER_TAKEN_REASONS, ['mention', 'writeTarget', 'differentFile', 'foreignDescribe']);
+  const G = WRAPPED_GATE;
+  const RG = WRAPPED_RELEASE_GATE;
+  const theirs = { describe: 'another-tool: checks every turn.' };
+  const cases = [
+    // A mention: an argument of a program that does not run the gate, what flows only into such programs, a comment.
+    [`cat ${G}`, PROGRESS, ownDescribe, 'mention'],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block unlink ${RG}`, RELEASE, releaseDescribe, 'mention'],
+    [`xxd ${G} | head -1`, PROGRESS, {}, 'mention'],
+    [`echo "$(cat ${G})"`, PROGRESS, {}, 'mention'],
+    ['true # report-progress-gate.mjs', PROGRESS, ownDescribe, 'mention'],
+    ['node other.mjs # uses report-progress-gate.mjs', PROGRESS, {}, 'mention'],
+    ['true # release-notes-gate.sh', RELEASE, releaseDescribe, 'mention'],
+    [`cat ${G} # and report-progress-gate.mjs`, PROGRESS, theirs, 'mention'],
+    // A write target, whether or not the gate also runs.
+    [`echo armed > ${G}`, PROGRESS, {}, 'writeTarget'],
+    [`node ${G} 2>${G}`, PROGRESS, ownDescribe, 'writeTarget'],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block eval "bash /pack/release-notes-gate.sh >/pack/release-notes-gate.sh"', RELEASE, {}, 'writeTarget'],
+    [`bash ${RG} $(: >${RG})`, RELEASE, releaseDescribe, 'writeTarget'],
+    // A different file: a lookalike name, or the gate file's name as a directory.
+    ["node '/pack/adapters/claude-code/install-report-progress-gate.mjs'", PROGRESS, ownDescribe, 'differentFile'],
+    ["bash '/pack/release-notes-gate.sh.orig'", RELEASE, {}, 'differentFile'],
+    ['node /x/report-progress-gate.mjs/index.mjs', PROGRESS, ownDescribe, 'differentFile'],
+    ['node other.mjs /x/report-progress-gate.mjs.d/x', PROGRESS, {}, 'differentFile'],
+    ['bash /x/release-notes-gate.sh/run.sh', RELEASE, releaseDescribe, 'differentFile'],
+    ["node x'report-progress-gate.mjs'", PROGRESS, {}, 'differentFile'],
+    // Another tool's describe, over a hook that runs the gate or may.
+    [PROGRESS_COMMAND, PROGRESS, theirs, 'foreignDescribe'],
+    [`nice -10 node ${G}`, PROGRESS, theirs, 'foreignDescribe'],
+    [RELEASE_COMMAND, RELEASE, { describe: '' }, 'foreignDescribe'],
+    // None of the four: --adopt takes it, whatever else the reader made of it. A comment never downgrades a run beside it.
+    [`node ${G} # note`, PROGRESS, {}, null],
+    [`node ${G} # report-progress-gate.mjs`, PROGRESS, ownDescribe, null],
+    [`nice -10 node ${G}`, PROGRESS, ownDescribe, null],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q('--rcfile=/pack/release-notes-gate.sh')}`, RELEASE, {}, null],
+    ['node /pack/runner.mjs --gate=/pack/report-progress-gate.mjs', PROGRESS, {}, null],
+    ['D=/pack/; node "$D"report-progress-gate.mjs', PROGRESS, {}, null],
+    [`cat ${G} | node --input-type=module`, PROGRESS, {}, null],
+    ['someone-elses-hook', PROGRESS, ownDescribe, null],
+    [PROGRESS_COMMAND, PROGRESS, {}, null],
+    [RELEASE_COMMAND, RELEASE, releaseDescribe, null],
+  ];
+  let checked = 0;
+  for (const [command, identity, extra, reason] of cases) {
+    const subject = hook(command, extra);
+    const run = `${JSON.stringify(command)} ${JSON.stringify(extra)}`;
+    assert.equal(neverTakenReason(subject, identity), reason, run);
+    if (reason === null) {
+      assert.notEqual(takenAs(subject, identity, { adopt: true }), null, `${run}: none of the four reasons, and --adopt did not take it`);
+    } else {
+      for (const adopt of [false, true]) assert.equal(takenAs(subject, identity, { adopt }), null, `${run}: taken with adopt=${adopt} although it is a ${reason}`);
+    }
+    // What an installer reports as a hook --adopt takes over is exactly a hook the closed set does not name.
+    for (const found of findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [subject] }] } }, identity)) {
+      if (found.kind === 'unclear') assert.equal(found.overridable, reason === null, `${run}: overridable does not follow the closed set`);
+    }
+    checked += 1;
+  }
+  assert.equal(checked, cases.length);
+  for (const reason of NEVER_TAKEN_REASONS) assert.ok(cases.some(([, , , expected]) => expected === reason), `no case for ${reason}`);
+});
+
+// ---------------------------------------------------------------------------
+// Two readings that called a hook a mention although the gate file sat where it may run. Each was a hook 0.19.0 took, by its
+// describe or under --adopt, that no flag took here (point 3), and neither is one of point 2's reasons.
+// ---------------------------------------------------------------------------
+
+test('a gate file name joined to a glob or a parameter as the program itself may run the gate: unclear, never a mention, and --adopt takes it', () => {
+  const { neverTakenReason, takenAs } = ownership;
+  const cases = [
+    ['/pack/adapters/claude-code/*report-progress-gate.mjs', PROGRESS],
+    ['/pack/adapters/claude-code/report-progress-gate.mjs*', PROGRESS],
+    ['D=/pack/adapters/claude-code/; "$D"report-progress-gate.mjs --verbose', PROGRESS],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block /pack/adapters/claude-code/*release-notes-gate.sh', RELEASE],
+    ['timeout 5 /pack/*release-notes-gate.sh', RELEASE],
+    ['if /pack/*release-notes-gate.sh; then true; fi', RELEASE],
+  ];
+  let checked = 0;
+  for (const [command, identity] of cases) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      const subject = hook(command, extra);
+      assert.equal(classifyHook(subject, identity), 'unclear', command);
+      assert.equal(neverTakenReason(subject, identity), null, command);
+      assert.equal(takenAs(subject, identity), null, `${command}: taken with no flag`);
+      assert.equal(takenAs(subject, identity, { adopt: true }), 'override', `${command}: --adopt did not take it over`);
+      checked += 1;
+    }
+  }
+  assert.equal(checked, cases.length * 2);
+  // The exact gate file as the program still runs it, and a name that only contains the gate file's is still another file.
+  assert.equal(classifyHook(hook('/pack/adapters/claude-code/release-notes-gate.sh'), RELEASE), 'adoptable');
+  assert.equal(neverTakenReason(hook('/pack/adapters/claude-code/my-release-notes-gate.sh'), RELEASE), 'differentFile');
+});
+
+test('an option word before a shell\'s -c script is read like any other word of the command: one that names the gate file leaves the hook unclear, never a mention', () => {
+  const { neverTakenReason, takenAs } = ownership;
+  const cases = [
+    ['bash --rcfile=/pack/adapters/claude-code/release-notes-gate.sh -c true', RELEASE],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block sh --init-file=/pack/release-notes-gate.sh -ec "echo x"', RELEASE],
+    ['bash -c --rcfile=/pack/adapters/claude-code/release-notes-gate.sh', RELEASE],
+    ["bash --rcfile=/pack/report-progress-gate.mjs -c 'node x'", PROGRESS],
+  ];
+  let checked = 0;
+  for (const [command, identity] of cases) {
+    for (const extra of [{}, identity === RELEASE ? releaseDescribe : ownDescribe]) {
+      const subject = hook(command, extra);
+      assert.equal(classifyHook(subject, identity), 'unclear', command);
+      assert.equal(neverTakenReason(subject, identity), null, command);
+      assert.equal(takenAs(subject, identity), null, `${command}: taken with no flag`);
+      assert.equal(takenAs(subject, identity, { adopt: true }), 'override', `${command}: --adopt did not take it over`);
+      checked += 1;
+    }
+  }
+  assert.equal(checked, cases.length * 2);
+  // The script is still read as a script: one that only mentions the gate file is a mention, and one that runs it runs it.
+  assert.equal(neverTakenReason(hook("bash -c 'cat /pack/release-notes-gate.sh'"), RELEASE), 'mention');
+  assert.equal(classifyHook(hook("bash --norc -c 'bash /pack/release-notes-gate.sh'"), RELEASE), 'adoptable');
 });
 
 // ---------------------------------------------------------------------------

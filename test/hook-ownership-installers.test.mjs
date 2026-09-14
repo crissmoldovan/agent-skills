@@ -12,8 +12,10 @@ import { fileURLToPath } from 'node:url';
 //
 // The rule these pin (adapters/claude-code/hook-ownership.mjs), by the release bar's four points in precedence order:
 //   1. a run with no flag never takes a hook the reader cannot fully read, with or without the installer's own describe;
-//   2. never taken, with any flag: a hook that only MENTIONS the gate file (an argument of echo, cat, rm, unlink, xxd…), only
-//      WRITES to it, names a DIFFERENT FILE whose name contains the gate file's, or carries ANOTHER tool's describe;
+//   2. never taken, with any flag, for exactly four reasons (`neverTakenReason`): a MENTION, the gate file only as an argument of
+//      a program that does not run it (echo, cat, rm, unlink, xxd…), only in what flows only into such programs, or only in a
+//      shell comment; a WRITE TARGET, a redirection that writes to it; a DIFFERENT FILE, every path with its name in it ending in
+//      another name, a lookalike or the name only as a directory; or ANOTHER tool's describe;
 //   3. everything else 0.19.0 took is taken with the same flags or with --adopt: a hook is an installer's own, with no flag,
 //      when its WHOLE command is the installer's exact shape with an interpreter that installer writes, or when it runs the
 //      gate under that installer's describe; --adopt also takes a hook that runs the gate in any other shape, and takes over,
@@ -109,16 +111,19 @@ const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
 /** The line --remove prints for a hook it names: `  - <event> (matcher <m>): <why>`. */
 const namedLine = (output, label, why) => output.split('\n').some((line) => line.startsWith(`  - ${label}: `) && why.test(line));
 const LEFT_ALONE_WHY = Object.freeze({
-  mention: /: left alone: only mentions the gate file/,
-  'write target': /: left alone: only writes to the gate file/,
-  'different file': /: left alone: names a different file/,
+  mention: /: left alone: only mentions the gate file \(argument\): /,
+  comment: /: left alone: only mentions the gate file \(comment\): /,
+  writeTarget: /: left alone: only writes to the gate file \(redirection\): /,
+  differentFile: /: left alone: names a different file \(name\): /,
+  directory: /: left alone: names a different file \(directory\): /,
 });
 
 // ---------------------------------------------------------------------------
 // Left alone, with any flag (point 2): a hook that names the gate file and that the reader reads as not running it — the gate path
-// only as an argument of a program that does not run it (a mention), only as the file a redirection writes to (a write target), or
-// only inside the name of a different file. No flag takes it, whatever describe it wears. --remove names each, with why, and never
-// says that no gate was installed while one is in the file (point 4).
+// only as an argument of a program that does not run it or only in a comment (a mention), only as the file a redirection writes to
+// (a write target), or only inside another name or as a directory (a different file). No flag takes it, whatever describe it wears.
+// --remove names each, with the reason and its kind, exits 0, and never says that no gate was installed while one is in the file
+// (point 4).
 // ---------------------------------------------------------------------------
 
 const LEFT_ALONE = Object.freeze({
@@ -139,15 +144,21 @@ const LEFT_ALONE = Object.freeze({
     // A copy of the gate that then runs: the reader does not follow copies, and names the hook it left.
     ["AGENT_SKILLS_PROGRESS_GATE=block cp '/pack/report-progress-gate.mjs' ./copy.mjs && node ./copy.mjs", 'mention'],
     // A redirection target is written to, not run.
-    ['AGENT_SKILLS_PROGRESS_GATE=block echo armed &> /pack/report-progress-gate.mjs', 'write target'],
+    ['AGENT_SKILLS_PROGRESS_GATE=block echo armed &> /pack/report-progress-gate.mjs', 'writeTarget'],
     // …whatever program writes it: this runs `node -e 0` and truncates the gate.
-    ["AGENT_SKILLS_PROGRESS_GATE=block timeout 5 >'/pack/report-progress-gate.mjs' node -e 0", 'write target'],
+    ["AGENT_SKILLS_PROGRESS_GATE=block timeout 5 >'/pack/report-progress-gate.mjs' node -e 0", 'writeTarget'],
     // A different file whose name contains the gate file's, which 0.19.0's substring match took.
-    ["AGENT_SKILLS_PROGRESS_GATE=block node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove", 'different file'],
-    ["node '/pack/report-progress-gate.mjs.bak'", 'different file'],
+    ["AGENT_SKILLS_PROGRESS_GATE=block node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove", 'differentFile'],
+    ["node '/pack/report-progress-gate.mjs.bak'", 'differentFile'],
     // What a mention prints, piped or substituted only into programs that print or read, runs nothing either.
     ["cat '/pack/report-progress-gate.mjs' | grep -c decision", 'mention'],
     ['echo "$(cat /pack/report-progress-gate.mjs)"', 'mention'],
+    // The gate file named only in a shell comment is a mention (point 2a), and its name only as a directory in a path is a different
+    // file (point 2c). 0.19.0's substring match took both.
+    ['true # report-progress-gate.mjs', 'comment'],
+    ['node other.mjs # uses report-progress-gate.mjs', 'comment'],
+    ['node /pack/adapters/claude-code/report-progress-gate.mjs/index.mjs', 'directory'],
+    ['node other.mjs /pack/adapters/claude-code/report-progress-gate.mjs.d/x', 'directory'],
   ],
   release: [
     ['AGENT_SKILLS_RELEASE_NOTES_GATE=block echo /pack/release-notes-gate.sh', 'mention'],
@@ -161,13 +172,15 @@ const LEFT_ALONE = Object.freeze({
     ["AGENT_SKILLS_RELEASE_NOTES_GATE=block xxd '/pack/release-notes-gate.sh'", 'mention'],
     ["AGENT_SKILLS_RELEASE_NOTES_GATE=block du '/pack/release-notes-gate.sh'", 'mention'],
     ["AGENT_SKILLS_RELEASE_NOTES_GATE=block cp '/pack/release-notes-gate.sh' ./copy.sh && bash ./copy.sh", 'mention'],
-    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block echo armed >| /pack/release-notes-gate.sh', 'write target'],
-    ["AGENT_SKILLS_RELEASE_NOTES_GATE=block bash >'/pack/release-notes-gate.sh'", 'write target'],
-    ["AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '/pack/release-notes-gate.sh.orig'", 'different file'],
-    ["bash '/pack/my-release-notes-gate.sh'", 'different file'],
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block echo armed >| /pack/release-notes-gate.sh', 'writeTarget'],
+    ["AGENT_SKILLS_RELEASE_NOTES_GATE=block bash >'/pack/release-notes-gate.sh'", 'writeTarget'],
+    ["AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '/pack/release-notes-gate.sh.orig'", 'differentFile'],
+    ["bash '/pack/my-release-notes-gate.sh'", 'differentFile'],
     ["xxd '/pack/release-notes-gate.sh' | head -1", 'mention'],
     // A write through a name joined to a variable is a write to what may be the gate.
-    ['D=/pack/; echo armed > "$D"release-notes-gate.sh', 'write target'],
+    ['D=/pack/; echo armed > "$D"release-notes-gate.sh', 'writeTarget'],
+    ['true # release-notes-gate.sh', 'comment'],
+    ['bash /pack/adapters/claude-code/release-notes-gate.sh/run.sh', 'directory'],
   ],
 });
 
@@ -653,6 +666,8 @@ const TAKEN_OVER = Object.freeze({
     [`AGENT_SKILLS_PROGRESS_GATE=block ${q(NODE)} ${q('--gate=/pack/report-progress-gate.mjs')}`, 'block'],
     ['D=/pack/adapters/claude-code/; AGENT_SKILLS_PROGRESS_GATE=block node "$D"report-progress-gate.mjs', 'unreadable'],
     ['AGENT_SKILLS_PROGRESS_GATE=block node /pack/adapters/claude-code/*report-progress-gate.mjs', 'block'],
+    // A glob that matches the gate as the program itself, once read as a mention that no flag took.
+    ['AGENT_SKILLS_PROGRESS_GATE=block /pack/adapters/claude-code/*report-progress-gate.mjs', 'block'],
   ],
   release: [
     ...['nice -10', 'stdbuf -oL', 'timeout -p 5', 'time', 'sudo -i', 'timeout --no-such-option 5'].map((wrapper) => [WRAPPED.release(wrapper), 'block']),
@@ -678,6 +693,10 @@ const TAKEN_OVER = Object.freeze({
     // An option read as the script, and a glob that matches the gate.
     [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash ${q('--rcfile=/pack/adapters/claude-code/release-notes-gate.sh')}`, 'block'],
     ['AGENT_SKILLS_RELEASE_NOTES_GATE=block bash /pack/adapters/claude-code/release-notes-gate.sh*', 'block'],
+    // A glob that matches the gate as the program itself, and the gate file in a shell option before its -c script: each once read
+    // as a mention that no flag took.
+    ['AGENT_SKILLS_RELEASE_NOTES_GATE=block /pack/adapters/claude-code/*release-notes-gate.sh', 'block'],
+    [`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash --rcfile=${q(PACKED_RELEASE)} -c true`, 'block'],
   ],
 });
 
@@ -805,8 +824,8 @@ test('--remove names every hook it leaves that names the gate file, with why, an
       left: [
         [`AGENT_SKILLS_PROGRESS_GATE=block cat ${q(PACKED_PROGRESS)}`, LEFT_ALONE_WHY.mention],
         [`cp ${q(PACKED_PROGRESS)} ./copy.mjs && node ./copy.mjs`, LEFT_ALONE_WHY.mention],
-        [`timeout 5 >${q(PACKED_PROGRESS)} node -e 0`, LEFT_ALONE_WHY['write target']],
-        ["node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove", LEFT_ALONE_WHY['different file']],
+        [`timeout 5 >${q(PACKED_PROGRESS)} node -e 0`, LEFT_ALONE_WHY.writeTarget],
+        ["node '/pack/adapters/claude-code/install-report-progress-gate.mjs' --remove", LEFT_ALONE_WHY.differentFile],
       ],
       running: [
         [{ command: `timeout 5 node ${q(PACKED_PROGRESS)}`, describe: 'another-tool: checks every turn.' }, /under a describe this installer did not write/],
@@ -819,8 +838,8 @@ test('--remove names every hook it leaves that names the gate file, with why, an
       left: [
         [`cp ${q(PACKED_RELEASE)} ./copy.sh && bash ./copy.sh`, LEFT_ALONE_WHY.mention],
         [`AGENT_SKILLS_RELEASE_NOTES_GATE=block xxd ${q(PACKED_RELEASE)}`, LEFT_ALONE_WHY.mention],
-        [`echo armed >${q(PACKED_RELEASE)}`, LEFT_ALONE_WHY['write target']],
-        [`bash '/pack/adapters/claude-code/release-notes-gate.sh.orig'`, LEFT_ALONE_WHY['different file']],
+        [`echo armed >${q(PACKED_RELEASE)}`, LEFT_ALONE_WHY.writeTarget],
+        [`bash '/pack/adapters/claude-code/release-notes-gate.sh.orig'`, LEFT_ALONE_WHY.differentFile],
       ],
       running: [
         [{ command: `timeout 5 bash ${q(PACKED_RELEASE)}`, describe: 'another-tool: checks every tool call.' }, /under a describe this installer did not write/],

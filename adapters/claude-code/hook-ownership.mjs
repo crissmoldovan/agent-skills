@@ -22,11 +22,10 @@
  *              and never taken by a run without `--adopt`, with or without the installer's describe: over-reporting
  *              a hook is recoverable, and deleting one that is not the gate is not. `--adopt` takes one over by THE
  *              OVERRIDE, below, and the installer says so.
- *   foreign    It runs the gate, or may, under a `describe` somebody else wrote. Named, never taken.
- *   null       It does not run the gate: it never names the gate file, only MENTIONS it, only writes to it, or
- *              names only a DIFFERENT FILE whose name contains the gate file's — whatever `describe` it wears. No
- *              flag takes it, and `findHooksNamingGate` says which of those it is, so that `--remove` names it
- *              (LEFT ALONE, below).
+ *   foreign    It runs the gate, or may, under a `describe` somebody else wrote. Named, never taken (NEVER TAKEN, below).
+ *   null       It does not run the gate: it never names the gate file, or it is a MENTION, a WRITE TARGET or a
+ *              DIFFERENT FILE (NEVER TAKEN, below) — whatever `describe` it wears. No flag takes it, and
+ *              `findHooksNamingGate` says which of those it is, and which kind, so that `--remove` names it (LEFT ALONE).
  *
  * THE INSTALLER'S OWN DESCRIBE. Claude Code drops `describe` when it rewrites the file, but where it has not,
  * a describe that starts with the installer's `describePrefix` is that installer's statement that it wrote
@@ -75,7 +74,9 @@
  * MENTION, and that command runs nothing of the gate so long as what it prints reaches nothing but other such
  * programs (`outputInert`): `cat '<gate>' | grep x` and `echo "$(cat '<gate>')"` are mentions. Whatever else
  * names the gate file is UNCLEAR: an argument of any other program (`xargs`, `watch`, a wrapper
- * script), a wrapper form the table below does not pin, a word after an interpreter's options
+ * script), the program word itself where the gate file's name is joined to a glob or a parameter
+ * (`/pack/*release-notes-gate.sh`), an option before a shell's `-c` script (`bash --rcfile='<gate>' -c true`),
+ * a wrapper form the table below does not pin, a word after an interpreter's options
  * (`node --check`), a mention whose output is piped on to any other program, a group or a subshell
  * (`cat '<gate>' | node`), a variable's value, a here-document's body, a
  * file a redirection reads from (`<`, `<>`, a here-string, a here-document's delimiter: what arrives on
@@ -127,9 +128,8 @@
  * that WRITES TO THE GATE FILE — through any of its redirections or one in a substitution in it, `<>` included —
  * which may empty the gate or change it around the run. It asks nothing of what leads the command and nothing of
  * where the gate path sits: an unclear hook names the gate file, as a word, inside a quoted argument or inside an
- * option value, or carries the installer's own describe. What it never reaches is what this reader has read and
- * knows is not the gate — a mention, a write target and a different file are `null` — and a hook under a describe
- * somebody else wrote, which is `foreign`. The installer names every hook it took this way, by event and matcher,
+ * option value, or carries the installer's own describe. What it never reaches is NEVER TAKEN, below, and nothing
+ * else. The installer names every hook it took this way, by event and matcher,
  * on a line of its own (`tookOverLine`): a silent override is the defect this replaced. Without `--adopt` nothing
  * changes.
  *
@@ -137,13 +137,36 @@
  * braces and shell operators, whose basename is exactly the gate file — or may expand to it: the gate file's name
  * joined only to a `*`, or to the parameter a `$` names just before it (`"$D"report-progress-gate.mjs` reads
  * `$Dreport-progress-gate.mjs` once its quotes are removed, and runs the gate wherever D holds its directory). So
- * `install-report-progress-gate.mjs` and `report-progress-gate.mjs.bak` never name it: each is a DIFFERENT FILE,
- * which 0.19.0's substring match took and nothing here takes.
+ * `install-report-progress-gate.mjs`, `report-progress-gate.mjs.bak` and `report-progress-gate.mjs/index.mjs` never
+ * name it: each is a DIFFERENT FILE, which 0.19.0's substring match took and nothing here takes.
+ *
+ * NEVER TAKEN (`neverTakenReason`; the release bar's point 2, which beats every other rule here). A hook is never taken,
+ * with any flag and whatever `describe` it wears, for exactly one of four reasons, and for no other: nothing else in this
+ * file keeps a hook from `--adopt`.
+ *   mention          The gate file is named ONLY as an argument of a program this reader knows does not run it (`MENTIONS`),
+ *                    only in what flows only into such programs (`outputInert`), or only in a shell comment — and nowhere
+ *                    else in the command. A comment never downgrades a run elsewhere: `node '<gate>' # note` runs the gate.
+ *   writeTarget      The command writes to the gate file through a redirection, inside `sh -c`, `eval`, a here-document or a
+ *                    substitution too (`writesToGate`), whether or not it also runs the gate.
+ *   differentFile    Every path that contains the gate file's name refers to another file: its final component is not
+ *                    exactly the gate file's name. A lookalike (`install-report-progress-gate.mjs`), and the gate file's
+ *                    name only as a directory (`/x/report-progress-gate.mjs/index.mjs`). A name joined to a glob or a
+ *                    parameter may be the gate (NAMING THE GATE FILE), so it is never a different file.
+ *   foreignDescribe  A `describe` somebody else wrote, over a hook that runs the gate or may. 0.19.0 never took one either.
+ * Every other hook that names the gate file, `--adopt` takes. KNOWN LIMITS of this reading, none of them a reason above:
+ * a glob that matches the gate file without its name written out (`[r]eport-progress-gate.mjs`) does not name it, so
+ * without the installer's own describe no flag takes such a hook and `--remove` does not name it; a group whose `hooks`
+ * is not an array is not read (0.19.0 the same); control flow is read by structure (`false && node '<gate>'` reads as
+ * running it); a write through a program's
+ * argument (`sed -i`, `dd of=`, `curl -o`) is not a write target, so `--adopt` may take it; and under `--adopt` a hook
+ * this installer did not write and cannot fully read is taken, and named, as 0.19.0 took it.
  *
  * LEFT ALONE (`findHooksNamingGate`, `leftAloneReport`). `--remove` never reports the gate gone while a hook that
  * runs it, or may, is left (`findUnownedHooks`), and it never says no gate was installed while any hook in the file
  * still names the gate file: each `null` hook whose command names the gate file, or contains its name, is found
- * with why it was left — a mention, a write target or a different file — and named. A mention that copies the gate
+ * with its reason and which kind of it — a mention as an argument or in a comment, a write target through a
+ * redirection, a different file by its name or with the gate file's name as a directory — and named, as in
+ * `left alone: only mentions the gate file (comment): …`. A mention that copies the gate
  * and runs the copy (`cp '<gate>' x && bash x`) is still a mention: this reader does not follow copies, and the
  * installer says it left the hook rather than calling the file clean.
  *
@@ -250,7 +273,7 @@ function readHeredocBodies(text, start, pending) {
  * substitution in it, the bodies of its here-documents, and whether its output is piped on — the way
  * `sh` splits them, as far as that matters for telling what a command runs. Single quotes are literal;
  * double quotes honour `\"`, `\\`, `\$`, `` \` `` and a backslash-newline; an unquoted backslash escapes
- * one character; a `#` that begins a word starts a comment. A `$(…)`, backtick or `<(…)` substitution
+ * one character; a `#` that begins a word starts a comment, whose text is kept apart. A `$(…)`, backtick or `<(…)` substitution
  * stays in the word it belongs to, as the literal text it is written as, because nothing here evaluates
  * anything. A redirection's target is not a word of the command: it is kept apart as a file the command
  * reads from (`<`, `<&`, `<<<`, a here-document's delimiter), writes to (`>`, `>>`, `>|`, `>&`, `&>`) or
@@ -262,6 +285,7 @@ function parseShell(command) {
   const text = String(command);
   const commands = [];
   const pendingHeredocs = [];
+  const comments = [];
   let definesFunction = false;
   let heredocDelimiter = null;
   const fresh = () => ({ words: [], substitutions: [], heredocs: [], redirections: [], pipesOut: false });
@@ -386,7 +410,9 @@ function parseShell(command) {
       startRedirection('in');
       index += 2;
     } else if (char === '#' && word === null) {
+      // A comment runs nothing. Its text is kept apart, so that a gate file named only there reads as a mention (NEVER TAKEN).
       const newline = text.indexOf('\n', index);
+      comments.push(text.slice(index + 1, newline === -1 ? text.length : newline));
       if (newline === -1) break;
       index = newline - 1;
     } else if (BLANKS.has(char)) {
@@ -425,7 +451,7 @@ function parseShell(command) {
     }
   }
   endCommand();
-  return { commands, definesFunction };
+  return { commands, definesFunction, comments };
 }
 
 /** A command's simple commands, each as its words after quote removal (see `parseShell`). */
@@ -810,6 +836,9 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
   const program = basename(words[index]);
   const rest = words.slice(index + 1);
   if (program === gateFile) return RUNS;
+  // A program word that may expand to the gate file — its name joined to a glob or a parameter — may run it: `/pack/*release-notes-gate.sh`
+  // runs the gate, and was read as a mention that no flag took.
+  if (namesGate(words[index], gateFile)) raise(UNCLEAR);
   if (SHELLS.has(program)) {
     let at = 0;
     let script = false;
@@ -822,11 +851,13 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
       at += 1;
     }
     if (script) {
-      if (at >= rest.length) return use();
+      // An option before the script is a word of the command like any other (`bash --rcfile='<gate>' -c true`), read as unclear where
+      // it names the gate file; it was read as a mention that no flag took.
+      if (at >= rest.length) return unclearIfNamed(rest);
       const inner = gateUse(rest[at], gateFile, depth + 1);
       // A script that only mentions the gate prints it: piped on into anything that may run it, it is as unclear as `cat '<gate>' | sh`.
       const printed = !inert && inner === NONE && namesGate(rest[at], gateFile) ? UNCLEAR : NONE;
-      return Math.max(unclearIfNamed(rest.slice(at + 1)), inner, printed);
+      return Math.max(unclearIfNamed([...rest.slice(0, at), ...rest.slice(at + 1)]), inner, printed);
     }
     if (at === 0 && rest.length > 0 && basename(rest[0]) === gateFile) return RUNS;
     return unclearIfNamed(rest);
@@ -945,50 +976,90 @@ function wearsOwnDescribe(hook, { describePrefix }) {
   return typeof describePrefix === 'string' && describePrefix !== '' && typeof hook.describe === 'string' && hook.describe.startsWith(describePrefix);
 }
 
+/** Point 2's four reasons, and the only ones: what `neverTakenReason` returns for a hook no flag takes (NEVER TAKEN in the header). */
+export const NEVER_TAKEN_REASONS = Object.freeze(['mention', 'writeTarget', 'differentFile', 'foreignDescribe']);
+
 /**
- * Why a command this reader reads as running nothing of the gate still names the gate file (LEFT ALONE in the header): `write
- * target` when it writes to the gate file, `mention` when it names it anywhere else, `different file` when it only contains the
- * gate file's name inside another file's, or null when it has nothing of the gate file in it.
+ * NEVER TAKEN, the closed set (in the header): `{ reason, detail }` for a hook no flag takes, or null. `use` is what the reader made
+ * of the command. `reason` is one of `NEVER_TAKEN_REASONS`, and `detail` which kind, for the line `--remove` prints: a mention as an
+ * `argument` or in a `comment`, a write target through a `redirection`, a different file by its `name` or with the gate file's name
+ * as a `directory`.
+ *
+ * Over a command that runs nothing of the gate — every place the reader found the gate file named is one where it does not run — in
+ * this order:
+ *   writeTarget    a redirection writes to the gate file, in a script the command may run too (`writesToGate`);
+ *   mention        a word, a redirection's file or a here-document's body names the gate file (`namesGate`): each is a place the
+ *                  reader read as running nothing — an argument of a program in `MENTIONS`, or what reaches only such programs;
+ *   mention        only a comment names it;
+ *   differentFile  the gate file's name is only inside other names: every piece of the command that holds it ends in something
+ *                  else, as `install-report-progress-gate.mjs` and `report-progress-gate.mjs/index.mjs` do.
+ * Over a command that runs the gate, or may: foreignDescribe, a describe somebody else wrote; then writeTarget, as above. Anything
+ * else is null, and `--adopt` takes it.
  */
-function namingOf(command, gateFile) {
-  const { commands } = parseShell(command);
-  if (writesToGate(commands, gateFile)) return 'write target';
-  const words = commands.flatMap(({ words: parsed, redirections }) => [...parsed, ...redirections.map(({ target }) => target)]);
-  if (namesGate(command, gateFile) || words.some((word) => namesGate(word, gateFile))) return 'mention';
-  return command.includes(gateFile) ? 'different file' : null;
+function neverTaken(hook, own, use, gateFile) {
+  const { commands, comments } = parseShell(hook.command);
+  if (use !== NONE) {
+    if (Object.hasOwn(hook, 'describe') && !own) return { reason: 'foreignDescribe', detail: null };
+    return writesToGate(commands, gateFile) ? { reason: 'writeTarget', detail: 'redirection' } : null;
+  }
+  if (writesToGate(commands, gateFile)) return { reason: 'writeTarget', detail: 'redirection' };
+  const texts = commands.flatMap(({ words, redirections, heredocs }) => [...words, ...redirections.map(({ target }) => target), ...heredocs]);
+  if (texts.some((text) => namesGate(text, gateFile))) return { reason: 'mention', detail: 'argument' };
+  if (comments.some((text) => namesGate(text, gateFile))) return { reason: 'mention', detail: 'comment' };
+  const pieces = [...texts, ...comments].flatMap((text) => String(text).match(PIECE) ?? []).filter((piece) => piece.includes(gateFile));
+  if (pieces.length === 0) return null;
+  return { reason: 'differentFile', detail: pieces.some((piece) => basename(piece).includes(gateFile)) ? 'name' : 'directory' };
 }
 
 /**
- * `{ kind, why }` for one hook, or null for a hook that is nothing to the gate. `kind` is what WHAT A HOOK IS (in the header)
- * calls it — `ours`, `adoptable`, `unclear`, `foreign`, or null for one that does not run the gate — and `why` says which case
- * of it: `runs` for an adoptable hook; `unreadable`, `writes` (it also writes to the gate file) or `describe only` (the
- * installer's own describe over a command that never names the gate file) for an unclear one; `describe` for a foreign one;
- * `mention`, `write target` or `different file` for a hook that does not run the gate but names the gate file. Never throws.
+ * `{ kind, why, detail, never }` for one hook, or null for a hook that is nothing to the gate. `kind` is what WHAT A HOOK IS (in the
+ * header) calls it — `ours`, `adoptable`, `unclear`, `foreign`, or null for one that does not run the gate — and `why` says which case
+ * of it: `runs` for an adoptable hook; `unreadable`, `writes` (it also writes to the gate file) or `describe only` (the installer's
+ * own describe over a command that never names the gate file) for an unclear one; `describe` for a foreign one; the closed set's
+ * reason for a hook that does not run the gate, with `detail`. `never` is the closed set's reason, or null (NEVER TAKEN in the
+ * header). Never throws.
  */
 function readHook(hook, identity) {
   if (!plainObject(hook) || !plainObject(identity)) return null;
   const own = wearsOwnDescribe(hook, identity);
   // 0.19.0 took a hook under its describe whatever its command; this reader cannot tell whether such a hook runs the gate.
-  if (typeof hook.command !== 'string') return own ? { kind: 'unclear', why: 'describe only' } : null;
+  if (typeof hook.command !== 'string') return own ? { kind: 'unclear', why: 'describe only', detail: null, never: null } : null;
   const { gateFile } = identity;
   // The exact shape is read by its interpreter alone (THE EXACT SHAPE in the header).
   const shape = installerShape(hook.command, identity);
   const use = shape ? (shape.runs ? RUNS : shape.mention ? NONE : UNCLEAR) : gateUse(hook.command, gateFile);
+  const never = neverTaken(hook, own, use, gateFile);
   if (use === NONE) {
-    const why = namingOf(hook.command, gateFile);
-    if (why !== null) return { kind: null, why };
-    return own ? { kind: 'unclear', why: 'describe only' } : null;
+    if (never !== null) return { kind: null, why: never.reason, detail: never.detail, never: never.reason };
+    // Not reached: a command with the gate file's name in it holds it in a word, a redirection, a here-document or a comment, and
+    // `neverTaken` names each. Were it reached, the hook would be one this reader cannot fully read, which --adopt takes — never one
+    // kept from --adopt for a reason outside the closed set.
+    if (typeof gateFile === 'string' && gateFile !== '' && hook.command.includes(gateFile)) return { kind: 'unclear', why: 'unreadable', detail: null, never: null };
+    return own ? { kind: 'unclear', why: 'describe only', detail: null, never: null } : null;
   }
   // A describe is a statement of ownership: somebody else's vetoes it.
-  if (Object.hasOwn(hook, 'describe') && !own) return { kind: 'foreign', why: 'describe' };
-  if (use === UNCLEAR) return { kind: 'unclear', why: writesToGate(parseShell(hook.command).commands, gateFile) ? 'writes' : 'unreadable' };
+  if (never?.reason === 'foreignDescribe') return { kind: 'foreign', why: 'describe', detail: null, never: never.reason };
+  if (never?.reason === 'writeTarget') return { kind: 'unclear', why: 'writes', detail: never.detail, never: never.reason };
+  if (use === UNCLEAR) return { kind: 'unclear', why: 'unreadable', detail: null, never: null };
   // This installer's own describe grants ownership to a hook that runs the gate (THE INSTALLER'S OWN DESCRIBE in the header).
-  if (own || shape?.owned) return { kind: 'ours', why: null };
-  return { kind: 'adoptable', why: 'runs' };
+  if (own || shape?.owned) return { kind: 'ours', why: null, detail: null, never: null };
+  return { kind: 'adoptable', why: 'runs', detail: null, never: null };
 }
 
-/** Whether `--adopt` takes over a hook this reader read as `readHook` did (THE OVERRIDE in the header). */
-const overridable = (read) => read?.kind === 'unclear' && read.why !== 'writes';
+/** Whether `--adopt` takes over a hook this reader read as `readHook` did (THE OVERRIDE in the header): one it cannot fully read that
+ *  the closed set does not name. */
+const overridable = (read) => read?.kind === 'unclear' && read.never === null;
+
+/**
+ * Point 2's reason no flag takes this hook — `mention`, `writeTarget`, `differentFile` or `foreignDescribe` — or null. It is the one
+ * reading that keeps a hook from `--adopt` (NEVER TAKEN in the header). Never throws.
+ *
+ * @param {unknown} hook
+ * @param {{ envFlag: string, gateFile: string, describePrefix: string, variables?: readonly string[], interpreter?: object }} identity
+ */
+export function neverTakenReason(hook, identity) {
+  return readHook(hook, identity)?.never ?? null;
+}
 
 /**
  * `ours`, `adoptable`, `unclear`, `foreign`, or `null` for a hook that does not run the gate at all
@@ -1012,10 +1083,11 @@ export function classifyHook(hook, identity) {
  */
 export function takenAs(hook, identity, { adopt = false } = {}) {
   const read = readHook(hook, identity);
-  if (read?.kind === 'ours') return 'own';
-  if (!adopt || read === null) return null;
-  if (read.kind === 'adoptable') return 'adopted';
-  return overridable(read) ? 'override' : null;
+  // Point 2 beats point 3, and the closed set is the only reading that does: no flag takes a hook it names.
+  if (read === null || read.never !== null) return null;
+  if (read.kind === 'ours') return 'own';
+  if (!adopt) return null;
+  return read.kind === 'adoptable' ? 'adopted' : 'override';
 }
 
 /**
@@ -1040,11 +1112,26 @@ export function unownedReason(kind, ownShape, { why = null } = {}) {
   return 'runs this gate, or may, under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.';
 }
 
-/** Why a hook that names the gate file and does not run it was left alone, for the line that names it (LEFT ALONE in the header). */
-export function leftAloneReason(why) {
-  if (why === 'write target') return 'left alone: only writes to the gate file, through a redirection, and runs nothing of the gate, so no flag takes it.';
-  if (why === 'different file') return 'left alone: names a different file whose name contains the gate file\'s, which is not the gate, so no flag takes it.';
-  return 'left alone: only mentions the gate file — as an argument of a program that does not run it, such as echo, cat, rm or unlink, printing only to such programs, or in a comment — so no flag takes it. A copy of the gate that such a hook makes and runs is not something this installer follows.';
+/** The line for each reason a hook that does not run the gate was left alone, by kind (LEFT ALONE in the header). */
+const LEFT_ALONE_LINES = Object.freeze({
+  mention: Object.freeze({
+    argument: 'left alone: only mentions the gate file (argument): it names the gate file only as an argument of a program that does not run it, such as echo, cat, rm or unlink, or in what reaches only such programs, so no flag takes it. A copy of the gate that such a hook makes and runs is not something this installer follows.',
+    comment: 'left alone: only mentions the gate file (comment): it names the gate file only in a shell comment, which runs nothing, so no flag takes it.',
+  }),
+  writeTarget: Object.freeze({
+    redirection: 'left alone: only writes to the gate file (redirection): a redirection writes to it, and nothing in it runs the gate, so no flag takes it.',
+  }),
+  differentFile: Object.freeze({
+    name: "left alone: names a different file (name): a path in it ends in a file whose name only contains the gate file's, and no path in it ends in the gate file, so no flag takes it.",
+    directory: "left alone: names a different file (directory): the gate file's name is only a directory in its paths, and no path in it ends in the gate file, so no flag takes it.",
+  }),
+});
+
+/** Why a hook that names the gate file and does not run it was left alone, for the line that names it: `why` is the closed set's
+ *  reason and `detail` which kind of it (LEFT ALONE in the header). */
+export function leftAloneReason(why, detail) {
+  const lines = LEFT_ALONE_LINES[why] ?? LEFT_ALONE_LINES.mention;
+  return lines[detail] ?? Object.values(lines)[0];
 }
 
 /**
@@ -1065,7 +1152,7 @@ export function leftAloneReport(hooks, { removed = null, settingsPath = 'this fi
   } else {
     heading = `Nothing was removed from ${settingsPath}, and nothing changed: no hook in it runs this gate, as this installer reads it, but ${counted} in it ${one ? 'names' : 'name'} the gate file and ${one ? 'was' : 'were'} left alone — ${check}:`;
   }
-  return [heading, ...hooks.map((hook) => `  - ${hookLabel(hook)}: ${leftAloneReason(hook.why)}`)];
+  return [heading, ...hooks.map((hook) => `  - ${hookLabel(hook)}: ${leftAloneReason(hook.why, hook.detail)}`)];
 }
 
 /** The line a run prints, on its own, naming each hook `--adopt` took over although this reader could not fully read it. */
@@ -1123,14 +1210,14 @@ export function findUnownedHooks(settings, identity) {
 }
 
 /** Every hook that names the gate file, or contains its name, and that this reader reads as not running the gate, with where it
- *  sits and why it is left alone: `mention`, `write target` or `different file` (LEFT ALONE in the header). */
+ *  sits and why it is left alone: `mention`, `writeTarget` or `differentFile`, and which kind of it (LEFT ALONE in the header). */
 export function findHooksNamingGate(settings, identity) {
   const found = [];
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
         const read = readHook(hook, identity);
-        if (read !== null && read.kind === null) found.push({ event, matcher: group.matcher, kind: null, why: read.why });
+        if (read !== null && read.kind === null) found.push({ event, matcher: group.matcher, kind: null, why: read.why, detail: read.detail });
       }
     }
   }
