@@ -5,6 +5,144 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.20.0
+
+**If a gate installer stopped recognising your hooks, re-run it with no flag.** Claude Code drops the
+`describe` key from every hook entry whenever it rewrites `settings.json`, and both gate installers
+recognised their hooks by that key. They now recognise them by the command, which the harness keeps
+byte for byte. Run either installer again from an up-to-date checkout of this repository, with no
+flag, and it keeps your hooks, their mode and, for the report-progress gate, their coverage level:
+
+```sh
+node adapters/claude-code/install-report-progress-gate.mjs
+node adapters/claude-code/install-release-notes-gate.mjs
+```
+
+Each prints `Kept mode block (already installed in this file)`, and the report-progress installer
+also `Kept coverage 2 (already installed in this file)`. You no longer need `--adopt` for this, and no
+longer need to name `--mode`: a re-run keeps the mode already installed, `off` included. Only `--mode`
+and `--coverage` change them, and a new install with no `--mode` still gets `observe`.
+
+**A plain re-run never takes a hook it cannot fully read.** A hook that runs the gate in a shape the
+installer never writes, or one where it cannot tell whether the gate runs (a wrapper form it does not
+recognise, the gate read on an interpreter's stdin, the gate path inside an option's value or passed
+through an expansion it does not resolve), is named and refused, with or without the installer's own
+`describe`: an install refuses and `--remove` exits 1. **`--adopt` takes over every other hook 0.19.0
+would have taken**, apart from the hooks in the next two paragraphs, and prints which hooks it took,
+by event and matcher:
+
+```text
+Took over 1 hook this installer could not fully read: Stop (matcher *).
+```
+
+The release-notes installer gains `--adopt`; 0.19.0's had none.
+
+**Hooks judged to only mention the gate file, write to it, name a different file, or carry another
+tool's `describe` are left alone, with any flag.** That covers `cat '<gate>'`, `wc -l < '<gate>'` and
+`true # report-progress-gate.mjs`; `timeout 5 >'<gate>' node x`, which empties the gate;
+`report-progress-gate.mjs.bak`, or the gate's name only as a directory; and a `describe` somebody
+else wrote. 0.19.0 took the first three under its own `describe` or under `--adopt`. `--remove` names
+each hook it leaves, with the reason, and never says no gate was installed while one of them names
+the gate file. A hook holding an expansion the installer does not resolve, such as
+`G='<gate>.bak'; node "${G%.bak}"`, is never given one of these reasons: it is unclear, so `--adopt`
+can take it.
+
+**Known limitation: the installer can read a hook that runs the gate as one that only mentions it.**
+Those judgements come from reading the command's shell text, and the reader can misjudge complex,
+hand-written shell. For such a hook `--remove` exits 0, says no hook in the file runs the gate as the
+installer reads it, and lists the hook as `left alone: only mentions the gate file`. No flag,
+`--adopt` included, takes it over, although the shell runs the gate. The families observed, with
+`<gate>` standing for the gate's path:
+
+- a here-document whose body runs the gate through `$(…)` or backticks (`cat <<EOF`, then
+  `$(node '<gate>')`, then `EOF`);
+- the output of a group or compound command piped into a shell or interpreter:
+  `{ cat '<gate>'; } | bash`, `(cat '<gate>') | bash`, `if …; then cat '<gate>'; fi | bash`, or a loop;
+- ANSI-C quoting, `$'…'`, hiding a later command;
+- `$_` carrying a mentioned argument into the next command: `test -f '<gate>' && node "$_"`;
+- arithmetic that bash evaluates inside `[[`;
+- zsh process substitution: `cat '<gate>' > >(bash)`, `exec > >(bash)`;
+- a launcher or a copy written to another file and run: `cp '<gate>' x && node x`, or through `tee`.
+
+**If a hook wraps the gate in shell like this, remove it by hand; do not rely on `--remove`.** Where
+0.19.0's `--adopt` removed such a hook by the gate file's name, this version leaves it. The list is kept
+in [`adapters/claude-code/README.md`](adapters/claude-code/README.md#known-limits-of-the-reading).
+
+**The report-progress gate blocks at most once per turn, at both coverage levels.** The gate now
+records each block it spends, and the installer writes a `UserPromptSubmit` hook, which prints
+nothing, that clears the record when the next turn starts. Arming again later in the same turn (another
+`Agent` dispatch, a subagent starting, the background register changing) no longer buys a second
+block; through 0.19.0 only the harness's `stop_hook_active` prevented one. A turn that event does not
+fire for cannot block while an earlier turn's block is still on record. Turns started by a slash
+command were not tested.
+
+**Resuming a session no longer costs a false block** at coverage 2. The installer writes a
+`SessionStart` hook on matcher `resume`, which prints nothing, and the resumed process's first `Stop`
+no longer reads the old process's background tasks as gone. The 0.19.0 note offered no fix, because
+every fix then available was a guess; `SessionStart` has since been observed reporting
+`source: "resume"` for `--resume` and `--continue` before that first `Stop`
+([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), fourth and fifth addenda of
+2026-09-14). On `--fork-session`, a disappearance is still missed when all of the parent's tasks went
+away in that same turn.
+
+**The release-notes installer keeps block mode on a re-run.** Through 0.19.0 its `--mode` defaulted to
+`observe` on every run. A re-run with no `--mode` now keeps the mode already installed and says so,
+and a run that changes the mode says that too (`Set mode observe (was block)`).
+
+**The new hooks reach an existing install only when you re-run the installer.** Updating the checkout
+changes the gate file your hooks run, not the hooks. A gate installed by 0.19.0 or earlier has no
+`UserPromptSubmit` or `SessionStart` hook, and its commands declare no turn hook, so the updated gate
+decides exactly as 0.19.0 did until the installer is re-run: only the harness's `stop_hook_active`
+stops a second block after a re-arm, and a resume at coverage 2 still costs one block.
+
+**Other known limits of the reading.** None is one of the four reasons, and each is either what 0.19.0
+did or taken only under `--adopt`:
+
+- a gate whose name is not written out literally (a `[r]eport-progress-gate.mjs` glob, a path read
+  from a file, a symlink under another name) is not read as naming it, so without the installer's own
+  `describe` no flag takes such a hook and `--remove` does not name it;
+- a group whose `hooks` is not an array is not read;
+- control flow is read by structure: `false && node '<gate>'` reads as running the gate;
+- a write through a program's argument (`sed -i`, `dd of=`, `curl -o`) is not a write target, so
+  `--adopt` may take such a hook;
+- under `--adopt`, a hook the installer did not write and cannot fully read is taken, and named on a
+  line of its own;
+- the certainty rule covers the whole command, so a plain mention beside an unrelated `${…}` is
+  treated as unclear: `--adopt` takes it and `--remove` exits 1 over it;
+- `printf -v` captures are handled only as unclear.
+
+**Why.** The 0.19.0 note left three things open, and this version closes them. The release-notes
+installer's `--remove` printed "No release-notes gate was installed … Nothing changed." and exited 0
+with the hook still in place, and there was no `--adopt` to recover. Neither coverage level could
+guarantee one block per turn. A resume at coverage 2 cost one block. Recognising a hook by its command
+means reading shell text, and review kept finding hand-written command shapes the reader misjudges.
+Those that would have taken a hook that does not run the gate were fixed as they were found, apart from
+the ones listed above, because deleting a hook that is not the gate cannot be undone. This version ships
+with the known shapes of the other kind named above rather than waiting for a reader that has none.
+
+**Impact.** No flag or command was removed or renamed.
+
+- *Scripts that call `--remove`:* its exit code follows the reading above. It exits 1 while a hook the
+  installer reads as running the gate, or possibly running it, is left, and 0 over hooks it judges to
+  only mention the gate file, write to it or name a different file. 0.19.0's release-notes installer
+  exited 0 with its hook still in place.
+- *Hooks that 0.19.0 took with no flag and this version takes only with `--adopt`:* a hook under the
+  installer's own `describe` that it cannot fully read, or whose command never names the gate file.
+- *Hooks that 0.19.0 took and this version never takes:* mentions, write targets and different files,
+  and the misread shapes above.
+- *The report-progress gate changed* (`report-progress-gate.mjs`), for the once-per-turn record and the
+  resume note; under hooks written by 0.19.0 or earlier it decides as 0.19.0 did. The release-notes
+  gate (`release-notes-gate.sh`) is unchanged.
+- *Contributors:* three new test files hold the reader and both installers:
+  `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
+  `test/hook-ownership-v0.19.0.test.mjs`. The last runs 0.19.0's installers, taken from git, beside
+  this version's; a clone without that commit, such as a shallow CI checkout, checks this version
+  against the table recorded from them in `test/fixtures/hook-ownership-v0.19.0.json` instead.
+  `npm run verify` at the repository root still requires Node.js 24 or newer.
+- *Distribution:* the gates and their installers ship with this repository, not with the installed
+  skills, so `npx skills update --global --yes` updates `skills/report-progress/SKILL.md` and does not
+  reach them. Update the checkout the hooks point at, then re-run the installers from it.
+
 ## 0.19.0
 
 **If you installed the report-progress gate, read this first.** Its installer recognised its own
