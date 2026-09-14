@@ -28,6 +28,7 @@ const blastArea = await read('skills/blast-area/SKILL.md');
 const visualiseBlastArea = await read('skills/visualise-blast-area/SKILL.md');
 const landComplexChange = await read('skills/land-complex-change/SKILL.md');
 const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
+const layerRepositoryDocs = await read('skills/layer-repository-docs/SKILL.md');
 const newUxDiscovery = await read('skills/new-ux-discovery/SKILL.md');
 const releaseNotes = await read('skills/release-notes/SKILL.md');
 
@@ -58,17 +59,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.16.1 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.16.1');
-  assert.equal(rootLock.version, '0.16.1');
-  assert.equal(rootLock.packages[''].version, '0.16.1');
+test('v0.17.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.17.0');
+  assert.equal(rootLock.version, '0.17.0');
+  assert.equal(rootLock.packages[''].version, '0.17.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 24);
+  assert.equal(skillNames.length, 25);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-four skills/i);
-  assert.match(composition, /catalog ships twenty-four skills/i);
+  assert.match(architecture, /now ships twenty-five skills/i);
+  assert.match(composition, /catalog ships twenty-five skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -85,7 +86,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-four public, portable Agent Skills/i);
+  assert.match(readme, /twenty-five public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -421,3 +422,11 @@ test('a released version leaves no prose staged as unreleased', async () => {
     + `${entries.join(' | ')}. Move them into the release notes, or clear them if they already shipped.`,
   )
 })
+
+test('layer-repository-docs carries no organisation marks and states what it does not own', () => {
+  assert.doesNotMatch(layerRepositoryDocs, /\bCUE\b|\bRGC\b/);
+  // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
+  for (const sibling of ['derive-codebase-context', 'investigate-codebase', 'workspace-governance']) {
+    assert.match(layerRepositoryDocs, new RegExp(sibling));
+  }
+});

@@ -10,8 +10,8 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
-`workspace-governance`, `report-progress`, and `work-in-external-repo` —
-twenty-four in all. Routing
+`workspace-governance`, `report-progress`, `work-in-external-repo`, and
+`layer-repository-docs` — twenty-five in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -26,7 +26,10 @@ owns declared-catalog placement and inherited policy; `release-notes` owns the n
 note, and its placement in every destination a project records releases in;
 `report-progress` owns the
 shape of what a reader is told while long work runs; and `work-in-external-repo`
-owns which repository a change belongs in and the tree it happens in. A new skill
+owns which repository a change belongs in and the tree it happens in; and
+`layer-repository-docs` owns the documentation people read — the layers a repository's
+documents take, the loss audit over anything it replaces, and the newcomer test that
+decides whether a rewrite is fit to hand over. A new skill
 must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
