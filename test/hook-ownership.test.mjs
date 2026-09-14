@@ -514,6 +514,63 @@ test('a mention piped or substituted only into programs that print, read or list
   }
 });
 
+test('printf -v captures the gate into a variable a later eval runs, so it is unclear, not the inert mention its stdout would be', async (t) => {
+  const { classifyHook, neverTakenReason, takenAs, findUnownedHooks } = ownership;
+  const G = "'/pack/adapters/claude-code/report-progress-gate.mjs'";
+  const RG = "'/pack/adapters/claude-code/release-notes-gate.sh'";
+  // printf -v does not print; it writes into a shell variable which a later `eval "$C"` or `$C` runs.
+  const captured = [
+    [`printf -v C 'node %q' ${G}; eval "$C"`, PROGRESS],
+    [`printf -v C '%s' 'node ${G.slice(1, -1)}'; eval "$C"`, PROGRESS],
+    [`printf -vC 'node %q' ${G}; eval "$C"`, PROGRESS],
+    [`printf -v C 'node %s' ${G}; $C`, PROGRESS],
+    [`printf -v C 'bash %q' ${RG}; eval "$C"`, RELEASE],
+    [`printf -vC 'bash %q' ${RG}; eval "$C"`, RELEASE],
+  ];
+  for (const [command, identity] of captured) {
+    assert.equal(classifyHook(hook(command), identity), 'unclear', command);
+    assert.equal(neverTakenReason(hook(command), identity), null, `${command}: given a never-taken reason for a form that runs the gate`);
+    assert.equal(takenAs(hook(command), identity), null, `${command}: taken with no flag`);
+    assert.equal(takenAs(hook(command), identity, { adopt: true }), 'override', `${command}: --adopt did not take it over`);
+    // A hook the reader cannot rule out is one --remove must not call clean.
+    const found = findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, identity);
+    assert.equal(found.length, 1, `${command}: --remove would call the file clean`);
+    assert.equal(found[0].kind, 'unclear', command);
+  }
+  // Without -v, printf prints its argument: a mention, as before. `--` ends the options, so a later -v is data.
+  for (const [command, identity] of [[`printf %s ${G}`, PROGRESS], [`printf -- -v ${G}`, PROGRESS], [`printf '%s\\n' ${RG}`, RELEASE]]) {
+    assert.equal(classifyHook(hook(command), identity), null, command);
+    assert.equal(neverTakenReason(hook(command), identity), 'mention', command);
+    assert.equal(takenAs(hook(command), identity, { adopt: true }), null, `${command}: --adopt took a mention`);
+  }
+
+  // Ground truth: on a shell where printf -v assigns (bash, and macOS /bin/sh), the form runs the gate — so
+  // `unclear` is the honest verdict and `mention` would call a live gate harmless. Skipped where /bin/sh has no
+  // printf -v (dash), where the form is genuinely inert.
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const os = await import('node:os');
+  const nodePath = (await import('node:path')).default;
+  const supportsPrintfV = (() => {
+    try { return execFileSync('/bin/sh', ['-c', 'printf -v _x %s ok 2>/dev/null && printf %s "$_x"'], { encoding: 'utf8' }) === 'ok'; }
+    catch { return false; }
+  })();
+  if (!supportsPrintfV) {
+    t.diagnostic('/bin/sh has no printf -v (dash): the capture form is inert here, so the firing check is skipped');
+    return;
+  }
+  const dir = mkdtempSync(nodePath.join(os.tmpdir(), 'printfv-'));
+  try {
+    const marker = nodePath.join(dir, 'FIRED');
+    const gate = nodePath.join(dir, 'report-progress-gate.mjs');
+    writeFileSync(gate, `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(marker)}, 'RAN');\n`);
+    execFileSync('/bin/sh', ['-c', `printf -v C 'node %q' ${JSON.stringify(gate)}; eval "$C"`], { cwd: dir, timeout: 10000, stdio: 'ignore' });
+    assert.equal(readFileSync(marker, 'utf8'), 'RAN', 'printf -v then eval did not actually run the gate');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a describe somebody else wrote vetoes ownership; the installer\'s own describe grants it to a hook that runs the gate, and to nothing else', () => {
   assert.equal(classifyHook(hook(PROGRESS_COMMAND, { describe: 'written by some other tool' }), PROGRESS), 'foreign');
   // A describe somebody typed, even an empty one, is not the absence of one.

@@ -914,6 +914,18 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
     }
     return unclearIfNamed(rest);
   }
+  // `printf -v VAR` (bash, and macOS /bin/sh) does not print its output: it captures it into a shell
+  // variable, which a later `eval "$VAR"` or `$VAR` may run — `printf -v C 'node %q' '<gate>'; eval "$C"`
+  // runs the gate. So printf reading the gate under `-v` is not the inert mention its stdout would be; it
+  // is a capture, like `read` (which is not in MENTIONS), and is unclear wherever it names the gate. Any
+  // leading `-v`, attached (`-vC`) or not, before the format ends the options (`--`); `printf %s '<gate>'`,
+  // which prints, keeps being a mention.
+  if (program === 'printf') {
+    for (let at = 0; at < rest.length && rest[at].startsWith('-') && rest[at] !== '-'; at += 1) {
+      if (rest[at] === '--') break;
+      if (rest[at] === '-v' || rest[at].startsWith('-v')) return unclearIfNamed(rest);
+    }
+  }
   if (MENTIONS.has(program)) return inert ? plain : unclearIfNamed(rest);
   return unclearIfNamed(rest);
 }
