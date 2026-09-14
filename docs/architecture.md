@@ -41,9 +41,12 @@ the conversation, in a hook the user wired into their own harness.
   session. Its tests live with the package it feeds
   (`packages/agent-journal/test/adapter-claude-code.test.ts`).
 - `adapters/claude-code/report-progress-gate.mjs` is the mechanical half of the
-  `report-progress` skill: a `PostToolUse` marker writer plus a `Stop` hook that can hold a
-  turn open when a report is owed and missing, installed and removed by
-  `install-report-progress-gate.mjs`. It is covered by `test/report-progress-gate.test.mjs`.
+  `report-progress` skill: a `Stop` hook that can hold a turn open when a report is owed and
+  missing, plus the arming half the chosen coverage level reads — `PostToolUse` matcher
+  `Agent` at coverage 1; `SubagentStart` at coverage 2, with `PostToolUse` matcher `Skill` only
+  for a named skill list, while the harness's own register of background work is read out of
+  the `Stop` payload itself. It is installed and removed by `install-report-progress-gate.mjs`,
+  and covered by `test/report-progress-gate.test.mjs`.
 - `adapters/claude-code/release-notes-gate.sh` is the mechanical half of the `release-notes`
   skill: a `PreToolUse` hook on `Bash` that refuses a publish, a forge release-create, a
   release-looking tag, or a version-bump commit when the version being released is not

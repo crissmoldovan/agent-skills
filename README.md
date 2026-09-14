@@ -354,15 +354,21 @@ the one to live with first — it writes what it would have refused to stderr an
 anything. A turn that delegated nothing and changed nothing ends exactly as it would with the
 hook absent.
 
-How wide it arms is a level the installer writes into the hook command,
-`AGENT_SKILLS_PROGRESS_GATE_COVERAGE`. Absent or `1` is the narrow original: one signal,
-`PostToolUse` with `tool_name` `Agent`. At `2` it arms on a **subagent of any kind** starting
+How wide it arms is a level you choose with `--coverage 1|2`, written into the hook command as
+`AGENT_SKILLS_PROGRESS_GATE_COVERAGE`. `1` — also what a command naming no level means — is the
+narrow original: one signal, `PostToolUse` with `tool_name` `Agent`. At `2` it arms on a **subagent of any kind** starting
 (`SubagentStart`), on a skill you named as an external agent (`--skills`, exact name, empty by
 default), and on a **change** in the harness's own register of background work between this
 turn's end and the last one — something appeared, or something that was running is no longer
 listed. A task that is merely still running arms nothing, so a dev server left in the
 background does not make every turn owe a report. It does no matching of command text
 anywhere.
+
+**Updating keeps the level you have.** Re-running the installer with no `--coverage` keeps the
+level of the gate already installed, and prints `Kept coverage N (already installed in this
+file)`; only `--coverage` changes it. A new install with no `--coverage` gets `1`: coverage 2
+holds more turns, and has more ways to arm a turn again after it has blocked (the third limit
+below), and a gate that can end a turn is the user's to widen, not a default to inherit.
 
 The gate ships with **this repository**, not with the installed skill: `npx skills add`
 copies `skills/report-progress/SKILL.md` and nothing else, so arming the gate means running
@@ -375,29 +381,61 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 # hold the turn instead
 node adapters/claude-code/install-report-progress-gate.mjs --mode block
 
+# arm on subagents of any kind, named skills and background work too
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --coverage 2
+
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
+
+# a hook running the gate with no describe: --remove names it and exits 1, and an install refuses;
+# --adopt takes it out, or replaces it on install, as this installer's own
+node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
 
-Four limits, stated here because a guard that is misread is worse than no guard:
+**A hook with no `describe` is the common case, not a rare one.** Claude Code drops `describe` from
+every hook entry whenever it writes a settings file, and adding a plugin marketplace is enough to
+cause that ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14). An older
+install or a hand-wiring leaves the same thing. Once that has happened, re-running the installer to
+update refuses, and `--remove` exits 1, until you add `--adopt`. A hook that runs the gate under a
+`describe` something else wrote is never adopted: `--remove` names it and leaves it alone, and an
+install refuses until it is gone.
+
+Six limits, stated here because a guard that is misread is worse than no guard:
 
 - **It checks the shape of a report, never whether anything in it is true.** It sees three
   section labels, and a literal state and a freshness token on a running row. It cannot tell
   whether `npm test` was ever run, whether `child-7f2` exists, or whether "40s ago" was an
   observation. A message that satisfies it can still be a fabrication; the skill's own
   checklist, run by a reader, is what catches that.
-- **It aims to act once per turn, and at coverage 2 that is not guaranteed.** Claude Code ends
-  a turn after 8 consecutive `Stop` blocks, that budget is shared with every other `Stop` hook
-  on the machine, and when it runs out the result comes back as a success with an empty answer.
-  The gate records a spent block in its marker — but standing down deletes that marker, so if
-  the background register changes again a later `Stop` arms fresh and can block a second time.
-  Live, `stop_hook_active` catches that; it is the harness's backstop rather than this gate's
-  own memory, and coverage 1 does not have this shape.
+- **It enforces an opportunity, not compliance.** A block buys the model one more round and
+  nothing else. Live, when the user's own prompt contradicted the gate — reply with one line,
+  write no report — the model weighed the gate's feedback against that instruction, re-sent the
+  one-liner unchanged, and the turn ended. Where nothing contradicted it, the same model wrote the
+  report and the report passed.
+- **It aims to act once per turn, and at neither level can it guarantee that on its own.**
+  Claude Code ends a turn after 8 consecutive `Stop` blocks, that budget is shared with every
+  other `Stop` hook on the machine, and when it runs out the result comes back as a success with
+  an empty answer. The gate records a spent block in its marker, but that record does not survive
+  something arming the gate again later in the same turn. At coverage 1 that is another `Agent`
+  dispatch, which rewrites the marker as unspent. At coverage 2 it is also a subagent starting,
+  or the background register changing again after the gate stood down and deleted the marker.
+  Then a later `Stop` can block a second time. Live, `stop_hook_active` catches that at both
+  levels; it is the harness's backstop rather than this gate's own memory.
 - **Its marker is keyed by session,** and the `Stop` that ends a turn is what clears it. A
   turn that armed and then died without a `Stop` — a crash, a kill — leaves the marker behind,
   so the next turn in that session pays one block for a dispatch it did not make. One block,
-  then cleared. A resumed session starts in a fresh process whose background list is empty
-  again, which costs one block the same way.
+  then cleared.
+- **Resuming a session that had background work costs one block, and no fix for that is
+  offered, because every fix available is a guess.** At coverage 2 the baseline is kept under
+  the session id, which `--resume` keeps, while the harness's background list belongs to the CLI
+  process, which a resume replaces. So the first `Stop` after resuming reads the old work as gone
+  and blocks once. Telling that apart from a task that really went away needs something that
+  identifies the process, and nothing reliable does: measured, the `Stop` payload and the hook's
+  environment carry no process identity. The hook's parent pid was the CLI on the machine it was
+  measured on only because the shell exec'd the command; where that does not hold, the parent is a
+  new shell on every call, and a baseline scoped to it would silently suppress every real
+  disappearance. `SessionStart` does report `source: "resume"`, on an event the gate does not wire
+  ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14).
 - **Coverage 2 writes a second file per session,** `<session>.register.json`, beside the marker
   in the temp directory: the baseline the next turn's edge is compared against, which has to
   survive the `Stop` that deletes the marker. It is removed only when a later `Stop` finds the

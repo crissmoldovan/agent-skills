@@ -5,6 +5,126 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.19.0
+
+**If you installed the report-progress gate, read this first.** Its installer recognised its own
+hooks by a `describe` key, and Claude Code removes that key from every hook entry whenever it writes
+a settings file. Adding a plugin marketplace is enough to cause it, measured on Claude Code 2.1.181.
+It does not depend on which version of this pack installed the gate: a real settings file written by
+the 0.17.0 installer had lost `describe` on both gate hooks. Once that has happened, 0.18.0 and
+earlier could neither remove the gate nor replace it. `--remove` printed "No report-progress gate was
+installed … Nothing changed." and exited 0 while both hooks kept running, and re-running the
+installer refused with "Remove it by hand first". From this version, add `--adopt`, run from an
+up-to-date checkout of this repository:
+
+```sh
+# update in place, keeping the coverage level the hooks already run at
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --adopt
+
+# or take the gate out
+node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
+```
+
+Name the mode you run, because `--mode` still defaults to `observe` (a re-run that changes the mode
+says so). `--adopt` takes only a hook that runs the gate and has no `describe` key at all, and names
+each one it took; a hook whose `describe` something else wrote is never adopted. It is safe to pass
+when nothing needs adopting: the run prints `Adopted none` and does what a plain run does. The next
+time the harness writes the file, `describe` goes again, so expect to pass it on later updates too.
+Without it, `--remove` now names every hook still running the gate and exits 1, and an install
+refuses and names them.
+
+**What.** The report-progress gate's installer gains two flags, and the hooks it writes now depend on
+a coverage level.
+
+- **`--coverage 1|2` chooses how wide the gate arms, and a bare re-run keeps the level already
+  installed.** It prints `Kept coverage N (already installed in this file)`. Only `--coverage` changes
+  the level, and then the output names the change, as in `Set coverage 2 (was 1)`. **A new install
+  with no `--coverage` gets 1.** Until now the installer wrote coverage 2 on every run, so re-running
+  the 0.17.0 or 0.18.0 installer to pick up a new version silently widened a coverage-1 gate.
+- **The hooks follow the level.** Coverage 1 writes `Stop` and `PostToolUse` matcher `Agent`, which is
+  v0.16.1's pair. Coverage 2 writes `Stop` and `SubagentStart`, plus `PostToolUse` matcher `Skill`
+  only for a `--skills` list. `--skills` at coverage 1 is refused, because the gate at that level
+  never reads a skill list. Coverage 1 written under the coverage-2 pair was measured writing no
+  marker and never blocking, so keeping a level has to mean writing that level's hooks.
+- **`--adopt`**, as above. With no `--coverage`, adopting keeps the level the adopted command runs at.
+  A command whose level the installer cannot read, because it is set after `env`, `cd … &&` or
+  `export`, or from an expansion, is refused until `--coverage` names the level, and so are hooks that
+  run at different levels. A level it cannot read is never printed as kept.
+- **A re-run that drops a `--skills` list it did not repeat says so**, as `Skill list not kept`, with
+  the flag that keeps it. 0.18.0 removed the `Skill` hook without a word.
+- **`--remove` exits 1 while any hook still runs the gate.** It also leaves the file untouched when it
+  removed nothing (0.18.0 rewrote it), and no longer creates a settings file that did not exist
+  (0.18.0 wrote `{}`).
+
+**Why.** Updating was broken in two ways, both found on a live install. Re-running the installer, which
+is the documented way to pick up a new version, changed what the gate enforced by writing coverage 2
+over whatever was installed. And the installer's test of ownership did not survive the harness. The
+probe recorded in [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md) (third addendum of
+2026-09-14) pointed `HOME` and the Claude Code config directory at a throwaway directory and added a
+local marketplace at project and at user scope. Every hook entry came back as `type`, `command` and
+`timeout` only, while an unknown top-level key survived. So a gate that no command in this pack could
+update or remove was the common case, not a rare one.
+
+The same work drove the gate in a real harness for the first time. **The deny path has now been
+observed ending a real turn**, in headless sessions on Claude Code 2.1.181 recorded in that file: the
+gate blocked once, the harness delivered its reason to the model, a second round ran, and the gate
+stood down on the next `Stop`. A report with the three sections passed on the first `Stop` with
+nothing on stdout. A change in the background register armed a turn, while a task that was merely
+still running armed nothing on the turns after it.
+
+**Corrections to what earlier releases said.** The 0.17.0 release note says "v0.16.1 was structurally
+incapable of this" and "Coverage 1 does not have this shape", meaning a second block in one turn; it
+is left as released, and both sentences are false. At coverage 1, an `Agent` dispatch in the round a
+block bought rewrites the marker as unspent, just as a subagent starting does at coverage 2. Measured
+against the gate directly with `stop_hook_active` absent, both levels blocked a second time. The
+README, the adapter README, `skills/report-progress/SKILL.md`, and the installer's `--help` and output
+now say so, and tests keep the false sentences out of all of them. The same pages promised that
+updating "never changes what the gate enforces". That promise now covers the level, which is what an
+update keeps; `--mode` and `--skills` are not carried over, and a re-run that changes either says so.
+
+**Impact.** Additive: no flag or command was removed or renamed. One exit code changed, and it is
+listed below.
+
+- **The gate itself is unchanged.** `adapters/claude-code/report-progress-gate.mjs` is byte-identical
+  to 0.18.0. An installed hook runs that file from its checkout, so updating the checkout changes
+  nothing a running hook does. Only the installer and the documentation changed.
+- *Who must act:* anyone updating or removing an installed gate whose hooks have lost `describe`, with
+  the `--adopt` command above. Anyone else needs to do nothing, and a bare re-run keeps their level.
+- *Scripts that call `--remove`:* it now exits 1 when a hook still runs the gate afterwards.
+- *Still true, and named here rather than left to be found:*
+  - **Neither level can guarantee one block per turn on its own.** The marker is the gate's only record
+    of a block it spent, and anything that arms the gate again in the same turn rewrites it as unspent.
+    At coverage 2 the background register can also re-arm the gate after standing down deleted the
+    marker, with no memory of the block already spent. Live, only the harness's `stop_hook_active`
+    prevented a second block: it was `true` on every in-turn `Stop` that followed a first block, nine
+    of them across four sessions, and a second block was never reproduced. The gate's model-facing
+    reason still says "It blocks once per turn and then stands down", which is untrue in that case; it
+    is unchanged here because the gate is.
+  - **Resuming a session that had background work costs one block at coverage 2, and no fix is
+    offered, because every available fix is a guess.** The baseline is kept under the session id,
+    which `--resume` keeps, while the harness's background list belongs to the CLI process, which a
+    resume replaces. Measured, neither the `Stop` payload nor the hook's environment identifies that
+    process. The hook's parent pid was the CLI where that was measured only because the shell
+    exec'd the command, and a baseline scoped to it would suppress every real disappearance
+    wherever that does not hold.
+    `SessionStart` does report `source: "resume"`, on an event the gate does not wire.
+  - **A block enforces an opportunity, not compliance.** It buys the model one more round and nothing
+    else. Live, when the user's own prompt said to write no report, the model re-sent its one-line
+    answer after the block and the turn ended. Where nothing contradicted the gate, the model wrote the
+    report and it passed.
+  - **The release-notes gate's installer has the same `describe` problem and no `--adopt`.** It is
+    unchanged since 0.18.0. On a settings file the harness has rewritten, its `--remove` prints "No
+    release-notes gate was installed … Nothing changed." and exits 0 with the hook still in place, and
+    its install refuses. Until that is fixed, remove its `PreToolUse` hook by hand.
+  - `--adopt` looks for the exact key `describe`. A hook that runs the gate and carries any other key
+    instead, `description` for example, counts as having none, and `--adopt` takes it.
+- *Contributors:* `test/report-progress-gate.test.mjs` grows from 79 tests to 102, including hook
+  commands run through `/bin/sh` before the installer reads them. `npm run verify` at the repository
+  root still requires Node.js 24 or newer.
+- *Distribution:* the gate and its installer ship with this repository, not with the installed skill,
+  so `npx skills update --global --yes` updates `skills/report-progress/SKILL.md` and does not reach
+  them. Update the checkout the hooks point at, then run the installer from it.
+
 ## 0.18.0
 
 **What.** The skill shipped in 0.17.0 as one seven-step procedure with no way in: a word after its

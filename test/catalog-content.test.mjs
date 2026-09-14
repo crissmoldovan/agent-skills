@@ -62,10 +62,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.18.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.18.0');
-  assert.equal(rootLock.version, '0.18.0');
-  assert.equal(rootLock.packages[''].version, '0.18.0');
+test('v0.19.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.19.0');
+  assert.equal(rootLock.version, '0.19.0');
+  assert.equal(rootLock.packages[''].version, '0.19.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -492,4 +492,35 @@ test('layer-repository-docs publishes how it is evaluated, and says what is unme
   assert.match(readme, /\[its evaluation protocol\]\(docs\/layer-repository-docs\/evaluation\.md\)/);
   // The release record, not the staged prose: docs/releases.md empties when a release is cut.
   assert.match(changelogText, /\(docs\/layer-repository-docs\/evaluation\.md\)/);
+});
+
+test('the architecture page names the report-progress gate by the hooks its installer writes now', () => {
+  // Stale from 0.17.0 until it was caught: the page kept calling the gate "a PostToolUse marker
+  // writer plus a Stop hook" after the installer stopped writing that pair at coverage 2 — and
+  // this page is where the repository says what its hooks are.
+  const start = architecture.indexOf('- `adapters/claude-code/report-progress-gate.mjs`');
+  assert.notEqual(start, -1, 'docs/architecture.md must keep its report-progress gate entry');
+  const end = architecture.indexOf('\n- ', start + 3);
+  const entry = architecture.slice(start, end === -1 ? undefined : end);
+  assert.doesNotMatch(entry, /a `PostToolUse` marker writer plus a `Stop` hook/);
+  assert.match(entry, /`Stop` hook/);
+  assert.match(entry, /coverage\s+1/);
+  assert.match(entry, /`PostToolUse`\s+matcher\s+`Agent`/);
+  assert.match(entry, /coverage\s+2/);
+  assert.match(entry, /`SubagentStart`/);
+  assert.match(entry, /install-report-progress-gate\.mjs/);
+  assert.match(entry, /test\/report-progress-gate\.test\.mjs/);
+});
+
+test('no page says the report-progress gate cannot block twice at coverage 1', async () => {
+  // These sentences shipped, and they were false: an Agent dispatch after a block re-arms coverage 1
+  // exactly as a subagent re-arms coverage 2, and at both levels only the harness's stop_hook_active
+  // holds the second Stop (measured in test/report-progress-gate.test.mjs). Released CHANGELOG
+  // entries are history and are not checked here.
+  const { readFileSync } = await import('node:fs');
+  for (const page of ['README.md', 'adapters/claude-code/README.md', 'skills/report-progress/SKILL.md']) {
+    const text = readFileSync(new URL(`../${page}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(text, /coverage 1 does not have this shape|structurally incapable|a shape coverage 1 cannot/i, page);
+    assert.doesNotMatch(text, /At coverage 2, once per turn is the intent/, page);
+  }
 });

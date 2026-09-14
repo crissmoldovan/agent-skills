@@ -52,7 +52,7 @@ output side"). Same rule: it outranks this file if they ever disagree.
   separate install, separate flag, separate settings entries. See "The
   progress-report gate" below.
 - `install-report-progress-gate.mjs` — writes and removes those hooks in a
-  settings file. `--mode observe|block`, `--skills <names>`, `--remove`, atomic
+  settings file. `--mode observe|block`, `--coverage 1|2`, `--skills <names>`, `--remove`, atomic
   tmp+rename, removal that scans every event key rather than only the ones this
   version writes, and a refusal to touch a hook wearing the gate's name that it
   did not write itself.
@@ -251,15 +251,28 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode observe
 # arm it
 node adapters/claude-code/install-report-progress-gate.mjs --mode block
 
-# …and, optionally, treat named skills as external agents (exact names, no default)
-node adapters/claude-code/install-report-progress-gate.mjs --mode block --skills codex
+# widen what arms it — read "The coverage level" below before you do
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --coverage 2
+
+# …and, at coverage 2, treat named skills as external agents (exact names, no default)
+node adapters/claude-code/install-report-progress-gate.mjs --mode block --coverage 2 --skills codex
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
+
+# …including a hook that runs the gate with no describe, as an older install or a hand-wiring leaves
+node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
 
+**Updating keeps the level you have.** Re-running the installer with no `--coverage`
+— which is how you pick up a new version of the pack — keeps the level of the gate
+already in that settings file, and says so: `Kept coverage 1 (already installed in
+this file)`. Only `--coverage` changes it, and then the output names the change:
+`Set coverage 2 (was 1)`. A new install with no `--coverage` gets coverage 1.
+
 It writes two entries into `~/.claude/settings.json` (or the `--settings` file
-you name), and a third only if you named skills:
+you name), and which two depends on the level. At **coverage 2** they are these,
+plus a third only if you named skills:
 
 - **`SubagentStart`, matcher `*`** — arms a per-session marker when a subagent is
   started: foreground or backgrounded, of any `agent_type`. This replaced
@@ -279,11 +292,13 @@ you name), and a third only if you named skills:
   something. Arms on an exact skill name. With no list, this hook does not exist
   at all, so the default install gains no invocation on the `Skill` path.
 
-`PostToolUse` matcher `Agent` is no longer written. The gate still honours it, so
-a settings entry left by v0.16.1 keeps arming rather than sitting inert — but
-re-running the installer removes it, and removal now scans **every** event key in
-your settings for hooks this installer wrote, not just the ones this version
-happens to write. (Before that change, the moment the installer stopped writing
+At **coverage 1** the pair is `Stop` and **`PostToolUse`, matcher `Agent`** —
+v0.16.1's pair exactly — because an `Agent`-tool dispatch is the one signal the
+gate reads at that level. There is no `SubagentStart` hook and no `Skill` hook
+there, and `--skills` at coverage 1 is refused rather than written: the gate at
+that level never reads a skill list. Moving between levels replaces the pair
+rather than adding to it, and removal scans **every** event key in your settings
+for hooks this installer wrote, not just the ones the current level writes. (Before that change, the moment the installer stopped writing
 `PostToolUse`, an already-installed user's `PostToolUse` hook became unremovable
 by `--remove`.)
 
@@ -331,20 +346,59 @@ block.
 
 ### The coverage level, `AGENT_SKILLS_PROGRESS_GATE_COVERAGE`
 
-The installer writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2` into the command
-alongside the mode. Absent, `1`, or anything unrecognised is v0.16.1's behaviour
-**exactly** — one signal, `PostToolUse` with `tool_name` `Agent`, and no register
-read at all. It exists because the two new hooks cannot appear in your settings
-without you running the installer, but the register half rides on the `Stop` hook
-that is already there: without the level, updating the pack alone would widen a
+The installer writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1` or `=2` into the
+command alongside the mode. `1` — and absent, or anything unrecognised — is
+v0.16.1's behaviour **exactly**: one signal, `PostToolUse` with `tool_name`
+`Agent`, and no register read at all. `2` adds `SubagentStart`, `--skills`, and
+the register. The level exists because the register half rides on the `Stop` hook
+that is already in your settings: without it, updating the pack alone would widen a
 gate you armed under different terms. An unrecognised value falls back to `1`
 rather than to `off`, so a typo can neither widen a gate that can end a turn nor
 silently disable one you installed.
 
+**You choose it with `--coverage 1|2`, and updating never changes it.** With no
+`--coverage`, the installer reads the level out of the gate already in the settings
+file — using the gate's own resolver, so a v0.16.1 entry with no level in its command
+reads as `1` — and writes that level back. Until 0.18.0 it wrote `2` on every run,
+so re-running it to pick up a new version silently widened any coverage-1 gate. It now
+prints which happened: `Kept coverage N (already installed in this file)`, `Set
+coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. If an
+update also changes the mode — `--mode` still defaults to `observe` — it says that
+too, and so does one that drops a `--skills` list it did not repeat.
+
+**A new install gets coverage 1**, because coverage 2 holds more turns and has more
+ways to arm a turn again after it has blocked, including a register change that needs
+no tool call (below), and the budget a second block draws on is shared with every
+other `Stop` hook on the machine.
+The pack's rule is that a hook able to end a turn is off until a human arms it; the
+wider level is a thing to opt into, not to inherit.
+
+**The hooks follow the level, or keeping a level would be a lie.** Coverage 1 written
+under the coverage-2 pair (`Stop` + `SubagentStart`) was measured writing no marker
+and never blocking — installed, and off. So each level writes exactly the arming half
+it reads.
+
 Re-running the installer replaces whatever it wrote last time rather than stacking
 a second copy beside it, so changing mode is one command. A hook wearing the
-gate's filename that this installer did not write is refused, not overwritten:
-somebody else put it there, and it is theirs to remove.
+gate's filename that this installer did not write is refused, not overwritten, and
+`--remove` names it, by event and matcher, rather than reporting the gate gone: it
+exits 1 while any hook still runs the gate. (It used to print "No report-progress
+gate was installed … Nothing changed." over two such hooks.)
+
+**`--adopt`** covers the one kind of such hook this installer can vouch for: a hook
+that runs the gate with **no `describe` key at all**. Claude Code leaves exactly that
+of this installer's own hooks. It drops `describe` from every hook entry whenever it
+writes a settings file, and adding a plugin marketplace is enough
+(`../HOOK-OUTPUT-NOTES.md`, third addendum of 2026-09-14). After that, a bare re-run
+refuses and `--remove` exits 1 until `--adopt` is added. An older copy of this
+installer, or a hand-wiring, leaves the same. A command this installer cannot read
+the level from (one that sets the level after `env`, `cd … &&` or `export`, or from
+an expansion) is refused until `--coverage` names the level, and so are hooks that
+run at different levels. With `--adopt`, `--remove` removes it and
+an install replaces it, keeping the level its command runs at when no `--coverage`
+is named, and both say how many they adopted. A hook whose `describe` something else
+wrote is never adopted, with or without the flag: somebody else put it there, and it
+is theirs to remove.
 
 It is deliberately **not** in `settings-fragment.json`. That fragment is the
 journal hook's, and it is meant to be copied wholesale — a gate that can end a
@@ -401,15 +455,18 @@ harness's own backstop rather than relied on as the ceiling — observed, with t
 marker directory made unwritable after arming, a gate that trusted it returned
 `decision: "block"` on three consecutive `Stop`s. One block, then it stands down.
 
-**At coverage 2 that is the intent rather than a guarantee, and the difference is
-named here rather than discovered.** Standing down *deletes* the marker, and the
-marker is where the spent block is recorded — so a turn can block on one `Stop`,
-stand down on the next, and, if the register changes again, arm afresh on a third
-with no record left that it already spoke. v0.16.1 was structurally incapable of
-this: only a tool event could arm, and the marker was always there to be read.
-`stop_hook_active` catches it live, but that is the harness's backstop, not this
-gate's own memory, and the paragraph above is exactly the reason not to lean on
-it. Coverage 1 does not have this shape. `SubagentStop` is
+**At either level that is the intent rather than a guarantee, and the difference is
+named here rather than discovered.** At coverage 2, standing down *deletes* the
+marker, and the marker is where the spent block is recorded. So a turn can block on
+one `Stop`, stand down on the next, and, if the register changes again, arm afresh on
+a third with no record left that it already spoke. A subagent starting later in the
+turn does the same, because arming rewrites the marker as unspent. Coverage 1, and
+v0.16.1 before it, have that second hole: an `Agent` dispatch in the continuation
+round rewrites the marker, and the next `Stop` blocks again unless something else
+stops it. Measured against the gate directly, with `stop_hook_active` absent, both
+levels blocked a second time. `stop_hook_active` catches it live, but that is the
+harness's backstop, not this gate's own memory, and the paragraph above is exactly
+the reason not to lean on it. `SubagentStop` is
 deliberately not wired: it has no 8-block backstop at all, so a bug there would
 hang a child agent instead of costing one continuation.
 
@@ -442,6 +499,11 @@ of these is one block, once:
   again — the list belongs to the process, not to the session id (`../NOTES.md`
   addendum, 2026-09-14) — so the first `Stop` after a resume can read as a burst
   of disappearances. A swept temp directory does the same in the other direction.
+  This one has no fix, deliberately. Measured, nothing in the `Stop` payload or the
+  hook's environment identifies the CLI process; the hook's parent pid is the CLI
+  only where the shell execs the command, and a baseline scoped to it would suppress
+  every real disappearance wherever that does not hold (`../HOOK-OUTPUT-NOTES.md`,
+  second addendum of 2026-09-14).
 
 **What it cannot see at all**, kept accurate rather than aspirational:
 

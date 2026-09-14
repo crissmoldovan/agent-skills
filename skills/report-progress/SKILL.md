@@ -45,11 +45,15 @@ checked against anything.
 A separate, optional gate can hold a turn open when a report is owed and missing. It is a
 Claude Code `Stop` hook carried in this pack's adapter directory
 (`adapters/claude-code/report-progress-gate.mjs`), with its own installer beside it. It is
-off until a user installs it, and gone when they run that installer with `--remove`. The
-paragraphs above are unchanged by it: this file still executes nothing, and nothing in this
-skill can install the gate or arm it on a user's behalf.
+off until a user installs it, and gone when they run that installer with `--remove`. How wide
+it arms is a level the user chooses with `--coverage 1|2`: a new install gets `1`, and
+re-running the installer to update keeps whatever level is already installed, so updating the
+pack never changes that level. The paragraphs above are unchanged by it: this file
+still executes nothing, and nothing in this skill can install the gate or arm it on a user's
+behalf.
 
-**What arms it.** Three things, and nothing else: a subagent started in this turn (any kind,
+**What arms it.** At coverage 1, one thing: a subagent dispatched through the `Agent` tool.
+At coverage 2, three things, and nothing else: a subagent started in this turn (any kind,
 foreground or backgrounded); a skill the user has listed as an external agent, matched by
 exact name; and a **change** in the harness's own list of background work between this turn's
 end and the last one — something appeared, or something that was running is no longer listed.
@@ -59,10 +63,12 @@ not make every turn owe a report. On an armed turn it reads the final message an
 report can be written. It has an `observe` mode that reports what it would have blocked and
 never holds anything. In either mode it aims to act once per turn and then stand down, because
 Claude Code ends a turn after 8 consecutive blocks and that budget is shared with every other
-`Stop` hook on the machine. Once per turn is the intent rather than a guarantee: standing down
-deletes the marker that is the gate's only record of a block it spent, so a register that
-changes again can arm a later `Stop` afresh. The harness's own `stop_hook_active` is what
-catches that.
+`Stop` hook on the machine. At either level, once per turn is the intent rather than a
+guarantee. The marker is the gate's only record of a block it spent, and that record does not
+survive something arming the gate again later in the same turn. At coverage 1 that is another
+`Agent` dispatch. At coverage 2 it is also a subagent starting, or a register that changes again
+after standing down deleted the marker. The harness's own `stop_hook_active` is what catches
+that.
 
 **What it can check.** That a "what is done", a "what is running" and a "what is next" section
 label are present; that a running row carries a literal state and a freshness token, or that

@@ -665,3 +665,440 @@ with its own id rather than leaving the parent's.
   and `npx skills update` were not run. The stderr-precedence consequence for
   `AUTO_SCRIPT` above is read off the shipped script plus the verified
   mechanism, not off a live auto-update.
+
+---
+
+## Addendum, dated 2026-09-14: `report-progress-gate.mjs` coverage 2, driven live
+
+Written because the pack had never watched this gate's deny path end a real turn.
+The gate's own header said the block channel was verified here; what was verified
+here was a *probe* hook printing `decision:"block"` (lines 135–158, re-verified at
+578–582), not the shipped gate deciding to. Everything in the 0.17.0 release note —
+the `SubagentStart` arm, the register EDGE, the claim that the LEVEL arms nothing,
+the one-block ceiling, and the multi-block limitation the note volunteers against
+itself — was reasoned from unit tests over synthetic payloads. This addendum is
+fourteen real headless sessions.
+
+**Method**, unchanged from the rest of this file. A throwaway project (`<scratch>`)
+under a scratchpad, `claude -p` with `--setting-sources project` and the hooks
+supplied by `--settings <file>`, so the user's own `~/.claude/settings.json` and
+`~/.claude/settings.local.json` were read but **never written and never loaded**.
+Every hook command in those files is the exact command the shipped installer writes,
+with one debug wrapper spliced in front: it tees the hook's raw stdin to a per-invocation
+log, snapshots the gate's marker directory either side of the run, executes the gate
+*unmodified* with that stdin, tees stdout/stderr/exit, and reproduces stdout verbatim
+so the harness sees what the gate actually said. `AGENT_SKILLS_PROGRESS_GATE_DIR`
+pointed at a per-run directory, so no test ever shared marker state with anything else
+on the machine. Four turns in one CLI process were driven through
+`--input-format stream-json` with a small driver holding stdin open — necessary,
+because `background_tasks[]` belongs to the process and a `--resume` would have
+started the register from empty (which is separately measured below).
+
+**Harness: Claude Code 2.1.181**, macOS, model `claude-opus-4-8[1m]`, Node 22.22.3.
+The file under test is `adapters/claude-code/report-progress-gate.mjs` as released in
+0.17.0; `adapters/` is byte-identical at 0.18.0, so every finding below applies to
+both.
+
+### OBSERVED — the deny path ends a real turn, and the model gets another
+
+A session was told to dispatch one subagent and then reply with a single line
+carrying no report. The complete hook sequence, from the logs:
+
+```
+SubagentStart   agent_type=general-purpose  agent_id=ad4851ad…   stdout: (nothing)
+Stop #1         stop_hook_active=false  background_tasks=[]  last_assistant_message="SUBAGENT_DONE"
+                stdout: {"decision":"block","reason":"Progress-report gate: a subagent was started, …"}
+Stop #2         stop_hook_active=true
+                stdout: (0 bytes)   stderr: "report-progress gate: a block was already spent on this turn"
+```
+
+The refusal reached the model. The transcript shows it as a plain `user`-role message
+— the same shape this file records for a blocking `Stop` hook — followed by a genuinely
+new assistant turn:
+
+```
+assistant: "I'll dispatch the subagent now."
+assistant: <tool_use Agent>
+user:      <tool_result>
+assistant: SUBAGENT_DONE
+user:      Stop hook feedback:
+           Progress-report gate: a subagent was started, so a progress report is owed …
+assistant: <thinking>
+assistant: SUBAGENT_DONE
+```
+
+`num_turns` was 3, against 1 for a one-line reply with no dispatch in the same project.
+So: **the deny path is observed, not merely documented.** The gate blocked once, the
+harness delivered the reason, a second inference round happened, and the gate stood
+down on the next `Stop` exactly as its own docstring promises.
+
+**What it does not buy is compliance.** In that run the model weighed the gate's
+feedback against the user's explicit "write no report" and re-sent `SUBAGENT_DONE`
+unchanged; the turn then ended. The gate buys one more round, and nothing else. Where
+the instruction did not contradict it (the contradiction case below), the same model
+rewrote the message and the corrected message passed. Both are worth knowing: this is
+enforcement of an opportunity, not of an outcome.
+
+### OBSERVED — a report with the three sections passes, on the first `Stop`, in silence
+
+Same dispatch, and the turn ended with the model's own report:
+
+```
+**Done**
+- Subagent ran `echo alpha`; it printed `alpha`.
+
+**Running**
+- Nothing — the subagent has returned.
+
+**Next**
+- Awaiting further instructions.
+```
+
+One `Stop` invocation, `num_turns` 2, **zero bytes on stdout**, and
+`report-progress gate: the report is there` on stderr, which the harness does not
+deliver to the model at exit 0. Worth recording that the shape that passed was bold
+labels with no colon (`**Done**`) over bullets — a report nobody wrote to satisfy a
+regex — and that `Running: Nothing` was accepted as an explicitly-empty section rather
+than refused for carrying no state.
+
+### OBSERVED — family B: the register EDGE arms a turn, and the LEVEL does not
+
+Four user messages driven through **one** CLI process, so `background_tasks[]` was
+continuous across all of them. The gate's complete output, per `Stop`:
+
+| turn | prompt | `background_tasks[]` | gate |
+|---|---|---|---|
+| 1 | start `sleep 400` backgrounded, reply `BG_STARTED` | `[{id: biqqs6p1q, type: shell, status: running}]` | **blocked** — *"the harness registered background work during this turn"* |
+| 2 | start nothing, reply `TURN_TWO` | same one id, still running | **0 bytes stdout, 0 bytes stderr** |
+| 3 | start nothing, reply `TURN_THREE` | same one id, still running | **0 bytes stdout, 0 bytes stderr** |
+| 4 | kill it, reply `BG_KILLED` | `[]` | **blocked** — *"work this session listed as running at the previous turn end is no longer listed by the harness (this gate cannot see a terminal state — only that the listing stopped)"* |
+
+Every one of those four final messages was a bare one-liner with no report in it. Turns
+2 and 3 were **completely silent — not even the stderr stand-down note**, which is the
+`owed: false` path: the gate did not merely decline to block, it never considered itself
+owed anything. That is the distinction the whole design rests on, and it holds live: a
+background task that is merely *still running* costs nothing on any later turn, and a
+`sleep 400` left in the background did not make every subsequent turn owe a report.
+
+Both edges arm and each carries its own sentence. The disappearance sentence is
+carefully hedged in the source and arrives at the model hedged.
+
+### OBSERVED — the new contradiction check refuses a real denial and does not refuse an honest row
+
+Coverage 2's one added check, exercised in the harness rather than over a synthetic
+payload. A turn that started `sleep 300` in the background and then reported
+`Running: none.` was refused:
+
+```
+Missing:
+- the running section says it is empty, while the harness register in this same payload
+  lists 1 background task still running
+```
+
+followed by the register paragraph the reason appends when work is in flight. The model
+rewrote it, and the rewrite is the interesting part — it took the gate's own suggested
+wording and the harness's real id:
+
+```
+Done: 1 background shell started (`sleep 300`, task bc10f1ulw).
+Running: task bc10f1ulw (`sleep 300`), state running, last observed just now (harness register at turn end).
+Next: wait for bc10f1ulw to complete.
+```
+
+Run back through `findReportFailures(message, { runningTaskCount: 1 })`, that message
+yields `[]`. So the loop closes: refusal → correction → pass, with the corrected report
+naming a real id and an honestly-bounded freshness rather than an invented interval.
+
+The converse was run too, because the defect this check has already produced twice is
+refusing an honest report. A turn with one task genuinely in flight ended with:
+
+```
+Running: bibec83nr, state running, last observed just now (harness register at turn end) — none of the checks have failed.
+```
+
+— a running section that contains the literal word `none`, which is the shape that used
+to trip `declaresEmpty` over the whole block. It **passed on the first `Stop`**, zero
+bytes, `the report is there`. The `carriesRow` guard works in the harness, not only in
+the test file.
+
+### OBSERVED — coverage 1 really is v0.16.1, register included
+
+The same three scenarios under a settings file in v0.16.1's shape (`Stop` plus
+`PostToolUse` matcher `Agent`, no `AGENT_SKILLS_PROGRESS_GATE_COVERAGE` in the command):
+
+- the `Agent`-tool dispatch armed and the `Stop` blocked once, with the v0.16.1 sentence
+  *"a subagent was dispatched through the Agent tool"*;
+- the good report passed, silently;
+- **the four-turn background sequence produced four `Stop` invocations, every one of them
+  zero bytes on stdout AND zero bytes on stderr** — including the turn that started the
+  task and the turn that killed it. The register is not read at coverage 1, for arming or
+  for anything else.
+
+And the new state 0.17.0 writes does not appear: after that whole sequence the gate's
+marker directory was **empty** — no `<session>.register.json` was ever created. A user
+whose settings were written by v0.16.1 gains no file, no block, and no behaviour from
+updating the pack.
+
+Two coverage-gating facts, checked by feeding the gate a captured `SubagentStart` payload
+directly: with `AGENT_SKILLS_PROGRESS_GATE_COVERAGE` unset it writes no marker; with `=2`
+it writes one; with `=3` (a typo) it writes none — the documented fallback to the
+narrower armed level, not to the wider one and not to off.
+
+### COULD NOT REPRODUCE — the second block coverage 2 is capable of
+
+The 0.17.0 release note volunteers a limitation against itself: the gate can block on the
+first `Stop`, stand down on the second, and **deleting its marker in the process** lose the
+only memory it has of the block it spent — after which a further register change can arm it
+fresh. Four sessions were built to reproduce that. **A second block never happened.** What
+did happen is worth recording precisely, because the precondition reproduced exactly and
+only one thing stopped it.
+
+The decisive run started five background shells with staggered lifetimes, and kept the turn
+alive past the gate's stand-down with a second, independent `Stop` hook that blocked three
+times with neutral feedback (the same "hooks from separate sources merge into one event"
+shape this file records at line 584). Marker-directory snapshots are from the wrapper, taken
+immediately before each gate invocation:
+
+```
+Stop #1  stop_hook_active=false  bg=5 ids   marker: absent → written   BLOCKED
+Stop #2  stop_hook_active=true   bg=2 ids   marker: present → deleted  stood down
+Stop #3  stop_hook_active=true   bg=1 id    marker: ABSENT             stood down
+Stop #4  stop_hook_active=true   bg=1 id    marker: absent             silent (nothing owed)
+```
+
+**`Stop #3` is the finding.** The marker was gone — `Stop #2` had deleted it. The register
+had changed again underneath the turn (two ids down to one, a real disappearance). And the
+gate printed `report-progress gate: a block was already spent on this turn`, which is emitted
+from exactly one branch: the `stop_hook_active` short-circuit, which is only reached when
+`causes` is non-empty. With no marker on disk, those causes can only have come from the
+register edge. So the gate **did** re-arm from the register with no memory of the block it
+had already spent, and the only thing between it and a second block on that turn was the
+harness's own flag — which is the precise thing this gate's source says it refuses to rely
+on.
+
+`stop_hook_active` held. Across four sessions and **nine in-turn `Stop` invocations following
+a first block, it was `true` on every single one.** It is not set only for the immediately
+next `Stop`: it stayed set through a third and a fourth while a different hook was doing the
+blocking. Within a turn, the flag alone makes a second block unreachable.
+
+So: **could not reproduce, and the reason is the backstop rather than the gate.** That is a
+smaller problem than "it blocks twice" and a larger one than "it cannot happen": every run of
+this shape is one harness behaviour away from spending two of a budget that is shared with
+every other `Stop` hook on the machine, whose exhaustion this file records as
+`subtype: "success"`, `is_error: false`, `result: ""`. Nothing observed here contradicts the
+release note; it upgrades "measured in tests" to "live, the harness catches it, and here is
+the exact `Stop` where it had to."
+
+### OBSERVED — a `stop_hook_active: false` that looks like a same-turn reset is a new turn
+
+A trap for anyone reading these logs after me. In two runs a later `Stop` in what looked like
+one `claude -p` invocation carried `stop_hook_active: false`, which would mean the flag resets
+mid-turn. It does not. The transcript shows a `<task-notification>` user message arriving in
+between — a background shell had finished, the harness woke a **new turn** to say so, and the
+model answered it. `stop_hook_active` is per turn, and a background completion starts one.
+
+This is also the confirmation, from the other side, of why this gate deliberately does not
+wire `UserPromptSubmit`: the completion notice does arrive on that channel, and the `Stop`
+hook sees the same event as a disappearance from the register one turn later at no extra cost.
+
+### OBSERVED — resuming in a fresh CLI process costs exactly one block
+
+The installer warns about this; it is real, and it is cheap. A session ended a turn with a
+good report and one `sleep 300` still registered, leaving `{"ids":["bibec83nr"]}` on disk. The
+same session was then resumed with `--resume` in a **new** CLI process and asked for a
+one-line answer that started nothing:
+
+```
+Stop  stop_hook_active=false  background_tasks=[]   →  BLOCKED
+      "work this session listed as running at the previous turn end is no longer listed …"
+```
+
+One block, then the usual stand-down. The register belongs to the process, not to the session
+id, so the first `Stop` after a resume reads the whole previous register as a burst of
+disappearances. Anyone measuring this gate's false-positive rate should expect one per resume
+of a session that had background work.
+
+### MEASURED — what the gate costs per invocation
+
+Twenty runs of each, real captured payloads on stdin, on this machine:
+
+| invocation | ms |
+|---|---|
+| unarmed (`AGENT_SKILLS_PROGRESS_GATE` unset), `Stop` payload | 33.4 |
+| coverage 1, `Stop`, nothing armed | 33.3 |
+| coverage 2, `Stop`, nothing armed | 33.6 |
+| coverage 2, `Stop`, one running task (reads baseline, writes baseline) | 34.1 |
+| coverage 2, `SubagentStart` (writes a marker) | 32.3 |
+| bare `node -e ''` on this machine | 24.6 |
+| sibling `release-notes-gate.sh`, armed, non-release `Bash` payload | 30.2 |
+| sibling `release-notes-gate.sh`, unarmed | 7.8 |
+
+**Coverage 2 costs under a millisecond more than coverage 1** — the register work is one small
+read and one small write — and roughly three quarters of the whole figure is Node process
+startup, which the gate pays before it can read anything. The comparison with the sibling gate
+is the useful one: armed, they are within 10% of each other (33ms vs 30ms); unarmed they are
+not, because the shell gate can decide it is off in 8ms while this one must start a Node
+process to find out. "Off unless armed" saves the user's *context* and *turns*; on this file it
+saves no wall clock at all. A normal turn pays this once; a blocked turn pays it twice, plus
+once per subagent started.
+
+### Incidental — `--remove` scans every event key, and the count it prints is honest
+
+Checked because this installer has a history here. A settings file was built holding the
+0.17.0 trio (`Stop`, `SubagentStart`, `PostToolUse` matcher `Skill`) **plus** a simulated
+v0.16.1 leftover (`PostToolUse` matcher `Agent`) **plus** an unrelated third-party `Stop` hook.
+`--remove` reported `Removed 4 report-progress gate hooks`, removed all four including the
+leftover this version no longer writes, left the foreign hook and its group untouched, and
+pruned the now-empty event keys. The "reported Removed 1 while the hook survived" failure did
+not reproduce.
+
+### NOT TESTED
+
+- **`observe` mode, live.** Every run above used `block`. The observe branch writes to stderr
+  and clears the marker; neither was exercised in a session.
+- **The watched-skill arm (`--skills`).** `armsForSkill` was not driven by a real `Skill` tool
+  call; only the `PostToolUse` matcher `Skill` hook the installer writes was inspected, and the
+  `--remove` test above is the only place that entry appeared at all.
+- **A workflow.** Family B was exercised with backgrounded `shell` entries and one backgrounded
+  subagent kill. No `workflow` entry was ever present in `background_tasks[]` here, so
+  "a workflow of twelve agents is ONE row" remains reasoned from the register's shape rather
+  than watched.
+- **A `workflow-subagent` `SubagentStart`.** The exclusion in `armsForSubagentStart` was never
+  exercised by a real event; the only `agent_type` observed live was `general-purpose`.
+- **Whether the gate can be made to block twice.** See above — the precondition reproduced, the
+  block did not. What would settle it is a harness build (or an interrupt path) where
+  `stop_hook_active` is not set on a later `Stop` of a turn that already blocked. Nothing here
+  produced one.
+- **A true interactive session.** Everything above is headless, as with the rest of this file.
+- **Anything about the 8-block cap under this gate.** No run came close; the highest block count
+  on any turn was four, three of them from the probe hook that existed to keep the turn alive.
+
+### Cleanup
+
+Everything ran from a throwaway project under a scratchpad, never under this repo. The user's
+`~/.claude/settings.json` was read and never written. Marker state was redirected to per-run
+directories via `AGENT_SKILLS_PROGRESS_GATE_DIR`, so the real temp path was untouched — verified
+by listing it before and after. The scratch project, its hook scripts, its per-run logs and every
+session transcript Claude Code created for it were deleted after this file was written.
+
+---
+
+## Addendum, dated 2026-09-14 (later): what a `Stop` hook can see of the process that ran it
+
+Written to settle one question the addendum above leaves open. A resume in a fresh CLI process
+costs one false block, because `background_tasks[]` belongs to the process while the gate keys its
+baseline by `session_id`, which a resume keeps. Scoping the baseline to the process would remove
+that block, **if** a hook can tell "a new CLI process" from "the same process, and a task is gone".
+The second case is a real disappearance and has to keep arming. So the question is whether anything
+reliably identifies the process, and what happens where it does not.
+
+**Method.** A probe hook, not the gate, wired to `Stop` and `SessionStart` through `--settings` with
+`--setting-sources project` in a throwaway project, in the exact command shape the installer writes
+(leading `AGENT_SKILLS_PROGRESS_GATE…=` assignments, then a quoted node and script). It logged the
+payload's keys, its own `pid` and `ppid`, the process ancestry above it (via `ps`, which a probe may
+run and the gate may not), and every environment variable with its value hashed, so a variable that
+differs between invocations shows up without its value being recorded. One CLI process was driven
+for two turns over `--input-format stream-json`; then two separate `--resume` processes on the same
+session id ran one turn each. **Harness: Claude Code 2.1.181**, macOS, model `haiku`, Node 22.22.3.
+
+### OBSERVED — the `Stop` payload carries nothing that identifies the process
+
+Every `Stop`, in all three processes, carried exactly these keys:
+
+```
+background_tasks, cwd, hook_event_name, last_assistant_message, permission_mode,
+session_crons, session_id, stop_hook_active, transcript_path
+```
+
+`session_id` and `transcript_path` were identical across all three processes, as a resume keeps
+them. `prompt_id`, recorded on other events earlier in these notes, was on none of these payloads.
+
+### OBSERVED — neither does the hook's environment
+
+Across all seven hook invocations, the only variable whose value differed at all was
+`CLAUDE_ENV_FILE`, and it differed by event, not by process: present on `SessionStart`, absent on
+`Stop`. `CLAUDE_CODE_SESSION_ID` is the session id, identical across the resumes. `CLAUDE_PID` was
+set, but to the pid of the session that launched the probe, on every invocation in all three
+processes: the nested CLI did not set it, so here it was inherited, and it names no process the gate
+cares about.
+
+### OBSERVED, and NOT RELIABLE — `process.ppid` was the CLI, because the shell got out of the way
+
+```
+process  event                 hook ppid  that parent
+A        SessionStart startup  20949      claude, started 05:48:23
+A        Stop "ONE"            20949      claude, started 05:48:23
+A        Stop "TWO"            20949      claude, started 05:48:23
+B        SessionStart resume   21958      claude, started 05:48:33
+B        Stop "THREE"          21958      claude, started 05:48:33
+C        SessionStart resume   22164      claude, started 05:48:36
+C        Stop "FOUR"           22164      claude, started 05:48:36
+```
+
+On this machine the hook's parent was the CLI itself: stable within a process, different across
+processes. That is only because `/bin/sh -c "<assignments> '<node>' '<gate>'"` ran its one simple
+command by `exec` and left no shell in between. It is a property of the shell and of how this build
+spawns a hook, not a contract. Where a shell does not exec its last command, or a build wraps the
+command in anything, the parent is a fresh shell on every invocation. A baseline scoped to that
+would read EVERY `Stop` as a new process and suppress every real disappearance, which is the one
+failure this gate must not have. And the gate cannot check which case it is in: confirming that its
+parent is the long-lived CLI takes `ps` on macOS, and the gate spawns no process.
+
+### OBSERVED — `SessionStart` does say `resume`, on an event the gate does not wire
+
+`SessionStart` fired once per process, before that process's first `Stop`: `source: "startup"` in
+the stream-json process and `source: "resume"` in each `--resume` process. That field is
+structural, and it does distinguish the case. But it arrives on an event the gate does not wire, so
+using it means writing a new hook into users' settings. That changes what the installer writes, and
+it was not done here.
+
+### Result
+
+**Nothing in the `Stop` payload or in the hook's environment reliably identifies the CLI process.**
+The one block per resume stays, and the gate's documented limitations say so. A heuristic built on
+the parent pid would suppress real disappearances wherever its assumption fails, and that is worse
+than one false block per resume.
+
+The probe project, its hook, its logs and the transcripts it created were deleted after this was
+written. The user's own settings files were neither loaded nor written.
+
+---
+
+## Addendum, dated 2026-09-14 (third): Claude Code drops `describe` from hook entries when it writes a settings file
+
+Both gate installers decide which hooks are theirs by a `describe` prefix. A real user's settings
+file held this gate's `Stop` and `SubagentStart` hooks, written by the 0.17.0 installer, whose
+builder sets `describe` on both. Neither hook had a `describe` key, and neither did any other hook
+in that file. The question here is whether the harness itself removes the key.
+
+**Method.** A throwaway directory with `HOME` and `CLAUDE_CONFIG_DIR` both pointed inside it, so
+the user's own settings could be neither read nor written: the real file's SHA-1 was identical
+before and after. Two settings files were prepared, a project's `.claude/settings.json` and the
+redirected user `settings.json`. Each held two hooks carrying a `describe`, one of them with this
+gate's prefix, plus an unknown top-level key. A local directory marketplace was then added with
+`claude plugin marketplace add <dir> --scope project`, and again with `--scope user`. That command
+writes `extraKnownMarketplaces` into the settings file for its scope, and needs no network and no
+model. **Harness: Claude Code 2.1.181**, macOS.
+
+### OBSERVED — every hook entry lost `describe`, and nothing else was dropped
+
+After each run, the file for that scope had gained `extraKnownMarketplaces`. Every hook entry in it
+had been rewritten to `type`, `command` and `timeout` only, with `timeout` only where it had been
+set. Both `describe` keys were gone, including the one with the gate's prefix. The unknown
+top-level key survived in both files. So the harness does not drop unknown keys in general: it
+rewrites each hook entry to the fields it knows.
+
+### Result
+
+**A `describe` does not survive the harness writing the file it sits in.** Any Claude Code action
+that writes that settings file removes `describe` from every hook. After that, a gate an installer
+wrote cannot be told apart from a hand-wiring by its `describe`. For
+`install-report-progress-gate.mjs`, that is the case `--adopt` exists for, and it is the common
+case, not a rare one. Which other harness actions rewrite a settings file was not enumerated here.
+
+`install-release-notes-gate.mjs` identifies its hooks the same way and has no `--adopt`. Measured
+against a copy with `describe` removed, its `--remove` printed "No release-notes gate was installed
+… Nothing changed." while the hook was still in the file, and its install refused with "Remove it
+by hand first".
+
+The throwaway directory and its marketplace were deleted after this was written.
