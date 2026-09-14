@@ -492,3 +492,21 @@ test('layer-repository-docs publishes how it is evaluated, and says what is unme
   // The release record, not the staged prose: docs/releases.md empties when a release is cut.
   assert.match(changelogText, /\(docs\/layer-repository-docs\/evaluation\.md\)/);
 });
+
+test('the architecture page names the report-progress gate by the hooks its installer writes now', () => {
+  // Stale from 0.17.0 until it was caught: the page kept calling the gate "a PostToolUse marker
+  // writer plus a Stop hook" after the installer stopped writing that pair at coverage 2 — and
+  // this page is where the repository says what its hooks are.
+  const start = architecture.indexOf('- `adapters/claude-code/report-progress-gate.mjs`');
+  assert.notEqual(start, -1, 'docs/architecture.md must keep its report-progress gate entry');
+  const end = architecture.indexOf('\n- ', start + 3);
+  const entry = architecture.slice(start, end === -1 ? undefined : end);
+  assert.doesNotMatch(entry, /a `PostToolUse` marker writer plus a `Stop` hook/);
+  assert.match(entry, /`Stop` hook/);
+  assert.match(entry, /coverage\s+1/);
+  assert.match(entry, /`PostToolUse`\s+matcher\s+`Agent`/);
+  assert.match(entry, /coverage\s+2/);
+  assert.match(entry, /`SubagentStart`/);
+  assert.match(entry, /install-report-progress-gate\.mjs/);
+  assert.match(entry, /test\/report-progress-gate\.test\.mjs/);
+});

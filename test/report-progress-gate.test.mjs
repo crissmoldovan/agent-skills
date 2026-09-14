@@ -32,6 +32,7 @@ import {
 } from '../adapters/claude-code/report-progress-gate.mjs';
 
 import {
+  COVERAGE_LEVELS,
   DESCRIBE_PREFIX,
   HOOK_MARKER,
   buildHookEntries,
@@ -603,7 +604,21 @@ test('the describe says what it enforces and never claims to check whether it is
     assert.match(entries.stop.describe, /cannot verify anything in it/);
     assert.doesNotMatch(entries.stop.describe, /\b(?:verifies|proves|guarantees)\b/i);
   }
-  assert.match(build('block').stop.describe, /once, never twice/);
+  // "once, never twice" shipped here and was false. Live, at coverage 2, a Stop re-armed from the
+  // register with no memory of the block it had spent, and only the harness's stop_hook_active kept
+  // it from blocking again (adapters/HOOK-OUTPUT-NOTES.md, addendum 2026-09-14). Coverage 1 has the
+  // same hole by a different door: an Agent dispatch in the continuation round rewrites the marker
+  // with `blocked: false`, and with stop_hook_active absent the next Stop blocks a second time
+  // (reproduced against the gate directly). So neither level may promise it, and both name what
+  // actually holds the line.
+  for (const coverage of COVERAGE_LEVELS) {
+    const { describe } = build('block', [], coverage).stop;
+    assert.doesNotMatch(describe, /never twice/, `coverage ${coverage} still promises what the gate cannot keep`);
+    assert.match(describe, /once per turn/);
+    assert.match(describe, /stop_hook_active/, `coverage ${coverage} did not name the backstop that actually holds it`);
+  }
+  assert.match(build('block', [], 2).stop.describe, /background/);
+  assert.match(build('block', [], 1).stop.describe, /Agent dispatch/);
   assert.match(build('observe').stop.describe, /never holds the turn/);
 });
 

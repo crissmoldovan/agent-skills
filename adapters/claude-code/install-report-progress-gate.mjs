@@ -218,6 +218,14 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
   const armed = coverage === 2
     ? 'a turn that started a subagent, invoked a listed external-agent skill, or in which the harness started or stopped listing a background task'
     : 'a turn that dispatched a subagent through the Agent tool';
+  // What stops a second block. This string used to say "once, never twice", and that was not the
+  // gate's to promise at either level: its record of a spent block does not survive a re-arm later
+  // in the same turn. Live at coverage 2, a Stop re-armed from the register with the record gone
+  // and only the harness's stop_hook_active held it (adapters/HOOK-OUTPUT-NOTES.md, 2026-09-14);
+  // at coverage 1 an Agent dispatch in the continuation round rewrites the record as unspent.
+  const rearm = coverage === 2
+    ? 'a subagent starting, or the background list changing, later in the same turn can re-arm it without the record of the block it spent'
+    : 'a further Agent dispatch later in the same turn re-arms it without the record of the block it spent';
 
   return {
     stop: {
@@ -225,7 +233,7 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
       command,
       timeout: STOP_TIMEOUT_SECONDS,
       describe: mode === 'block'
-        ? `${DESCRIBE_PREFIX} (block): on ${armed}, holds the turn for one more round — once, never twice — when the final message has no "what is done / what is running / what is next" report; it matches the report's shape only and cannot verify anything in it, and ${removal}.`
+        ? `${DESCRIBE_PREFIX} (block): on ${armed}, holds the turn for one more round when the final message has no "what is done / what is running / what is next" report. It means to do that once per turn, but ${rearm}, so it is the harness's own stop_hook_active that prevents a second block; it matches the report's shape only and cannot verify anything in it, and ${removal}.`
         : `${DESCRIBE_PREFIX} (observe): on ${armed}, writes to stderr what a blocking gate would have refused in the final message and never holds the turn; it matches the report's shape only and cannot verify anything in it, and ${removal}.`,
     },
     // Exactly one arming half per level. Writing the half a level ignores would cost a Node
