@@ -415,14 +415,21 @@ program, or straight after an interpreter such as `node` or `bash`. That holds p
 the installer reads in front of a command — `timeout`, `nice`, `nohup`, `env`, `command`, `exec`,
 `caffeinate` and `sudo`, nested or not (`sudo -u x timeout 5 node …`) — each only in the forms its
 manual gives on both macOS and Linux; the table is in
-[`adapters/claude-code/README.md`](adapters/claude-code/README.md). A hook that only mentions the
-file, as `echo`, `cat` or `rm` do, or only writes to it through a redirection, is not the gate, and
-nothing touches it, whatever its `describe` says. A hook where the installer cannot tell whether the gate runs, and a hook under a `describe`
-something else wrote, are never taken, with or without `--adopt`: `--remove` names them and exits
-1, and an install refuses until they are gone. Cannot tell covers a wrapper option or form it does
-not recognise (`timeout --sig=KILL`, `sudo -i`), which it refuses rather than guesses past; the
-file as an argument of `xargs`, `time` or a wrapper script; the file after `node --check`; the
-file a command reads on stdin; and a pipe or a variable. The release-notes gate's installer below recognises its hook the same way.
+[`adapters/claude-code/README.md`](adapters/claude-code/README.md).
+
+**A plain re-run never takes a hook the installer cannot fully read**, with or without its
+`describe`: `--remove` names it and exits 1, and an install refuses. That covers a wrapper option or
+form it does not recognise (`nice -10`, `timeout -p 5`, `sudo -i`), which it never guesses past; the
+file as an argument of `xargs`, `time` or a wrapper script; the file after `node --check`; the file a
+command reads on stdin; and a pipe or a variable. **`--adopt` can take such a hook** when its leading
+assignments set the gate's own `AGENT_SKILLS_PROGRESS_GATE` and one of its words is the gate path,
+and it says when it did, naming each hook:
+`Took over 1 hook this installer could not fully read: Stop (matcher *).`
+The installer could not tell whether such a hook runs the gate, so check it before you pass
+`--adopt`. A hook that only mentions the file, as `echo`, `cat` or `rm` do, or only writes to
+it through a redirection, is not the gate and is never taken, with any flag, whatever its `describe`
+says; nor is a hook under a `describe` something else wrote. The release-notes gate's installer below
+recognises its hook the same way.
 
 Six limits, stated here because a guard that is misread is worse than no guard:
 
@@ -506,9 +513,12 @@ file Claude Code has rewritten needs no flag: a hook is its own when the whole c
 `AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<path>/release-notes-gate.sh'`, with nothing after it,
 or when it runs the gate under this installer's own `describe`. `--adopt` takes a hook that runs the
 gate in any other shape, including that one with another interpreter in place of `bash` (`/bin/bash`,
-`sh`); a hook that only mentions the gate file (`echo`, `cat`, `shellcheck`) is left alone; and
-`--remove` exits 1 while any hook still runs the gate, or may. Re-running it with no `--mode` keeps
-the mode already installed, `off` included, and says so.
+`sh`). A plain re-run never takes a hook it cannot fully read. `--adopt` can, when the hook's leading
+assignments set `AGENT_SKILLS_RELEASE_NOTES_GATE` and one of its words is the gate path, and it prints
+each hook it took that way. A hook that only mentions the gate file (`echo`, `cat`, `shellcheck`), or
+only writes to it, is never taken, with any flag. `--remove` exits 1 while any hook still runs the
+gate, or may. Re-running it with no `--mode` keeps the mode already installed, `off` included, and
+says so.
 
 Three limits, stated here because a guard that is misread is worse than no guard:
 
