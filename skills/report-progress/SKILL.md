@@ -63,10 +63,12 @@ not make every turn owe a report. On an armed turn it reads the final message an
 report can be written. It has an `observe` mode that reports what it would have blocked and
 never holds anything. In either mode it aims to act once per turn and then stand down, because
 Claude Code ends a turn after 8 consecutive blocks and that budget is shared with every other
-`Stop` hook on the machine. At coverage 2, once per turn is the intent rather than a guarantee: standing down
-deletes the marker that is the gate's only record of a block it spent, so a register that
-changes again can arm a later `Stop` afresh. The harness's own `stop_hook_active` is what
-catches that.
+`Stop` hook on the machine. At either level, once per turn is the intent rather than a
+guarantee. The marker is the gate's only record of a block it spent, and that record does not
+survive something arming the gate again later in the same turn. At coverage 1 that is another
+`Agent` dispatch. At coverage 2 it is also a subagent starting, or a register that changes again
+after standing down deleted the marker. The harness's own `stop_hook_active` is what catches
+that.
 
 **What it can check.** That a "what is done", a "what is running" and a "what is next" section
 label are present; that a running row carries a literal state and a freshness token, or that

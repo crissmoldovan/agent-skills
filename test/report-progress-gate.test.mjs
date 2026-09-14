@@ -1901,3 +1901,36 @@ test('adopting reads a double-quoted level and mode as the shell does, and refus
   assert.match(refused.stderr, /different levels: Stop \(matcher \*\) at 1, SubagentStart \(matcher \*\) at 2/);
   assert.equal(await readFile(mixed, 'utf8'), text);
 });
+
+test('neither level can promise one block per turn: re-arming after a block blocks again unless stop_hook_active holds it', async () => {
+  // Shipped as "coverage 1 does not have this shape" and "v0.16.1 was structurally incapable of
+  // this". Measured here against the gate itself: an Agent dispatch re-arms coverage 1 exactly as a
+  // subagent starting re-arms coverage 2, and the gate's own record of the spent block does not
+  // survive either. If the gate is ever changed to keep that record, this test is where the docs
+  // that describe the hole get caught out.
+  const blocks = (stdout) => stdout.trim() !== '' && JSON.parse(stdout).decision === 'block';
+  for (const [coverage, arming] of [['1', agentDispatch()], ['2', subagentStart()]]) {
+    const command = `${GATE_ENV_FLAG}=block ${COVERAGE_ENV_FLAG}=${coverage} '${process.execPath}' '${gate}'`;
+    for (const active of [false, true]) {
+      const markers = path.join(await scratch(`gate-rearm-c${coverage}-${active}`), 'markers');
+      await runWrittenCommand(command, arming, markers);
+      const first = await runWrittenCommand(command, stopPayload(BAD_REPORT), markers);
+      assert.equal(blocks(first.stdout), true, `coverage ${coverage}: the first Stop did not block`);
+      await runWrittenCommand(command, arming, markers);
+      const second = await runWrittenCommand(command, stopPayload(BAD_REPORT, { stop_hook_active: active }), markers);
+      assert.equal(blocks(second.stdout), !active, `coverage ${coverage}, stop_hook_active ${active}: second Stop`);
+    }
+  }
+
+  const help = await runInstaller(['--help']);
+  assert.doesNotMatch(help.stdout, /At most one block per turn at coverage 1/);
+  assert.match(help.stdout, /stop_hook_active/);
+  for (const coverage of ['1', '2']) {
+    const directory = await scratch(`gate-rearm-output-${coverage}`);
+    const installed = await runInstaller(['--mode', 'block', '--coverage', coverage, '--settings', path.join(directory, 'settings.json')]);
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.doesNotMatch(installed.stdout, /does not have this shape|structurally incapable/);
+    assert.match(installed.stdout, /"Once" is the intent rather than a guarantee/);
+    assert.match(installed.stdout, /stop_hook_active is what stops/);
+  }
+});

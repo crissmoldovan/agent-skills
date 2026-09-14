@@ -367,8 +367,8 @@ anywhere.
 **Updating keeps the level you have.** Re-running the installer with no `--coverage` keeps the
 level of the gate already installed, and prints `Kept coverage N (already installed in this
 file)`; only `--coverage` changes it. A new install with no `--coverage` gets `1`: coverage 2
-can spend a second block on one turn (the third limit below), and a gate that can end a turn
-is the user's to widen, not a default to inherit.
+holds more turns, and has more ways to arm a turn again after it has blocked (the third limit
+below), and a gate that can end a turn is the user's to widen, not a default to inherit.
 
 The gate ships with **this repository**, not with the installed skill: `npx skills add`
 copies `skills/report-progress/SKILL.md` and nothing else, so arming the gate means running
@@ -412,13 +412,15 @@ Six limits, stated here because a guard that is misread is worse than no guard:
   write no report — the model weighed the gate's feedback against that instruction, re-sent the
   one-liner unchanged, and the turn ended. Where nothing contradicted it, the same model wrote the
   report and the report passed.
-- **It aims to act once per turn, and at coverage 2 that is not guaranteed.** Claude Code ends
-  a turn after 8 consecutive `Stop` blocks, that budget is shared with every other `Stop` hook
-  on the machine, and when it runs out the result comes back as a success with an empty answer.
-  The gate records a spent block in its marker — but standing down deletes that marker, so if
-  the background register changes again a later `Stop` arms fresh and can block a second time.
-  Live, `stop_hook_active` catches that; it is the harness's backstop rather than this gate's
-  own memory, and coverage 1 does not have this shape.
+- **It aims to act once per turn, and at neither level can it guarantee that on its own.**
+  Claude Code ends a turn after 8 consecutive `Stop` blocks, that budget is shared with every
+  other `Stop` hook on the machine, and when it runs out the result comes back as a success with
+  an empty answer. The gate records a spent block in its marker, but that record does not survive
+  something arming the gate again later in the same turn. At coverage 1 that is another `Agent`
+  dispatch, which rewrites the marker as unspent. At coverage 2 it is also a subagent starting,
+  or the background register changing again after the gate stood down and deleted the marker.
+  Then a later `Stop` can block a second time. Live, `stop_hook_active` catches that at both
+  levels; it is the harness's backstop rather than this gate's own memory.
 - **Its marker is keyed by session,** and the `Stop` that ends a turn is what clears it. A
   turn that armed and then died without a `Stop` — a crash, a kill — leaves the marker behind,
   so the next turn in that session pays one block for a dispatch it did not make. One block,

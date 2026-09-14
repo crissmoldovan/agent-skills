@@ -41,7 +41,8 @@
  *            have blocked to stderr. The turn always ends. This is the mode to
  *            live with for a day before arming the other one.
  *   block    The gate returns `{"decision":"block"}` and the turn continues for
- *            one more round so the report can be written. Once per turn, ever.
+ *            one more round so the report can be written. Once per turn is the intent,
+ *            not a guarantee the gate can keep alone: see WHY A NEW INSTALL GETS 1.
  *
  * What the gate can and cannot do is fixed and small: it matches strings against
  * the turn's final message. It sees whether the three section labels are there
@@ -54,8 +55,10 @@
  * 8 consecutive `Stop` blocks, and that budget is SHARED across every `Stop` hook
  * from every settings source (`adapters/HOOK-OUTPUT-NOTES.md`). When it runs out
  * the headless result is `subtype: "success"`, `is_error: false`, `result: ""` —
- * an empty answer reported as a clean run. The gate spends at most one block per
- * turn precisely so it can never be the hook that walks a session into that. It is
+ * an empty answer reported as a clean run. The gate aims to spend at most one block
+ * per turn so that it is never the hook that walks a session into that. Where
+ * something arms it again within the turn, the harness's `stop_hook_active` is what
+ * holds that line (WHY A NEW INSTALL GETS 1). It is
  * also why this is ONE gate rather than two: a second blocking `Stop` hook does not
  * get its own budget, it competes for this one, and two gates disagreeing about the
  * same turn can spend two blocks on one missing report.
@@ -77,11 +80,16 @@
  * Updating and changing enforcement are separate actions, and the output names which
  * one happened.
  *
- * WHY A NEW INSTALL GETS 1. Coverage 2 has a shape coverage 1 is structurally incapable of:
- * standing down deletes the marker that records a spent block, so a register that changes
- * again can arm a later `Stop` of the same turn afresh, and only the harness's
- * `stop_hook_active` stands between that and a second block out of the eight every `Stop`
- * hook on the machine shares. That is a cost a user should choose, not inherit.
+ * WHY A NEW INSTALL GETS 1. At either level, the gate's record of a spent block does not survive
+ * something arming it again later in the same turn. At coverage 1 that is an `Agent` dispatch in
+ * the continuation round, which rewrites the marker as unspent. At coverage 2 it is also a
+ * subagent starting, or a register that changes again after the gate stood down and deleted the
+ * marker. Either way, only the harness's `stop_hook_active` stands between that and a second
+ * block out of the eight every `Stop` hook on the machine shares. Measured against the gate
+ * directly: with `stop_hook_active` absent both levels block a second time, and with it set
+ * neither does; v0.16.1's gate behaves the same. Coverage 2 opens more of those doors, and the
+ * register opens one that needs no tool call at all. That is a cost a user should choose, not
+ * inherit.
  *
  * THE HOOK SET FOLLOWS THE LEVEL, or keeping a level would be a lie. Coverage 1 arms on one
  * signal, `PostToolUse` with `tool_name` `Agent`, and ignores `SubagentStart`. Measured:
@@ -162,8 +170,9 @@ const USAGE = `Usage: install-report-progress-gate.mjs [--mode observe|block] [-
 
 observe  report to stderr what the gate would have blocked; never ends a turn. (default)
 block    hold the turn for one more round when an armed turn ends without a progress
-         report. At most one block per turn at coverage 1; at coverage 2 that is the
-         intent, and the harness's own backstop is what holds it.
+         report. Once per turn is the intent at either level; if something arms the gate
+         again later in the same turn, the harness's own backstop (stop_hook_active) is
+         what prevents a second block.
 
 --coverage 1  arm on one thing: a subagent dispatched through the Agent tool. What a new
               install gets when no level is given.
@@ -810,10 +819,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       '',
       'WHAT --coverage 2 ADDS, AND WHAT IT COSTS. It arms on a subagent of any kind starting,',
       'on a skill you name, and on a change in the harness\'s list of background work. The',
-      'cost: standing down deletes the gate\'s record of a spent block, so if that list',
-      'changes again within one turn a later Stop can arm afresh, and only the harness\'s',
-      'own stop_hook_active keeps it from blocking a second time. That backstop is the',
-      'harness\'s, not this gate\'s own memory.',
+      'cost: more turns are held, and more ways to arm the gate again within one turn. A',
+      'change in that list after the gate has stood down arms a later Stop afresh with no',
+      'tool call at all. At either level, what then stops a second block is the harness\'s',
+      'own stop_hook_active, not this gate\'s memory.',
       '',
     ] : [
       '',
@@ -864,11 +873,16 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         'shared with every other Stop hook you have installed, and when it runs out the',
         'result comes back as a success with an empty answer.',
         ...(coverage === 2 ? [
-          'At coverage 2, "once" is the intent rather than a guarantee: standing down deletes',
-          'the record of the spent block, so a background list that changes again within the',
-          'turn can arm a later Stop afresh, and the harness\'s stop_hook_active is what stops a',
-          'second block. --coverage 1 does not have this shape.',
-        ] : []),
+          '"Once" is the intent rather than a guarantee. The gate\'s record of the spent block',
+          'does not survive a subagent starting, or the background list changing again after',
+          'the gate stood down, so a later Stop of the same turn can arm afresh. At either',
+          'level, the harness\'s stop_hook_active is what stops a second block.',
+        ] : [
+          '"Once" is the intent rather than a guarantee. Another Agent dispatch later in the',
+          'same turn re-arms the gate and rewrites its record of the spent block, so a later',
+          'Stop can arm afresh. At either level, the harness\'s stop_hook_active is what stops',
+          'a second block.',
+        ]),
         '',
       ].join('\n'));
     } else {

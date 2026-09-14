@@ -366,9 +366,10 @@ coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. If an
 update also changes the mode — `--mode` still defaults to `observe` — it says that
 too.
 
-**A new install gets coverage 1**, because coverage 2 has a shape coverage 1 cannot
-have (below: a turn that blocks, stands down, and arms again from the register), and
-the budget that shape draws on is shared with every other `Stop` hook on the machine.
+**A new install gets coverage 1**, because coverage 2 holds more turns and has more
+ways to arm a turn again after it has blocked, including a register change that needs
+no tool call (below), and the budget a second block draws on is shared with every
+other `Stop` hook on the machine.
 The pack's rule is that a hook able to end a turn is off until a human arms it; the
 wider level is a thing to opt into, not to inherit.
 
@@ -454,15 +455,18 @@ harness's own backstop rather than relied on as the ceiling — observed, with t
 marker directory made unwritable after arming, a gate that trusted it returned
 `decision: "block"` on three consecutive `Stop`s. One block, then it stands down.
 
-**At coverage 2 that is the intent rather than a guarantee, and the difference is
-named here rather than discovered.** Standing down *deletes* the marker, and the
-marker is where the spent block is recorded — so a turn can block on one `Stop`,
-stand down on the next, and, if the register changes again, arm afresh on a third
-with no record left that it already spoke. v0.16.1 was structurally incapable of
-this: only a tool event could arm, and the marker was always there to be read.
-`stop_hook_active` catches it live, but that is the harness's backstop, not this
-gate's own memory, and the paragraph above is exactly the reason not to lean on
-it. Coverage 1 does not have this shape. `SubagentStop` is
+**At either level that is the intent rather than a guarantee, and the difference is
+named here rather than discovered.** At coverage 2, standing down *deletes* the
+marker, and the marker is where the spent block is recorded. So a turn can block on
+one `Stop`, stand down on the next, and, if the register changes again, arm afresh on
+a third with no record left that it already spoke. A subagent starting later in the
+turn does the same, because arming rewrites the marker as unspent. Coverage 1, and
+v0.16.1 before it, have that second hole: an `Agent` dispatch in the continuation
+round rewrites the marker, and the next `Stop` blocks again unless something else
+stops it. Measured against the gate directly, with `stop_hook_active` absent, both
+levels blocked a second time. `stop_hook_active` catches it live, but that is the
+harness's backstop, not this gate's own memory, and the paragraph above is exactly
+the reason not to lean on it. `SubagentStop` is
 deliberately not wired: it has no 8-block backstop at all, so a bug there would
 hang a child agent instead of costing one continuation.
 
