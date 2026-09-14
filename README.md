@@ -387,7 +387,7 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block --covera
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 
-# a hand-wired hook, running the gate without the AGENT_SKILLS_PROGRESS_GATE= assignment:
+# a hand-wired hook, running the gate in a shape this installer never writes:
 # --remove names it and exits 1, and an install refuses; --adopt takes it as this installer's own
 node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
@@ -395,12 +395,19 @@ node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 **The installer recognises its hooks by their command.** Claude Code drops `describe` from every
 hook entry whenever it writes a settings file, and adding a plugin marketplace is enough to cause
 that; the same writes keep each hook's command byte for byte
-([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14). A hook whose command
-starts with `AGENT_SKILLS_PROGRESS_GATE=` and runs `report-progress-gate.mjs` itself is this
-installer's, so updating or removing a gate the harness has rewritten needs no flag. `--adopt` is for
-a hook that runs the gate without that assignment. A hook that runs the gate under a `describe`
-something else wrote is never taken: `--remove` names it and leaves it alone, and an install refuses
-until it is gone. The release-notes gate's installer below recognises its hook the same way.
+([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14). So updating or
+removing a gate the harness has rewritten needs no flag, and a hook is this installer's own only
+when its whole command is exactly what some version of the installer wrote: assignments to the
+gate's own `AGENT_SKILLS_PROGRESS_GATE…` variables (the arming one among them, none twice), then the
+node binary and then the gate, each single-quoted, with basenames exactly `node` and
+`report-progress-gate.mjs`, and nothing after. `--adopt` takes a hook that runs the gate in any other
+shape: the gate file as the program, or straight after an interpreter such as `node` or `bash`. A
+hook that only mentions the file, as `echo`, `cat` or `rm` do, is not the gate, and nothing touches
+it. A hook where the installer cannot tell whether the gate runs (the file as an argument of a
+wrapper or `timeout`, after `node --check`, through a pipe or a variable), and a hook under a
+`describe` something else wrote, are never taken, with or without `--adopt`: `--remove` names them
+and exits 1, and an install refuses until they are gone. The release-notes gate's installer below
+recognises its hook the same way.
 
 Six limits, stated here because a guard that is misread is worse than no guard:
 
@@ -480,9 +487,11 @@ node adapters/claude-code/install-release-notes-gate.mjs --remove
 ```
 
 Like the progress gate's, this installer recognises its hook by the command it wrote, so a settings
-file Claude Code has rewritten needs no flag. `--adopt` takes a hand-wired hook that runs the gate
-without the `AGENT_SKILLS_RELEASE_NOTES_GATE=` assignment, and `--remove` exits 1 while any hook
-still runs the gate.
+file Claude Code has rewritten needs no flag: a hook is its own only when the whole command is
+exactly `AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<path>/release-notes-gate.sh'`, with nothing
+after it. `--adopt` takes a hook that runs the gate in any other shape; a hook that only mentions the
+gate file (`echo`, `cat`, `shellcheck`) is left alone; and `--remove` exits 1 while any hook still
+runs the gate, or may.
 
 Three limits, stated here because a guard that is misread is worse than no guard:
 
