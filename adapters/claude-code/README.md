@@ -488,6 +488,11 @@ of these is one block, once:
   again — the list belongs to the process, not to the session id (`../NOTES.md`
   addendum, 2026-09-14) — so the first `Stop` after a resume can read as a burst
   of disappearances. A swept temp directory does the same in the other direction.
+  This one has no fix, deliberately. Measured, nothing in the `Stop` payload or the
+  hook's environment identifies the CLI process; the hook's parent pid is the CLI
+  only where the shell execs the command, and a baseline scoped to it would suppress
+  every real disappearance wherever that does not hold (`../HOOK-OUTPUT-NOTES.md`,
+  second addendum of 2026-09-14).
 
 **What it cannot see at all**, kept accurate rather than aspirational:
 

@@ -980,3 +980,84 @@ Everything ran from a throwaway project under a scratchpad, never under this rep
 directories via `AGENT_SKILLS_PROGRESS_GATE_DIR`, so the real temp path was untouched — verified
 by listing it before and after. The scratch project, its hook scripts, its per-run logs and every
 session transcript Claude Code created for it were deleted after this file was written.
+
+---
+
+## Addendum, dated 2026-09-14 (later): what a `Stop` hook can see of the process that ran it
+
+Written to settle one question the addendum above leaves open. A resume in a fresh CLI process
+costs one false block, because `background_tasks[]` belongs to the process while the gate keys its
+baseline by `session_id`, which a resume keeps. Scoping the baseline to the process would remove
+that block, **if** a hook can tell "a new CLI process" from "the same process, and a task is gone".
+The second case is a real disappearance and has to keep arming. So the question is whether anything
+reliably identifies the process, and what happens where it does not.
+
+**Method.** A probe hook, not the gate, wired to `Stop` and `SessionStart` through `--settings` with
+`--setting-sources project` in a throwaway project, in the exact command shape the installer writes
+(leading `AGENT_SKILLS_PROGRESS_GATE…=` assignments, then a quoted node and script). It logged the
+payload's keys, its own `pid` and `ppid`, the process ancestry above it (via `ps`, which a probe may
+run and the gate may not), and every environment variable with its value hashed, so a variable that
+differs between invocations shows up without its value being recorded. One CLI process was driven
+for two turns over `--input-format stream-json`; then two separate `--resume` processes on the same
+session id ran one turn each. **Harness: Claude Code 2.1.181**, macOS, model `haiku`, Node 22.22.3.
+
+### OBSERVED — the `Stop` payload carries nothing that identifies the process
+
+Every `Stop`, in all three processes, carried exactly these keys:
+
+```
+background_tasks, cwd, hook_event_name, last_assistant_message, permission_mode,
+session_crons, session_id, stop_hook_active, transcript_path
+```
+
+`session_id` and `transcript_path` were identical across all three processes, as a resume keeps
+them. `prompt_id`, recorded on other events earlier in these notes, was on none of these payloads.
+
+### OBSERVED — neither does the hook's environment
+
+Across all seven hook invocations, the only variable whose value differed at all was
+`CLAUDE_ENV_FILE`, and it differed by event, not by process: present on `SessionStart`, absent on
+`Stop`. `CLAUDE_CODE_SESSION_ID` is the session id, identical across the resumes. `CLAUDE_PID` was
+set, but to the pid of the session that launched the probe, on every invocation in all three
+processes: the nested CLI did not set it, so here it was inherited, and it names no process the gate
+cares about.
+
+### OBSERVED, and NOT RELIABLE — `process.ppid` was the CLI, because the shell got out of the way
+
+```
+process  event                 hook ppid  that parent
+A        SessionStart startup  20949      claude, started 05:48:23
+A        Stop "ONE"            20949      claude, started 05:48:23
+A        Stop "TWO"            20949      claude, started 05:48:23
+B        SessionStart resume   21958      claude, started 05:48:33
+B        Stop "THREE"          21958      claude, started 05:48:33
+C        SessionStart resume   22164      claude, started 05:48:36
+C        Stop "FOUR"           22164      claude, started 05:48:36
+```
+
+On this machine the hook's parent was the CLI itself: stable within a process, different across
+processes. That is only because `/bin/sh -c "<assignments> '<node>' '<gate>'"` ran its one simple
+command by `exec` and left no shell in between. It is a property of the shell and of how this build
+spawns a hook, not a contract. Where a shell does not exec its last command, or a build wraps the
+command in anything, the parent is a fresh shell on every invocation. A baseline scoped to that
+would read EVERY `Stop` as a new process and suppress every real disappearance, which is the one
+failure this gate must not have. And the gate cannot check which case it is in: confirming that its
+parent is the long-lived CLI takes `ps` on macOS, and the gate spawns no process.
+
+### OBSERVED — `SessionStart` does say `resume`, on an event the gate does not wire
+
+`SessionStart` fired once per process, before that process's first `Stop`: `source: "startup"` in
+the stream-json process and `source: "resume"` in each `--resume` process. That field is
+structural, and it does distinguish the case. But it arrives on an event the gate does not wire, so
+using it means writing a new hook into users' settings. That changes what the installer writes, and
+it was not done here.
+
+### Result
+
+**Nothing in the `Stop` payload or in the hook's environment reliably identifies the CLI process.**
+The one block per resume stays, and the gate's documented limitations say so. A heuristic built on
+the parent pid would suppress real disappearances wherever its assumption fails, and that is worse
+than one false block per resume.
+
+The probe project, its hook, its logs and the transcripts it created were deleted after this was
+written. The user's own settings files were neither loaded nor written.
