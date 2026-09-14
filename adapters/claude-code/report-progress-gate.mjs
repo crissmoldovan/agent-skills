@@ -19,23 +19,69 @@
  * assignment in the command it writes; that is the user's act, and `--remove`
  * is how they take it back.
  *
- * TWO EVENTS, ONE FILE, dispatched on `hook_event_name`:
+ * WHAT ARMS IT, dispatched on `hook_event_name`. There are two families, and the
+ * line between them is not what kind of thing was dispatched — it is what the
+ * user cannot see: work that happened inside something whose transcript they
+ * will not read, and work still in flight when they stop reading. Everything
+ * below the `Agent` tool is coverage level 2; see `COVERAGE_ENV_FLAG`.
  *
- *   PostToolUse, `tool_name` "Agent"  — a subagent was dispatched, so a report
- *     is now owed at the end of this turn. Writes a per-session marker file and
- *     prints nothing. The tool is named `Agent`, not `Task`, on this harness
- *     (../NOTES.md:251, confirmed in the PreToolUse/PostToolUse pair that
- *     brackets a subagent's own SubagentStart/SubagentStop).
+ *   FAMILY A — OPAQUE DELEGATION. Each of these writes a per-session marker
+ *   file and prints nothing at all.
  *
- *   Stop — reads the marker. No marker, no gate: a turn that dispatched nothing
- *     ends exactly as it would with this file absent. That silence is the whole
- *     design. A gate that fires on "yes, that file is in src/" gets uninstalled
- *     within a day, and an uninstalled gate enforces nothing at all.
+ *     SubagentStart — a subagent was started, foreground or backgrounded, of any
+ *       kind. One event where the alternative was two, it carries `agent_id`, and
+ *       it does not care whether the child was backgrounded. `agent_type`
+ *       `workflow-subagent` and `""` are excluded; `armsForSubagentStart` says why.
+ *     PostToolUse, `tool_name` "Skill" — the user listed this skill as an
+ *       external agent. Exact name match, default empty list, and when the list
+ *       is empty the installer writes no such hook at all. There is no matching
+ *       of Bash command text here, for any binary; see `SKILLS_ENV_FLAG`.
+ *     PostToolUse, `tool_name` "Agent" — v0.16.1's only signal, still honoured at
+ *       every level so a settings entry written by that version keeps working.
+ *       The tool is named `Agent`, not `Task`, on this harness (../NOTES.md:251,
+ *       confirmed in the PreToolUse/PostToolUse pair that brackets a subagent's
+ *       own SubagentStart/SubagentStop).
+ *
+ *   FAMILY B — WORK IN FLIGHT AT A TURN END, and it needs NO EVENT OF ITS OWN.
+ *   `Stop` already carries `background_tasks[]`: the harness's own register of
+ *   background shells, workflows and backgrounded subagents, delivered in the
+ *   payload this gate is already reading. The gate compares the ids running now
+ *   against the ids running at this session's previous `Stop` and arms on the
+ *   EDGE — something appeared, or something that was running is no longer listed
+ *   — never on the LEVEL. Arming on the level would demand a report on every turn
+ *   for as long as a dev server sits in the background.
+ *
+ *   That is also the whole of the Workflow answer. A workflow launched in turn T
+ *   is in T's own `Stop` register, so this file never reads `PostToolUse` for the
+ *   `Workflow` tool at all — whose response arrives at duration_ms 3–5, the
+ *   launch rather than the work, while the dispatching turn's `Stop` fires with
+ *   the workflow still running.
+ *
+ *   Stop — reads the marker and computes that edge. Neither armed, no gate: a
+ *     turn that delegated nothing and changed nothing ends exactly as it would
+ *     with this file absent. That silence is the whole design. A gate that fires
+ *     on "yes, that file is in src/" gets uninstalled within a day, and an
+ *     uninstalled gate enforces nothing at all.
  *     The marker is keyed by SESSION, not by turn, and the `Stop` that ends a turn
  *     is what clears it — so a turn that dispatched a subagent and then died
  *     without a `Stop` leaves one behind, and the next turn in that session pays
  *     one block for a dispatch it did not make (MARKER_MAX_AGE_MS bounds how long
  *     that can happen). One block, then cleared; it is a cost, not a loop.
+ *
+ * WHAT IT STILL CANNOT SEE, kept here rather than in a release note because the
+ * person most likely to overestimate this gate is the one reading its source:
+ *   - a foreground external agent — a bare `codex exec` in a Bash call — unless
+ *     the user listed the skill that runs it. Deliberate; `SKILLS_ENV_FLAG` says why.
+ *   - the individual children of a workflow. The harness registers ONE entry for
+ *     a workflow of twelve agents, the parent cannot observe those twelve
+ *     children's state, and twelve invented rows would be exactly the fabrication
+ *     the skill exists to stop, manufactured by the gate meant to prevent it.
+ *   - background work that starts and finishes inside one turn. The register is
+ *     sampled at `Stop`, so it is never sampled in time to see it.
+ *   - anything about a session resumed in a fresh CLI process: `background_tasks[]`
+ *     belongs to the process, not to the session id (OBSERVED, ../NOTES.md
+ *     addendum 2026-09-14), so the first `Stop` after a resume starts from empty
+ *     and can read as a burst of disappearances. One block, once.
  *
  * IT CHECKS SHAPE, NOT TRUTH, and every string it prints says so. It can see
  * that three section labels are present and that a running row carries a state
@@ -43,6 +89,21 @@
  * whether `child-7f2` exists, or whether "40s ago" is a real observation. A
  * message that satisfies this gate can still be a fabrication; the skill's own
  * checklist, run by a reader, is what catches that, and nothing here replaces it.
+ *
+ * ONE EXCEPTION, and it is CONTRADICTION DETECTION rather than verification.
+ * When the register in this very payload lists n tasks as running, the report may
+ * not assert the absence of what the harness just stated — not "Running: none",
+ * and not `agent-lifecycle`'s no-evidence sentence, which is for a run with no
+ * evidence source at all. The gate still cannot tell whether any row is TRUE; it
+ * can now tell when one denies something it is holding in its hand. That catches a
+ * real lie by string matching and cannot refuse an honest report, because an
+ * honest report about n running tasks says neither of those two things. There is
+ * no row-count check and no id matching: a report may legitimately group, and
+ * forcing it to echo harness ids would buy a number nobody could verify. A DENIAL IS
+ * A SECTION WITH NO ROW IN IT — both patterns are scanned over the whole running block,
+ * so without that guard "state running, last observed just now — none of the tests
+ * failed" read as "Running: none" and refused an honest report (measured, five shapes);
+ * see `findReportFailures`.
  *
  * ONE BLOCK PER TURN, and the reason says so out loud. Claude Code ends a turn
  * after 8 consecutive blocks, that budget is SHARED with every other `Stop`
@@ -56,9 +117,21 @@
  * has lost its memory declines to block rather than trusting the harness to
  * stop it.
  *
- * `SubagentStop` is deliberately NOT wired. It has no 8-block backstop at all
+ * `SubagentStop` is deliberately NOT wired, and widening this gate to cover every
+ * subagent kind did not change that. It has no 8-block backstop at all
  * (DOCUMENTED, same file), so a bug here would hang a child agent indefinitely
- * rather than costing one continuation.
+ * rather than costing one continuation — and it is the event internal compaction
+ * summarisation fires, with `agent_type: ""` and no matching `SubagentStart`
+ * (OBSERVED, ../NOTES.md), so a gate armed there would demand a progress report
+ * on the turn after a `/compact`. `SubagentStart` is the paired event that has
+ * neither problem, which is precisely why it is the one this file reads.
+ *
+ * `UserPromptSubmit` is NOT wired either, though it is the channel a background
+ * completion actually arrives on (a `<task-notification>` block). It is also the
+ * channel for every real user prompt, so a bug there leaks text into every turn
+ * of the session — and every completion it would catch is already visible to the
+ * `Stop` hook as a disappearance from the register, one turn later at the latest,
+ * at no additional cost.
  *
  * The four rules in `journal-hook.mjs` hold here too, and this file states them
  * again because it is the one that can end a turn:
@@ -119,6 +192,51 @@ export const GATE_MODES = Object.freeze(['observe', 'block']);
 export const GATE_DIR_ENV = 'AGENT_SKILLS_PROGRESS_GATE_DIR';
 
 /**
+ * HOW WIDE THIS GATE ARMS, and the reason it is a separate flag from the mode.
+ *
+ * `2` adds everything described in the header above the `Agent`-tool dispatch: `SubagentStart`,
+ * the watched-skill list, and the in-flight register. Absent, `1`, or anything unrecognised is
+ * v0.16.1's behaviour EXACTLY — one signal, `PostToolUse` with `tool_name` `Agent`.
+ *
+ * It exists because the register half needs no new settings entry. `SubagentStart` and the
+ * `Skill` hook cannot appear in a user's settings without them re-running the installer, but
+ * the register rides on the `Stop` hook that is already there — so without this flag, updating
+ * the pack would silently widen a gate the user armed under different terms. The adapter rule
+ * is that a hook which can end a turn is off until a human arms it, and "arms it" has to mean
+ * the shape they actually agreed to.
+ *
+ * An unrecognised value falls back to `1` rather than to `off`: a typo must never widen a gate
+ * that can end a turn, and must never silently disable one the user installed either.
+ */
+export const COVERAGE_ENV_FLAG = 'AGENT_SKILLS_PROGRESS_GATE_COVERAGE';
+
+/**
+ * The externalised-agent allowlist: exact skill names, comma-separated, default EMPTY.
+ *
+ * This is the whole of the `/codex` answer, and it is deliberately small. The Bash path that
+ * actually runs an external agent carries no distinguishing tool name — `tool_name` is `Bash`
+ * and the only signal is `tool_input.command` TEXT — and matching command text is the defect
+ * family the sibling release gate produced eight times over five rounds, where a false
+ * positive merely denied a command. Here a false positive would demand a progress report
+ * because the agent mentioned `codex` in a commit message. So: no command-text matching, not
+ * for any binary, not behind a flag. A `Skill` call is structured (`tool_input.skill`), and an
+ * exact `===` against a list the user typed is the only external-agent signal this file reads.
+ */
+export const SKILLS_ENV_FLAG = 'AGENT_SKILLS_PROGRESS_GATE_SKILLS';
+
+/** A workflow's own children. Excluded from `SubagentStart` arming — see `armsForSubagentStart`. */
+export const WORKFLOW_SUBAGENT_TYPE = 'workflow-subagent';
+
+/** What armed a turn. One sentence each, and the reason is assembled from these alone. */
+export const CAUSES = Object.freeze([
+  'agent-tool',
+  'subagent-start',
+  'watched-skill',
+  'tasks-appeared',
+  'tasks-disappeared',
+]);
+
+/**
  * The sentence `agent-lifecycle` publishes for a run with no lifecycle evidence,
  * and which `report-progress` carries verbatim. Present anywhere in the message it
  * satisfies the running requirement outright: the skill puts it IN PLACE OF the
@@ -141,6 +259,17 @@ export const NO_EVIDENCE_SENTENCE = 'Background work visibility unavailable; sta
  * support. `buildBlockReason` says "a subagent was dispatched" for exactly this reason.
  */
 export const MARKER_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/** The marker shape this version writes. Nothing reads it; it is here for a future reader
+ *  staring at a file on disk that a different version left behind. */
+const MARKER_VERSION = 2;
+
+/** Ceiling on how many register ids are carried between turns. A backstop, not a size any
+ *  real session approaches: the register is a list of background tasks, not of tool calls. */
+const MAX_REGISTER_IDS = 200;
+
+/** Ceiling on the configured skill allowlist, for the same reason. */
+const MAX_WATCHED_SKILLS = 32;
 
 /** Bounded, per rule 2: a harness that never closes stdin must not hold the turn. */
 const STDIN_TIMEOUT_MS = 1500;
@@ -277,6 +406,107 @@ export function declaresEmpty(text) {
 }
 
 /**
+ * FAMILY A, delegation. True when this `SubagentStart` is a subagent whose transcript the
+ * user will not read, and which this turn is therefore accountable for.
+ *
+ * Two exclusions, each with a reason it is not squeamishness:
+ *
+ *   `workflow-subagent`  A workflow's children start ASYNCHRONOUSLY, at times no turn owns.
+ *     A child starting while the session sits idle would arm whatever the next turn happened
+ *     to be about. Workflow work is already covered by the in-flight register, which is
+ *     anchored to turn ends by construction, so excluding it here removes a false-refusal
+ *     source and loses no coverage.
+ *   `""` and absent  The shape internal compaction summarisation fires with (../NOTES.md:
+ *     a `SubagentStop` with `agent_type: ""` and no matching `SubagentStart`). Arming on it
+ *     would demand a progress report on the turn after a `/compact`. Never arm on the
+ *     absence of evidence — the principle that decides every borderline case in this file.
+ *
+ * Any other non-empty `agent_type` arms, including one this file has never heard of: an
+ * unfamiliar subagent kind is still a subagent.
+ */
+export function armsForSubagentStart(payload) {
+  const type = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.agent_type : undefined;
+  if (typeof type !== 'string') return false;
+  const trimmed = type.trim().toLowerCase();
+  return trimmed !== '' && trimmed !== WORKFLOW_SUBAGENT_TYPE;
+}
+
+/** The allowlist, parsed. Trimmed, lower-cased, blanks dropped, bounded. Default empty. */
+export function resolveWatchedSkills(env = process.env) {
+  return String(env[SKILLS_ENV_FLAG] ?? '')
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name !== '')
+    .slice(0, MAX_WATCHED_SKILLS);
+}
+
+/**
+ * FAMILY A, opt-in half. An EXACT match against a name the user typed, and nothing else:
+ * no substring, no prefix, no regex. `codex-helper` is not `codex`, and the one time this
+ * file is tempted to be clever about a name is the time it starts demanding reports for
+ * calls nobody delegated.
+ */
+export function armsForSkill(payload, allowlist = []) {
+  if (!Array.isArray(allowlist) || allowlist.length === 0) return false;
+  const input = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.tool_input : undefined;
+  const name = input && typeof input === 'object' && !Array.isArray(input) ? input.skill : undefined;
+  if (typeof name !== 'string') return false;
+  const trimmed = name.trim().toLowerCase();
+  return trimmed !== '' && allowlist.includes(trimmed);
+}
+
+/**
+ * FAMILY B, the harness's own register of work in flight, read out of the `Stop` payload the
+ * gate is already holding: `background_tasks[] = {id, type, status, description, …}`.
+ *
+ * Two rules, and both are bugs if they are got wrong:
+ *
+ *   Count only `status === "running"`. That was the only value ever OBSERVED on this array,
+ *   and an entry with a status this file does not recognise is not evidence that anything is
+ *   running. A finished task is REMOVED from the array rather than re-labelled (OBSERVED,
+ *   ../NOTES.md addendum 2026-09-14), so there is no terminal status to read here at all.
+ *
+ *   Never enumerate `type`. `shell`, `workflow` and `subagent` have all been seen; a
+ *   backgrounded `Agent` subagent registers as `subagent` with its `agent_id` as the entry's
+ *   `id`. A build that adds a fourth kind must not become invisible to this gate.
+ */
+export function runningTaskIds(backgroundTasks) {
+  if (!Array.isArray(backgroundTasks)) return [];
+  const ids = [];
+  for (const task of backgroundTasks) {
+    if (!task || typeof task !== 'object' || Array.isArray(task)) continue;
+    if (task.status !== 'running') continue;
+    if (typeof task.id !== 'string' || task.id === '') continue;
+    if (!ids.includes(task.id)) ids.push(task.id);
+    if (ids.length >= MAX_REGISTER_IDS) break;
+  }
+  return ids;
+}
+
+/**
+ * The EDGE in that register, never its level.
+ *
+ * Arming on the level — "something is running, so report" — would demand a report on every
+ * turn for as long as a dev server sits in the background, which is the noise that gets a
+ * gate uninstalled. The edge matches the skill's own trigger wording exactly: before ending a
+ * turn in which background work was started, or in which a background result arrived.
+ *
+ * An ABSENT baseline is EMPTY, not unknown. A session's first `Stop` has neither, so
+ * absent-as-empty is right there; where it is wrong — a swept temp directory, or a session
+ * resumed in a fresh CLI process, whose register starts empty again — it costs one block,
+ * once. The other reading would make the FIRST appearance of any task unarmable, which is
+ * the one that matters most.
+ */
+export function registerEdge({ current = [], previous = [] } = {}) {
+  const now = new Set(Array.isArray(current) ? current : []);
+  const before = new Set(Array.isArray(previous) ? previous : []);
+  return {
+    appeared: [...now].filter((id) => !before.has(id)),
+    disappeared: [...before].filter((id) => !now.has(id)),
+  };
+}
+
+/**
  * The whole check, as a pure function: a message in, a list of failures out. Empty list
  * means the shape is there.
  *
@@ -284,22 +514,61 @@ export function declaresEmpty(text) {
  * absent is a fact about the payload, not evidence that the agent skipped the report,
  * and a gate that blocks on what it could not read is a gate that fires at random.
  */
-export function findReportFailures(message) {
+export function findReportFailures(message, { runningTaskCount = 0 } = {}) {
   if (typeof message !== 'string' || message.trim() === '') return [];
   const failures = [];
 
+  // CONTRADICTION DETECTION, NOT CONTENT VERIFICATION. When the harness listed n tasks as
+  // running in the very payload this gate is reading, the report may not assert the absence
+  // of what the harness just stated. The gate still cannot tell whether any row is TRUE; it
+  // can now tell when one denies something it is holding in its hand. That catches a real
+  // lie by string matching and cannot refuse an honest report, because an honest report
+  // about n running tasks says neither of the two things below.
+  const inFlight = Number.isFinite(runningTaskCount) && runningTaskCount > 0;
+  const tally = `${runningTaskCount} background task${runningTaskCount === 1 ? '' : 's'}`;
+  const noEvidence = message.includes(NO_EVIDENCE_SENTENCE);
+  // `agent-lifecycle`'s sentence is for a run with NO evidence source. The register in this
+  // payload is one, so it stands in for the section only when there is nothing in flight.
+  const standsIn = noEvidence && !inFlight;
+
+  // A DENIAL IS A SECTION WITH NOTHING IN IT, not a word that appears somewhere inside one.
+  // Both contradiction checks below are gated on this, and that is not fussiness: the patterns
+  // they use are scanned over the WHOLE running block, so "state running, last observed just
+  // now — none of the tests failed", "Failures: none so far" and "(queue empty)" all match
+  // `declaresEmpty`, and a report may quote the no-evidence sentence while explaining it. Each
+  // of those was measured to block an honest report before this guard existed. A section that
+  // carries a real row — a literal state AND a freshness, which is everything this gate can
+  // ask of a row — is not denying anything, whatever words sit beside it.
+  const running = runningBlock(message);
+  const carriesRow = running !== '' && hasStateToken(running) && hasFreshnessToken(running);
+
   for (const id of SECTION_IDS) {
-    if (id === 'running' && message.includes(NO_EVIDENCE_SENTENCE)) continue;
+    if (id === 'running' && standsIn) continue;
     if (!hasSectionLabel(message, id)) {
       failures.push({ code: `missing-${id}`, detail: `no "${SECTION_NAMES[id]}" section` });
     }
   }
 
+  if (noEvidence && inFlight && !carriesRow) {
+    failures.push({
+      code: 'no-evidence-claimed-while-tasks-in-flight',
+      detail: `the report says there is no lifecycle evidence, while the harness register in this same payload lists ${tally} still running`,
+    });
+    return failures;
+  }
   // The no-evidence sentence stands in place of the section, states and freshness included.
-  if (message.includes(NO_EVIDENCE_SENTENCE)) return failures;
+  if (standsIn) return failures;
 
-  const running = runningBlock(message);
-  if (running === '' || declaresEmpty(running)) return failures;
+  if (running === '') return failures;
+  if (declaresEmpty(running) && !carriesRow) {
+    if (inFlight) {
+      failures.push({
+        code: 'running-declared-empty-while-tasks-in-flight',
+        detail: `the running section says it is empty, while the harness register in this same payload lists ${tally} still running`,
+      });
+    }
+    return failures;
+  }
 
   if (!hasStateToken(running)) {
     failures.push({ code: 'running-row-without-state', detail: 'the running section names no literal state (running, waiting, completed, failed, cancelled, lost)' });
@@ -321,13 +590,48 @@ export function findReportFailures(message) {
  * gate stands down after this (otherwise the model treats an unresolvable loop as
  * possible and starts negotiating with it).
  */
-export function buildBlockReason(failures) {
+const CAUSE_SENTENCES = Object.freeze({
+  'agent-tool': 'a subagent was dispatched through the Agent tool',
+  'subagent-start': 'a subagent was started',
+  'watched-skill': "a skill on this gate's external-agent list was invoked",
+  'tasks-appeared': 'the harness registered background work during this turn',
+  // A DISAPPEARANCE IS NOT A COMPLETION, and this sentence is where that is enforced. The
+  // gate sees exactly one snapshot omission, with no heartbeat and no terminal status to
+  // read; `agent-lifecycle` owns terminal states and they are immutable once set. So the
+  // sentence says what was observed and stops there.
+  'tasks-disappeared': 'work this session listed as running at the previous turn end is no longer listed by the harness (this gate cannot see a terminal state — only that the listing stopped)',
+});
+
+/** The causes, as one clause. Unknown codes are dropped rather than printed. */
+function causeClause(causes) {
+  const sentences = (Array.isArray(causes) ? causes : [])
+    .filter((cause) => Object.hasOwn(CAUSE_SENTENCES, cause))
+    .map((cause) => CAUSE_SENTENCES[cause]);
+  if (sentences.length === 0) return CAUSE_SENTENCES['agent-tool'];
+  if (sentences.length === 1) return sentences[0];
+  return `${sentences.slice(0, -1).join(', ')}, and ${sentences[sentences.length - 1]}`;
+}
+
+export function buildBlockReason(failures, { causes = ['agent-tool'], runningCount = 0 } = {}) {
   const missing = failures.map((failure) => `- ${failure.detail}`).join('\n');
+  const inFlight = Number.isFinite(runningCount) && runningCount > 0;
+  // Counts this gate computed are facts and may be stated. Text it copied out of the payload
+  // — a task's `description`, its `command`, a workflow's name — is somebody else's prose
+  // arriving in a channel the model reads as instructions, and rule 3 forbids it.
+  const register = inFlight
+    ? [
+      '',
+      `The harness's own register listed ${runningCount} background task${runningCount === 1 ? '' : 's'} still running at this turn end. The running section may not say it is empty, and the no-evidence sentence may not stand in its place: there is evidence, in this same payload.`,
+      'Nothing in this harness carries a timestamp, so a row sourced from that register can honestly carry only "last observed just now (harness register at turn end)" as its freshness. Do not invent an interval nothing measured.',
+      'One row per unit the harness registers: a workflow of twelve agents is ONE row, not twelve. Twelve rows carrying states nobody observed is invention wearing a status block.',
+    ]
+    : [];
   return truncate([
-    'Progress-report gate: a subagent was dispatched through the Agent tool, so a progress report is owed before the turn ends, and this message does not carry the shape of one.',
+    `Progress-report gate: ${causeClause(causes)}, so a progress report is owed before the turn ends, and this message does not carry the shape of one.`,
     '',
     'Missing:',
     missing,
+    ...register,
     '',
     'Write the report now, in the report-progress shape: what is done, what is running, what is next — each item carrying a count or a named artefact. Every running row needs a literal state and a freshness (for example: "child-7f2, state running, last observed 40s ago"). Where there is no lifecycle evidence at all, use exactly this sentence in place of the running section:',
     NO_EVIDENCE_SENTENCE,
@@ -351,11 +655,34 @@ export function resolveMode(env = process.env) {
   return 'off';
 }
 
-/** Where this session's marker lives. One file per session id, in a temp directory. */
-export function markerFile(env = process.env, sessionId = '') {
+/**
+ * How wide the gate arms. `2` or nothing. See `COVERAGE_ENV_FLAG` for why this is not part
+ * of the mode: an unrecognised value falls back to the NARROWER armed level, never to `off`
+ * and never to the wider one.
+ */
+export function resolveCoverage(env = process.env) {
+  return String(env[COVERAGE_ENV_FLAG] ?? '').trim() === '2' ? 2 : 1;
+}
+
+/** The session-keyed directory both files live in, and the sanitised session name. */
+function sessionPath(env, sessionId, suffix) {
   const directory = env[GATE_DIR_ENV]?.trim() || path.join(tmpdir(), 'agent-skills-report-progress-gate');
   const safe = String(sessionId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 96) || 'no-session';
-  return path.join(directory, `${safe}.json`);
+  return path.join(directory, `${safe}${suffix}`);
+}
+
+/** Where this session's marker lives. One file per session id, in a temp directory. */
+export function markerFile(env = process.env, sessionId = '') {
+  return sessionPath(env, sessionId, '.json');
+}
+
+/**
+ * Where this session's REGISTER BASELINE lives, and why it is a second file rather than a
+ * field on the marker: the marker is deleted by the `Stop` that ends a turn, and the
+ * baseline has to survive that. It is what the NEXT turn's edge is computed against.
+ */
+export function registerFile(env = process.env, sessionId = '') {
+  return sessionPath(env, sessionId, '.register.json');
 }
 
 export function readMarker(file) {
@@ -367,29 +694,73 @@ export function readMarker(file) {
   }
 }
 
-/** True when the marker is on disk. The Stop half acts on that answer: a gate that cannot
- *  record a block must not spend one. */
-export function writeMarker(file, marker) {
+/** Atomic tmp+rename. Renaming rather than writing in place is what keeps a `Stop` hook
+ *  from reading a half-written file: a marker with no `armedAt` reads as an unarmed turn,
+ *  and a baseline with half its ids reads as a burst of appearances and disappearances. */
+function writeJsonAtomically(file, value) {
   try {
     mkdirSync(path.dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(marker)}\n`, { mode: 0o600 });
-    // Rename rather than write in place: a Stop hook reading a half-written marker
-    // would see no `armedAt` and treat an armed turn as unarmed.
+    writeFileSync(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 });
     renameSync(temporary, file);
     return true;
   } catch {
-    // A marker that could not be written means this turn is simply not gated (rule 1).
     return false;
   }
 }
 
-export function clearMarker(file) {
+function removeQuietly(file) {
   try {
     rmSync(file, { force: true });
   } catch {
-    // Nothing to do: a marker that cannot be removed expires on MARKER_MAX_AGE_MS.
+    // Nothing to do: both files expire on MARKER_MAX_AGE_MS anyway.
   }
+}
+
+/** True when the marker is on disk. The Stop half acts on that answer: a gate that cannot
+ *  record a block must not spend one. */
+export function writeMarker(file, marker) {
+  // A marker that could not be written means this turn is simply not gated (rule 1).
+  return writeJsonAtomically(file, marker);
+}
+
+export function clearMarker(file) {
+  removeQuietly(file);
+}
+
+/**
+ * The ids that were running at this session's PREVIOUS `Stop`.
+ *
+ * Every failure returns `[]` — absent, unreadable, hand-edited, stale — because absent means
+ * empty here, and the cost of being wrong in that direction is one block, once, on a turn
+ * where every id reads as new. Being wrong in the other direction would make the first
+ * appearance of any task unarmable, which is the appearance that matters most.
+ */
+export function readRegisterBaseline(file, nowMs = Date.now()) {
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+    const updatedAt = Number(parsed.updatedAt);
+    // Shared with the marker: a session that crashed hours ago must not make a later turn
+    // read as a burst of disappearances.
+    if (!Number.isFinite(updatedAt) || nowMs - updatedAt > MARKER_MAX_AGE_MS || nowMs < updatedAt - MARKER_MAX_AGE_MS) return [];
+    if (!Array.isArray(parsed.ids)) return [];
+    return parsed.ids.filter((id) => typeof id === 'string' && id !== '').slice(0, MAX_REGISTER_IDS);
+  } catch {
+    return [];
+  }
+}
+
+export function writeRegisterBaseline(file, ids) {
+  return writeJsonAtomically(file, {
+    version: MARKER_VERSION,
+    updatedAt: Date.now(),
+    ids: (Array.isArray(ids) ? ids : []).slice(0, MAX_REGISTER_IDS),
+  });
+}
+
+export function clearRegisterBaseline(file) {
+  removeQuietly(file);
 }
 
 /**
@@ -398,31 +769,87 @@ export function clearMarker(file) {
  * `disarm` means "delete the marker": the turn is over as far as this gate is concerned,
  * and leaving it armed would carry the obligation into a turn that did not earn it.
  */
-export function decideStop({ payload = {}, marker = null, nowMs = Date.now() } = {}) {
-  if (!marker) return { block: false, disarm: false, note: 'no report owed on this turn' };
+export function decideStop({ payload = {}, marker = null, nowMs = Date.now(), coverage = 1, edge = null } = {}) {
+  const wide = coverage === 2;
+  // At coverage 1 the register is not read AT ALL — not for arming, and not for the
+  // contradiction checks. An updated pack under a v0.16.1 settings entry behaves exactly as
+  // v0.16.1 did, which is the whole point of the level.
+  const appeared = wide && edge && Array.isArray(edge.appeared) ? edge.appeared : [];
+  const disappeared = wide && edge && Array.isArray(edge.disappeared) ? edge.disappeared : [];
+  const runningCount = wide ? runningTaskIds(payload.background_tasks).length : 0;
+
+  // A stale marker is dropped rather than short-circuiting the whole decision: the register
+  // edge can legitimately arm the same turn, and standing down on it because of a marker
+  // left behind six hours ago would be the gate losing a real obligation to an old one.
+  const armedAt = marker ? Number(marker.armedAt) : Number.NaN;
+  const markerIsStale = marker !== null
+    && (!Number.isFinite(armedAt) || nowMs - armedAt > MARKER_MAX_AGE_MS || nowMs < armedAt - MARKER_MAX_AGE_MS);
+  const live = markerIsStale ? null : marker;
+
+  const causes = [];
+  if (live) {
+    const recorded = Array.isArray(live.causes) ? live.causes.filter((cause) => CAUSES.includes(cause)) : [];
+    causes.push(...(recorded.length > 0 ? recorded : ['agent-tool']));
+  }
+  if (appeared.length > 0) causes.push('tasks-appeared');
+  if (disappeared.length > 0) causes.push('tasks-disappeared');
+
+  if (causes.length === 0) {
+    if (markerIsStale) return { block: false, disarm: true, owed: false, causes, note: 'the marker is stale; the turn it belonged to is long gone' };
+    return { block: false, disarm: false, owed: false, causes, note: 'no report owed on this turn' };
+  }
 
   // The documented way to avoid an unresolvable loop, and the reason the shared 8-block
   // budget is never a risk here: the second Stop of a turn carries this set.
   if (payload.stop_hook_active === true) {
-    return { block: false, disarm: true, note: 'a block was already spent on this turn' };
+    return { block: false, disarm: true, owed: true, causes, note: 'a block was already spent on this turn' };
   }
-  if (marker.blocked === true) {
-    return { block: false, disarm: true, note: 'this gate already blocked once on this turn' };
-  }
-  const armedAt = Number(marker.armedAt);
-  if (!Number.isFinite(armedAt) || nowMs - armedAt > MARKER_MAX_AGE_MS || nowMs < armedAt - MARKER_MAX_AGE_MS) {
-    return { block: false, disarm: true, note: 'the marker is stale; the turn it belonged to is long gone' };
+  if (live && live.blocked === true) {
+    return { block: false, disarm: true, owed: true, causes, note: 'this gate already blocked once on this turn' };
   }
 
   const message = payload.last_assistant_message;
   if (typeof message !== 'string' || message.trim() === '') {
-    return { block: false, disarm: true, note: 'no final message on the payload; nothing to check' };
+    return { block: false, disarm: true, owed: true, causes, note: 'no final message on the payload; nothing to check' };
   }
 
-  const failures = findReportFailures(message);
-  if (failures.length === 0) return { block: false, disarm: true, note: 'the report is there' };
+  const failures = findReportFailures(message, { runningTaskCount: runningCount });
+  if (failures.length === 0) return { block: false, disarm: true, owed: true, causes, note: 'the report is there' };
 
-  return { block: true, disarm: false, failures, reason: buildBlockReason(failures), note: 'blocking once' };
+  return {
+    block: true,
+    disarm: false,
+    owed: true,
+    causes,
+    runningCount,
+    failures,
+    reason: buildBlockReason(failures, { causes, runningCount }),
+    note: 'blocking once',
+  };
+}
+
+/**
+ * Record that this turn owes a report, and what made it owe one. Silent, always — the
+ * arming half of this gate has never printed anything and must not start: every byte it
+ * emitted would be a byte in the model's context on a turn that is going to pass.
+ *
+ * `dispatches` counts arms, which is a fact this gate computed and may state. `causes` is a
+ * set, so three subagents in one turn arm once and say "a subagent was started" once.
+ */
+function armMarker(file, cause) {
+  const existing = readMarker(file);
+  const previous = Number(existing?.dispatches);
+  const causes = Array.isArray(existing?.causes)
+    ? existing.causes.filter((value) => CAUSES.includes(value))
+    : [];
+  if (!causes.includes(cause)) causes.push(cause);
+  writeMarker(file, {
+    version: MARKER_VERSION,
+    armedAt: Date.now(),
+    dispatches: (Number.isFinite(previous) ? previous : 0) + 1,
+    causes,
+    blocked: false,
+  });
 }
 
 async function readStdin(timeoutMs) {
@@ -460,28 +887,47 @@ async function main() {
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
 
+  const coverage = resolveCoverage(process.env);
   const file = markerFile(process.env, payload.session_id ?? '');
 
   if (payload.hook_event_name === 'PostToolUse') {
     // Scoped twice: the installer's matcher keeps the harness from invoking this on
     // unrelated tools at all, and this check keeps a hand-widened matcher from arming
     // the gate on every Read and Bash call in the session.
-    if (payload.tool_name !== 'Agent') return;
-    const existing = readMarker(file);
-    const previous = Number(existing?.dispatches);
-    writeMarker(file, {
-      version: 1,
-      armedAt: Date.now(),
-      dispatches: (Number.isFinite(previous) ? previous : 0) + 1,
-      blocked: false,
-    });
+    //
+    // `Agent` stays wired at every level. At coverage 2 the installer writes `SubagentStart`
+    // instead, so this branch normally never fires there — but a hand-wired or left-behind
+    // entry must still arm rather than sit inert, which is the worse silence.
+    if (payload.tool_name === 'Agent') {
+      armMarker(file, 'agent-tool');
+      return;
+    }
+    if (coverage === 2 && payload.tool_name === 'Skill' && armsForSkill(payload, resolveWatchedSkills(process.env))) {
+      armMarker(file, 'watched-skill');
+    }
     return; // PostToolUse output is never used by this gate: arming is silent
+  }
+
+  if (payload.hook_event_name === 'SubagentStart') {
+    if (coverage === 2 && armsForSubagentStart(payload)) armMarker(file, 'subagent-start');
+    return; // likewise silent
   }
 
   if (payload.hook_event_name !== 'Stop') return;
 
   const marker = readMarker(file);
-  const decision = decideStop({ payload, marker });
+  let edge = null;
+  if (coverage === 2) {
+    const baseline = registerFile(process.env, payload.session_id ?? '');
+    const current = runningTaskIds(payload.background_tasks);
+    edge = registerEdge({ current, previous: readRegisterBaseline(baseline) });
+    // Persisted BEFORE the decision, and on every `Stop` whatever the decision is. The
+    // second `Stop` of a blocked turn must see no edge at all: a gate that recomputed the
+    // same change would arm itself again on work it has already spoken about once.
+    if (current.length > 0) writeRegisterBaseline(baseline, current);
+    else clearRegisterBaseline(baseline);
+  }
+  const decision = decideStop({ payload, marker, coverage, edge });
 
   if (decision.block && mode === 'block') {
     // Record the spent block FIRST, and stand down if that record cannot be made. Every
@@ -491,7 +937,29 @@ async function main() {
     // Observed: with the marker directory made unwritable after arming, the gate returned
     // a block on three consecutive Stops. `stop_hook_active` does stop that, but it is the
     // harness's backstop, and a gate that cannot count its own blocks must not spend them.
-    if (!writeMarker(file, { ...marker, blocked: true, blockedAt: Date.now() })) {
+    //
+    // The register edge can arm a turn with NO marker on disk at all: no tool call made it,
+    // so nothing wrote one. The record therefore has to be brought into being here,
+    // `armedAt` included — without it the next Stop reads the record as stale, and the gate
+    // has forgotten it already spoke.
+    //
+    // `armedAt` is STAMPED FRESH rather than carried over, and that is load-bearing now that a
+    // stale marker no longer short-circuits the decision. A stale marker left by a crashed turn
+    // is dropped for ARMING, but it was still spread into this record — so the record of the
+    // block came back out of `readMarker` wearing a timestamp six hours old, read as stale
+    // again, and `blocked: true` was discarded every time. Measured: a stale marker plus a
+    // register that kept changing blocked on three consecutive Stops, leaving `stop_hook_active`
+    // as the only thing between this gate and the shared 8-block budget — which is exactly what
+    // the paragraph above refuses to rely on. The block IS this turn's arming event, so now is
+    // the right time to stamp.
+    const spent = {
+      ...(marker && typeof marker === 'object' && !Array.isArray(marker) ? marker : { version: MARKER_VERSION, dispatches: 0 }),
+      armedAt: Date.now(),
+      causes: decision.causes,
+      blocked: true,
+      blockedAt: Date.now(),
+    };
+    if (!writeMarker(file, spent)) {
       try {
         process.stderr.write('report-progress gate: could not record a spent block, so not spending one\n');
       } catch {
@@ -522,9 +990,9 @@ async function main() {
   // Everything else prints nothing to stdout at all. A Stop hook that emits
   // additionalContext without a decision was observed to force continuations exactly
   // like a block does, so "standing down, and here is why" goes to stderr, which Claude
-  // Code does not deliver to the model on exit 0 — and only when there was a marker, so
+  // Code does not deliver to the model on exit 0 — and only when a report was owed, so
   // an armed session with nothing owed stays entirely quiet.
-  if (!marker) return;
+  if (!decision.owed) return;
   try {
     process.stderr.write(`report-progress gate: ${decision.note}\n`);
   } catch {
