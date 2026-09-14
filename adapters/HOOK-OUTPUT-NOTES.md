@@ -1102,3 +1102,192 @@ against a copy with `describe` removed, its `--remove` printed "No release-notes
 by hand first".
 
 The throwaway directory and its marketplace were deleted after this was written.
+
+---
+
+## Addendum, dated 2026-09-14 (fourth): what survives a settings rewrite, and where a turn starts
+
+Written for three changes to the report-progress gate and to both gate installers: recognising an
+installer's own hooks without `describe`, keeping one block per turn, and not counting a resume as
+a burst of disappearances. Each change stands on one question about the harness, and each question
+is answered here before it is built on.
+
+**Method.** Claude Code 2.1.181, macOS, Node 22.22.3. `HOME` and `CLAUDE_CONFIG_DIR` pointed at a
+throwaway directory (`<scratch>`), and every `CLAUDE*` variable inherited from the session running
+the probe was removed from the environment. Hooks were passed with `--settings <file>
+--setting-sources project`, except where the settings file itself was the thing under test. A
+throwaway `HOME` is not logged in, so model runs pointed `ANTHROPIC_BASE_URL` at a local scripted
+Messages endpoint that logged every request body, with a dummy API key: **the harness was the real
+binary and the model was a script.** A probe hook logged every payload it received, and a
+stream-json driver held each CLI process open where a test needed one.
+
+### OBSERVED — a settings rewrite keeps `command`, `matcher` and `timeout` exactly, and drops `describe`
+
+The fixture held 15 hook commands spread over `Stop`, `SubagentStart`, `PreToolUse`, `SessionStart`,
+`UserPromptSubmit` and `PostToolUse`. They included the exact shapes both gate installers write —
+`AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 '<node>' '<gate>.mjs'` and
+`AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '<gate>.sh'` — and edge cases: doubled spaces, tabs,
+trailing and leading whitespace, empty assignments, embedded `\n`, `\r\n` and `\r`, `${HOME:-/tmp}`,
+`$(…)`, backticks, `~` and `#`, backslashes, non-ASCII (NFC and NFD forms of one letter, a
+zero-width space, a no-break space, U+2028, a byte-order mark), control characters, an
+8000-character command, a duplicated entry, a group with no matcher, matchers `" Skill "` and `""`,
+and a fractional timeout.
+
+The file was re-injected before each operation, and every decoded value was compared both with
+`===` and as UTF-8 bytes. Operations that rewrote it: `claude plugin marketplace add`, `plugin
+install`, `plugin disable`, `plugin enable`, `plugin uninstall -y` and `plugin marketplace remove`,
+each at `--scope user`, `project` and `local`; `marketplace add` over a file written with
+non-canonical JSON escapes, at all three scopes; an in-session permission grant to each of the
+three settings destinations; and, in the real TUI under a pty, `/config` toggles and `/model`'s
+"set as default".
+
+**In every write, all 15 commands, all 9 matchers and all 7 timeouts came back byte-identical.**
+`async`, `asyncRewake`, `statusMessage`, `once`, `shell`, a prompt-type hook, group order, hook
+order, the duplicate and the absent matcher all survived. Dropped every time: `describe` on every
+hook, and an unknown key on a group. An unknown top-level key survived. The file's bytes were
+re-serialised, but no decoded string changed. `plugin list`, `mcp add` and `mcp remove` did not
+change the file at all.
+
+Two further results on unusual entries, each against fresh state. An event key the harness does not
+know (`NotAnEvent`), and an event whose value was not an array, were **deleted** by the write. And
+several malformed entries — a string timeout, an unknown `type`, a missing command, a numeric
+matcher — were written verbatim but left the file one the harness could not read back.
+
+### OBSERVED — `UserPromptSubmit` fires at the start of every turn, and never inside a `Stop`-forced continuation
+
+- **Blocks do not start turns.** A `Stop` hook blocking three times gave four `Stop`s —
+  `stop_hook_active` false, true, true, true — and exactly one `UserPromptSubmit`, for the user's
+  prompt. The next user message fired `UserPromptSubmit` again, and its `Stop` carried
+  `stop_hook_active: false`.
+- **Nor does the cap.** A second `Stop` hook blocking until the harness overrode it gave 9 `Stop`s,
+  8 continuations and `result: ""`, and the only events in that stretch were `Stop` and
+  `MessageDisplay`.
+- **Nor does a subagent inside a continuation.** An `Agent` call made in a continuation fired
+  `PreToolUse`, `SubagentStart`, `SubagentStop` and `PostToolUse`, and no `UserPromptSubmit`.
+- **A background completion after the turn is a turn.** It fired `UserPromptSubmit` with a prompt
+  beginning `<task-notification>`. A completion, or user text, arriving while a continuation's model
+  call was in flight, or while a blocking or non-blocking `Stop` hook ran, was held until the turn
+  ended and then started a new turn with `UserPromptSubmit`.
+- **One exception, and it is in the safe direction.** Text or a completion that arrives **during a
+  foreground tool call** is folded into the current turn: the transcript records it as a queued
+  command appended to the tool result, no `UserPromptSubmit` fires, and the next `Stop` still
+  carries `stop_hook_active: true`. It does not start a turn, and it does not end one.
+- `/compact` and `/clear` fired neither `UserPromptSubmit` nor `Stop`. The `UserPromptSubmit`
+  payload carried `cwd`, `hook_event_name`, `permission_mode`, `prompt`, `session_id` and
+  `transcript_path`, and no `prompt_id`.
+
+**A hook that prints nothing adds nothing to the model request.** The first request body was
+compared, with ids normalised, against a run with no hooks at all. It was identical for a
+`UserPromptSubmit` hook that printed nothing and exited 0, one that printed nothing and exited 1,
+one that printed only a newline, and one that printed only `{}`; for a `SessionStart` hook that
+printed nothing; and for both together. A control hook emitting `additionalContext` did change it.
+
+### OBSERVED — `SessionStart` says `resume` before the resumed process's first `Stop`, and a fork carries the parent's id
+
+- A CLI process started `sleep 90` in the background. On that session, `-p --resume <id>` fired
+  `SessionStart` with `source: "resume"` about 276ms after spawn, then `UserPromptSubmit`, then a
+  `Stop` whose `background_tasks` was `[]`: the empty register a resume starts with, confirmed.
+  `-p --continue` also gave `source: "resume"`.
+- **`-p --resume <id> --fork-session` gave `source: "resume"`, but `SessionStart` carried the
+  ORIGINAL session id**, while that process's `UserPromptSubmit`, `Stop` and `SessionEnd` carried the
+  new fork id. Anything keyed by `SessionStart`'s `session_id` names the parent on a fork, not the
+  session whose `Stop`s follow.
+- With stream-json `--resume` and `--continue` and a 3-second delay before the first message,
+  `SessionStart` still fired at spawn, 264–279ms in, so it precedes the first `Stop` whenever a
+  message arrives. A fresh process gave `source: "startup"`.
+- **Inside a running process**, `/compact` after seven turns, with the background task still
+  running, fired `PreCompact`, then a `SubagentStop` with no matching `SubagentStart`, then
+  `SessionStart` with `source: "compact"` and the same session id, then `PostCompact`, and the next
+  `Stop` still listed the task. `/clear` fired `SessionEnd`, then `SessionStart` with
+  `source: "clear"` and a new session id, in the same process. So not every `SessionStart` is a new
+  process: only `resume` is. The `SessionStart` payload carried `cwd`, `hook_event_name`,
+  `session_id`, `source` and `transcript_path`.
+
+### MEASURED — what a hook on each of these events costs
+
+Spawned through `/bin/sh -c` with the payload on stdin, medians of 20: `true` 1.5ms, `node -e ''`
+22.3ms, a parse-only Node hook 27.1ms, and `report-progress-gate.mjs` at coverage 2 in block mode
+31.7ms on `SessionStart` and 29.9ms on `UserPromptSubmit`, printing 0 bytes. Inside the harness,
+spawn to first model request over 8 rounds: 280ms with no hooks, 328ms with a minimal hook on
+`SessionStart` and `UserPromptSubmit`, and 330ms with the real gate on both. **About 25ms once per
+process for `SessionStart`, and about 22ms once per turn for `UserPromptSubmit`**, notification turns
+included.
+
+### NOT TESTED
+
+- A real model: a throwaway `HOME` has no credentials.
+- A human-driven interactive session for the turn and resume results. One pty TUI session was used,
+  for `/config` and `/model` only.
+- Writes made from the `/hooks` menu; auto-compaction (only a manual `/compact` was run).
+- **Slash-command and `UserPromptExpansion` prompt turns** — whether `UserPromptSubmit` fires for a
+  turn that starts that way.
+- Whether one invalid hook in a settings file disables the other hooks in that file at runtime.
+- Other harness versions, and Windows.
+
+The throwaway directory, its settings files, the scripted endpoint's logs and every transcript the
+runs created were deleted after this was written.
+
+---
+
+## Addendum, dated 2026-09-14 (fifth): which matchers reach `SessionStart` and `UserPromptSubmit`, and the gate's new hooks end to end
+
+Written for the two hooks the report-progress installer now adds: `UserPromptSubmit`, which clears
+the gate's record of a spent block, and `SessionStart` on matcher `resume`, which marks a resume.
+The fourth addendum settled the events. This one settles the matchers those hooks are written on,
+and whether the hooks, as the installer writes them, do their job inside the harness.
+
+**Method.** Claude Code 2.1.181, macOS. The method is the fourth addendum's. `HOME` and
+`CLAUDE_CONFIG_DIR` pointed at a throwaway directory (`<scratch>`), with every `CLAUDE*`,
+`ANTHROPIC*` and `AGENT_SKILLS_*` variable removed. Settings were passed with `--settings <file>
+--setting-sources project`. `ANTHROPIC_BASE_URL` pointed at a local scripted Messages endpoint that
+returned the same text to every request and logged every request body, with a dummy API key: the
+harness was the real binary, and the model was a script. Probe hooks appended a label to a file and
+printed nothing.
+
+### OBSERVED — `SessionStart` matcher `resume` fires on a resume and not on a fresh start; `*` fires on both
+
+One `-p` run, then `-p --resume <id>` on the same session. The settings held `SessionStart` groups on
+matcher `""`, `"*"` and `"resume"`, plus one group with no matcher, and `UserPromptSubmit` groups on
+matcher `"*"` and with no matcher.
+
+- **Fresh start** (`source: "startup"`): the `""`, `"*"` and no-matcher groups fired, and `"resume"`
+  did not.
+- **Resume** (`source: "resume"`): all four groups fired.
+- **`UserPromptSubmit`**: both groups fired, on both runs.
+
+This settles a doubt `claude-code/README.md` raises: `"*"` on `SessionStart` was never observed
+directly before. It is observed here, on these two sources.
+
+### OBSERVED — the gate's hooks, as its installer writes them, end to end
+
+The real installer wrote the gate at coverage 2 in block mode into a throwaway settings file:
+`Stop` `"*"`, `UserPromptSubmit` `"*"`, `SessionStart` `"resume"` and `SubagentStart` `"*"`. The
+probe hooks were added beside them. Between runs, the gate's temp directory was seeded with the
+files an earlier process would leave behind. The scripted reply carried no progress report, so an
+armed turn always had something to block. A block was counted from the probe's `Stop` events,
+because each block forces a continuation and each continuation ends in another `Stop`.
+
+- **Resume, with a baseline listing a task the old process had running.** With the installer from
+  before the `SessionStart` hook existed, `-p --resume <id>` blocked once. With the hook, the
+  resumed turn ended without a block, and the note and the baseline were both gone afterwards. The
+  same resume, with only the gate's `SessionStart` hook removed from the file, blocked once.
+- **`--continue`, with the same seeded baseline.** It blocked once without the hook and not at all
+  with it, so matcher `resume` reaches `--continue` too.
+- **A spent-block record left from a previous turn, plus an armed marker, then a resumed turn.** With
+  the gate's `UserPromptSubmit` hook, the turn blocked once, and the continuation's `Stop` stood down.
+  With only that hook removed from the file, the turn did not block, and the record was still on
+  disk. The hook fires before the turn's first `Stop`, and is what clears the record.
+- **Nothing reached the model from any of these hooks.** No request body in any run contained
+  `UserPromptSubmit hook`, `SessionStart hook`, or the gate's own stderr prefix.
+
+### NOT TESTED
+
+- `--fork-session` against the gate's hooks. The fork's session-id behaviour is taken from the
+  fourth addendum.
+- A real model, or a human-driven interactive session.
+- Slash-command turns.
+- Two processes holding one session id at the same time.
+- A spent block produced by a live subagent dispatch, as opposed to a seeded marker.
+
+The throwaway directories, settings files, endpoint logs and transcripts were deleted after this was
+written.

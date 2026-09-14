@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Install, or remove, the pair of Claude Code hooks that make a progress report
+ * Install, or remove, the Claude Code hooks that make a progress report
  * non-skippable on turns that dispatched a subagent.
  *
  * A user runs this. Nothing runs it for them, and no skill may run it on their
  * behalf: a hook that can end a turn is the user's decision to arm, and a gate
  * installed by an agent on its own initiative is a gate nobody consented to.
  *
- * Two hooks, because the gate needs both halves and neither is useful alone —
- * three when the user names skills to treat as external agents:
+ * Four hooks at coverage 2, because the gate needs both halves, a turn boundary and,
+ * where it reads background work, a resume boundary. There are five when the user
+ * names skills to treat as external agents:
  *
  *   SubagentStart, matcher `*`    arms a per-session marker when a subagent is
  *                                 started, of any kind, foreground or
@@ -21,15 +22,24 @@
  *                                 which is the difference between a guard people
  *                                 keep and one they rip out after it blocks "yes,
  *                                 that file is in src/".
+ *   UserPromptSubmit, matcher `*` clears the Stop half's record of a block it spent
+ *                                 in the previous turn, so each turn can block once
+ *                                 and no more. Arms nothing, prints nothing.
+ *   SessionStart, matcher `resume` notes that the session was resumed in a fresh CLI
+ *                                 process, whose list of background work starts
+ *                                 empty, so the next Stop does not read the old
+ *                                 process's tasks as gone. Arms nothing, prints
+ *                                 nothing.
  *   PostToolUse, matcher `Skill`  written ONLY when `--skills` named something.
  *                                 Arms on an exact skill name, never on command
  *                                 text. With no list this hook does not exist, so
  *                                 the default install gains no invocation here.
  *
  * That is the set at coverage 2. At coverage 1 the arming half is `PostToolUse` matcher
- * `Agent` in place of `SubagentStart`, and there is no `Skill` hook — see THE COVERAGE LEVEL.
+ * `Agent` in place of `SubagentStart`, and there is no `Skill` hook and no `SessionStart` hook —
+ * see THE COVERAGE LEVEL. `UserPromptSubmit` is written at both.
  *
- * There is no third hook for background work, and that is not an omission: the
+ * No hook arms on background work, and that is not an omission: the
  * `Stop` payload already carries `background_tasks[]`, so a workflow launched in
  * a turn is in that turn's own register and a finished task has left it by the
  * next one. The gate arms on the CHANGE, never on the presence — a dev server
@@ -41,8 +51,7 @@
  *            have blocked to stderr. The turn always ends. This is the mode to
  *            live with for a day before arming the other one.
  *   block    The gate returns `{"decision":"block"}` and the turn continues for
- *            one more round so the report can be written. Once per turn is the intent,
- *            not a guarantee the gate can keep alone: see WHY A NEW INSTALL GETS 1.
+ *            one more round so the report can be written — at most once per turn.
  *
  * What the gate can and cannot do is fixed and small: it matches strings against
  * the turn's final message. It sees whether the three section labels are there
@@ -55,10 +64,13 @@
  * 8 consecutive `Stop` blocks, and that budget is SHARED across every `Stop` hook
  * from every settings source (`adapters/HOOK-OUTPUT-NOTES.md`). When it runs out
  * the headless result is `subtype: "success"`, `is_error: false`, `result: ""` —
- * an empty answer reported as a clean run. The gate aims to spend at most one block
- * per turn so that it is never the hook that walks a session into that. Where
- * something arms it again within the turn, the harness's `stop_hook_active` is what
- * holds that line (WHY A NEW INSTALL GETS 1). It is
+ * an empty answer reported as a clean run. The gate spends at most one block per turn
+ * so that it is never the hook that walks a session into that: its record of a spent
+ * block, which nothing inside the turn touches, and the `UserPromptSubmit` hook that
+ * clears it at the next turn start, hold that line (the gate's own header, THE RECORD
+ * OF A SPENT BLOCK). The commands declare that hook as
+ * `AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit`; a command without it, as
+ * every installer through 0.19.0 wrote, runs the gate exactly as 0.19.0 did. It is
  * also why this is ONE gate rather than two: a second blocking `Stop` hook does not
  * get its own budget, it competes for this one, and two gates disagreeing about the
  * same turn can spend two blocks on one missing report.
@@ -80,15 +92,11 @@
  * Updating and changing enforcement are separate actions, and the output names which
  * one happened.
  *
- * WHY A NEW INSTALL GETS 1. At either level, the gate's record of a spent block does not survive
- * something arming it again later in the same turn. At coverage 1 that is an `Agent` dispatch in
- * the continuation round, which rewrites the marker as unspent. At coverage 2 it is also a
- * subagent starting, or a register that changes again after the gate stood down and deleted the
- * marker. Either way, only the harness's `stop_hook_active` stands between that and a second
- * block out of the eight every `Stop` hook on the machine shares. Measured against the gate
- * directly: with `stop_hook_active` absent both levels block a second time, and with it set
- * neither does; v0.16.1's gate behaves the same. Coverage 2 opens more of those doors, and the
- * register opens one that needs no tool call at all. That is a cost a user should choose, not
+ * WHY A NEW INSTALL GETS 1. Coverage 2 holds more turns: it arms on every subagent kind, on a named
+ * skill, and on a change in the harness's list of background work, which arms a turn with no tool
+ * call at all. Through 0.19.0 it also had more ways to spend a second block in a turn, and neither
+ * level could prevent one without the harness's `stop_hook_active`. The record of a spent block now
+ * closes that at both levels, but holding more turns is still a cost a user should choose, not
  * inherit.
  *
  * THE HOOK SET FOLLOWS THE LEVEL, or keeping a level would be a lie. Coverage 1 arms on one
@@ -96,23 +104,66 @@
  * coverage 1 written under the coverage-2 pair wrote no marker and never blocked — a gate
  * reporting itself installed while being off, which trades a silent widening for a silent
  * disarming. So coverage 1 writes `Stop` + `PostToolUse` matcher `Agent`, which is
- * v0.16.1's pair, and coverage 2 writes `Stop` + `SubagentStart`, plus `PostToolUse`
- * matcher `Skill` for a configured list. A skill list at coverage 1 is refused rather than
- * written: the gate at that level never reads one.
+ * v0.16.1's pair. Coverage 2 writes `Stop` + `SubagentStart`, plus `SessionStart` matcher
+ * `resume` because that level reads the register, and `PostToolUse` matcher `Skill` for a
+ * configured list. Both write `UserPromptSubmit`. A skill list at coverage 1 is refused rather
+ * than written: the gate at that level never reads one.
  *
- * ADOPTION, and why only an absent `describe` earns it. A hook this installer did not write is
- * refused on install and left alone on removal: overwriting somebody else's decision is how a
- * settings file gets corrupted. But a hook that runs this gate with NO `describe` at all is what
- * Claude Code leaves of this installer's own hooks: it drops `describe` from every hook entry
- * whenever it writes a settings file (adapters/HOOK-OUTPUT-NOTES.md, third addendum of
- * 2026-09-14). An older copy of this installer, or a hand-wiring, leaves the same thing. Treating that as foreign
- * left a real user with no command that worked: `--remove` printed that nothing was installed
- * while two such hooks ran the gate, and install told them to edit the file by hand. So `--remove`
- * names every hook that runs the gate and that it did not remove, never reports the gate gone
- * while one still runs it, and exits 1 when one does; and `--adopt` treats a hook with no
- * `describe` as this installer's own — removed by `--remove`, replaced by an install, its level
- * read out of its command when no `--coverage` is named. A `describe` written by anything else is
- * a statement of ownership, and that hook is never adopted, with or without the flag.
+ * OWNERSHIP IS READ FROM THE COMMAND. Claude Code drops `describe` from every hook entry whenever
+ * it writes a settings file, and keeps `command`, `matcher` and `timeout` byte for byte
+ * (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14). Through 0.19.0 this
+ * installer recognised its hooks by `describe`, so after the first such write a bare re-run refused
+ * and `--remove` exited 1 over a gate it had written itself. A hook is now this installer's, with no
+ * flag, when its WHOLE command is exactly the shape its released versions wrote (`HOOK_IDENTITY`
+ * below, checked by `./hook-ownership.mjs`): leading assignments to this gate's own variables only,
+ * `AGENT_SKILLS_PROGRESS_GATE` among them and none twice; then the node binary, single-quoted, whose
+ * basename is a Node-compatible runtime's name (`node`, `nodejs` or `bun`, an optional version, an
+ * optional `.exe`) or that of the node binary running this installer; then the gate path, single-quoted,
+ * whose basename is exactly `report-progress-gate.mjs`; and nothing after it. The harness keeps the
+ * command byte for byte, so that shape survives every rewrite. In that shape the interpreter alone decides:
+ * with a Node-compatible runtime written any other way it is adoptable; with a program that only prints, reads
+ * or deletes files (`echo`, `unlink`, `xxd`) it is nobody's; with any other program (`deno`, a wrapper script,
+ * a name outside that pattern) it is one this installer cannot fully read, which no run without `--adopt` takes.
+ * Where the harness has not dropped it, this installer's own `describe` on a hook that runs the gate, in any
+ * shape, makes that hook its own too, as it did through 0.19.0. A `describe` written by anything else is
+ * a statement of ownership, and that hook is never taken, with or without a flag.
+ *
+ * ADOPTION is for a hook with no describe that RUNS this gate in any other shape — a hand-wiring, a
+ * `cd … &&` or an `env` in front, a `&& …` after, or the shape above under an interpreter whose name this
+ * installer does not know. It is refused on install and named on removal, because overwriting
+ * somebody else's decision is how a settings file gets corrupted; `--remove` never reports the gate
+ * gone while one it reads as running the gate is left, and exits 1 when one is. With `--adopt` it is removed by `--remove`
+ * and replaced by an install, its level and mode read out of its command when no `--coverage` or
+ * `--mode` is named.
+ *
+ * NEVER TAKEN, with any flag and whatever describe it wears, for four reasons and no other (`neverTakenReason`
+ * in `./hook-ownership.mjs`), each applied as the reader judges the command, which can misjudge complex, hand-written
+ * shell and read a hook that runs the gate as a mention (KNOWN MISREADS there; such a hook has to be removed by hand):
+ * a MENTION, every place the gate file is named reaching only a program that does not run it
+ * (echo, cat, wc, rm, unlink and the like) — as its argument, on its stdin via a pipe, a here-string, a here-document or a
+ * `<` redirection, or in a shell comment — with nothing that program prints flowing on, and nowhere else in the command,
+ * so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions and `node <<< '<gate>'` is not; a WRITE TARGET, a redirection
+ * that writes to the gate file, in `sh -c`, `eval`, a here-document or a substitution too; a DIFFERENT FILE, where every
+ * path with the gate file's name in it ends in another name (`install-report-progress-gate.mjs`,
+ * `/x/report-progress-gate.mjs/index.mjs`); and a describe somebody else wrote. A reason holds only when the command holds no
+ * expansion this installer does not resolve (the CERTAINTY rule, checked over the whole command) — a parameter expansion
+ * with an operator (`${G%.bak}`), indirection, brace expansion or arithmetic, or a command substitution feeding an executing
+ * program — may turn a lookalike into the gate (`G=<gate>.bak; node "${G%.bak}"` runs it), so such a hook is unclear, not a
+ * reason. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
+ * and a run without `--adopt` never takes it, describe or not: over-reporting a hook is recoverable, and deleting
+ * one that is not the gate is not. `--adopt` is the explicit override for such a hook: 0.19.0 matched the gate
+ * file's name anywhere in a command, option values included, so it takes over every one that does not write to
+ * the gate file, whatever leads the command and wherever the gate path sits, and so is a hook under this
+ * installer's own describe whose command never names the gate file. It reads the level and mode out of the
+ * command as it does a hand-wiring's, and prints each hook it took that way, by event and matcher, on a line of
+ * its own (THE OVERRIDE in `./hook-ownership.mjs`). `--remove` names every hook it leaves that names the gate
+ * file, and why, and never says no gate was installed while one is in the file. A hook in KNOWN MISREADS is named
+ * as a mention and left, with exit 0, although it runs the gate: such a hook has to be removed by hand.
+ *
+ * THE MODE IS KEPT THE WAY THE LEVEL IS. With no `--mode`, a re-run writes the mode of the gate already in
+ * the file — `off` too, for a gate disarmed by hand — and says so; only `--mode` changes it, and only a new
+ * install gets `observe` by default. Before, `--mode` defaulted to observe on every run, so a user who
+ * re-ran this installer to update, as a release note tells them to, switched a block gate to observe.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -124,23 +175,87 @@ import {
   COVERAGE_ENV_FLAG,
   GATE_ENV_FLAG,
   GATE_MODES,
+  RESUME_SOURCE,
+  SESSION_START_EVENT,
   SKILLS_ENV_FLAG,
+  TURN_HOOK_ENV_FLAG,
+  TURN_HOOK_EVENT,
   isEntrypoint,
   resolveCoverage,
   resolveMode,
   resolveWatchedSkills,
 } from './report-progress-gate.mjs';
+import {
+  NODE_RUNTIME_NAME,
+  eventKeys,
+  findHooksNamingGate,
+  findUnownedHooks,
+  hookLabel,
+  isReadableGroup,
+  leadingAssignments,
+  leftAloneReport,
+  plainObject,
+  readableGroups,
+  takenAs,
+  tookOverLine,
+  unownedReason,
+} from './hook-ownership.mjs';
 
-/** Every hook this script writes carries the gate's filename in its command. */
+export { hookLabel };
+
+/** The gate file: the exact basename of the path every command this installer writes runs. */
 export const HOOK_MARKER = 'report-progress-gate.mjs';
-/** …and this prefix in its `describe`, which is how we know a hook is ours. */
+/** Still starts every `describe` written; a describe that does not start with it vetoes ownership. */
 export const DESCRIBE_PREFIX = 'agent-skills report-progress gate';
+/** The two armed modes `--mode` takes. */
 export const MODES = GATE_MODES;
+/** Every mode a hook this installer writes can carry: `off` too, which only a re-run keeping a gate that was
+ *  disarmed by hand writes, because a re-run keeps the mode it finds. */
+export const WRITABLE_MODES = Object.freeze([...GATE_MODES, 'off']);
+/** What a NEW install gets when `--mode` is not given: the mode that cannot cost anyone a turn. An existing
+ *  install keeps its own mode instead, the way it keeps its level. */
+export const DEFAULT_MODE = 'observe';
+
+/**
+ * What `./hook-ownership.mjs` needs to tell this installer's hooks from anybody else's, including the
+ * exact shape of every command a released version wrote, from `git log -p` on this file across the tags:
+ *   v0.13.0–v0.16.1  AGENT_SKILLS_PROGRESS_GATE=<mode> '<node>' '<gate>'
+ *   v0.17.0–v0.18.0  …=<mode> AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2 [AGENT_SKILLS_PROGRESS_GATE_SKILLS='<list>'] '<node>' '<gate>'
+ *   v0.19.0          …=<mode> AGENT_SKILLS_PROGRESS_GATE_COVERAGE=<level> [… _SKILLS='<list>'] '<node>' '<gate>'
+ *   this version     …=<mode> … _COVERAGE=<level> AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit [… _SKILLS='<list>'] '<node>' '<gate>'
+ * `<node>` is `process.execPath` and `<gate>` this file's sibling, each through `shellQuote`. That path ends
+ * in whatever the binary that ran the installer was called, on that machine, when it ran, and the hooks
+ * outlive both. So the interpreter this installer owns is a single-quoted path whose basename is a
+ * Node-compatible runtime's name — `NODE_RUNTIME_NAME`: `node`, `nodejs` or `bun`, an optional version, an
+ * optional `.exe`; its own comment says why that pattern — or is the name of the binary running this
+ * installer now, which wrote any hook it is about to read back. Measured before this: hooks written under
+ * `node-20` and re-read under `node-22` were unclear, which no flag takes, and hooks written under `bun`
+ * needed `--adopt`, where 0.19.0 took both by their describe. A Node-compatible runtime written another way in
+ * that shape (bare `node`) runs the gate: adoptable, and under this installer's own describe its own. A program
+ * that only reads or deletes files there runs nothing of it; any other program is one the reader does not know
+ * runs it (`runs` below), so no run without `--adopt` takes that hook.
+ */
+export const HOOK_IDENTITY = Object.freeze({
+  envFlag: GATE_ENV_FLAG,
+  gateFile: HOOK_MARKER,
+  describePrefix: DESCRIBE_PREFIX,
+  variables: Object.freeze([GATE_ENV_FLAG, COVERAGE_ENV_FLAG, TURN_HOOK_ENV_FLAG, SKILLS_ENV_FLAG]),
+  interpreter: Object.freeze({ quoted: true, pattern: NODE_RUNTIME_NAME, names: Object.freeze([path.basename(process.execPath)]), runs: NODE_RUNTIME_NAME }),
+});
+const IDENTITY = HOOK_IDENTITY;
+/** How an unowned hook's line describes the shape it is not. */
+const OWN_SHAPE = `the gate's own ${GATE_ENV_FLAG}= assignments, a Node-compatible runtime (node, nodejs or bun) and the gate path, single-quoted`;
 
 /** The events the gate needs, with the matcher each is scoped by. */
 export const STOP_MATCHER = '*';
 export const SUBAGENT_MATCHER = '*';
 export const SKILL_MATCHER = 'Skill';
+/** `UserPromptSubmit` takes no matcher; `*` is what the `Stop` half, which takes none either, was
+ *  observed working with. */
+export const TURN_MATCHER = '*';
+/** `SessionStart` matcher `resume`: observed firing on `--resume` and not on a fresh start
+ *  (adapters/HOOK-OUTPUT-NOTES.md, fifth addendum of 2026-09-14). The gate checks `source` again. */
+export const RESUME_MATCHER = RESUME_SOURCE;
 /** `PostToolUse` matcher `Agent`: v0.16.1's arming half, and coverage 1's — the one signal
  *  that level reads. Coverage 2 writes `SubagentStart` in its place. */
 export const AGENT_MATCHER = 'Agent';
@@ -171,17 +286,18 @@ const USAGE = `Usage: install-report-progress-gate.mjs [--mode observe|block] [-
 
 observe  report to stderr what the gate would have blocked; never ends a turn. (default)
 block    hold the turn for one more round when an armed turn ends without a progress
-         report. Once per turn is the intent at either level; if something arms the gate
-         again later in the same turn, the harness's own backstop (stop_hook_active) is
-         what prevents a second block.
+         report, at most once per turn at either level. A UserPromptSubmit hook, written
+         beside the others, clears the record of the spent block when the next turn starts.
 
 --coverage 1  arm on one thing: a subagent dispatched through the Agent tool. What a new
               install gets when no level is given.
 --coverage 2  arm on a subagent of any kind starting, on a skill named in --skills, and on
               a change in the harness's own list of background work.
          With no --coverage, re-running this script keeps the level of the gate already
-         in the settings file, so updating the pack never changes that level. --mode and
-         --skills are not carried over: a re-run that changes the mode or drops a skill
+         in the settings file, and with no --mode it keeps that gate's mode — off too, if
+         you disarmed it by hand — so updating the pack never changes what the gate
+         enforces: "Kept mode block (already installed in this file)". A new install with
+         no --mode gets observe. --skills is not carried over: a re-run that drops a skill
          list says so.
 
 --skills a comma-separated list of skill names to treat as external agents, matched by
@@ -189,23 +305,62 @@ block    hold the turn for one more round when an armed turn ends without a prog
          default, and when it is empty no hook is written for it at all. There is no
          matching of command text here, for any binary, ever.
 
---adopt  treat a hook that runs this gate and has NO describe at all as this installer's own:
-         --remove removes it, and an install replaces it, keeping the level its command runs
-         at when no --coverage is given. Claude Code leaves exactly that of this installer's
-         own hooks, because it drops describe from every hook whenever it writes the settings
-         file; an older copy of this installer, or a hand-wiring, leaves the same. A hook
-         whose describe something else wrote is never adopted. Without --adopt, --remove
-         names every such hook it left and exits 1, and an install refuses and names them.
+--adopt  also take a hook that RUNS this gate in a shape this installer never writes — a
+         hand-wiring, or its own shape with a bare node: --remove removes it, and an install
+         replaces it, keeping the level and mode its command runs at when no --coverage or
+         --mode is given. It also takes over every hook this installer cannot fully read — a
+         wrapper form it does not recognise, the gate file in an option's value or read on the
+         stdin of an interpreter or shell (node <<< '<gate>', bash < '<gate>'), a hook whose
+         gate name passes through an expansion it does not resolve (G=<gate>.bak; node
+         "\${G%.bak}"), its own shape run by a program it does not know (deno, a wrapper script),
+         or this installer's own describe over a command that never names the gate file — and
+         prints each one: "Took over 1 hook this installer could not fully read: Stop
+         (matcher *)." Not needed for this installer's own hooks: a hook whose whole command
+         is exactly what a version of it wrote — this gate's own AGENT_SKILLS_PROGRESS_GATE
+         assignments, a Node-compatible runtime (node, nodejs or bun, versioned or .exe, or
+         the binary running this script) and the gate path, each single-quoted, and nothing
+         else — is recognised with no flag, including after Claude Code has dropped its
+         describe, and so is a hook that runs the gate under this installer's own describe.
+         Never taken, with or without --adopt, for four reasons, each as this installer reads
+         the command: a mention (the gate file reaching only a program that does not run it,
+         as echo, cat, wc, rm or unlink do — as its argument, on its stdin via a pipe, a
+         here-string, a here-document or a < redirection, or in a shell comment, and nowhere
+         else in the command, so wc -l < '<gate>' is a mention and node <<< '<gate>' is not);
+         a write target (a redirection writes to the gate file, in sh -c, eval, a
+         here-document or a substitution too, even in a hook that also runs it); a different
+         file (every path with the gate file's name in it ends in another name:
+         install-report-progress-gate.mjs, /x/report-progress-gate.mjs/index.mjs); and a
+         describe something else wrote. A reason holds only when the command holds no
+         expansion this installer does not resolve (the certainty rule, over the whole
+         command): a hook with a parameter-expansion operator, indirection, brace expansion or
+         arithmetic in it, or whose gate name passes through a substitution feeding a program
+         that runs it, is left unclear, taken only by --adopt.
+         Known limitation: the reader can misjudge complex, hand-written shell and read a hook
+         that runs the gate as a mention: a here-document body that runs it through $(…) or
+         backticks, a group or compound command piped into a shell ({ cat '<gate>'; } | bash),
+         $'…' quoting, $_ (test -f '<gate>' && node "$_"), arithmetic inside [[, zsh process
+         substitution, or a launcher or copy written to another file and run. --remove then
+         leaves the hook and exits 0, and no flag takes it. If a hook wraps the gate in shell
+         like this, remove it by hand; do not rely on --remove.
+         Other known limits: a gate name not written out literally (a glob such as
+         [r]eport-progress-gate.mjs, a path read from a file, a symlink under another name) is
+         not read as naming it; a group whose hooks is not an array is not read; control flow
+         is read by structure (false && node '<gate>' reads as running it); a write through a
+         program's argument (sed -i, dd of=, curl -o) is not a write target, so --adopt may
+         take it; under --adopt a hook it did not write and cannot fully read is taken, and
+         named; a plain mention beside an unrelated \${…} is unclear; and printf -v is handled
+         only as unclear. The full list is in adapters/claude-code/README.md, under "Known
+         limits of the reading".
+         Without --adopt a hook it cannot fully read is never taken, and an install refuses
+         and names it. --remove names every hook it leaves that names the gate file, with the
+         reason and its kind, and exits 1 while one of them reads as running the gate, or as
+         possibly running it.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;
 
 function shellQuote(value) {
   return `'${String(value).split("'").join(`'\\''`)}'`;
-}
-
-function plainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function resolveHome(env = process.env) {
@@ -221,7 +376,7 @@ export function resolveGatePath() {
 }
 
 /**
- * The two hook entries, built together because installing one without the other is a
+ * The hook entries, built together because installing one without the other is a
  * broken gate: a Stop hook with nothing to arm it never fires, and a marker writer with
  * no Stop hook writes files nobody reads.
  *
@@ -233,7 +388,7 @@ export function resolveGatePath() {
  * editing that one word is how a user disarms the gate without uninstalling it.
  */
 export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, skills = [], coverage }) {
-  if (!MODES.includes(mode)) throw new Error(`mode must be one of: ${MODES.join(', ')}`);
+  if (!WRITABLE_MODES.includes(mode)) throw new Error(`mode must be one of: ${WRITABLE_MODES.join(', ')}`);
   // No default here on purpose. The installer resolves the level from the flag, then the
   // installed gate, then DEFAULT_COVERAGE_LEVEL; a second, silent default in the builder is
   // how a caller would write a level nobody chose.
@@ -243,7 +398,10 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
     throw new Error('refusing to write: --skills needs coverage 2 — the gate at coverage 1 never reads a skill list');
   }
 
-  const base = `${GATE_ENV_FLAG}=${mode} ${COVERAGE_ENV_FLAG}=${coverage}`;
+  // The turn hook is declared in every command, so the Stop half knows a UserPromptSubmit half was
+  // written beside it — and a command from an older installer, which does not declare it, keeps the
+  // behaviour it was installed with.
+  const base = `${GATE_ENV_FLAG}=${mode} ${COVERAGE_ENV_FLAG}=${coverage} ${TURN_HOOK_ENV_FLAG}=${TURN_HOOK_EVENT}`;
   const command = `${base} ${shellQuote(nodePath)} ${shellQuote(gatePath)}`;
   // The allowlist rides only on the hook that reads it, so the Stop and SubagentStart
   // commands stay identical whether or not a list was configured.
@@ -252,23 +410,32 @@ export function buildHookEntries({ mode, gatePath, nodePath = process.execPath, 
   const armed = coverage === 2
     ? 'a turn that started a subagent, invoked a listed external-agent skill, or in which the harness started or stopped listing a background task'
     : 'a turn that dispatched a subagent through the Agent tool';
-  // What stops a second block. This string used to say "once, never twice", and that was not the
-  // gate's to promise at either level: its record of a spent block does not survive a re-arm later
-  // in the same turn. Live at coverage 2, a Stop re-armed from the register with the record gone
-  // and only the harness's stop_hook_active held it (adapters/HOOK-OUTPUT-NOTES.md, 2026-09-14);
-  // at coverage 1 an Agent dispatch in the continuation round rewrites the record as unspent.
-  const rearm = coverage === 2
-    ? 'a subagent starting, or the background list changing, later in the same turn can re-arm it without the record of the block it spent'
-    : 'a further Agent dispatch later in the same turn re-arms it without the record of the block it spent';
 
   return {
     stop: {
       type: 'command',
       command,
       timeout: STOP_TIMEOUT_SECONDS,
-      describe: mode === 'block'
-        ? `${DESCRIBE_PREFIX} (block): on ${armed}, holds the turn for one more round when the final message has no "what is done / what is running / what is next" report. It means to do that once per turn, but ${rearm}, so it is the harness's own stop_hook_active that prevents a second block; it matches the report's shape only and cannot verify anything in it, and ${removal}.`
-        : `${DESCRIBE_PREFIX} (observe): on ${armed}, writes to stderr what a blocking gate would have refused in the final message and never holds the turn; it matches the report's shape only and cannot verify anything in it, and ${removal}.`,
+      describe: {
+        block: `${DESCRIBE_PREFIX} (block): on ${armed}, holds the turn for one more round when the final message has no "what is done / what is running / what is next" report, once per turn — the spent block is recorded where nothing inside the turn touches it, and the UserPromptSubmit half clears that record when the next turn starts; it matches the report's shape only and cannot verify anything in it, and ${removal}.`,
+        observe: `${DESCRIBE_PREFIX} (observe): on ${armed}, writes to stderr what a blocking gate would have refused in the final message and never holds the turn; it matches the report's shape only and cannot verify anything in it, and ${removal}.`,
+        off: `${DESCRIBE_PREFIX} (off): disarmed — it holds no turn and reports nothing until ${GATE_ENV_FLAG} in this command is block or observe, which this installer's --mode sets; ${removal}.`,
+      }[mode],
+    },
+    // The turn boundary, at both levels: what lets the Stop half keep its record of a spent block for
+    // exactly one turn.
+    turnStart: {
+      type: 'command',
+      command,
+      timeout: POST_TOOL_TIMEOUT_SECONDS,
+      describe: `${DESCRIBE_PREFIX} (${mode}, turn start): clears the Stop half's record of a block it spent in the previous turn, so it can block once in this one; it arms nothing and prints nothing, and ${removal}.`,
+    },
+    // A resume, at coverage 2 only: the level that reads the register is the only level a resume can mislead.
+    sessionStart: coverage !== 2 ? null : {
+      type: 'command',
+      command,
+      timeout: POST_TOOL_TIMEOUT_SECONDS,
+      describe: `${DESCRIBE_PREFIX} (${mode}, resume): notes that this session was resumed in a fresh process, whose list of background work starts empty, so the next Stop does not read the old process's tasks as gone; it arms nothing and prints nothing, and ${removal}.`,
     },
     // Exactly one arming half per level. Writing the half a level ignores would cost a Node
     // start per event for nothing; omitting the half it reads would leave a gate that never fires.
@@ -312,92 +479,31 @@ export function normaliseSkills(skills) {
   return seen;
 }
 
-function isOurs(hook) {
-  return plainObject(hook) && typeof hook.describe === 'string' && hook.describe.startsWith(DESCRIBE_PREFIX);
-}
-
-function wearsOurName(hook) {
-  return plainObject(hook) && typeof hook.command === 'string' && hook.command.includes(HOOK_MARKER);
-}
-
 /**
- * The one kind of hook this installer did not write that it may treat as its own — and only when
- * the user passes `--adopt`: a hook that runs this gate and has NO `describe` key at all. The
- * absence is the evidence: it is what Claude Code leaves of this installer's own hooks whenever it
- * writes the settings file, and what an older copy of this installer, or a hand-wiring, leaves.
- * A `describe` written by anything else, an empty one included, is somebody's statement of
- * ownership, and that hook is reported and left alone whatever flags are passed.
- */
-function isAdoptable(hook) {
-  return wearsOurName(hook) && !Object.hasOwn(hook, 'describe');
-}
-
-/**
- * Every hook that runs this gate but was not written by this installer: where it sits, and which
- * kind it is — `absent` (no describe; `--adopt` can take it) or `foreign` (a describe from
- * something else; never adopted). Scanned over every event key, as removal is, because a hook
- * nobody can see is a hook nobody can remove.
+ * Every hook that runs this gate, or may, but is not this installer's: where it sits, and which kind
+ * it is — `adoptable` (it runs the gate in a shape this installer never writes; `--adopt` can take
+ * it), `unclear` (it names the gate file where this installer cannot tell whether the gate runs;
+ * never adopted) or `foreign` (a describe something else wrote; never adopted). Scanned over every
+ * event key, as removal is, because a hook nobody can see is a hook nobody can remove.
  */
 export function findUnownedGateHooks(settings) {
-  const found = [];
-  for (const event of eventKeys(settings)) {
-    for (const group of readableGroups(settings, event) ?? []) {
-      for (const hook of group.hooks) {
-        if (!wearsOurName(hook) || isOurs(hook)) continue;
-        found.push({ event, matcher: group.matcher, describe: isAdoptable(hook) ? 'absent' : 'foreign' });
-      }
-    }
-  }
-  return found;
-}
-
-/** `Stop (matcher *)`: a hook named the way a user finds it in the file. */
-export function hookLabel({ event, matcher }) {
-  return typeof matcher === 'string' ? `${event} (matcher ${matcher})` : `${event} (no matcher)`;
+  return findUnownedHooks(settings, IDENTITY);
 }
 
 /** One line per unowned hook, saying what it is and what can be done about it. */
 function unownedLines(unowned) {
-  return unowned.map((hook) => (hook.describe === 'absent'
-    ? `  - ${hookLabel(hook)}: runs this gate with no describe. Claude Code drops describe whenever it writes this file, so this is most likely a hook this installer wrote; an older copy of it, or a hand-wiring, looks the same.`
-    : `  - ${hookLabel(hook)}: runs this gate under a describe this installer did not write, so it is never adopted — remove it by hand, or with whatever wrote it.`));
+  return unowned.map((hook) => `  - ${hookLabel(hook)}: ${unownedReason(hook.kind, OWN_SHAPE, { why: hook.why })}`);
 }
+
+/** What `--adopt` took a hook it could not fully read on, printed under the line naming each one (THE OVERRIDE in `./hook-ownership.mjs`). */
+const OVERRIDE_BASIS = '--adopt took each because this installer could not tell whether it ran the gate: it names the gate file, or carries this installer\'s own describe, and writes nothing to the gate file.';
+/** How to take such a hook over, where a run without `--adopt` left it. */
+const OVERRIDE_ADVICE = 'each hook above that this installer cannot fully read and that does not write to the gate file';
 
 function countOf(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
-/**
- * The groups under one event key that are shaped the way this script understands — GROUP BY
- * GROUP, never all-or-nothing.
- *
- * SCANNING is done over every key in `settings.hooks` rather than over this module's own event
- * list, so it meets keys written by other tools, by other versions of this one, and by hand.
- * Refusing the whole run because of somebody else's typo three keys away would make `--remove`
- * fail exactly when a user is trying to get rid of us.
- *
- * Skipping the whole KEY on one bad group is the same failure wearing a politer face, and it is
- * worse than failing loudly: with a malformed group beside it, our own `Stop` hook in the good
- * group survived `--remove` while the run printed "Removed 1 … hook" (measured). A group whose
- * `hooks` is not an array holds no hook entries for us to find, so skipping just that group
- * loses nothing and reaches everything else.
- */
-function isReadableGroup(group) {
-  return plainObject(group) && Array.isArray(group.hooks);
-}
-
-function readableGroups(settings, event) {
-  const value = settings.hooks?.[event];
-  if (!Array.isArray(value)) return null;
-  return value.filter(isReadableGroup);
-}
-
-/** Every event key present in the file. A snapshot, because the callers delete keys. */
-function eventKeys(settings) {
-  if (!plainObject(settings) || !Object.hasOwn(settings, 'hooks')) return [];
-  if (!plainObject(settings.hooks)) throw new Error('refusing to write: the settings "hooks" key is not an object');
-  return Object.keys(settings.hooks);
-}
 
 /** The groups for one event this script intends to WRITE into, validated. Anything shaped
  *  unexpectedly is refused rather than reshaped: this file is editing a settings file it
@@ -416,16 +522,19 @@ function eventGroups(settings, event) {
 /**
  * Every place this version can write, and the level decides which: `buildHookEntries` returns
  * `null` for each entry the chosen level does not read, and a null row is not written.
- * Coverage 1 is `Stop` plus `PostToolUse` matcher `Agent` — v0.16.1's pair exactly. Coverage 2
- * is `Stop` plus `SubagentStart`, one event that covers every subagent kind, foreground and
- * backgrounded alike, and `PostToolUse` matcher `Skill` only for a configured list; the second
- * family, work in flight at a turn end, needs no event of its own at all, because the harness
+ * Coverage 1 is `Stop` plus `PostToolUse` matcher `Agent`, which is v0.16.1's pair, plus
+ * `UserPromptSubmit`. Coverage 2 is `Stop` plus `SubagentStart`, one event that covers every
+ * subagent kind, foreground and backgrounded alike. It adds `UserPromptSubmit`, `SessionStart`
+ * matcher `resume`, and `PostToolUse` matcher `Skill` only for a configured list. The second
+ * family, work in flight at a turn end, needs no ARMING event of its own, because the harness
  * already hands the `Stop` payload its own register of it.
  *
  * `removeHooks` deliberately does NOT read this list. See its own comment.
  */
 const HOOK_PLAN = Object.freeze([
   { event: 'Stop', matcher: STOP_MATCHER, key: 'stop' },
+  { event: TURN_HOOK_EVENT, matcher: TURN_MATCHER, key: 'turnStart' },
+  { event: SESSION_START_EVENT, matcher: RESUME_MATCHER, key: 'sessionStart' },
   { event: 'SubagentStart', matcher: SUBAGENT_MATCHER, key: 'subagentStart' },
   { event: 'PostToolUse', matcher: AGENT_MATCHER, key: 'agentTool' },
   { event: 'PostToolUse', matcher: SKILL_MATCHER, key: 'skill' },
@@ -439,16 +548,20 @@ const HOOK_PLAN = Object.freeze([
 export function installHooks(settings, { entries, adopt = false }) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
 
-  // Scanned over EVERY event key, not only the ones this version writes: a hook wearing the
-  // gate's filename under an event we no longer touch is still somebody's decision, and
-  // stacking a second gate beside it would spend two of the eight shared blocks on one
-  // missing report. Every such hook is named, so the refusal is something a user can act on,
-  // and `--adopt` lifts it for a hook with no describe at all — never for any other.
-  const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && hook.describe === 'absent'));
+  // Scanned over EVERY event key, not only the ones this version writes: a hook running the
+  // gate under an event we no longer touch is still somebody's decision, and stacking a second
+  // gate beside it would spend two of the eight shared blocks on one missing report. Every such
+  // hook is named, so the refusal is something a user can act on, and `--adopt` lifts it for a
+  // hand-wiring and for a hook it cannot fully read that THE OVERRIDE takes — never for any other hook it
+  // cannot tell runs the gate, nor one under somebody else's describe.
+  const blockers = findUnownedGateHooks(settings).filter((hook) => !(adopt && (hook.kind === 'adoptable' || hook.overridable)));
   if (blockers.length > 0) {
-    const lines = ['refusing to write: each hook below already runs this gate but was not written by this installer.', ...unownedLines(blockers)];
-    if (blockers.some((hook) => hook.describe === 'absent')) {
-      lines.push("Run this script again with --adopt to treat each hook with no describe as this installer's own and replace it.");
+    const lines = ['refusing to write: each hook below already runs this gate, or may, and was not written by this installer.', ...unownedLines(blockers)];
+    if (blockers.some((hook) => hook.kind === 'adoptable')) {
+      lines.push('Run this script again with --adopt to replace each hook above that runs this gate in a shape this installer never writes with this installer\'s own.');
+    }
+    if (blockers.some((hook) => hook.overridable)) {
+      lines.push(`Run this script again with --adopt to take over ${OVERRIDE_ADVICE} — check first that each is the gate.`);
     }
     throw new Error(lines.join('\n'));
   }
@@ -481,32 +594,33 @@ export function installHooks(settings, { entries, adopt = false }) {
 /**
  * Remove only our own hooks, and leave the file exactly as we found it otherwise.
  *
- * EVENT-AGNOSTIC ON PURPOSE. It scans every key under `settings.hooks` for a `describe`
- * that starts with `DESCRIBE_PREFIX`, rather than iterating the event list this version
+ * EVENT-AGNOSTIC ON PURPOSE. It scans every key under `settings.hooks` for a hook in this
+ * installer's exact shape (`./hook-ownership.mjs`), rather than iterating the event list this version
  * happens to write. The version before this one did the latter, and the moment that list
  * stopped naming `PostToolUse` — which this version's default install no longer writes —
  * every already-installed user's `PostToolUse` hook became unremovable by `--remove`:
  * left in their settings forever, arming a marker nothing reads.
  *
- * With `adopt`, a hook that runs this gate with no `describe` at all goes too (`isAdoptable`).
- * `removed` counts every hook taken out, adopted ones included; `unowned` is what still runs the
- * gate afterwards, so no caller can report the gate gone while a hook is still running it.
+ * With `adopt`, a hook that runs this gate in any other shape goes too, unless a describe somebody
+ * else wrote vetoes it, and so does a hook it cannot fully read that THE OVERRIDE takes. Any other hook it
+ * cannot tell runs the gate never goes. `removed` counts every hook taken out; `adopted` and `tookOver`
+ * count those two kinds; `unowned` is what still runs the gate afterwards, or may, so no caller can report
+ * the gate gone while a hook is still running it.
  */
 export function removeHooks(settings, { adopt = false } = {}) {
   if (!plainObject(settings)) throw new Error('refusing to write: settings must be a JSON object');
   let removed = 0;
   let adopted = 0;
+  let tookOver = 0;
   for (const event of eventKeys(settings)) {
     const groups = readableGroups(settings, event);
     if (groups === null || groups.length === 0) continue;
     for (const group of groups) {
       const kept = group.hooks.filter((hook) => {
-        if (isOurs(hook)) return false;
-        if (adopt && isAdoptable(hook)) {
-          adopted += 1;
-          return false;
-        }
-        return true;
+        const taken = takenAs(hook, IDENTITY, { adopt });
+        if (taken === 'adopted') adopted += 1;
+        if (taken === 'override') tookOver += 1;
+        return taken === null;
       });
       removed += group.hooks.length - kept.length;
       group.hooks = kept;
@@ -517,28 +631,9 @@ export function removeHooks(settings, { adopt = false } = {}) {
     if (settings.hooks[event].length === 0) delete settings.hooks[event];
   }
   if (plainObject(settings.hooks) && Object.keys(settings.hooks).length === 0) delete settings.hooks;
-  return { settings, removed, adopted, unowned: findUnownedGateHooks(settings) };
+  return { settings, removed, adopted, tookOver, unowned: findUnownedGateHooks(settings) };
 }
 
-/**
- * The leading `NAME=value` assignments of a command, as the shell reads them: it stops at the
- * first word that is not one. A value is read only where the shell reads it literally — bare
- * characters with no expansion or operator among them, single quotes, double quotes holding no
- * `$`, backtick or backslash, and a backslash-escaped character — and the first value that is
- * anything else ends the scan, exactly as the first command word does.
- */
-function leadingAssignments(command) {
-  const assignments = [];
-  const pattern = /^\s*([A-Za-z_][A-Za-z0-9_]*)=((?:'[^']*'|"[^"$`\\]*"|\\[^\n]|[A-Za-z0-9_.,:\/@%+=-])*)(?=\s|$)/;
-  let rest = String(command);
-  for (let match = pattern.exec(rest); match; match = pattern.exec(rest)) {
-    const [whole, name, raw] = match;
-    const value = raw.replace(/'([^']*)'|"([^"]*)"|\\([^\n])/g, (_, single, double, escaped) => single ?? double ?? escaped);
-    assignments.push({ name, value });
-    rest = rest.slice(whole.length);
-  }
-  return assignments;
-}
 
 /**
  * What a command sets one of the gate's variables to, read the way the shell hands it to the gate —
@@ -563,7 +658,7 @@ function readAssignment(command, name) {
  * which is exactly what that gate is running at.
  *
  * Only hooks this installer wrote are read — plus, under `--adopt`, the hooks it is about to
- * adopt, so adopting with no `--coverage` keeps the level the adopted command was running at,
+ * adopt or take over, so adopting with no `--coverage` keeps the level the adopted command was running at,
  * exactly as a bare re-run keeps its own. The mode is read from `Stop` by preference, because
  * that is the hook that holds a turn; any other of ours stands in when there is no `Stop`.
  *
@@ -578,11 +673,9 @@ export function readInstalledGate(settings, { adopt = false } = {}) {
   for (const event of eventKeys(settings)) {
     for (const group of readableGroups(settings, event) ?? []) {
       for (const hook of group.hooks) {
-        if (!plainObject(hook) || typeof hook.command !== 'string') continue;
-        let adopted;
-        if (isOurs(hook)) adopted = false;
-        else if (adopt && isAdoptable(hook)) adopted = true;
-        else continue;
+        const taken = takenAs(hook, IDENTITY, { adopt });
+        if (taken === null) continue;
+        const adopted = taken !== 'own';
         const level = readAssignment(hook.command, COVERAGE_ENV_FLAG);
         const mode = readAssignment(hook.command, GATE_ENV_FLAG);
         const watched = readAssignment(hook.command, SKILLS_ENV_FLAG);
@@ -612,7 +705,8 @@ export function readInstalledGate(settings, { adopt = false } = {}) {
     unknown = `its hooks run at different levels: ${candidates.map((entry) => `${hookLabel(entry)} at ${entry.coverage}`).join(', ')}`;
   }
   const skills = [...new Set(candidates.flatMap((entry) => entry.skills))];
-  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown, skills };
+  const events = [...new Set(candidates.map((entry) => entry.event))];
+  return { coverage: unknown ? null : lead.coverage, mode: lead.mode, adopted: lead.adopted, unknown, skills, events };
 }
 
 /** One line naming where the level came from. A silent level is the defect this replaced. */
@@ -633,17 +727,30 @@ function describeLevel({ named, existing, coverage }) {
   return `Set coverage ${coverage} (the default for a new install). ${change} — what that adds, and what it costs, is below.`;
 }
 
-/** Mode keeps its documented default; when that default changes an installed gate, say so. */
-function describeModeChange({ modeGiven, existing, mode }) {
-  if (!existing || existing.mode === mode) return null;
-  if (existing.mode === null) {
-    return modeGiven ? null : `Mode ${mode}, the default — the mode the gate already in this file ran in could not be read from its command. Pass --mode observe or --mode block to choose it.`;
+/**
+ * The mode this run writes, KEPT THE WAY THE LEVEL IS: the one `--mode` names; with none, the mode of the gate
+ * already in the file — `off` included, so a gate disarmed by hand stays disarmed; with neither, `DEFAULT_MODE`.
+ * Through 0.19.0 `--mode` defaulted to observe on every run, so re-running this installer to update,
+ * which is what a release note tells a user to do, switched a block gate to observe. A mode that cannot be read from
+ * the installed hooks is not guessed at: that run gets the default, and says so.
+ */
+export function resolveInstallMode({ named = null, existing = null } = {}) {
+  return named ?? existing?.mode ?? DEFAULT_MODE;
+}
+
+/** One line saying which mode this run wrote and where it came from, when a gate was already in the file. */
+function describeMode({ named, existing, mode }) {
+  if (!existing) return null;
+  if (named === null) {
+    if (existing.mode === null) {
+      return `Mode ${mode}, the default — the mode the gate already in this file ran in could not be read from its command. Pass --mode observe or --mode block to choose it.`;
+    }
+    const source = existing.adopted ? 'read from the adopted hook' : 'already installed in this file';
+    if (mode === 'off') return `Kept mode off (${source}): the gate is disarmed, and holds no turn and reports nothing. Pass --mode observe or --mode block to arm it.`;
+    return `Kept mode ${mode} (${source}). Pass --mode ${mode === 'block' ? 'observe' : 'block'} to change it.`;
   }
-  if (modeGiven) return `Set mode ${mode} (was ${existing.mode}).`;
-  if (existing.mode === 'off') {
-    return `Mode ${mode}, the default — the gate already in this file was disarmed (off), and this run armed it again. To keep it disarmed, set ${GATE_ENV_FLAG}=off in its commands again, or run this script with --remove.`;
-  }
-  return `Mode ${mode}, the default — the gate already in this file ran in ${existing.mode} mode. Pass --mode ${existing.mode} to keep it.`;
+  if (existing.mode === null || existing.mode === mode) return null;
+  return `Set mode ${mode} (was ${existing.mode}).`;
 }
 
 async function readSettings(settingsPath) {
@@ -707,10 +814,10 @@ function parseArguments(argv) {
     if (options.coverage !== null) throw new Error('--remove takes no --coverage');
     return options;
   }
-  // The default is the mode that cannot cost anyone a turn.
+  // No default here: a re-run keeps the mode of the gate already in the file, as it keeps the level, so the
+  // default — for a new install only — is resolved once the file has been read (`resolveInstallMode`).
   options.modeGiven = options.mode !== null;
-  options.mode ??= 'observe';
-  if (!MODES.includes(options.mode)) throw new Error(`--mode must be one of: ${MODES.join(', ')}`);
+  if (options.modeGiven && !MODES.includes(options.mode)) throw new Error(`--mode must be one of: ${MODES.join(', ')}`);
   return options;
 }
 
@@ -733,37 +840,51 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     const settings = await readSettings(settingsPath);
     if (options.remove) {
       // Named before removal, because removal edits `settings` in place.
-      const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.describe === 'absent') : [];
-      const { settings: pruned, removed, adopted, unowned } = removeHooks(settings, { adopt: options.adopt });
+      const unownedBefore = options.adopt ? findUnownedGateHooks(settings) : [];
+      const adoptable = unownedBefore.filter((hook) => hook.kind === 'adoptable');
+      const takenOver = unownedBefore.filter((hook) => hook.overridable);
+      const { settings: pruned, removed, adopted, tookOver, unowned } = removeHooks(settings, { adopt: options.adopt });
+      // Every hook still naming the gate file that this installer reads as not running it: named below, so that no run calls a
+      // file clean while one is in it (LEFT ALONE in `./hook-ownership.mjs`).
+      const leftAlone = findHooksNamingGate(pruned, IDENTITY);
       // Written only when something was removed: a run that removed nothing leaves the file byte
       // for byte as it found it.
       if (removed > 0) await writeSettings(settingsPath, pruned);
       const report = [];
       if (removed > 0) report.push(`Removed ${countOf(removed, 'report-progress gate hook')} from ${settingsPath}.`);
       if (options.adopt) {
-        report.push(adopted > 0
-          ? `Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate with no describe — ${adoptable.map(hookLabel).join(', ')}.`
-          : 'Adopted none: no hook in this file ran this gate without a describe.');
+        if (adopted > 0) report.push(`Adopted ${adopted} of them: ${adopted === 1 ? 'a hook' : 'hooks'} that ran this gate in a shape this installer never writes — ${adoptable.map(hookLabel).join(', ')}.`);
+        // A hook taken although it could not be fully read is said out loud, on a line of its own.
+        if (tookOver > 0) report.push(tookOverLine(takenOver), OVERRIDE_BASIS);
+        if (adopted === 0 && tookOver === 0) report.push('Adopted none: no hook in this file ran this gate in a shape this installer never writes.');
       }
       // THE GATE IS GONE ONLY WHEN NOTHING RUNS IT. This branch once printed "No report-progress
-      // gate was installed … Nothing changed." and exited 0 while two hooks with no describe kept
-      // running the gate. So every hook left running it is named, with what can be done about it,
+      // gate was installed … Nothing changed." and exited 0 while two hooks the harness had stripped
+      // of describe kept running the gate. So every hook left running it is named, with what can be done about it,
       // and the run fails: what was asked for — the gate out of this file — did not happen.
       if (unowned.length === 0) {
-        report.push(removed > 0
-          ? 'No turn will be held again unless you install it back.'
-          : `No report-progress gate was installed in ${settingsPath}. Nothing changed.`);
+        if (leftAlone.length > 0) {
+          report.push(...leftAloneReport(leftAlone, { removed, settingsPath }));
+        } else {
+          report.push(removed > 0
+            ? 'No turn will be held again unless you install it back.'
+            : `No report-progress gate was installed in ${settingsPath}. Nothing changed.`);
+        }
         stdout.write(`${report.join('\n')}\n`);
         return 0;
       }
       if (report.length > 0) stdout.write(`${report.join('\n')}\n`);
       const still = [
-        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
+        `${removed > 0 ? 'The gate is not gone' : 'Nothing was removed, and the gate is not gone'}: ${countOf(unowned.length, 'hook')} in ${settingsPath} still ${unowned.length === 1 ? 'runs' : 'run'} it, or may, and this installer did not write ${unowned.length === 1 ? 'it' : 'them'}.`,
         ...unownedLines(unowned),
       ];
-      if (unowned.some((hook) => hook.describe === 'absent')) {
-        still.push("To remove each hook with no describe as this installer's own, run this script again with --remove --adopt.");
+      if (unowned.some((hook) => hook.kind === 'adoptable')) {
+        still.push('To remove each hook above that runs this gate in a shape this installer never writes, run this script again with --remove --adopt.');
       }
+      if (unowned.some((hook) => hook.overridable)) {
+        still.push(`To take over ${OVERRIDE_ADVICE}, run this script again with --remove --adopt — check first that each is the gate.`);
+      }
+      still.push(...leftAloneReport(leftAlone));
       stderr.write(`${still.join('\n')}\n`);
       return 1;
     }
@@ -786,32 +907,48 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       throw new Error(`refusing to write: --skills needs coverage 2. ${source} At coverage 1 the gate never reads a skill list, so that hook would run on every Skill call and arm nothing. Add --coverage 2 to widen it.`);
     }
 
-    const entries = buildHookEntries({ mode: options.mode, gatePath: resolveGatePath(), skills: options.skills, coverage });
+    // The mode the same way as the level: named, then installed, then the default.
+    const mode = resolveInstallMode({ named: options.mode, existing });
+    const entries = buildHookEntries({ mode, gatePath: resolveGatePath(), skills: options.skills, coverage });
     // Named before installing, because installing edits `settings` in place.
-    const adoptable = options.adopt ? findUnownedGateHooks(settings).filter((hook) => hook.describe === 'absent') : [];
+    const unownedBefore = options.adopt ? findUnownedGateHooks(settings) : [];
+    const adoptable = unownedBefore.filter((hook) => hook.kind === 'adoptable');
+    const takenOver = unownedBefore.filter((hook) => hook.overridable);
     const updated = installHooks(settings, { entries, adopt: options.adopt });
     await writeSettings(settingsPath, updated);
 
-    stdout.write(`Installed the ${options.mode} report-progress gate into ${settingsPath}.\n`);
+    stdout.write(mode === 'off'
+      ? `Installed the report-progress gate into ${settingsPath}, disarmed (off), as the gate already there was.\n`
+      : `Installed the ${mode} report-progress gate into ${settingsPath}.\n`);
     if (options.adopt) {
-      stdout.write(adoptable.length > 0
-        ? `Adopted ${countOf(adoptable.length, 'hook')} that ran this gate with no describe, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`
-        : 'Adopted none: no hook in this file ran this gate without a describe.\n');
+      if (adoptable.length > 0) {
+        stdout.write(`Adopted ${countOf(adoptable.length, 'hook')} that ran this gate in a shape this installer never writes, and replaced ${adoptable.length === 1 ? 'it' : 'them'}: ${adoptable.map(hookLabel).join(', ')}.\n`);
+      }
+      // A hook replaced although it could not be fully read is said out loud, on a line of its own.
+      if (takenOver.length > 0) stdout.write(`${tookOverLine(takenOver)}\n${OVERRIDE_BASIS}\n`);
+      if (adoptable.length === 0 && takenOver.length === 0) stdout.write('Adopted none: no hook in this file ran this gate in a shape this installer never writes.\n');
     }
     stdout.write(`${describeLevel({ named: options.coverage, existing, coverage })}\n`);
-    const modeChange = describeModeChange({ modeGiven: options.modeGiven, existing, mode: options.mode });
-    if (modeChange) stdout.write(`${modeChange}\n`);
+    const modeLine = describeMode({ named: options.mode, existing, mode });
+    if (modeLine) stdout.write(`${modeLine}\n`);
     // Like the mode, a skill list is not carried over, so an update that drops one says so rather
     // than narrowing what arms the gate in silence.
     if (!options.skillsGiven && existing && existing.skills.length > 0) {
       const count = existing.skills.length;
       stdout.write(`Skill list not kept — the gate already in this file treated ${existing.skills.join(', ')} as external agent${count === 1 ? '' : 's'}, and this run named no --skills. Pass --skills ${existing.skills.join(',')}${coverage === 1 ? ' --coverage 2' : ''} to keep ${count === 1 ? 'it' : 'them'}.\n`);
     }
+    // The hook that makes "once per turn" true is new, and an update that adds it says so.
+    if (existing && !existing.events.includes(TURN_HOOK_EVENT)) {
+      stdout.write(`Added a ${TURN_HOOK_EVENT} hook: the gate already in this file had none, so its record of a spent block did not outlast a re-arm later in the same turn. With it, the gate blocks at most once per turn.\n`);
+    }
+    if (coverage === 2 && existing && !existing.events.includes(SESSION_START_EVENT)) {
+      stdout.write(`Added a ${SESSION_START_EVENT} hook (matcher ${RESUME_MATCHER}): without it, the first turn after resuming a session in a fresh process read the old process's background work as gone, and cost one block.\n`);
+    }
     stdout.write((coverage === 1 ? [
       '',
       'ARMED ON ONE THING, and on nothing else:',
       '  - a subagent dispatched through the Agent tool in this turn (PostToolUse, matcher',
-      '    Agent). That is v0.16.1\'s gate exactly.',
+      '    Agent). That is v0.16.1\'s arming signal exactly.',
       '',
       'Every other turn ends exactly as it would with the gate absent — with one exception,',
       'costing one block, once: the marker is per session and is cleared by the Stop that',
@@ -833,10 +970,8 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       '',
       'WHAT --coverage 2 ADDS, AND WHAT IT COSTS. It arms on a subagent of any kind starting,',
       'on a skill you name, and on a change in the harness\'s list of background work. The',
-      'cost: more turns are held, and more ways to arm the gate again within one turn. A',
-      'change in that list after the gate has stood down arms a later Stop afresh with no',
-      'tool call at all. At either level, what then stops a second block is the harness\'s',
-      'own stop_hook_active, not this gate\'s memory.',
+      'cost: more turns are held — a change in that list arms a turn with no tool call at',
+      'all. Neither level blocks more than once in a turn.',
       '',
     ] : [
       '',
@@ -851,13 +986,14 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       '    listed. A task that is merely still running arms nothing, so a dev server left in',
       '    the background does not make every turn for the rest of the session owe a report.',
       '',
-      'Every other turn ends exactly as it would with the gate absent — with three exceptions,',
+      'Every other turn ends exactly as it would with the gate absent — with two exceptions,',
       'each costing one block, once, and each worth hearing about before rather than after:',
       '  - the marker is per session and is cleared by the Stop that ends the turn, so a turn',
       '    that armed and then died without one (a crash, a kill) leaves it behind;',
-      '  - a background result arriving while you ask something trivial arms that trivial turn;',
-      '  - resuming a session in a fresh CLI process starts the background list empty again,',
-      '    so the first turn after a resume can read as a disappearance.',
+      '  - a background result arriving while you ask something trivial arms that trivial turn.',
+      'Resuming a session in a fresh CLI process starts the background list empty again. The',
+      'SessionStart hook written beside the gate (matcher resume) notes the resume, so that',
+      'first turn does not read the old process\'s work as gone.',
       '',
       'It checks the SHAPE of the final message: that a "what is done", a "what is',
       'running" and a "what is next" section are present, and that a running row carries',
@@ -879,40 +1015,46 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       '    sampled in time to see.',
       '',
     ]).join('\n'));
-    if (options.mode === 'block') {
+    if (mode === 'block') {
       stdout.write([
-        'Block mode holds the turn for one more round, once, and then stands down: if the',
-        'next message still has no report, the turn ends anyway. That ceiling is not',
-        'politeness. Claude Code ends a turn after 8 consecutive Stop blocks, the budget is',
+        'Block mode holds the turn for one more round, at most once per turn, and then stands',
+        'down: if the next message still has no report, the turn ends anyway. That ceiling is',
+        'not politeness. Claude Code ends a turn after 8 consecutive Stop blocks, the budget is',
         'shared with every other Stop hook you have installed, and when it runs out the',
         'result comes back as a success with an empty answer.',
-        ...(coverage === 2 ? [
-          '"Once" is the intent rather than a guarantee. The gate\'s record of the spent block',
-          'does not survive a subagent starting, or the background list changing again after',
-          'the gate stood down, so a later Stop of the same turn can arm afresh. At either',
-          'level, the harness\'s stop_hook_active is what stops a second block.',
-        ] : [
-          '"Once" is the intent rather than a guarantee. Another Agent dispatch later in the',
-          'same turn re-arms the gate and rewrites its record of the spent block, so a later',
-          'Stop can arm afresh. At either level, the harness\'s stop_hook_active is what stops',
-          'a second block.',
-        ]),
+        'What keeps it to once is a record of the spent block that nothing inside the turn',
+        'touches, and the UserPromptSubmit hook written beside the gate, which clears that',
+        'record when the next turn starts. UserPromptSubmit was observed firing at every turn',
+        'start and never inside a continuation. A turn it does not fire for (slash-command',
+        'turns are untested) cannot block while an earlier turn\'s block is still on record,',
+        'rather than blocking twice. Keep the hooks together: without that one, the gate',
+        'blocks once per session, not once per turn.',
         '',
       ].join('\n'));
-    } else {
+    } else if (mode === 'observe') {
       stdout.write([
         'Observe mode never holds a turn. It writes what it would have blocked to stderr,',
         'which Claude Code shows you and does not deliver to the model. Read a day of that',
         'before arming --mode block.',
         '',
       ].join('\n'));
+    } else {
+      stdout.write([
+        'Off: every hook this wrote still runs on its event and does nothing, as before this',
+        'run. Arm it with --mode observe or --mode block.',
+        '',
+      ].join('\n'));
     }
-    stdout.write([
-      `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${options.mode} to`,
-      `${GATE_ENV_FLAG}=off in the commands this wrote. Remove it entirely: run this`,
-      'script with --remove.',
+    stdout.write((mode === 'off' ? [
+      'Remove it entirely: run this script with --remove.',
       '',
-    ].join('\n'));
+    ] : [
+      `Disarm without uninstalling: change ${GATE_ENV_FLAG}=${mode} to`,
+      `${GATE_ENV_FLAG}=off in the commands this wrote, and change nothing else in them: a`,
+      'command that is no longer exactly what this installer writes is not recognised as its',
+      'own, and a re-run keeps the gate off. Remove it entirely: run this script with --remove.',
+      '',
+    ]).join('\n'));
     const written = Object.fromEntries(Object.entries(entries).filter(([, entry]) => entry !== null));
     stdout.write(`\nHooks written:\n${JSON.stringify(written, null, 2)}\n`);
     return 0;

@@ -48,14 +48,15 @@ output side"). Same rule: it outranks this file if they ever disagree.
   refuses a turn's final message when that turn started a subagent, invoked a
   listed external-agent skill, or changed the harness's own list of background
   work — and the message carries no progress report. Plus the `SubagentStart`
-  marker writer that arms the first of those. Nothing to do with the journal —
+  marker writer that arms the first of those, and the `UserPromptSubmit` hook that
+  clears its record of a spent block when a turn starts. Nothing to do with the journal —
   separate install, separate flag, separate settings entries. See "The
   progress-report gate" below.
 - `install-report-progress-gate.mjs` — writes and removes those hooks in a
-  settings file. `--mode observe|block`, `--coverage 1|2`, `--skills <names>`, `--remove`, atomic
-  tmp+rename, removal that scans every event key rather than only the ones this
-  version writes, and a refusal to touch a hook wearing the gate's name that it
-  did not write itself.
+  settings file. `--mode observe|block`, `--coverage 1|2`, `--skills <names>`, `--remove`,
+  `--adopt`, atomic tmp+rename, removal that scans every event key rather than only the
+  ones this version writes, and a refusal to touch a hook that runs the gate but is not
+  its own.
 - `release-notes-gate.sh` — the release-notes gate: a `PreToolUse` hook on `Bash`
   that refuses a publish, a `gh`/`glab release create`, a release-looking `git
   tag`, or a version-bump commit when the version being released is not mentioned
@@ -66,8 +67,20 @@ output side"). Same rule: it outranks this file if they ever disagree.
   separate flag, separate settings entry. See "The release-notes gate" below.
 - `install-release-notes-gate.mjs` — writes and removes that one hook in a
   settings file. Same contract as the installer above: `--mode observe|block`,
-  `--remove`, atomic tmp+rename, and a refusal to touch a hook wearing the gate's
-  name that it did not write itself.
+  `--remove`, `--adopt`, atomic tmp+rename, removal that scans every event key, and a
+  refusal to touch a hook that runs the gate but is not its own.
+- `hook-ownership.mjs` — how both installers tell their own hooks from anybody
+  else's, now that Claude Code drops `describe` whenever it writes a settings file:
+  a hook is an installer's own only when its whole command is exactly a shape that
+  installer has released — the gate's own assignments, its interpreter and the gate
+  path, quoted as it quoted them, and nothing else. Another hook that runs the gate is
+  a hand-wiring for `--adopt`. One that only mentions the gate file, only writes to it, or
+  names a different file whose name contains the gate file's is nobody's, with any flag,
+  and a `describe` somebody else wrote vetoes ownership. One where it cannot tell whether
+  the gate runs is named, and a plain re-run never takes it; `--adopt` takes it over,
+  whatever leads the command, unless it writes to the gate file, and says so. `--remove`
+  names every hook it leaves that names the gate file, with why. No hook runs it; the two
+  installers import it.
 
 ## Installing it
 
@@ -260,19 +273,22 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block --covera
 # take it back out; nothing is left behind
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 
-# …including a hook that runs the gate with no describe, as an older install or a hand-wiring leaves
+# …including a hand-wired hook that runs the gate in a shape this installer never writes
 node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 ```
 
-**Updating keeps the level you have.** Re-running the installer with no `--coverage`
-— which is how you pick up a new version of the pack — keeps the level of the gate
-already in that settings file, and says so: `Kept coverage 1 (already installed in
-this file)`. Only `--coverage` changes it, and then the output names the change:
-`Set coverage 2 (was 1)`. A new install with no `--coverage` gets coverage 1.
+**Updating keeps the level and the mode you have.** Re-running the installer with no
+`--coverage` — which is how you pick up a new version of the pack — keeps the level of
+the gate already in that settings file, and says so: `Kept coverage 1 (already installed
+in this file)`. With no `--mode` it keeps that gate's mode the same way, `off` included:
+`Kept mode block (already installed in this file)`. Only `--coverage` and `--mode` change
+them, and then the output names the change: `Set coverage 2 (was 1)`, `Set mode observe
+(was block)`. A new install with no `--coverage` gets coverage 1, and with no `--mode`,
+observe.
 
-It writes two entries into `~/.claude/settings.json` (or the `--settings` file
-you name), and which two depends on the level. At **coverage 2** they are these,
-plus a third only if you named skills:
+It writes three entries at coverage 1 and four at coverage 2 into
+`~/.claude/settings.json` (or the `--settings` file you name). At **coverage 2**
+they are these, plus a fifth only if you named skills:
 
 - **`SubagentStart`, matcher `*`** — arms a per-session marker when a subagent is
   started: foreground or backgrounded, of any `agent_type`. This replaced
@@ -288,16 +304,23 @@ plus a third only if you named skills:
   Returns `{"decision":"block","reason":…}` at exit 0 when the final message
   carries no report. Nothing armed, no gate: a turn that delegated nothing and
   changed nothing ends exactly as it would with the hook absent.
+- **`UserPromptSubmit`, matcher `*`** — clears the `Stop` half's record of a block it
+  spent in the previous turn, so each turn can block once and no more. It arms
+  nothing and prints nothing. Written at both levels; see "One block per turn" below.
+- **`SessionStart`, matcher `resume`** — notes that the session was resumed in a
+  fresh CLI process, whose background list starts empty, so the next `Stop` does
+  not read the old process's tasks as gone. It arms nothing and prints nothing.
+  Coverage 2 only; see "A resume is handled" below.
 - **`PostToolUse`, matcher `Skill`** — written **only** when `--skills` named
   something. Arms on an exact skill name. With no list, this hook does not exist
   at all, so the default install gains no invocation on the `Skill` path.
 
-At **coverage 1** the pair is `Stop` and **`PostToolUse`, matcher `Agent`** —
-v0.16.1's pair exactly — because an `Agent`-tool dispatch is the one signal the
-gate reads at that level. There is no `SubagentStart` hook and no `Skill` hook
+At **coverage 1** the arming half is **`PostToolUse`, matcher `Agent`** —
+v0.16.1's arming half exactly — beside `Stop` and `UserPromptSubmit`, because an
+`Agent`-tool dispatch is the one signal the gate reads at that level. There is no `SubagentStart` hook, no `SessionStart` hook and no `Skill` hook
 there, and `--skills` at coverage 1 is refused rather than written: the gate at
-that level never reads a skill list. Moving between levels replaces the pair
-rather than adding to it, and removal scans **every** event key in your settings
+that level never reads a skill list. Moving between levels replaces the hooks
+rather than adding to them, and removal scans **every** event key in your settings
 for hooks this installer wrote, not just the ones the current level writes. (Before that change, the moment the installer stopped writing
 `PostToolUse`, an already-installed user's `PostToolUse` hook became unremovable
 by `--remove`.)
@@ -362,14 +385,14 @@ file — using the gate's own resolver, so a v0.16.1 entry with no level in its 
 reads as `1` — and writes that level back. Until 0.18.0 it wrote `2` on every run,
 so re-running it to pick up a new version silently widened any coverage-1 gate. It now
 prints which happened: `Kept coverage N (already installed in this file)`, `Set
-coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. If an
-update also changes the mode — `--mode` still defaults to `observe` — it says that
-too, and so does one that drops a `--skills` list it did not repeat.
+coverage N (was M)`, or `Set coverage 1 (the default for a new install)`. **The mode is
+kept the same way**: with no `--mode` it prints `Kept mode block (already installed in
+this file)` — `off` too, for a gate you disarmed by hand — and only `--mode` changes it
+(`Set mode observe (was block)`); a new install with no `--mode` gets `observe`. A re-run
+that drops a `--skills` list it did not repeat says so.
 
-**A new install gets coverage 1**, because coverage 2 holds more turns and has more
-ways to arm a turn again after it has blocked, including a register change that needs
-no tool call (below), and the budget a second block draws on is shared with every
-other `Stop` hook on the machine.
+**A new install gets coverage 1**, because coverage 2 holds more turns, including a
+turn armed by a register change that needs no tool call (below).
 The pack's rule is that a hook able to end a turn is off until a human arms it; the
 wider level is a thing to opt into, not to inherit.
 
@@ -379,26 +402,252 @@ and never blocking — installed, and off. So each level writes exactly the armi
 it reads.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking
-a second copy beside it, so changing mode is one command. A hook wearing the
-gate's filename that this installer did not write is refused, not overwritten, and
-`--remove` names it, by event and matcher, rather than reporting the gate gone: it
-exits 1 while any hook still runs the gate. (It used to print "No report-progress
-gate was installed … Nothing changed." over two such hooks.)
+a second copy beside it, so changing mode is one command.
 
-**`--adopt`** covers the one kind of such hook this installer can vouch for: a hook
-that runs the gate with **no `describe` key at all**. Claude Code leaves exactly that
-of this installer's own hooks. It drops `describe` from every hook entry whenever it
-writes a settings file, and adding a plugin marketplace is enough
-(`../HOOK-OUTPUT-NOTES.md`, third addendum of 2026-09-14). After that, a bare re-run
-refuses and `--remove` exits 1 until `--adopt` is added. An older copy of this
-installer, or a hand-wiring, leaves the same. A command this installer cannot read
-the level from (one that sets the level after `env`, `cd … &&` or `export`, or from
-an expansion) is refused until `--coverage` names the level, and so are hooks that
-run at different levels. With `--adopt`, `--remove` removes it and
-an install replaces it, keeping the level its command runs at when no `--coverage`
-is named, and both say how many they adopted. A hook whose `describe` something else
-wrote is never adopted, with or without the flag: somebody else put it there, and it
-is theirs to remove.
+**It recognises what it wrote by the command, not by `describe`.** Claude Code drops
+`describe` from every hook entry whenever it writes a settings file — adding a plugin
+marketplace, granting a permission, a `/config` toggle — and keeps `command`, `matcher`
+and `timeout` byte for byte (`../HOOK-OUTPUT-NOTES.md`, third and fourth addenda of
+2026-09-14). Because the command survives exactly, the rule reads the whole command, and
+`hook-ownership.mjs` holds it for both gate installers. For this one the **exact shape**
+is, word for word:
+
+1. one or more assignments, each to one of the gate's own variables —
+   `AGENT_SKILLS_PROGRESS_GATE`, `AGENT_SKILLS_PROGRESS_GATE_COVERAGE`,
+   `AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK`, `AGENT_SKILLS_PROGRESS_GATE_SKILLS` — none
+   twice, `AGENT_SKILLS_PROGRESS_GATE` among them, each value bare (`block`, `2`) or
+   single-quoted;
+2. one interpreter word, bare or single-quoted;
+3. the gate, single-quoted, whose basename is exactly `report-progress-gate.mjs`;
+4. nothing else — no argument, `&&`, redirection or comment after it, and no `env`,
+   `cd … &&` or other variable before it.
+
+A command in that shape is read by its interpreter alone.
+
+- **This installer's own, with no flag,** when the interpreter is a single-quoted path
+  whose basename is a Node-compatible runtime's name — `node`, `nodejs` or `bun`, then an
+  optional version (`node-20`, `node22`, `node-v22.11.0`), then an optional `.exe`, in any
+  case — or is the name of the node binary running the installer now. The installer
+  writes `process.execPath`, the path of whatever binary ran it, so that name is not the
+  same on every machine or after every upgrade: `nodejs` is Debian and Ubuntu's package, a
+  side-by-side install carries its version, and bun reports its own binary. Before this
+  rule, hooks written under `node-20` and re-read under `node-22` were measured refused
+  even under `--adopt`, where 0.19.0 took them. The pattern is `NODE_RUNTIME_NAME` in
+  `hook-ownership.mjs`; `nodemon`, `node-gyp` and `bunx` are outside it.
+- **Nobody's** when the interpreter only prints, reads, lists, copies or deletes files
+  (`'/bin/echo'`, `cat`, `unlink`, `xxd`, `du`, `od`): it runs nothing of the gate.
+- **Taken with `--adopt`** when it is a Node-compatible runtime written another way, such as
+  a bare `node`: that runs the gate, so the hook is a hand-wiring.
+- **One the installer cannot fully read** when it is any other program — a name outside that
+  pattern, `deno`, a wrapper script. A plain re-run never takes it, even under this
+  installer's own `describe`, and `--adopt` takes it over and says so (below). `unlink`, `xxd`
+  and `du` in that place were once read as running the gate, which let this installer's own
+  `describe` make a plain re-run take them.
+
+Every version from 0.13.0 on wrote that shape (`HOOK_IDENTITY` in the installer lists
+the shapes), so a bare re-run or a bare `--remove` over hooks the harness has rewritten
+just works, where through 0.19.0 both needed `--adopt`. **Where the harness has not
+dropped it, this installer's own `describe`** on a hook that runs the gate, in any shape,
+makes that hook its own too, as it did through 0.19.0: `--remove` removes it and an
+install replaces it with no flag. A file whose name merely
+contains the gate's — `install-report-progress-gate.mjs`, `report-progress-gate.mjs.bak`
+— is not the gate, and no flag makes it one. To disarm the gate by hand, change the
+value of `AGENT_SKILLS_PROGRESS_GATE` to `off` and change nothing else: a command edited
+any other way is no longer recognised as this installer's own. A re-run keeps it `off`.
+
+A hook with no `describe` that **runs** the gate in any other shape is a hand-wiring. It
+runs the gate when, in some simple command of it, the gate file is the program, or is the
+word straight after an interpreter given no options (a Node-compatible runtime as above,
+`sh`, `bash`, `zsh`, `dash`, `ksh`, `sh.exe`, `bash.exe`, `.`, `source`), or runs inside a
+`sh -c` script or a `$(…)`, backtick or `<(…)` substitution — past any wrapper it reads
+(**Wrappers**, below), such as `timeout 5` or `sudo -u x`. Such a
+hook is refused, not overwritten, and `--remove` names it, by event and matcher, rather
+than reporting the gate gone: it exits 1 while any hook it reads as running the gate is
+still there. (It used to
+print "No report-progress gate was installed … Nothing changed." over two such hooks.)
+**`--adopt`** takes such a hook — a hand-wiring, a `cd … &&` or an `env` in front, a
+bare unquoted `node` — as this installer's own: `--remove` removes it and an
+install replaces it, keeping the level its command runs at when no `--coverage` is
+named, and both say how many they adopted. A command this installer cannot read the
+level from (one that sets the level after `env`, `cd … &&` or `export`, or from an
+expansion) is refused until `--coverage` names the level, and so are hooks that run at
+different levels.
+
+**Some hooks no flag takes, for four reasons.** The installer never takes a hook, with or without
+`--adopt` and whatever `describe` it wears, when it judges that the hook has one of these reasons,
+and it keeps a hook from `--adopt` for no other (`neverTakenReason` in `hook-ownership.mjs` is the
+one place that says so). The reasons are applied as the installer's reader judges the command, and
+that reader can misjudge complex, hand-written shell: some hooks that run the gate read as mentions.
+The forms observed are listed under [Known limits of the reading](#known-limits-of-the-reading),
+below. Remove such a hook by hand.
+
+1. **A mention.** Every place the reader finds the gate file named reaches, as it reads the command,
+   only a program that does not run it — `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm`, `unlink`, `wc`, `xxd`, `du`,
+   `od` or a similar command that prints, reads, lists, copies or deletes files, in the exact shape or any
+   other. It reaches that program as its **argument**, on its **stdin** (a pipe, a here-string, a
+   here-document, or a `<` redirection), or in a shell **comment**, with nothing that program prints
+   flowing on into anything else, and nowhere else in the command. So `cat '<gate>' | grep x`,
+   `wc -l < '<gate>'`, `cat <<< '<gate>'`, a here-document into `cat`, and `true # report-progress-gate.mjs`
+   are all mentions — one data flow spelled several ways. The gate read on the stdin of an interpreter or
+   shell is **not** a mention (`node <<< '<gate>'` runs what node reads), and a comment never downgrades a
+   run elsewhere: `node '<gate>' # note` still runs the gate.
+2. **A write target.** The command writes to the gate file through a redirection, including inside
+   `sh -c`, `eval`, a here-document or a substitution, whether or not it also runs the gate:
+   `timeout 5 >'<gate>' node x` runs `node x` and empties the gate.
+3. **A different file.** Every path in the command that contains the gate file's name ends in another
+   name: a lookalike (`install-report-progress-gate.mjs`, `report-progress-gate.mjs.bak`), or the gate
+   file's name only as a directory (`/x/report-progress-gate.mjs/index.mjs`). A name joined to a glob or
+   a parameter (`*report-progress-gate.mjs`, `"$D"report-progress-gate.mjs`) may be the gate, so it is
+   never a different file.
+4. **Another tool's `describe`,** even over the exact command this installer writes: somebody else put
+   it there, and it is theirs to remove. 0.19.0 never took such a hook either.
+
+**The certainty rule.** A mention or a different file is returned only when the command holds no
+expansion the installer does not resolve: no parameter expansion with an operator (`${G%.bak}`,
+`${G:=…}`, `${G:-…}`, `${G/…/…}`), indirection (`${!V}`), brace expansion or arithmetic anywhere in it,
+and no command substitution whose output feeds an executing program. Such an expansion may turn a
+lookalike into the gate (`G='<gate>.bak'; node "${G%.bak}"` runs the gate) or the gate into another
+file (`node "$(dirname '<gate>/y')"` runs it). A hook that holds one is left **unclear**, never a
+mention or a different file: no flag takes it, `--adopt` takes it, and `--remove` exits 1 over it.
+
+An install writes the gate beside such a hook, and `--remove` leaves it and exits 0 unless another hook
+that it reads as running the gate, or possibly running it, remains. (0.19.0 took the first three under its own describe, and under `--adopt`;
+this version never does.) `--remove` still names each one it leaves, with the reason and which kind of
+it — for example `Stop (matcher *): left alone: only mentions the gate file (comment): …` or
+`Stop (matcher *): left alone: names a different file (directory): …` — and never says no gate was
+installed while one is in the file. It does not follow a hook that copies the gate and runs the copy
+(`cp '<gate>' x && node x`): that is a mention, named as one, so check what it runs. A hook the
+reader misjudges as a mention runs the gate while `--remove` exits 0 over it
+([Known limits of the reading](#known-limits-of-the-reading)). Every other hook that names the gate
+file is taken by `--adopt`, as below.
+
+**A plain re-run never takes a hook it cannot fully read.** A hook where the installer
+**cannot tell** whether the gate runs — the file is an argument of a program it does not
+know (`xargs`, `time`, `rg`, a wrapper script) or the value of one of its options
+(`--gate='<gate>'`, `node --gate='<gate>'` too), comes after a wrapper option or form it does not recognise (**Wrappers**,
+below), follows an interpreter's options (`node --check`), is piped on from a command that
+prints or reads it into any other command, is read on the stdin of an interpreter or a shell
+(`node <'<gate>'`, `node <<< '<gate>'`, `bash < '<gate>'`), sits in a
+variable, a glob, a substitution or a function body, is joined to a variable
+(`"$D"report-progress-gate.mjs`), passes through an expansion the installer does not resolve (the
+certainty rule above: `G='<gate>.bak'; node "${G%.bak}"`), is run in the exact shape by a
+program the installer does not know (`deno`), or shares its command with a write to the gate file
+(`node '<gate>' 2>'<gate>'` empties the gate before node opens it) — is named, with or without
+this installer's own `describe`: `--remove` exits 1 and an install refuses. So is a hook under
+this installer's own `describe` whose command never names the gate file, which may be a script
+of yours that runs it. Over-reporting a hook can be undone; deleting one that was not the gate
+cannot. (0.19.0 took such a hook under its own describe with no flag; this version needs
+`--adopt` for it.)
+
+**`--adopt` is the override for such a hook.** A reader that never guesses will always refuse
+some hand-wrapped hook that does run the gate, and 0.19.0 took such hooks wherever the gate file's
+name appeared in the command, option values included. So `--adopt` takes over every hook the
+installer cannot fully read, whatever leads its command and wherever the gate path sits in it — a
+word of its own, inside a quoted argument, or inside an option value such as `--gate='<gate>'` —
+and every hook under this installer's own `describe` whose command never names the gate file.
+The one it never takes over is a hook that also writes to the gate file — through a redirection of
+its own, or of a substitution, a `sh -c` or `eval` script or a here-document in it, `>>` and `<>`
+included — which may empty the gate or change it around the run: remove that one by hand. When
+`--adopt` takes one, the installer says so, naming each by event and matcher, and keeps the level
+and mode read from its command, as it does for a hand-wiring: `off` where the command sets no mode,
+and the default, said so, where it sets one the installer cannot read.
+
+```text
+Took over 1 hook this installer could not fully read: Stop (matcher *).
+--adopt took each because this installer could not tell whether it ran the gate: it names the gate file, or carries this installer's own describe, and writes nothing to the gate file.
+```
+
+The installer could not tell whether such a hook runs the gate, so check each one before you pass
+`--adopt`.
+
+<a id="known-limits-of-the-reading"></a>
+
+**Known limits of the reading.** The four reasons above are applied as the installer's reader judges
+the command. It reads shell text and runs none of it, and it can misjudge complex, hand-written shell.
+
+**It can read a hook that runs the gate as a hook that only mentions it.** Some complex hooks that wrap
+the gate in shell are classified as a mention although the shell runs the gate. For such a hook
+`--remove` exits 0, says no hook in the file runs the gate as the installer reads it, and lists the
+hook as `left alone: only mentions the gate file (argument)`. No flag, `--adopt` included, takes it
+over. The families observed, with `<gate>` standing for the gate's path:
+
+- a here-document whose body runs the gate through `$(…)` or backticks: `cat <<EOF`, then
+  `$(node '<gate>')`, then `EOF`. The reader keeps the body as data even when the delimiter is
+  unquoted;
+- the output of a group or compound command piped into a shell or an interpreter:
+  `{ cat '<gate>'; } | bash`, `(cat '<gate>') | bash`, `if …; then cat '<gate>'; fi | bash`, and the
+  same with a loop;
+- ANSI-C quoting, `$'…'`, hiding a later command: `echo $'a\'b'; node '<gate>' # '`;
+- `$_` carrying a mentioned argument into the next command: `test -f '<gate>' && node "$_"`;
+- arithmetic that bash evaluates inside `[[`: `[[ 'a[$(node "<gate>")]' -eq 0 ]]` runs the gate where
+  `/bin/sh` is bash, as it is on macOS;
+- process substitution under zsh: `cat '<gate>' > >(bash)`, `exec > >(bash)`;
+- writing a launcher or a copy of the gate to another file and running that: `cp '<gate>' x && node x`,
+  or the same through `tee`.
+
+**If a hook wraps the gate in shell like this, remove it by hand. Do not rely on `--remove`.**
+
+The other limits are not among the four reasons either, and each is either what 0.19.0 did or
+taken only under `--adopt`:
+
+- the gate file's name not written out literally is not read as naming it: a glob that matches it
+  (`node /pack/[r]eport-progress-gate.mjs`), a path read from a file, or a symlink to the gate under
+  another name. Without this installer's own `describe`, no flag takes such a hook and `--remove` does
+  not name it;
+- a group whose `hooks` is not an array is not read, as in 0.19.0;
+- control flow is read by structure: `false && node '<gate>'` reads as running the gate;
+- a write through a program's argument (`sed -i`, `dd of=`, `curl -o`) is not a write target, so
+  `--adopt` may take such a hook;
+- under `--adopt`, a hook this installer did not write and cannot fully read is taken, and named, as
+  0.19.0 took it;
+- the certainty rule is checked over the whole command, so a plain mention beside an unrelated
+  expansion (`X=${Y%.foo}; cat '<gate>'`) is treated as unclear: `--adopt` takes it and `--remove`
+  exits 1 over it;
+- `printf -v`, which captures what it formats into a variable, is handled only as unclear wherever
+  the gate file is named with it: a plain re-run refuses such a hook, `--adopt` takes it and
+  `--remove` exits 1 over it.
+
+**Wrappers.** A command may start with other commands that run the command after them, and
+the installer strips those before it looks for the gate, as many as are nested. It reads each only
+in the forms its manual gives on both macOS and Linux. Each form was run under macOS's `/bin/sh` and
+zsh, and under dash with GNU coreutils 9.1 and 9.4, before it went in; `sudo`'s grammar comes from its
+manual (1.9.13 on both systems), because running it here needs a password, and every `sudo` form
+the table allows was also run as root under Debian 12's dash with sudo 1.9.13p3. The table is
+`WRAPPER_GRAMMARS` in `hook-ownership.mjs`:
+
+| Wrapper | What it may carry before the command it runs |
+| --- | --- |
+| `command` | `-p`, `--`; only first in the command, where the shell reads it |
+| `exec` | nothing; only first in the command |
+| `nohup` | `--` |
+| `nice` | `-n N` for an integer `N` from -2147483648 to 2147483647 (BSD nice refuses any other and runs nothing), `--` |
+| `env` | `-i`, `-`, `-v`, `-u NAME`, `-S` with a string of plain words (split, then read as if written out), `--`, then `NAME=value` words |
+| `timeout` | `-v`, `-k DURATION`, `-s SIGNAL`, `--verbose`, `--foreground`, `--preserve-status`, `--kill-after`, `--signal`, `--`, then a `DURATION` such as `5`, `0.5` or `1m` |
+| `caffeinate` (macOS) | `-d`, `-i`, `-m`, `-s`, `-u`, `-t N`, `-w N`, `--` |
+| `sudo` | `-B`, `-H`, `-n`, `-P`, `-u USER`, `-g GROUP`, `-p PROMPT` and their long names, each value once and with no `$`, backtick, `*`, `?`, `[`, `]`, `{`, `}` or `~` in it, `--`, then `NAME=value` words before any `--` |
+
+**An option or form outside that table is never guessed past.** The hook is one the installer
+cannot fully read, so a plain re-run never takes it, and `--adopt` takes it over by the override
+above. That includes:
+
+- an abbreviated long option (`timeout --sig=KILL`);
+- an option only one system has (`timeout -p`, `env -C`, `nice --adjustment`);
+- `sudo -i`, `-s`, `-E`, `-b`, `-S`, `-A` and `-D`;
+- a value that does not read as its type, such as `timeout 5x`, which makes `timeout` exit without
+  running anything;
+- a value the shell may change before the wrapper sees it, such as `sudo -u $U`: with `U` unset, as it
+  is in a hook, `-u` takes the next word as the user;
+- `command` or `exec` after another wrapper.
+
+Some programs are not read as wrappers at all:
+
+- `time`: under dash it is a separate program that Debian and Ubuntu do not install.
+- `stdbuf`: on macOS it can be killed at load before the command starts.
+- `ionice`, `chrt` and `taskset`: they run nothing when the kernel refuses what they ask.
+- `xargs`, `watch` and `parallel`: they change how or whether the command runs.
+
+If the installer refuses a hook it could have taken, you remove that hook by hand. If it deleted a
+hook it had misread, that could not be undone.
 
 It is deliberately **not** in `settings-fragment.json`. That fragment is the
 journal hook's, and it is meant to be copied wholesale — a gate that can end a
@@ -455,18 +704,31 @@ harness's own backstop rather than relied on as the ceiling — observed, with t
 marker directory made unwritable after arming, a gate that trusted it returned
 `decision: "block"` on three consecutive `Stop`s. One block, then it stands down.
 
-**At either level that is the intent rather than a guarantee, and the difference is
-named here rather than discovered.** At coverage 2, standing down *deletes* the
-marker, and the marker is where the spent block is recorded. So a turn can block on
-one `Stop`, stand down on the next, and, if the register changes again, arm afresh on
-a third with no record left that it already spoke. A subagent starting later in the
-turn does the same, because arming rewrites the marker as unspent. Coverage 1, and
-v0.16.1 before it, have that second hole: an `Agent` dispatch in the continuation
-round rewrites the marker, and the next `Stop` blocks again unless something else
-stops it. Measured against the gate directly, with `stop_hook_active` absent, both
-levels blocked a second time. `stop_hook_active` catches it live, but that is the
-harness's backstop, not this gate's own memory, and the paragraph above is exactly
-the reason not to lean on it. `SubagentStop` is
+**The record of a spent block is a file of its own, and a turn start clears it.**
+Through 0.19.0 the marker was that record, and nothing inside a turn could be allowed
+to touch it, yet arming rewrote it as unspent and standing down deleted it. A turn
+could block, stand down, and then arm again with no record that it had already spoken.
+The next arm could be another `Agent` dispatch, a subagent starting, or the register
+changing again. Measured against that gate with `stop_hook_active` absent, both levels
+blocked a second time. So a block is now also written to `<session>.spent.json`
+before it is emitted, and nothing inside the turn touches that file. The
+installer writes a **`UserPromptSubmit`** hook at both levels, which deletes it and
+prints nothing. That event fires at the start of every turn, including the turn a
+background completion's `<task-notification>` starts, and never inside a `Stop`-forced
+continuation. Text that arrives during a foreground tool call is folded into the
+current turn without it, which keeps a spent block spent. A hook that prints nothing
+adds nothing to the model's request (all OBSERVED, `../HOOK-OUTPUT-NOTES.md`, fourth
+addendum of 2026-09-14). If a turn starts without it, the failure is a missed block,
+never a second one. Slash-command turns were not tested.
+
+Every command the installer writes declares that hook as
+`AGENT_SKILLS_PROGRESS_GATE_TURN_HOOK=UserPromptSubmit`, and the gate reads the
+record only when the command declares it. A command an older installer wrote does not
+declare it, and its settings file has no hook to clear the record. Reading the record
+there would make that gate block once per session. So under those hooks the gate
+decides exactly as 0.19.0 did, and after a re-arm only `stop_hook_active` stops a
+second block. The reason it prints then does not promise once per turn. Re-running
+the installer adds the hook, and says that it did. `SubagentStop` is
 deliberately not wired: it has no 8-block backstop at all, so a bug there would
 hang a child agent instead of costing one continuation.
 
@@ -495,15 +757,39 @@ of these is one block, once:
 - a background result arriving while you ask something trivial arms that trivial
   turn. This is the skill's own trigger ("a background result arrived") and also
   the shape most likely to annoy;
-- a resumed session starts in a fresh CLI process whose background list is empty
-  again — the list belongs to the process, not to the session id (`../NOTES.md`
-  addendum, 2026-09-14) — so the first `Stop` after a resume can read as a burst
-  of disappearances. A swept temp directory does the same in the other direction.
-  This one has no fix, deliberately. Measured, nothing in the `Stop` payload or the
-  hook's environment identifies the CLI process; the hook's parent pid is the CLI
-  only where the shell execs the command, and a baseline scoped to it would suppress
-  every real disappearance wherever that does not hold (`../HOOK-OUTPUT-NOTES.md`,
-  second addendum of 2026-09-14).
+- a swept temp directory loses the baseline, so tasks still running read as new
+  at the next `Stop`.
+
+**A resume is handled, at coverage 2.** A resumed session starts in a fresh CLI
+process whose background list is empty again, because the list belongs to the
+process, not to the session id (`../NOTES.md` addendum, 2026-09-14). So through
+0.19.0 the first `Stop` after a resume read as a burst of disappearances and cost a
+block. Nothing in the `Stop` payload or the hook's environment identifies the CLI
+process. The hook's parent pid is the CLI only where the shell execs the command,
+and a baseline scoped to it would suppress every real disappearance wherever that
+does not hold (`../HOOK-OUTPUT-NOTES.md`, second addendum of 2026-09-14).
+
+So the installer writes a **`SessionStart`** hook on matcher `resume`. It fires for
+`--resume` and `--continue` before the resumed process's first `Stop`, and it was
+observed not firing on a fresh start. The gate acts only on `source: "resume"`.
+`compact` keeps its process and register, and `startup` and `clear` start a session
+id with no baseline. The hook leaves `<session>.resumed.json`, and that session's
+next `Stop` spends it. That `Stop` drops the disappearances only when none of the
+baseline's tasks is still listed, which a new process, whose register starts empty,
+cannot do.
+
+`--fork-session` fires the hook with the **parent's** session id, so the note can
+reach the parent's next `Stop` rather than the fork's. The fork has no baseline to
+misread. The parent keeps every disappearance while any of its tasks is still
+listed, and misses one only when all of them went away in that same turn. A gate
+installed without the hook still pays one block after a resume. Re-running the
+installer adds the hook, and says that it did.
+
+Measured end to end on Claude Code 2.1.181, with a scripted model and a baseline
+left by the old process: `--resume` and `--continue` each ended without a block.
+The same resume without the hook blocked once (`../HOOK-OUTPUT-NOTES.md`, fifth
+addendum of 2026-09-14). Two processes holding one session id at once share one
+baseline; that was not tested.
 
 **What it cannot see at all**, kept accurate rather than aspirational:
 
@@ -543,6 +829,9 @@ node adapters/claude-code/install-release-notes-gate.mjs --mode block
 
 # take it back out; nothing is left behind
 node adapters/claude-code/install-release-notes-gate.mjs --remove
+
+# …including a hand-wired hook that runs the gate in a shape this installer never writes
+node adapters/claude-code/install-release-notes-gate.mjs --remove --adopt
 ```
 
 It writes **one** entry into `~/.claude/settings.json` (or the `--settings` file you name):
@@ -551,9 +840,58 @@ trigger — there is no earlier event to arm a marker on, and nothing is kept be
 Scoped to `Bash` so the hook is not invoked on `Read`, `Edit` or anything else.
 
 Re-running the installer replaces whatever it wrote last time rather than stacking a second
-copy beside it. A hook wearing the gate's filename that this installer did not write is
-refused, not overwritten: somebody else put it there, and it is theirs to remove. It is
-deliberately not in `settings-fragment.json`, for the same reason the progress gate is not —
+copy beside it. **A re-run with no `--mode` keeps the mode of the gate already in the file** —
+`off` too, if you disarmed it by hand — and says so: `Kept mode block (already installed in this
+file). Pass --mode observe to change it.` Only `--mode` changes it (`Set mode observe (was
+block)`), and only a new install with no `--mode` gets `observe`. It recognises that hook by its
+command, by the same rule as the progress gate's installer. The exact shape is
+`AGENT_SKILLS_RELEASE_NOTES_GATE=<value>` and no other assignment, then one interpreter word,
+then the gate path, single-quoted, whose basename is exactly `release-notes-gate.sh`, and
+nothing after it. With the bare word `bash` — what every version since 0.16.0 wrote — that is
+this installer's own; with another shell (`/bin/bash`, `sh`, `zsh`) it runs the gate and is taken
+by `--adopt`; with a program that only reads or deletes files (`shellcheck`, `cat`, `unlink`, `xxd`)
+it is nobody's; with any other program (`bash5`, `/usr/bin/env`) it is one the installer cannot fully
+read.
+Where the harness has not dropped it, this installer's own `describe` on a hook that runs the
+gate, in any shape, makes that hook its own too, as it did through 0.19.0. Until this version
+it went by `describe` alone, which Claude Code drops
+whenever it writes the file, so on a rewritten file `--remove` printed "No release-notes gate
+was installed … Nothing changed." and exited 0 with the hook still running. `--remove` now
+scans every event key, never reports the gate gone while a hook it reads as running the gate
+is left, and exits 1 when one is; it also leaves the file untouched when it removed nothing. A hook with no
+`describe` that runs the gate in any other shape — a `2>/dev/null` or `&& …` after it, or a
+wrapper from the progress gate's **Wrappers** table in front of it, such as `timeout 5` — is
+refused, not overwritten, until `--adopt` takes it. It never takes a hook, with any flag and whatever
+its `describe` says, for the same four reasons as the progress gate's installer, applied as its reader
+judges the command, and for no other: a
+mention (the gate file reaching only a program that does not run it, as `echo`, `cat`, `wc`, `unlink`
+or `shellcheck` do — as its argument, on its stdin via a pipe, a here-string, a here-document or a `<`
+redirection, or in a shell comment, as in `wc -l < '<gate>'`, `cat <<< '<gate>'` or
+`true # release-notes-gate.sh`, and nowhere else in the command); a write target (a redirection
+writes to the gate file, inside `sh -c`, `eval`, a here-document or a substitution too); a different
+file (every path with the gate file's name in it ends in another name, `release-notes-gate.sh.orig` or
+`/x/release-notes-gate.sh/run.sh`); and a `describe` somebody else wrote. A reason holds only when the
+command holds no expansion the installer does not resolve (the certainty rule, above): a hook such as
+`G='<gate>.bak'; bash "${G%.bak}"`, which runs the gate, is left unclear, taken by `--adopt`, never
+called a mention or a different file. `--remove` names each one it leaves, with the reason and its
+kind, exits 0 over them, and never says no gate was installed while one is in the file. The known
+limits of the reading are the progress gate's
+([Known limits of the reading](#known-limits-of-the-reading)), and the first applies here too: a
+hand-written hook that wraps the gate in shell, such as `{ cat '<gate>'; } | bash` or a here-document
+whose body runs `$(bash '<gate>')`, can read as a mention, which `--remove` leaves with exit 0. Remove
+such a hook by hand.
+This installer reads every event key, where 0.19.0's read only `PreToolUse`: a gate hook under any
+other event is read by the same rule. A plain re-run never takes a hook the installer cannot fully
+read, a wrapper option or form that table does not recognise among them, describe or not. `--adopt`
+takes one over by the same override as the progress gate's installer: every such hook, whatever
+leads its command and wherever the gate path sits, unless it writes to the gate file, and every hook
+under this installer's own `describe` whose command never names the gate file. It names each hook it
+took that way on a line of its own, such as
+`Took over 1 hook this installer could not fully read: PreToolUse (matcher Bash).`, and a hook that
+also writes to the gate file is named and left for you to remove by hand. (0.19.0's release-notes
+installer had no `--adopt`; a bare install or `--remove` took such a hook when it wore this
+installer's `describe`.)
+It is deliberately not in `settings-fragment.json`, for the same reason the progress gate is not —
 that fragment is the journal hook's and is meant to be copied wholesale, and a hook that can
 refuse a tool call must never arrive that way.
 

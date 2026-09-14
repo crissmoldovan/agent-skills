@@ -515,6 +515,241 @@ test('the default settings path is the user\'s, and no test ever writes to it', 
 });
 
 // ---------------------------------------------------------------------------
+// Ownership is read from the command, because the command is what the harness keeps.
+//
+// Every settings rewrite observed kept each hook's `command`, `matcher` and `timeout` byte for byte
+// and dropped `describe` (adapters/HOOK-OUTPUT-NOTES.md, third and fourth addenda of 2026-09-14).
+// This installer recognised its hook by `describe`, so on a rewritten file `--remove` printed "No
+// release-notes gate was installed … Nothing changed." and exited 0 with the hook still in place, and
+// an install refused. A hook is now this installer's only when its whole command is exactly the shape
+// every released version wrote: the gate's assignment, bash, and the gate path, single-quoted, and
+// nothing else. A describe somebody else wrote still vetoes that. test/hook-ownership-installers.test.mjs
+// holds the full rule end to end.
+// ---------------------------------------------------------------------------
+
+/** The hook this installer writes, as the harness leaves it: command and timeout, no describe. */
+const strippedReleaseHook = (mode = 'block') => ({
+  type: 'command',
+  command: `${GATE_ENV_FLAG}=${mode} bash '/pack/adapters/claude-code/${HOOK_MARKER}'`,
+  timeout: 10,
+});
+
+/** A hook that runs the gate in a shape no installer wrote — no assignment at all: a hand-wiring. */
+const handWiredReleaseHook = () => ({ type: 'command', command: `bash '/elsewhere/${HOOK_MARKER}'` });
+
+const UNRELATED_BASH_HOOK = Object.freeze({ type: 'command', command: 'someone-elses-bash-hook' });
+
+async function settingsFileWith(name, value) {
+  const dir = await scratch(name);
+  const file = path.join(dir, 'settings.json');
+  const text = JSON.stringify(value, null, 2);
+  await writeFile(file, text);
+  return { dir, file, text };
+}
+
+/** Run a hook command the installer wrote, through /bin/sh, the way the harness runs it. The ambient
+ *  arming variable is cleared, so only the assignment IN the command can arm the gate. */
+function runWrittenCommand(command, payload) {
+  return new Promise((resolve) => {
+    const child = spawn('/bin/sh', ['-c', command], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, [GATE_ENV_FLAG]: undefined },
+    });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+    child.stdin.on('error', () => {});
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+const releaseHooks = (settings) => Object.values(settings.hooks ?? {})
+  .filter(Array.isArray)
+  .flat()
+  .filter((group) => group && Array.isArray(group.hooks))
+  .flatMap((group) => group.hooks)
+  .filter((hook) => typeof hook.command === 'string' && hook.command.includes(HOOK_MARKER));
+
+test('--remove takes out the gate hook after the harness stripped its describe, and says the gate is gone', async () => {
+  const { dir, file } = await settingsFileWith('release-notes-stripped-remove', {
+    model: 'opus',
+    hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [UNRELATED_BASH_HOOK, strippedReleaseHook()] }] },
+  });
+  const result = await runInstaller(['--remove', '--settings', file]);
+  const output = `${result.stdout}${result.stderr}`;
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Removed 1 release-notes gate hook from/);
+  assert.match(result.stdout, /No release will be refused again/);
+  assert.doesNotMatch(output, /Nothing changed|No release-notes gate was installed|--adopt/);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { model: 'opus', hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [UNRELATED_BASH_HOOK] }] } });
+  const { readdir } = await import('node:fs/promises');
+  assert.deepEqual((await readdir(dir)).sort(), ['settings.json'], 'a temp file was left behind');
+});
+
+test('a bare re-install over a stripped gate hook replaces it, and the hook it writes still refuses a release', async () => {
+  const { file } = await settingsFileWith('release-notes-stripped-install', {
+    hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [UNRELATED_BASH_HOOK, strippedReleaseHook('observe')] }] },
+  });
+  const result = await runInstaller(['--mode', 'block', '--settings', file]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /refusing|not written by this installer|--adopt|Adopted/);
+  let written = JSON.parse(await readFile(file, 'utf8'));
+  const hooks = releaseHooks(written);
+  assert.equal(hooks.length, 1, 'the stripped hook was left beside its replacement');
+  assert.ok(hooks[0].describe.startsWith(DESCRIBE_PREFIX));
+  assert.ok(hooks[0].command.startsWith(`${GATE_ENV_FLAG}=block `));
+  assert.deepEqual(written.hooks[HOOK_EVENT][0].hooks[0], UNRELATED_BASH_HOOK);
+
+  // What it wrote fires: a release with no note, run through the command itself.
+  const unnoted = await project({ version: '1.4.0', noted: ['1.3.0'] });
+  assertRefused(await runWrittenCommand(hooks[0].command, bashCall('npm publish', unnoted)), '1.4.0');
+
+  // The harness rewrites the file again; the next update is just as quiet.
+  delete written.hooks[HOOK_EVENT][0].hooks[1].describe;
+  await writeFile(file, JSON.stringify(written, null, 2));
+  const again = await runInstaller(['--mode', 'block', '--settings', file]);
+  assert.equal(again.status, 0, again.stderr);
+  written = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(releaseHooks(written).length, 1);
+});
+
+test('a command that merely contains the gate file\'s name is not the gate, and --adopt never touches it', async () => {
+  const lookalikes = [
+    { type: 'command', command: `${GATE_ENV_FLAG}=block bash '/pack/${HOOK_MARKER}.orig'` },
+    { type: 'command', command: `bash '/pack/my-${HOOK_MARKER}'` },
+  ];
+  const { file, text } = await settingsFileWith('release-notes-lookalike', { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: lookalikes }] } });
+  const removed = await runInstaller(['--remove', '--adopt', '--settings', file]);
+  assert.equal(removed.status, 0, removed.stderr);
+  // Both name the gate file's name, so --remove does not say no gate was installed: it names each hook it left, and why.
+  assert.doesNotMatch(removed.stdout, /No release-notes gate was installed/, 'said no gate was installed while two hooks name the gate file');
+  assert.equal(removed.stdout.split('\n').filter((line) => /^ {2}- PreToolUse \(matcher Bash\): left alone: names a different file/.test(line)).length, 2, removed.stdout);
+  assert.equal(await readFile(file, 'utf8'), text, '--remove --adopt took a hook that does not run the gate');
+
+  const installed = await runInstaller(['--mode', 'block', '--settings', file]);
+  assert.equal(installed.status, 0, installed.stderr);
+  const written = JSON.parse(await readFile(file, 'utf8'));
+  assert.deepEqual(written.hooks[HOOK_EVENT][0].hooks.slice(0, 2), lookalikes, 'install replaced a hook that does not run the gate');
+});
+
+test('a hook that runs the gate without its assignment is named, refused, and taken only with --adopt', async () => {
+  const value = { model: 'opus', hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [UNRELATED_BASH_HOOK, handWiredReleaseHook()] }] } };
+  const { file, text } = await settingsFileWith('release-notes-handwired', value);
+
+  const result = await runInstaller(['--remove', '--settings', file]);
+  const output = `${result.stdout}${result.stderr}`;
+  assert.equal(result.status, 1, 'a --remove that left the gate wired exited as a success');
+  assert.doesNotMatch(output, /No release-notes gate was installed|Nothing changed|No release will be refused again/);
+  assert.match(output, /PreToolUse \(matcher Bash\)/);
+  assert.match(output, new RegExp(`${GATE_ENV_FLAG}=`), 'the output did not say what makes a hook this installer\'s');
+  assert.match(output, /--remove --adopt/);
+  assert.equal(await readFile(file, 'utf8'), text, 'a hand-wired hook was removed without --adopt');
+
+  const refused = await runInstaller(['--mode', 'block', '--settings', file]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /was not written by this installer/);
+  assert.match(refused.stderr, /PreToolUse \(matcher Bash\)/);
+  assert.match(refused.stderr, /again with --adopt/);
+  assert.doesNotMatch(refused.stderr, /by hand first/);
+  assert.equal(await readFile(file, 'utf8'), text);
+
+  const adoptedRemove = await runInstaller(['--remove', '--adopt', '--settings', file]);
+  assert.equal(adoptedRemove.status, 0, adoptedRemove.stderr);
+  assert.match(adoptedRemove.stdout, /Removed 1 release-notes gate hook from/);
+  assert.match(adoptedRemove.stdout, /Adopted 1 of them/);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { model: 'opus', hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [UNRELATED_BASH_HOOK] }] } });
+
+  const { file: fresh } = await settingsFileWith('release-notes-handwired-install', value);
+  const adopted = await runInstaller(['--mode', 'block', '--adopt', '--settings', fresh]);
+  assert.equal(adopted.status, 0, adopted.stderr);
+  assert.match(adopted.stdout, /Adopted 1 hook/);
+  const hooks = releaseHooks(JSON.parse(await readFile(fresh, 'utf8')));
+  assert.equal(hooks.length, 1);
+  assert.ok(hooks[0].describe.startsWith(DESCRIBE_PREFIX), 'the hand-wired hook survived adoption');
+});
+
+test('a describe somebody else wrote vetoes ownership, even over the exact command this installer writes', async () => {
+  const theirs = { ...strippedReleaseHook(), describe: 'written by some other tool' };
+  const value = { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [theirs] }] } };
+  for (const flags of [[], ['--adopt']]) {
+    const { file, text } = await settingsFileWith('release-notes-vetoed-install', value);
+    const refused = await runInstaller(['--mode', 'block', ...flags, '--settings', file]);
+    assert.equal(refused.status, 1, `installed over another tool's gate hook with ${flags.join(' ') || 'no flag'}`);
+    assert.match(refused.stderr, /never adopted/);
+    assert.equal(await readFile(file, 'utf8'), text);
+  }
+  const { file, text } = await settingsFileWith('release-notes-vetoed-remove', value);
+  const removed = await runInstaller(['--remove', '--adopt', '--settings', file]);
+  const output = `${removed.stdout}${removed.stderr}`;
+  assert.equal(removed.status, 1);
+  assert.match(output, /never adopted/);
+  assert.doesNotMatch(output, /No release-notes gate was installed|Nothing changed|No release will be refused again/);
+  assert.equal(await readFile(file, 'utf8'), text, 'another tool\'s gate hook was touched');
+});
+
+test('--remove finds the gate under any event key, and writes nothing when it removed nothing', async () => {
+  const { file } = await settingsFileWith('release-notes-any-key', {
+    hooks: { PostToolUse: [{ matcher: '*', hooks: [strippedReleaseHook()] }], [HOOK_EVENT]: 'not an array at all' },
+  });
+  const removed = await runInstaller(['--remove', '--settings', file]);
+  assert.equal(removed.status, 0, removed.stderr);
+  assert.match(removed.stdout, /Removed 1 release-notes gate hook from/);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { hooks: { [HOOK_EVENT]: 'not an array at all' } });
+
+  const dir = await scratch('release-notes-remove-absent');
+  const absent = path.join(dir, 'settings.json');
+  const nothing = await runInstaller(['--remove', '--settings', absent]);
+  assert.equal(nothing.status, 0, nothing.stderr);
+  assert.match(nothing.stdout, /No release-notes gate was installed/);
+  const { readdir } = await import('node:fs/promises');
+  assert.deepEqual(await readdir(dir), [], '--remove created a settings file that did not exist');
+});
+
+test('a re-run with no --mode keeps the mode of the gate already in the file, over a stripped hook too, and says which happened', async () => {
+  // Through 0.19.0, `--mode` defaulted to observe on every run. A user who re-ran the installer
+  // to update, as a release note says to, switched a block gate to observe. The mode is kept now, and only
+  // --mode changes it.
+  const unnoted = await project({ version: '1.4.0', noted: ['1.3.0'] });
+  for (const [hook, flags, expected, mode] of [
+    [strippedReleaseHook('block'), [], /^Kept mode block \(already installed in this file\)\. Pass --mode observe to change it\.$/m, 'block'],
+    [{ ...strippedReleaseHook('block'), describe: `${DESCRIBE_PREFIX} (block): …` }, [], /^Kept mode block \(already installed in this file\)\./m, 'block'],
+    [strippedReleaseHook('observe'), [], /^Kept mode observe \(already installed in this file\)\. Pass --mode block to change it\.$/m, 'observe'],
+    [strippedReleaseHook('off'), [], /^Kept mode off \(already installed in this file\): the gate is disarmed/m, 'off'],
+    [strippedReleaseHook('block'), ['--mode', 'observe'], /^Set mode observe \(was block\)\.$/m, 'observe'],
+    [strippedReleaseHook('observe'), ['--mode', 'block'], /^Set mode block \(was observe\)\.$/m, 'block'],
+    [strippedReleaseHook('off'), ['--mode', 'block'], /^Set mode block \(was off\)\.$/m, 'block'],
+  ]) {
+    const run = `${hook.command} with ${flags.join(' ') || 'no flags'}`;
+    const { file } = await settingsFileWith('release-notes-mode-change', { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [hook] }] } });
+    const result = await runInstaller([...flags, '--settings', file]);
+    assert.equal(result.status, 0, `${run}: ${result.stderr}`);
+    assert.match(result.stdout, expected, run);
+    assert.doesNotMatch(result.stdout, /Mode observe, the default|armed it again/, run);
+    const hooks = releaseHooks(JSON.parse(await readFile(file, 'utf8')));
+    assert.equal(hooks.length, 1, run);
+    assert.ok(hooks[0].command.startsWith(`${GATE_ENV_FLAG}=${mode} bash `), `${run}: wrote ${hooks[0].command}`);
+    // What was written does what its mode says, run from the command through /bin/sh.
+    const refused = await runWrittenCommand(hooks[0].command, bashCall('npm publish', unnoted));
+    if (mode === 'block') assertRefused(refused, '1.4.0');
+    else assertAllowed(refused);
+  }
+
+  // A mode named and unchanged prints no mode line, and a new install with no --mode is observe.
+  for (const mode of ['block', 'observe']) {
+    const { file } = await settingsFileWith('release-notes-mode-same', { hooks: { [HOOK_EVENT]: [{ matcher: BASH_MATCHER, hooks: [strippedReleaseHook(mode)] }] } });
+    const result = await runInstaller(['--mode', mode, '--settings', file]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /^(?:Kept mode |Set mode |Mode )/m, `--mode ${mode} over ${mode} reported a mode change that did not happen`);
+  }
+  const dir = await scratch('release-notes-mode-fresh');
+  const fresh = await runInstaller(['--settings', path.join(dir, 'settings.json')]);
+  assert.equal(fresh.status, 0, fresh.stderr);
+  assert.match(fresh.stdout, /^Installed the observe release-notes gate into /m);
+  assert.doesNotMatch(fresh.stdout, /^(?:Kept mode |Set mode |Mode )/m);
+});
+
+// ---------------------------------------------------------------------------
 // The skill and the gate must keep saying the same thing about each other.
 // ---------------------------------------------------------------------------
 

@@ -77,9 +77,12 @@ Two consequences follow for these two skills:
   child or written from memory, which is the question this table leaves with `agent-lifecycle`,
   and the gate's own reason string says as much to the model it blocks.
 
-Its ceiling belongs here too, because it bounds what "enforcement" can mean: it acts at most
-once per turn and then stands down — Claude Code ends a turn after 8 consecutive `Stop` blocks,
-and that budget is shared with every other `Stop` hook on the machine — and its marker is keyed
+Its ceiling belongs here too, because it bounds what "enforcement" can mean. It acts at most
+once per turn and then stands down, because Claude Code ends a turn after 8 consecutive `Stop`
+blocks and that budget is shared with every other `Stop` hook on the machine. A
+`UserPromptSubmit` hook the installer writes beside it clears its record of a spent block when
+each turn starts. A gate installed before that hook existed keeps no such record, and only the
+harness's own `stop_hook_active` holds it to one block after a re-arm. Its marker is keyed
 by session, so a turn that dispatched a subagent and then died without a `Stop` leaves the
 marker behind and the next turn in that session pays one block for a dispatch it did not make.
 
