@@ -155,3 +155,36 @@ test('a missing file is evidence, and only for an exact path', () => {
   assert.match(evaluateRepoSignals(noReadme, fixture('rust-crate')).evidence[0], /README\.md is not in this repository/);
   assert.equal(signalId({ repo: { missing: 'CLAUDE.md' } }), 'missing:CLAUDE.md');
 });
+
+test('the shipped fit.json files match the repositories they should, and not the ones they should not', () => {
+  const catalogue = loadCatalogue(packRoot);
+  const table = [
+    ['release-notes', 'versioned-node', 'bare'],
+    ['release-notes', 'rust-crate', 'bare'],
+    ['release-notes', 'changesets', 'bare'],
+    ['github-webhooks', 'webhooks', 'versioned-node'],
+    ['secure-credential-setup', 'webhooks', 'bare'],
+    ['derive-codebase-context', 'bare', null],
+    ['layer-repository-docs', 'rust-crate', 'versioned-node'],
+  ];
+  for (const [skill, matching, notMatching] of table) {
+    const fit = catalogue.get(skill);
+    assert.ok(fit, `${skill} carries no fit.json`);
+    assert.equal(evaluateRepoSignals(fit, fixture(matching)).matched, true, `${skill} did not match ${matching}`);
+    if (notMatching) {
+      assert.equal(evaluateRepoSignals(fit, fixture(notMatching)).matched, false, `${skill} matched ${notMatching}, which it should not`);
+    }
+  }
+});
+
+test('every shipped signals fit is readable by the evaluator, and every skill declares a kind', () => {
+  const catalogue = loadCatalogue(packRoot);
+  assert.ok(catalogue.size >= 26, `only ${catalogue.size} fit.json files found`);
+  for (const [name, fit] of catalogue) {
+    assert.ok(FIT_KINDS.includes(fit.kind), `${name}: ${fit.kind}`);
+    assert.ok(typeof fit.useWhen === 'string' && fit.useWhen.length > 0, `${name}: no useWhen`);
+    if (fit.kind !== 'signals') continue;
+    const list = fit.anyOf ?? fit.allOf;
+    for (const signal of list) assert.notEqual(signalId(signal), 'unreadable', `${name}: ${JSON.stringify(signal)}`);
+  }
+});

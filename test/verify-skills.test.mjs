@@ -11,8 +11,12 @@ const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'verify-skills-'));
   await cp(path.join(repository, 'scripts'), path.join(root, 'scripts'), { recursive: true });
-  await mkdir(path.join(root, 'skills', 'valid-skill'), { recursive: true });
+  await mkdir(path.join(root, 'skills', 'valid-skill', 'references'), { recursive: true });
   await writeFile(path.join(root, 'skills', 'valid-skill', 'SKILL.md'), '---\nname: valid-skill\ndescription: Valid fixture\n---\n');
+  await writeFile(
+    path.join(root, 'skills', 'valid-skill', 'references', 'fit.json'),
+    `${JSON.stringify({ version: 1, kind: 'general', useWhen: 'a fixture' }, null, 2)}\n`,
+  );
   return root;
 }
 
@@ -142,4 +146,36 @@ test('verifier caps the SKILL.md body at 484 lines and admits a body of exactly 
   const rejected = await verify(overCap);
   assert.equal(rejected.status, 1);
   assert.match(rejected.stderr, /body is 485 lines; the cap is 484/);
+});
+
+test('verifier requires every skill to declare where it fits', async () => {
+  const root = await fixture();
+  await mkdir(path.join(root, 'skills', 'unfit-skill'), { recursive: true });
+  await writeFile(path.join(root, 'skills', 'unfit-skill', 'SKILL.md'), '---\nname: unfit-skill\ndescription: No fit\n---\n');
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unfit-skill\/SKILL\.md: no references\/fit\.json/);
+});
+
+test('verifier rejects a fit.json that does not parse, names an unknown kind, or declares no signal', async () => {
+  const cases = [
+    ['broken', '{ not json', /does not parse/],
+    ['wrong-kind', JSON.stringify({ version: 1, kind: 'sometimes', useWhen: 'x' }), /kind must be one of/],
+    ['no-use-when', JSON.stringify({ version: 1, kind: 'general' }), /needs a useWhen line/],
+    ['empty-signals', JSON.stringify({ version: 1, kind: 'signals', useWhen: 'x', anyOf: [] }), /needs a non-empty anyOf or allOf/],
+    ['unreadable-signal', JSON.stringify({ version: 1, kind: 'signals', useWhen: 'x', anyOf: [{ repo: { vibes: 'good' } }] }), /cannot read/],
+  ];
+  for (const [name, body, expected] of cases) {
+    const root = await fixture();
+    await mkdir(path.join(root, 'skills', name, 'references'), { recursive: true });
+    await writeFile(path.join(root, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: fixture\n---\n`);
+    await writeFile(path.join(root, 'skills', name, 'references', 'fit.json'), body);
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `${name} passed verification`);
+    assert.match(result.stderr, expected);
+  }
 });
