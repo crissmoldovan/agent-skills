@@ -11,7 +11,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`, and
-`layer-repository-docs` — twenty-five in all. Routing
+`layer-repository-docs`, and `isolated-change-validation` — twenty-six in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -30,8 +30,11 @@ owns which repository a change belongs in and the tree it happens in; and
 `layer-repository-docs` owns the documentation people read — the layers a repository's
 documents take, the loss audit over anything it replaces, and the newcomer test that
 decides whether a rewrite is fit to hand over; a request enters it through `audit`,
-`draft` or `update`, and the run announces which before it reads anything. A new skill
-must state which of these it does not duplicate.
+`draft` or `update`, and the run announces which before it reads anything; and
+`isolated-change-validation` owns the sandbox a change is proven in before it may land —
+the physically separate lane, the hash-pinned source identity, the gates the parent runs
+itself rather than believing a builder's report, and the handoff bundle the run is
+transferred in. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 
