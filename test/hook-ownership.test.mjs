@@ -47,7 +47,7 @@ test('the fingerprint survives what a user legitimately does to the command', ()
     // Disarmed without uninstalling, which the installers' own output tells a user to do.
     "AGENT_SKILLS_PROGRESS_GATE=off AGENT_SKILLS_PROGRESS_GATE_COVERAGE=1 '/bin/node' '/pack/report-progress-gate.mjs'",
     // Paths with spaces, quoted as the installer quotes them.
-    "AGENT_SKILLS_PROGRESS_GATE=block '/opt/my node/bin/node' '/home/me/my pack/adapters/claude-code/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block '/opt/my node/bin/node' '/srv/my pack/adapters/claude-code/report-progress-gate.mjs'",
     // Double quotes, and a level set from an expansion — the level is read elsewhere; the owner is not in doubt.
     'AGENT_SKILLS_PROGRESS_GATE="block" node "/pack/report-progress-gate.mjs"',
     "AGENT_SKILLS_PROGRESS_GATE=block AGENT_SKILLS_PROGRESS_GATE_COVERAGE=${LEVEL:-2} node '/pack/report-progress-gate.mjs'",
@@ -93,12 +93,18 @@ test('a hook that runs the gate without the assignment leading its command is a 
     "AGENT_SKILLS_PROGRESS_GATE=$MODE node '/pack/report-progress-gate.mjs'",
     // The assignment applies to `true`, and the gate runs in the next command.
     "AGENT_SKILLS_PROGRESS_GATE=block true; node '/pack/report-progress-gate.mjs'",
+    // The assignment arms a file whose name merely CONTAINS the gate's, and the gate runs in the next
+    // command without it. The basename is exact in the fingerprint too, not only in deciding whether
+    // the hook runs the gate: a substring there would call these the installer's own.
+    "AGENT_SKILLS_PROGRESS_GATE=block node '/pack/report-progress-gate.mjs.bak' && node '/pack/report-progress-gate.mjs'",
+    "AGENT_SKILLS_PROGRESS_GATE=block node '/pack/install-report-progress-gate.mjs'; node '/pack/report-progress-gate.mjs'",
     // A nested shell still runs the gate.
     "bash -c 'node /pack/report-progress-gate.mjs --verbose'",
   ]) {
     assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', command);
   }
   assert.equal(classifyHook(hook("bash '/elsewhere/release-notes-gate.sh'"), RELEASE), 'adoptable');
+  assert.equal(classifyHook(hook("AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '/pack/my-release-notes-gate.sh' && bash '/pack/release-notes-gate.sh'"), RELEASE), 'adoptable');
 });
 
 test('a describe somebody else wrote vetoes ownership; the installer\'s own describe does not grant it', () => {
