@@ -320,6 +320,15 @@ to survive that. An absent baseline is read as **empty**, not unknown: a session
 first `Stop` has neither, and the other reading would make the first appearance of
 any task unarmable.
 
+**These files accumulate.** One is written per session that backgrounds anything,
+and it is removed only when a later `Stop` in that session finds the register
+empty — so a session that ends with a dev server still running leaves its baseline
+in the temp directory until the operating system sweeps it. Nothing reads a stale
+one (anything past `MARKER_MAX_AGE_MS` is treated as absent), and a session that
+never backgrounds anything writes no such file at all; but this is new state
+v0.16.1 never wrote, and deleting the directory at any time costs at most one
+block.
+
 ### The coverage level, `AGENT_SKILLS_PROGRESS_GATE_COVERAGE`
 
 The installer writes `AGENT_SKILLS_PROGRESS_GATE_COVERAGE=2` into the command
@@ -390,8 +399,17 @@ declines to block at all: every `Stop` is a fresh process, so that file is the
 only memory it has of having fired. `stop_hook_active` is honoured as the
 harness's own backstop rather than relied on as the ceiling — observed, with the
 marker directory made unwritable after arming, a gate that trusted it returned
-`decision: "block"` on three consecutive `Stop`s. One block, then it stands down,
-so it can never be the hook that walks a session into that. `SubagentStop` is
+`decision: "block"` on three consecutive `Stop`s. One block, then it stands down.
+
+**At coverage 2 that is the intent rather than a guarantee, and the difference is
+named here rather than discovered.** Standing down *deletes* the marker, and the
+marker is where the spent block is recorded — so a turn can block on one `Stop`,
+stand down on the next, and, if the register changes again, arm afresh on a third
+with no record left that it already spoke. v0.16.1 was structurally incapable of
+this: only a tool event could arm, and the marker was always there to be read.
+`stop_hook_active` catches it live, but that is the harness's backstop, not this
+gate's own memory, and the paragraph above is exactly the reason not to lean on
+it. Coverage 1 does not have this shape. `SubagentStop` is
 deliberately not wired: it has no 8-block backstop at all, so a bug there would
 hang a child agent instead of costing one continuation.
 

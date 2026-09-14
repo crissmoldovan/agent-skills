@@ -336,11 +336,22 @@ win: they are the observed record.
 
 ### The `report-progress` gate — Claude Code `Stop`
 
-On a turn that dispatched a subagent through the `Agent` tool, it reads the turn's final
-message. In `block` mode it holds the turn open for one more round when that message carries
-no progress report; in `observe` mode — the default, and the one to live with first — it
-writes what it would have refused to stderr and never holds anything. A turn that dispatched
-nothing ends exactly as it would with the hook absent.
+On a turn that delegated work the reader cannot see, or that changed what is running in the
+background, it reads the turn's final message. In `block` mode it holds the turn open for one
+more round when that message carries no progress report; in `observe` mode — the default, and
+the one to live with first — it writes what it would have refused to stderr and never holds
+anything. A turn that delegated nothing and changed nothing ends exactly as it would with the
+hook absent.
+
+How wide it arms is a level the installer writes into the hook command,
+`AGENT_SKILLS_PROGRESS_GATE_COVERAGE`. Absent or `1` is the narrow original: one signal,
+`PostToolUse` with `tool_name` `Agent`. At `2` it arms on a **subagent of any kind** starting
+(`SubagentStart`), on a skill you named as an external agent (`--skills`, exact name, empty by
+default), and on a **change** in the harness's own register of background work between this
+turn's end and the last one — something appeared, or something that was running is no longer
+listed. A task that is merely still running arms nothing, so a dev server left in the
+background does not make every turn owe a report. It does no matching of command text
+anywhere.
 
 The gate ships with **this repository**, not with the installed skill: `npx skills add`
 copies `skills/report-progress/SKILL.md` and nothing else, so arming the gate means running
@@ -357,20 +368,30 @@ node adapters/claude-code/install-report-progress-gate.mjs --mode block
 node adapters/claude-code/install-report-progress-gate.mjs --remove
 ```
 
-Three limits, stated here because a guard that is misread is worse than no guard:
+Four limits, stated here because a guard that is misread is worse than no guard:
 
 - **It checks the shape of a report, never whether anything in it is true.** It sees three
   section labels, and a literal state and a freshness token on a running row. It cannot tell
   whether `npm test` was ever run, whether `child-7f2` exists, or whether "40s ago" was an
   observation. A message that satisfies it can still be a fabrication; the skill's own
   checklist, run by a reader, is what catches that.
-- **It acts at most once per turn and then stands down.** Claude Code ends a turn after 8
-  consecutive `Stop` blocks, and that budget is shared with every other `Stop` hook on the
-  machine — when it runs out, the result comes back as a success with an empty answer.
+- **It aims to act once per turn, and at coverage 2 that is not guaranteed.** Claude Code ends
+  a turn after 8 consecutive `Stop` blocks, that budget is shared with every other `Stop` hook
+  on the machine, and when it runs out the result comes back as a success with an empty answer.
+  The gate records a spent block in its marker — but standing down deletes that marker, so if
+  the background register changes again a later `Stop` arms fresh and can block a second time.
+  Live, `stop_hook_active` catches that; it is the harness's backstop rather than this gate's
+  own memory, and coverage 1 does not have this shape.
 - **Its marker is keyed by session,** and the `Stop` that ends a turn is what clears it. A
-  turn that dispatched a subagent and then died without a `Stop` — a crash, a kill — leaves
-  the marker behind, so the next turn in that session pays one block for a dispatch it did
-  not make. One block, then cleared.
+  turn that armed and then died without a `Stop` — a crash, a kill — leaves the marker behind,
+  so the next turn in that session pays one block for a dispatch it did not make. One block,
+  then cleared. A resumed session starts in a fresh process whose background list is empty
+  again, which costs one block the same way.
+- **Coverage 2 writes a second file per session,** `<session>.register.json`, beside the marker
+  in the temp directory: the baseline the next turn's edge is compared against, which has to
+  survive the `Stop` that deletes the marker. It is removed only when a later `Stop` finds the
+  register empty, so a session that ends with something still running leaves one behind until
+  the operating system sweeps its temp directory.
 
 ### The `release-notes` gate — Claude Code `PreToolUse`
 
