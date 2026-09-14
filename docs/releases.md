@@ -51,9 +51,10 @@ has more repositories than anyone can track. Three layers as roles rather than r
 a quick start in every repository, a manual once one outgrows its README, and a single
 organisation-wide handbook every other repository links to and none copies — plus the other
 document kinds beside them, one home per fact, and a tier ladder so a small repository is not
-made to grow structure it has not earned. Six carried references hold the depth:
-`references/layer-contents.md`, `references/document-kinds.md`, `references/one-home-per-fact.md`,
-`references/loss-audit.md`, `references/newcomer-test.md` and `references/claim-check.md`.
+made to grow structure it has not earned. Seven carried references hold the depth:
+`references/entry-points.md`, `references/layer-contents.md`, `references/document-kinds.md`,
+`references/one-home-per-fact.md`, `references/loss-audit.md`, `references/newcomer-test.md` and
+`references/claim-check.md`.
 
 **Why.** The shape is the easy half. The skill exists for the two passes that decide whether a
 documentation rewrite is fit to hand over, and that nothing else catches: a **loss audit**, which
@@ -67,6 +68,36 @@ required field nobody wrote down.
 `derive-codebase-context`. It delegates evidence to `investigate-codebase`, places no credential
 (`secure-credential-setup`), makes no placement decision (`workspace-governance`), and opens no
 pull request (`land-complex-change`, `request-blocks-review`).
+
+**Entry points.** A request enters through one of three, and the run announces which in one line
+before it reads anything, rather than asking: `audit` (also `check`, `need`, no word at all, or a
+word it does not recognise) writes nothing in the repository; `draft` (also `ensure`) writes only
+the files it named first; `update` takes the diff from the previous baseline to `HEAD`. Each states
+its scope, what it may write, which of the seven steps it runs, and what it hands back, in
+`references/entry-points.md`. All three end in one report contract — a verdict line, the ranked
+findings, the owner's decisions, then what was run against what was inferred — capped at about
+eighty lines, with longer tables in linked files, everything inline where no file can be written,
+and a total whose rows exist nowhere counted as a failed run rather than a short one.
+
+This is body text, and no frontmatter field was added. `argument-hint` and the other
+argument-declaring fields are Claude Code's, not the open Agent Skills specification's, whose
+reference validator is documented as rejecting unknown frontmatter fields — documented, not run
+here. `$ARGUMENTS` is a body token rather than a field, and what an agent that does not substitute
+it would show a reader is untested. Either way the portable form is the same, and a harness with no
+slash commands matches the same words in a sentence.
+
+**Why those three, and not a longer vocabulary.** Six sessions were given the skill — five a single bare
+word, one a prose request with no command word at all — and a second session graded every run
+against the repository's source. The method held:
+nothing was committed or pushed, no credential value or address leaked, and nearly every finding
+re-checked was true. What failed worst was the entry, and the prose run failed too, which is why
+the report contract matters as much as the vocabulary. Every word bound to nothing, so each run cut the
+procedure into its own subset; two runs given the identical word produced reports that could not be
+compared; reports reached several hundred unranked lines; one never reached the owner while the run
+reported it delivered; and one quoted loss-audit totals its own working file contradicted. The
+entry points, the announcement and the report contract each name the failure they answer. The
+protocol, the cases and what remains unmeasured are in
+[the evaluation page](layer-repository-docs/evaluation.md).
 
 ## Release checklist
 

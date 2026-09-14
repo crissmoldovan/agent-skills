@@ -29,7 +29,8 @@ shape of what a reader is told while long work runs; and `work-in-external-repo`
 owns which repository a change belongs in and the tree it happens in; and
 `layer-repository-docs` owns the documentation people read — the layers a repository's
 documents take, the loss audit over anything it replaces, and the newcomer test that
-decides whether a rewrite is fit to hand over. A new skill
+decides whether a rewrite is fit to hand over; a request enters it through `audit`,
+`draft` or `update`, and the run announces which before it reads anything. A new skill
 must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
