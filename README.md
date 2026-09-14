@@ -364,11 +364,14 @@ listed. A task that is merely still running arms nothing, so a dev server left i
 background does not make every turn owe a report. It does no matching of command text
 anywhere.
 
-**Updating keeps the level you have.** Re-running the installer with no `--coverage` keeps the
-level of the gate already installed, and prints `Kept coverage N (already installed in this
-file)`; only `--coverage` changes it. A new install with no `--coverage` gets `1`: coverage 2
-holds more turns, since a change in the background register arms a turn with no tool call at all.
-A gate that can end a turn is the user's to widen, not a default to inherit.
+**Updating keeps the level and the mode you have.** Re-running the installer with no `--coverage`
+keeps the level of the gate already installed, and prints `Kept coverage N (already installed in
+this file)`; with no `--mode` it keeps that gate's mode — `off` too, if you disarmed it by hand —
+and prints `Kept mode block (already installed in this file)`. Only `--coverage` and `--mode`
+change them, and the output names the change: `Set mode observe (was block)`. A new install with no
+`--coverage` gets `1`: coverage 2 holds more turns, since a change in the background register arms
+a turn with no tool call at all. A new install with no `--mode` gets `observe`. A gate that can end a
+turn is the user's to widen, not a default to inherit.
 
 The gate ships with **this repository**, not with the installed skill: `npx skills add`
 copies `skills/report-progress/SKILL.md` and nothing else, so arming the gate means running
@@ -396,15 +399,21 @@ node adapters/claude-code/install-report-progress-gate.mjs --remove --adopt
 hook entry whenever it writes a settings file, and adding a plugin marketplace is enough to cause
 that; the same writes keep each hook's command byte for byte
 ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), 2026-09-14). So updating or
-removing a gate the harness has rewritten needs no flag, and a hook is this installer's own only
-when its whole command is exactly what some version of the installer wrote: assignments to the
-gate's own `AGENT_SKILLS_PROGRESS_GATE…` variables (the arming one among them, none twice), then the
-node binary and then the gate, each single-quoted, and nothing after. The binary's basename is `node`,
-`nodejs`, `node.exe`, or the name of the node binary running the installer; the gate's is exactly
-`report-progress-gate.mjs`. `--adopt` takes a hook that runs the gate in any other
-shape: the gate file as the program, or straight after an interpreter such as `node` or `bash`. A
-hook that only mentions the file, as `echo`, `cat` or `rm` do, is not the gate, and nothing touches
-it. A hook where the installer cannot tell whether the gate runs (the file as an argument of a
+removing a gate the harness has rewritten needs no flag. The installer's exact shape is
+assignments to the gate's own `AGENT_SKILLS_PROGRESS_GATE…` variables (the arming one among them,
+none twice), then one interpreter, then the gate single-quoted with a basename of exactly
+`report-progress-gate.mjs`, and nothing after. A command in that shape is never unclear. It is the
+installer's own when the interpreter is a single-quoted path whose name is a Node-compatible
+runtime — `node`, `nodejs` or `bun`, with an optional version (`node-20`, `node22`) and an optional
+`.exe` — or the name of the node binary running the installer. The installer writes the path of
+whatever binary runs it, so that name changes from one machine, and one upgrade, to the next. With
+any other interpreter the same shape is named, and `--adopt` takes it; with one that only prints or
+reads files, such as `'/bin/echo'`, it is nobody's. Where the harness has not dropped it, the
+installer's own `describe` on a hook that runs the gate, in any shape, makes that hook its own too,
+as it did through 0.19.0. `--adopt` takes any other hook that runs the gate: the gate file as the
+program, or straight after an interpreter such as `node` or `bash`. A hook that only mentions the
+file, as `echo`, `cat` or `rm` do, is not the gate, and nothing touches it, whatever its `describe`
+says. A hook where the installer cannot tell whether the gate runs (the file as an argument of a
 wrapper or `timeout`, after `node --check`, through a pipe or a variable), and a hook under a
 `describe` something else wrote, are never taken, with or without `--adopt`: `--remove` names them
 and exits 1, and an install refuses until they are gone. The release-notes gate's installer below
@@ -488,11 +497,13 @@ node adapters/claude-code/install-release-notes-gate.mjs --remove
 ```
 
 Like the progress gate's, this installer recognises its hook by the command it wrote, so a settings
-file Claude Code has rewritten needs no flag: a hook is its own only when the whole command is
-exactly `AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<path>/release-notes-gate.sh'`, with nothing
-after it. `--adopt` takes a hook that runs the gate in any other shape; a hook that only mentions the
-gate file (`echo`, `cat`, `shellcheck`) is left alone; and `--remove` exits 1 while any hook still
-runs the gate, or may.
+file Claude Code has rewritten needs no flag: a hook is its own when the whole command is exactly
+`AGENT_SKILLS_RELEASE_NOTES_GATE=<mode> bash '<path>/release-notes-gate.sh'`, with nothing after it,
+or when it runs the gate under this installer's own `describe`. `--adopt` takes a hook that runs the
+gate in any other shape, including that one with another interpreter in place of `bash` (`/bin/bash`,
+`sh`); a hook that only mentions the gate file (`echo`, `cat`, `shellcheck`) is left alone; and
+`--remove` exits 1 while any hook still runs the gate, or may. Re-running it with no `--mode` keeps
+the mode already installed, `off` included, and says so.
 
 Three limits, stated here because a guard that is misread is worse than no guard:
 

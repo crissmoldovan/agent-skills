@@ -59,11 +59,20 @@ the conversation, in a hook the user wired into their own harness.
   with no release-note file at all, where an armed gate correctly never fires.
 - `adapters/claude-code/hook-ownership.mjs` is how both gate installers recognise their own
   hooks: by the command, because Claude Code drops `describe` whenever it writes a settings file
-  and keeps the command byte for byte. A hook is an installer's own only when its whole command is
-  exactly a shape that installer has released; another hook that runs the gate is taken only under
-  `--adopt`, and one that merely names the gate file, or where it cannot tell whether the gate
-  runs, never is. It is covered by `test/hook-ownership.test.mjs` and
-  `test/hook-ownership-installers.test.mjs`.
+  and keeps the command byte for byte. A command in an installer's exact shape — its own
+  assignments, one interpreter word, the single-quoted gate, nothing after — is never unclear. It is
+  the installer's own when that interpreter is one the installer writes: for the report-progress
+  gate, a single-quoted path whose name is a Node-compatible runtime (`node`, `nodejs` or `bun`,
+  with an optional version and `.exe`) or the name of the binary running the installer; for the
+  release-notes gate, the bare word `bash`. It is nobody's when that word only prints or reads
+  files, and `--adopt` takes it otherwise. Where the harness has not dropped it, the installer's own
+  `describe` makes any hook that runs the gate its own, as it did through 0.19.0. Any other hook
+  that runs the gate is taken only under `--adopt`; one that merely names the gate file, or where it
+  cannot tell whether the gate runs, never is. A re-run with no `--mode` keeps the mode already
+  installed, as the report-progress installer keeps its level. It is covered by
+  `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
+  `test/hook-ownership-v0.19.0.test.mjs`, which runs 0.19.0's installers beside this version's on
+  identical settings files and fails on any row where this version does worse.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.
