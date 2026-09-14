@@ -86,7 +86,7 @@ it is not discovered, `npx skills add` does not install it, and
   to say so — a guard that is over-trusted is worse than no guard.
 
 Hooks are tested from the root suite (`test/report-progress-gate.test.mjs`,
-`test/release-notes-gate.test.mjs`, `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs`, `test/freshness-hook-install.test.mjs`) or from the package they feed
+`test/release-notes-gate.test.mjs`, `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs`, `test/hook-ownership-v0.19.0.test.mjs`, `test/freshness-hook-install.test.mjs`) or from the package they feed
 (`packages/agent-journal/test/adapter-claude-code.test.ts`). `npm run verify` runs
 both.
 
