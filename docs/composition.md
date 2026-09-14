@@ -81,7 +81,8 @@ Its ceiling belongs here too, because it bounds what "enforcement" can mean. It 
 once per turn and then stands down, because Claude Code ends a turn after 8 consecutive `Stop`
 blocks and that budget is shared with every other `Stop` hook on the machine. A
 `UserPromptSubmit` hook the installer writes beside it clears its record of a spent block when
-each turn starts. Its marker is keyed
+each turn starts. A gate installed before that hook existed keeps no such record, and only the
+harness's own `stop_hook_active` holds it to one block after a re-arm. Its marker is keyed
 by session, so a turn that dispatched a subagent and then died without a `Stop` leaves the
 marker behind and the next turn in that session pays one block for a dispatch it did not make.
 

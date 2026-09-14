@@ -132,8 +132,9 @@
  * foreground tool call is folded into the current turn without it, which keeps a
  * spent block spent (OBSERVED, ../HOOK-OUTPUT-NOTES.md, fourth addendum of
  * 2026-09-14). Where it does not fire for a turn — a slash-command turn was NOT
- * TESTED — that turn cannot block at all: the failure is a missed block, never a
- * second one.
+ * TESTED — that turn cannot block while an earlier turn's block is still on record,
+ * because nothing else clears it; a turn after one that did not block still can. The
+ * failure is a missed block, never a second one.
  *
  * WITHOUT THE DECLARATION the record is neither written nor read, and the gate
  * decides exactly as 0.19.0 did. A command an older installer wrote names no turn

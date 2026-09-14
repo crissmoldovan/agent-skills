@@ -66,7 +66,7 @@ because Claude Code ends a turn after 8 consecutive blocks and that budget is sh
 other `Stop` hook on the machine. What holds that ceiling is the gate's own record of a block it
 spent, which nothing inside the turn can erase, and a `UserPromptSubmit` hook the installer writes
 beside it, which clears the record when the next turn starts. A turn that hook does not fire for
-cannot block at all. A gate installed before that hook existed keeps its old behaviour until the
+cannot block while an earlier turn's block is still on record. A gate installed before that hook existed keeps its old behaviour until the
 installer is re-run: there, a re-arm later in the turn is stopped only by the harness's own
 `stop_hook_active`.
 

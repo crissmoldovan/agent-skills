@@ -862,9 +862,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         'What keeps it to once is a record of the spent block that nothing inside the turn',
         'touches, and the UserPromptSubmit hook written beside the gate, which clears that',
         'record when the next turn starts. UserPromptSubmit was observed firing at every turn',
-        'start and never inside a continuation; a turn it does not fire for (slash-command',
-        'turns are untested) cannot block at all, rather than blocking twice. Keep the hooks',
-        'together: without that one, the gate blocks once per session, not once per turn.',
+        'start and never inside a continuation. A turn it does not fire for (slash-command',
+        'turns are untested) cannot block while an earlier turn\'s block is still on record,',
+        'rather than blocking twice. Keep the hooks together: without that one, the gate',
+        'blocks once per session, not once per turn.',
         '',
       ].join('\n'));
     } else {

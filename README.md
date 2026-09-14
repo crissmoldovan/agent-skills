@@ -424,7 +424,8 @@ Six limits, stated here because a guard that is misread is worse than no guard:
   starts. It prints nothing. That event was observed firing at the start of every turn, including
   the turn a background completion starts, and never inside a `Stop`-forced continuation
   ([`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md), fourth addendum of
-  2026-09-14). A turn it does not fire for cannot block at all. Turns started by a slash command
+  2026-09-14). A turn it does not fire for cannot block while an earlier turn's block is still on
+  record, because nothing else clears it; after a turn that did not block, it still can. Turns started by a slash command
   were not tested. A gate installed by 0.19.0 or earlier has no such hook, and it behaves exactly
   as it did until the installer is re-run. Under that older gate, only the harness's own
   `stop_hook_active` stops a second block after a re-arm.
