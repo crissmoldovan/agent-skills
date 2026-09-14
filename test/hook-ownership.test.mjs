@@ -1167,3 +1167,44 @@ test('a command that writes to the gate file is never read as running it, and --
   }
   assert.equal(takenAs(hook(`${R} nice -10 bash ${RG} 2>/dev/null`), RELEASE, { adopt: true }), 'override');
 });
+
+// ---------------------------------------------------------------------------
+// A Node runtime normalises its module specifier before loading it: a trailing separator, a `.` segment and a `..`
+// segment are collapsed, so `node '<gate>/'`, `node '<gate>/.'` and `node '<gate>/y/..'` all run the gate (measured on
+// Node 24). Read as a different file — the gate file's name only as a directory — each ran the gate while no flag took
+// it and `--remove` exited 0 calling the file clean. A shell reaching the same path through execve does NOT normalise
+// (`bash '<gate.sh>/'` fails with ENOTDIR and runs nothing), so the release-notes gate keeps reading these as a
+// different file; and `node '<gate>/index.mjs'` still loads a different file.
+// ---------------------------------------------------------------------------
+
+test('a Node runtime normalises a trailing slash, a dot or a dot-dot in its script path, so `node <gate>/` runs the gate: adoptable, never a different file', () => {
+  const { neverTakenReason, takenAs, findUnownedHooks } = ownership;
+  const GP = '/pack/adapters/claude-code/report-progress-gate.mjs';
+  // Forms a Node runtime resolves back to the gate; each runs the gate.
+  for (const command of [`node '${GP}/'`, `node '${GP}/.'`, `node '${GP}/y/..'`, `node '${GP}//'`, `node '${GP}/./'`, `'/usr/bin/node' '${GP}/'`]) {
+    assert.equal(neverTakenReason(hook(command), PROGRESS), null, `${command}: given a reason no flag takes`);
+    assert.equal(classifyHook(hook(command), PROGRESS), 'adoptable', `${command}: not read as running the gate`);
+    assert.equal(takenAs(hook(command), PROGRESS), null, `${command}: taken with no flag`);
+    assert.equal(takenAs(hook(command), PROGRESS, { adopt: true }), 'adopted', `${command}: --adopt did not take it`);
+    // Under this installer's own describe, a hook that runs the gate is its own, whatever the command became.
+    assert.equal(classifyHook(hook(command, ownDescribe), PROGRESS), 'ours', `${command} (own describe)`);
+    // --remove without --adopt must not call the file clean: the hook is found as one that runs the gate.
+    assert.deepEqual(
+      findUnownedHooks({ hooks: { Stop: [{ matcher: '*', hooks: [hook(command)] }] } }, PROGRESS),
+      [{ event: 'Stop', matcher: '*', kind: 'adoptable', why: 'runs', overridable: false }],
+      command,
+    );
+  }
+  // A real different file inside a directory named like the gate is still a different file, and does not run.
+  for (const command of [`node '${GP}/index.mjs'`, `node '${GP}.bak'`, `node other.mjs '${GP}.d/x'`]) {
+    assert.equal(neverTakenReason(hook(command), PROGRESS), 'differentFile', command);
+    assert.equal(classifyHook(hook(command), PROGRESS), null, command);
+  }
+  // A `.`/`source` word and a shell reach the path through the file system, not Node's loader, so they do NOT normalise:
+  // the release-notes gate keeps reading a trailing slash as a different file, matching execve's ENOTDIR.
+  const RGP = '/pack/adapters/claude-code/release-notes-gate.sh';
+  for (const command of [`bash '${RGP}/'`, `bash '${RGP}/.'`, `. '${RGP}/'`, `AGENT_SKILLS_RELEASE_NOTES_GATE=block bash '${RGP}/y/..'`]) {
+    assert.equal(neverTakenReason(hook(command), RELEASE), 'differentFile', command);
+    assert.equal(takenAs(hook(command), RELEASE, { adopt: true }), null, `${command}: --adopt wrongly took a shell path that does not run`);
+  }
+});

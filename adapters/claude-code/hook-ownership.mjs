@@ -465,6 +465,30 @@ function basename(word) {
   return segments[segments.length - 1];
 }
 
+/**
+ * The final component of a script path as a Node runtime resolves it before loading it: a trailing separator is
+ * dropped, a `.` segment is skipped, and a `..` segment pops the one before it — so `x/report-progress-gate.mjs/`,
+ * `x/report-progress-gate.mjs/.` and `x/report-progress-gate.mjs/y/..` all load `report-progress-gate.mjs`, while
+ * `x/report-progress-gate.mjs/index.mjs` loads a different file. Node's module loader normalises the specifier this
+ * way (measured on Node 24: each of those forms runs the gate); a shell running the same path through `execve` does
+ * NOT (`bash x/release-notes-gate.sh/` fails with ENOTDIR and runs nothing), so this is used only for a Node runtime's
+ * script argument — never for a shell, for `.`/`source`, or for a program word the shell hands to `execve`. Read as a
+ * different file, each of these ran the gate while no flag took it and `--remove` exited 0 calling the file clean.
+ */
+function nodeModuleBasename(word) {
+  const resolved = [];
+  for (const segment of String(word).split(/[\\/]/)) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') {
+      if (resolved.length > 0 && resolved[resolved.length - 1] !== '..') resolved.pop();
+      else resolved.push(segment);
+      continue;
+    }
+    resolved.push(segment);
+  }
+  return resolved.length > 0 ? resolved[resolved.length - 1] : '';
+}
+
 const NONE = 0;
 const UNCLEAR = 1;
 const RUNS = 2;
@@ -864,7 +888,12 @@ function simpleCommandGateUse({ words: parsed, substitutions, heredocs, redirect
   }
   if (isInterpreter(program)) {
     // Its script is a word that is not an option: `node --gate=<gate>` names the gate in an option, which node refuses.
-    if (rest.length > 0 && !rest[0].startsWith('-') && basename(rest[0]) === gateFile) return RUNS;
+    // A Node runtime normalises the path before loading it, so `node '<gate>/'`, `node '<gate>/.'` and `node '<gate>/y/..'`
+    // all run the gate; `.` and `source` open the path as written and do not, so only a Node runtime's argument is normalised.
+    if (rest.length > 0 && !rest[0].startsWith('-')) {
+      const scriptName = NODE_RUNTIME_NAME.test(program) ? nodeModuleBasename(rest[0]) : basename(rest[0]);
+      if (scriptName === gateFile) return RUNS;
+    }
     return unclearIfNamed(rest);
   }
   if (MENTIONS.has(program)) return inert ? plain : unclearIfNamed(rest);
