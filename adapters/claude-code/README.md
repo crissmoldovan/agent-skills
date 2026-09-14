@@ -462,7 +462,8 @@ word straight after an interpreter given no options (a Node-compatible runtime a
 `sh -c` script or a `$(…)`, backtick or `<(…)` substitution — past any wrapper it reads
 (**Wrappers**, below), such as `timeout 5` or `sudo -u x`. Such a
 hook is refused, not overwritten, and `--remove` names it, by event and matcher, rather
-than reporting the gate gone: it exits 1 while any hook still runs the gate. (It used to
+than reporting the gate gone: it exits 1 while any hook it reads as running the gate is
+still there. (It used to
 print "No report-progress gate was installed … Nothing changed." over two such hooks.)
 **`--adopt`** takes such a hook — a hand-wiring, a `cd … &&` or an `env` in front, a
 bare unquoted `node` — as this installer's own: `--remove` removes it and an
@@ -472,13 +473,16 @@ level from (one that sets the level after `env`, `cd … &&` or `export`, or fro
 expansion) is refused until `--coverage` names the level, and so are hooks that run at
 different levels.
 
-**Some hooks no flag takes, for exactly four reasons.** The installer never takes a hook, with or
-without `--adopt` and whatever `describe` it wears, when it knows the hook does not run the gate for
-one of these reasons, and it keeps a hook from `--adopt` for no other (`neverTakenReason` in
-`hook-ownership.mjs` is the one place that says so):
+**Some hooks no flag takes, for four reasons.** The installer never takes a hook, with or without
+`--adopt` and whatever `describe` it wears, when it judges that the hook has one of these reasons,
+and it keeps a hook from `--adopt` for no other (`neverTakenReason` in `hook-ownership.mjs` is the
+one place that says so). The reasons are applied as the installer's reader judges the command, and
+that reader can misjudge complex, hand-written shell: some hooks that run the gate read as mentions.
+The forms observed are listed under [Known limits of the reading](#known-limits-of-the-reading),
+below. Remove such a hook by hand.
 
-1. **A mention.** Every place the gate file is named reaches only a program the installer knows does not
-   run it — `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm`, `unlink`, `wc`, `xxd`, `du`,
+1. **A mention.** Every place the reader finds the gate file named reaches, as it reads the command,
+   only a program that does not run it — `echo`, `printf`, `cat`, `grep`, `ls`, `test`, `cp`, `mv`, `rm`, `unlink`, `wc`, `xxd`, `du`,
    `od` or a similar command that prints, reads, lists, copies or deletes files, in the exact shape or any
    other. It reaches that program as its **argument**, on its **stdin** (a pipe, a here-string, a
    here-document, or a `<` redirection), or in a shell **comment**, with nothing that program prints
@@ -498,22 +502,24 @@ one of these reasons, and it keeps a hook from `--adopt` for no other (`neverTak
 4. **Another tool's `describe`,** even over the exact command this installer writes: somebody else put
    it there, and it is theirs to remove. 0.19.0 never took such a hook either.
 
-**The certainty rule.** A mention or a different file is returned only when every word naming the gate is
-plain literal text. An expansion the installer does not resolve — a parameter expansion with an operator
-(`${G%.bak}`, `${G:=…}`, `${G:-…}`, `${G/…/…}`), indirection (`${!V}`), brace expansion or arithmetic, or
-a command substitution whose output feeds an executing program — may turn a lookalike into the gate
-(`G='<gate>.bak'; node "${G%.bak}"` runs the gate) or the gate into another file
-(`node "$(dirname '<gate>/y')"` runs it). Such a hook is left **unclear**, never a mention or a different
-file: no flag takes it, `--adopt` takes it, and `--remove` exits 1 over it.
+**The certainty rule.** A mention or a different file is returned only when the command holds no
+expansion the installer does not resolve: no parameter expansion with an operator (`${G%.bak}`,
+`${G:=…}`, `${G:-…}`, `${G/…/…}`), indirection (`${!V}`), brace expansion or arithmetic anywhere in it,
+and no command substitution whose output feeds an executing program. Such an expansion may turn a
+lookalike into the gate (`G='<gate>.bak'; node "${G%.bak}"` runs the gate) or the gate into another
+file (`node "$(dirname '<gate>/y')"` runs it). A hook that holds one is left **unclear**, never a
+mention or a different file: no flag takes it, `--adopt` takes it, and `--remove` exits 1 over it.
 
 An install writes the gate beside such a hook, and `--remove` leaves it and exits 0 unless another hook
-still runs the gate, or may. (0.19.0 took the first three under its own describe, and under `--adopt`;
+that it reads as running the gate, or possibly running it, remains. (0.19.0 took the first three under its own describe, and under `--adopt`;
 this version never does.) `--remove` still names each one it leaves, with the reason and which kind of
 it — for example `Stop (matcher *): left alone: only mentions the gate file (comment): …` or
 `Stop (matcher *): left alone: names a different file (directory): …` — and never says no gate was
 installed while one is in the file. It does not follow a hook that copies the gate and runs the copy
-(`cp '<gate>' x && node x`): that is a mention, named as one, so check what it runs. Every other hook
-that names the gate file is taken by `--adopt`, as below.
+(`cp '<gate>' x && node x`): that is a mention, named as one, so check what it runs. A hook the
+reader misjudges as a mention runs the gate while `--remove` exits 0 over it
+([Known limits of the reading](#known-limits-of-the-reading)). Every other hook that names the gate
+file is taken by `--adopt`, as below.
 
 **A plain re-run never takes a hook it cannot fully read.** A hook where the installer
 **cannot tell** whether the gate runs — the file is an argument of a program it does not
@@ -554,18 +560,52 @@ Took over 1 hook this installer could not fully read: Stop (matcher *).
 The installer could not tell whether such a hook runs the gate, so check each one before you pass
 `--adopt`.
 
-**Known limits of the reading.** None of these is one of the four reasons above, and each is either
-what 0.19.0 did or taken only under `--adopt`:
+<a id="known-limits-of-the-reading"></a>
 
-- a glob that matches the gate file without its name written out (`node /pack/[r]eport-progress-gate.mjs`)
-  is not read as naming it: without this installer's own `describe`, no flag takes such a hook and
-  `--remove` does not name it;
+**Known limits of the reading.** The four reasons above are applied as the installer's reader judges
+the command. It reads shell text and runs none of it, and it can misjudge complex, hand-written shell.
+
+**It can read a hook that runs the gate as a hook that only mentions it.** Some complex hooks that wrap
+the gate in shell are classified as a mention although the shell runs the gate. For such a hook
+`--remove` exits 0, says no hook in the file runs the gate as the installer reads it, and lists the
+hook as `left alone: only mentions the gate file (argument)`. No flag, `--adopt` included, takes it
+over. The families observed, with `<gate>` standing for the gate's path:
+
+- a here-document whose body runs the gate through `$(…)` or backticks: `cat <<EOF`, then
+  `$(node '<gate>')`, then `EOF`. The reader keeps the body as data even when the delimiter is
+  unquoted;
+- the output of a group or compound command piped into a shell or an interpreter:
+  `{ cat '<gate>'; } | bash`, `(cat '<gate>') | bash`, `if …; then cat '<gate>'; fi | bash`, and the
+  same with a loop;
+- ANSI-C quoting, `$'…'`, hiding a later command: `echo $'a\'b'; node '<gate>' # '`;
+- `$_` carrying a mentioned argument into the next command: `test -f '<gate>' && node "$_"`;
+- arithmetic that bash evaluates inside `[[`: `[[ 'a[$(node "<gate>")]' -eq 0 ]]` runs the gate where
+  `/bin/sh` is bash, as it is on macOS;
+- process substitution under zsh: `cat '<gate>' > >(bash)`, `exec > >(bash)`;
+- writing a launcher or a copy of the gate to another file and running that: `cp '<gate>' x && node x`,
+  or the same through `tee`.
+
+**If a hook wraps the gate in shell like this, remove it by hand. Do not rely on `--remove`.**
+
+The other limits are not among the four reasons either, and each is either what 0.19.0 did or
+taken only under `--adopt`:
+
+- the gate file's name not written out literally is not read as naming it: a glob that matches it
+  (`node /pack/[r]eport-progress-gate.mjs`), a path read from a file, or a symlink to the gate under
+  another name. Without this installer's own `describe`, no flag takes such a hook and `--remove` does
+  not name it;
 - a group whose `hooks` is not an array is not read, as in 0.19.0;
 - control flow is read by structure: `false && node '<gate>'` reads as running the gate;
 - a write through a program's argument (`sed -i`, `dd of=`, `curl -o`) is not a write target, so
   `--adopt` may take such a hook;
 - under `--adopt`, a hook this installer did not write and cannot fully read is taken, and named, as
-  0.19.0 took it.
+  0.19.0 took it;
+- the certainty rule is checked over the whole command, so a plain mention beside an unrelated
+  expansion (`X=${Y%.foo}; cat '<gate>'`) is treated as unclear: `--adopt` takes it and `--remove`
+  exits 1 over it;
+- `printf -v`, which captures what it formats into a variable, is handled only as unclear wherever
+  the gate file is named with it: a plain re-run refuses such a hook, `--adopt` takes it and
+  `--remove` exits 1 over it.
 
 **Wrappers.** A command may start with other commands that run the command after them, and
 the installer strips those before it looks for the gate, as many as are nested. It reads each only
@@ -817,24 +857,29 @@ gate, in any shape, makes that hook its own too, as it did through 0.19.0. Until
 it went by `describe` alone, which Claude Code drops
 whenever it writes the file, so on a rewritten file `--remove` printed "No release-notes gate
 was installed … Nothing changed." and exited 0 with the hook still running. `--remove` now
-scans every event key, never reports the gate gone while any hook still runs it, and exits 1
-when one does; it also leaves the file untouched when it removed nothing. A hook with no
+scans every event key, never reports the gate gone while a hook it reads as running the gate
+is left, and exits 1 when one is; it also leaves the file untouched when it removed nothing. A hook with no
 `describe` that runs the gate in any other shape — a `2>/dev/null` or `&& …` after it, or a
 wrapper from the progress gate's **Wrappers** table in front of it, such as `timeout 5` — is
 refused, not overwritten, until `--adopt` takes it. It never takes a hook, with any flag and whatever
-its `describe` says, for the same four reasons as the progress gate's installer, and for no other: a
+its `describe` says, for the same four reasons as the progress gate's installer, applied as its reader
+judges the command, and for no other: a
 mention (the gate file reaching only a program that does not run it, as `echo`, `cat`, `wc`, `unlink`
 or `shellcheck` do — as its argument, on its stdin via a pipe, a here-string, a here-document or a `<`
 redirection, or in a shell comment, as in `wc -l < '<gate>'`, `cat <<< '<gate>'` or
 `true # release-notes-gate.sh`, and nowhere else in the command); a write target (a redirection
 writes to the gate file, inside `sh -c`, `eval`, a here-document or a substitution too); a different
 file (every path with the gate file's name in it ends in another name, `release-notes-gate.sh.orig` or
-`/x/release-notes-gate.sh/run.sh`); and a `describe` somebody else wrote. A reason holds only when
-every word naming the gate is plain literal text (the certainty rule, above): a hook whose gate name
-passes through an expansion the installer does not resolve — `G='<gate>.bak'; bash "${G%.bak}"` runs
-the gate — is left unclear, taken by `--adopt`, never called a mention or a different file. `--remove`
-names each one it leaves, with the reason and its kind, exits 0 over them, and never says no gate was
-installed while one is in the file. The known limits of the reading are the progress gate's, above.
+`/x/release-notes-gate.sh/run.sh`); and a `describe` somebody else wrote. A reason holds only when the
+command holds no expansion the installer does not resolve (the certainty rule, above): a hook such as
+`G='<gate>.bak'; bash "${G%.bak}"`, which runs the gate, is left unclear, taken by `--adopt`, never
+called a mention or a different file. `--remove` names each one it leaves, with the reason and its
+kind, exits 0 over them, and never says no gate was installed while one is in the file. The known
+limits of the reading are the progress gate's
+([Known limits of the reading](#known-limits-of-the-reading)), and the first applies here too: a
+hand-written hook that wraps the gate in shell, such as `{ cat '<gate>'; } | bash` or a here-document
+whose body runs `$(bash '<gate>')`, can read as a mention, which `--remove` leaves with exit 0. Remove
+such a hook by hand.
 This installer reads every event key, where 0.19.0's read only `PreToolUse`: a gate hook under any
 other event is read by the same rule. A plain re-run never takes a hook the installer cannot fully
 read, a wrapper option or form that table does not recognise among them, describe or not. `--adopt`

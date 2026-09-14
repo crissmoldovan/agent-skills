@@ -132,19 +132,21 @@
  * `cd … &&` or an `env` in front, a `&& …` after, or the shape above under an interpreter whose name this
  * installer does not know. It is refused on install and named on removal, because overwriting
  * somebody else's decision is how a settings file gets corrupted; `--remove` never reports the gate
- * gone while one still runs it, and exits 1 when one does. With `--adopt` it is removed by `--remove`
+ * gone while one it reads as running the gate is left, and exits 1 when one is. With `--adopt` it is removed by `--remove`
  * and replaced by an install, its level and mode read out of its command when no `--coverage` or
  * `--mode` is named.
  *
- * NEVER TAKEN, with any flag and whatever describe it wears, for exactly four reasons and no other (`neverTakenReason`
- * in `./hook-ownership.mjs`): a MENTION, every place the gate file is named reaching only a program that does not run it
+ * NEVER TAKEN, with any flag and whatever describe it wears, for four reasons and no other (`neverTakenReason`
+ * in `./hook-ownership.mjs`), each applied as the reader judges the command, which can misjudge complex, hand-written
+ * shell and read a hook that runs the gate as a mention (KNOWN MISREADS there; such a hook has to be removed by hand):
+ * a MENTION, every place the gate file is named reaching only a program that does not run it
  * (echo, cat, wc, rm, unlink and the like) — as its argument, on its stdin via a pipe, a here-string, a here-document or a
  * `<` redirection, or in a shell comment — with nothing that program prints flowing on, and nowhere else in the command,
  * so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions and `node <<< '<gate>'` is not; a WRITE TARGET, a redirection
  * that writes to the gate file, in `sh -c`, `eval`, a here-document or a substitution too; a DIFFERENT FILE, where every
  * path with the gate file's name in it ends in another name (`install-report-progress-gate.mjs`,
- * `/x/report-progress-gate.mjs/index.mjs`); and a describe somebody else wrote. A reason holds only when every word naming
- * the gate is plain literal text (the CERTAINTY rule): an expansion this installer does not resolve — a parameter expansion
+ * `/x/report-progress-gate.mjs/index.mjs`); and a describe somebody else wrote. A reason holds only when the command holds no
+ * expansion this installer does not resolve (the CERTAINTY rule, checked over the whole command) — a parameter expansion
  * with an operator (`${G%.bak}`), indirection, brace expansion or arithmetic, or a command substitution feeding an executing
  * program — may turn a lookalike into the gate (`G=<gate>.bak; node "${G%.bak}"` runs it), so such a hook is unclear, not a
  * reason. A hook where this installer cannot tell whether the gate runs is named, like a hand-wiring,
@@ -155,7 +157,8 @@
  * installer's own describe whose command never names the gate file. It reads the level and mode out of the
  * command as it does a hand-wiring's, and prints each hook it took that way, by event and matcher, on a line of
  * its own (THE OVERRIDE in `./hook-ownership.mjs`). `--remove` names every hook it leaves that names the gate
- * file, and why, and never says no gate was installed while one is in the file.
+ * file, and why, and never says no gate was installed while one is in the file. A hook in KNOWN MISREADS is named
+ * as a mention and left, with exit 0, although it runs the gate: such a hook has to be removed by hand.
  *
  * THE MODE IS KEPT THE WAY THE LEVEL IS. With no `--mode`, a re-run writes the mode of the gate already in
  * the file — `off` too, for a gate disarmed by hand — and says so; only `--mode` changes it, and only a new
@@ -318,26 +321,40 @@ block    hold the turn for one more round when an armed turn ends without a prog
          the binary running this script) and the gate path, each single-quoted, and nothing
          else — is recognised with no flag, including after Claude Code has dropped its
          describe, and so is a hook that runs the gate under this installer's own describe.
-         Never taken, with or without --adopt, for exactly four reasons: a mention (the gate
-         file reaching only a program that does not run it, as echo, cat, wc, rm or unlink do
-         — as its argument, on its stdin via a pipe, a here-string, a here-document or a <
-         redirection, or in a shell comment, and nowhere else in the command, so wc -l <
-         '<gate>' is a mention and node <<< '<gate>' is not); a write target (a redirection
-         writes to the gate file, in sh -c, eval, a here-document or a substitution too, even
-         in a hook that also runs it); a different file (every path with the gate file's name
-         in it ends in another name: install-report-progress-gate.mjs,
-         /x/report-progress-gate.mjs/index.mjs); and a describe something else wrote. A reason
-         holds only when every word naming the gate is plain literal text (the certainty
-         rule): a hook whose gate name passes through a parameter-expansion operator,
-         indirection, brace expansion, arithmetic or a substitution feeding a program that
-         runs it is left unclear, taken only by --adopt. Known limits: a glob that matches the gate without
-         its name written out is not read as naming it; a group whose hooks is not an array
-         is not read; control flow is read by structure (false && node '<gate>' reads as
-         running it); a write through a program's argument (sed -i, dd of=, curl -o) is not a
-         write target, so --adopt may take it. Without --adopt a hook it cannot fully read is
-         never taken, and an install refuses and names it. --remove names every hook it leaves
-         that names the gate file, with the reason and its kind, and exits 1 while one of them
-         runs the gate, or may.
+         Never taken, with or without --adopt, for four reasons, each as this installer reads
+         the command: a mention (the gate file reaching only a program that does not run it,
+         as echo, cat, wc, rm or unlink do — as its argument, on its stdin via a pipe, a
+         here-string, a here-document or a < redirection, or in a shell comment, and nowhere
+         else in the command, so wc -l < '<gate>' is a mention and node <<< '<gate>' is not);
+         a write target (a redirection writes to the gate file, in sh -c, eval, a
+         here-document or a substitution too, even in a hook that also runs it); a different
+         file (every path with the gate file's name in it ends in another name:
+         install-report-progress-gate.mjs, /x/report-progress-gate.mjs/index.mjs); and a
+         describe something else wrote. A reason holds only when the command holds no
+         expansion this installer does not resolve (the certainty rule, over the whole
+         command): a hook with a parameter-expansion operator, indirection, brace expansion or
+         arithmetic in it, or whose gate name passes through a substitution feeding a program
+         that runs it, is left unclear, taken only by --adopt.
+         Known limitation: the reader can misjudge complex, hand-written shell and read a hook
+         that runs the gate as a mention: a here-document body that runs it through $(…) or
+         backticks, a group or compound command piped into a shell ({ cat '<gate>'; } | bash),
+         $'…' quoting, $_ (test -f '<gate>' && node "$_"), arithmetic inside [[, zsh process
+         substitution, or a launcher or copy written to another file and run. --remove then
+         leaves the hook and exits 0, and no flag takes it. If a hook wraps the gate in shell
+         like this, remove it by hand; do not rely on --remove.
+         Other known limits: a gate name not written out literally (a glob such as
+         [r]eport-progress-gate.mjs, a path read from a file, a symlink under another name) is
+         not read as naming it; a group whose hooks is not an array is not read; control flow
+         is read by structure (false && node '<gate>' reads as running it); a write through a
+         program's argument (sed -i, dd of=, curl -o) is not a write target, so --adopt may
+         take it; under --adopt a hook it did not write and cannot fully read is taken, and
+         named; a plain mention beside an unrelated \${…} is unclear; and printf -v is handled
+         only as unclear. The full list is in adapters/claude-code/README.md, under "Known
+         limits of the reading".
+         Without --adopt a hook it cannot fully read is never taken, and an install refuses
+         and names it. --remove names every hook it leaves that names the gate file, with the
+         reason and its kind, and exits 1 while one of them reads as running the gate, or as
+         possibly running it.
 
 The gate checks the SHAPE of the report — three section labels, and a state and a
 freshness on a running row. It cannot check whether anything in the report is true.`;

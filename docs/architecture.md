@@ -78,24 +78,33 @@ the conversation, in a hook the user wired into their own harness.
   read. `--adopt` takes every one over — whatever leads its command, wherever the gate path sits,
   option values included, and a hook under the installer's own `describe` whose command never names
   the gate file — unless it writes to the gate file, and the installer prints each hook it took that
-  way, by event and matcher. No flag takes a hook for exactly four reasons, which `neverTakenReason`
-  returns and nothing else can: a mention (every place the gate file is named reaches only a program
-  known not to run it — as its argument, on its stdin via a pipe, a here-string, a here-document or a
+  way, by event and matcher. No flag takes a hook for four reasons, which `neverTakenReason`
+  returns and nothing else can, each applied as the reader judges the command: a mention (every place
+  the reader finds the gate file named reaches only a program known not to run it — as its argument, on its stdin via a pipe, a here-string, a here-document or a
   `<` redirection, or in a shell comment — with nothing that program prints flowing on, and nowhere
   else in the command, so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions while `node <<<
   '<gate>'` is not), a write target (a redirection writes to the gate file, inside `sh -c`, `eval`,
   a here-document or a substitution too), a different file (every path holding the gate file's name
   ends in another name: a lookalike, or the name only as a directory), and another tool's `describe`.
-  A reason holds only when every word naming the gate is plain literal text (the certainty rule): an
-  expansion the reader does not resolve — a parameter expansion with an operator (`${G%.bak}`), indirection,
-  brace expansion or arithmetic, or a command substitution feeding an executing program — may turn a
+  A reason holds only when the command holds no expansion the reader does not resolve (the certainty
+  rule, checked over the whole command): a parameter expansion with an operator (`${G%.bak}`), indirection,
+  brace expansion or arithmetic, or a command substitution feeding an executing program, may turn a
   lookalike into the gate (`G=<gate>.bak; node "${G%.bak}"` runs it), so such a hook is left unclear,
   taken by `--adopt`, never a reason.
-  Its known limits: a glob matching the gate without its name written out is not read as naming it; a
-  group whose `hooks` is not an array is not read; control flow is read by structure; a write through a
-  program's argument is not a write target; and under `--adopt` a hook the installer did not write and
-  cannot fully read is taken, and named, as 0.19.0 took it. `--remove` exits 1 while it leaves a hook
-  that runs the gate, or may, and
+  Its known limits are listed in full in
+  [the adapter README](../adapters/claude-code/README.md#known-limits-of-the-reading). The first is that
+  the reader can misjudge complex, hand-written shell and read a hook that runs the gate as a mention:
+  a here-document body that runs it through `$(…)` or backticks, a group or compound command's output
+  piped into a shell or interpreter, `$'…'` quoting that hides a later command, `$_` carrying a
+  mentioned argument on, arithmetic inside bash's `[[`, zsh process substitution, and a launcher or copy
+  written to another file and run. `--remove` then leaves such a hook and exits 0, and no flag takes it,
+  so it has to be removed by hand. The others: a gate name not written out literally is not read as
+  naming it; a group whose `hooks` is not an array is not read; control flow is read by structure; a
+  write through a program's argument is not a write target; under `--adopt` a hook the installer did
+  not write and cannot fully read is taken, and named, as 0.19.0 took it; the certainty rule is
+  command-wide, so a plain mention beside an unrelated expansion is unclear; and `printf -v` is handled
+  only as unclear. `--remove` exits 1 while it leaves a hook it reads as running the gate, or possibly
+  running it, and
   names every hook it leaves that names the gate file, with why. A re-run with no `--mode` keeps the
   mode already installed, as the report-progress installer keeps its level. It is covered by
   `test/hook-ownership.test.mjs`, `test/hook-ownership-installers.test.mjs` and
@@ -105,14 +114,15 @@ the conversation, in a hook the user wired into their own harness.
   flag never takes a hook the reader cannot fully read. Mentions, write targets, different files and
   another tool's `describe` are never taken, with any flag. Whatever else 0.19.0 took or removed,
   this version takes or removes with the same flags, or with `--adopt` added; 0.19.0's release-notes
-  installer has no `--adopt`, so those rows are compared with its nearest equivalent run. `--remove`
-  exits 1 while it leaves a hook that runs the gate, or may, and never says no gate was installed
-  while a hook names the gate file. Whether a start hook runs the gate is established by firing it
+  installer has no `--adopt`, so those rows are compared with its nearest equivalent run. Over those
+  rows, `--remove` exits 1 while it leaves a hook that runs the gate, or may, and never says no gate
+  was installed while a hook names the gate file. Whether a start hook runs the gate is established by firing it
   against a stand-in gate, not written by hand. The same test holds the four reasons closed: over every
   subject of that matrix, every form the branch's held reviews named and a generated set, a hook with
   the gate file's name in it is taken under `--adopt` or given one of the four reasons, never both, and
   every mention and different file is fired at a stand-in that records which file ran and at an armed
-  copy of the real gate, and runs neither.
+  copy of the real gate, and runs neither. That holds over those subjects only; it does not cover the
+  misread forms in the known limits above, which do run the gate.
 - `adapters/codex/` is built from Codex's published documentation and has never run against a
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.

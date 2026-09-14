@@ -55,18 +55,20 @@
  *
  * `--adopt` is for a hook with no describe that RUNS the gate in any other shape: a hand-wiring, or the
  * shape above run by another shell (`/bin/bash`, `sh`, `zsh`). It is refused on install and named on removal;
- * with `--adopt` it is removed or replaced. `--remove` never reports the gate gone while any hook still runs it,
- * or may, and exits 1 when one does; and while any hook still names the gate file it never says no gate was
- * installed: it names each hook it left, with its reason and kind. NEVER TAKEN, with any flag and whatever describe it
- * wears, for exactly four reasons and no other (`neverTakenReason` in `./hook-ownership.mjs`): a MENTION, every place the
+ * with `--adopt` it is removed or replaced. `--remove` never reports the gate gone while a hook this installer reads
+ * as running it, or possibly running it, is left, and exits 1 when one is; and while any hook still names the gate file
+ * it never says no gate was installed: it names each hook it left, with its reason and kind. NEVER TAKEN, with any flag
+ * and whatever describe it wears, for four reasons and no other (`neverTakenReason` in `./hook-ownership.mjs`), each
+ * applied as the reader judges the command, which can misjudge complex, hand-written shell and read a hook that runs
+ * the gate as a mention (KNOWN MISREADS there; such a hook has to be removed by hand): a MENTION, every place the
  * gate file is named reaching only a program that does not run it (echo, cat, wc, shellcheck, rm, unlink, xxd and the
  * like), in that shape or any other — as its argument, on its stdin via a pipe, a here-string, a here-document or a `<`
  * redirection, or in a shell comment (`true # release-notes-gate.sh`), with nothing that program prints flowing on, and
  * nowhere else in the command, so `wc -l < '<gate>'` and `cat <<< '<gate>'` are mentions and `bash < '<gate>'` is not; a
  * WRITE TARGET, a redirection that writes to the gate file, in `sh -c`, `eval`, a here-document or a substitution too; a
  * DIFFERENT FILE, where every path with the gate file's name in it ends in another name (`release-notes-gate.sh.orig`,
- * `/x/release-notes-gate.sh/run.sh`); and a describe somebody else wrote. A reason holds only when every word naming the
- * gate is plain literal text (the CERTAINTY rule): an expansion this installer does not resolve — a parameter expansion
+ * `/x/release-notes-gate.sh/run.sh`); and a describe somebody else wrote. A reason holds only when the command holds no
+ * expansion this installer does not resolve (the CERTAINTY rule, checked over the whole command) — a parameter expansion
  * with an operator (`${G%.bak}`), indirection, brace expansion or arithmetic, or a substitution feeding an executing
  * program — may turn a lookalike into the gate (`G=<gate>.bak; bash "${G%.bak}"` runs it), so such a hook is unclear, not
  * a reason. A hook where this installer cannot tell whether the gate
@@ -179,25 +181,39 @@ block    refuse a publish, release-create, release tag or version-bump commit wh
          AGENT_SKILLS_RELEASE_NOTES_GATE= assignment, bash, and the gate path, single-quoted,
          and nothing else — is recognised with no flag, including after Claude Code has
          dropped its describe, and so is a hook that runs the gate under this installer's own
-         describe. Never taken, with or without --adopt, for exactly four reasons: a mention
-         (the gate file reaching only a program that does not run it, as echo, cat, wc, unlink
-         or shellcheck do — as its argument, on its stdin via a pipe, a here-string, a
-         here-document or a < redirection, or in a shell comment, and nowhere else in the
-         command, so wc -l < '<gate>' is a mention and bash < '<gate>' is not); a write target
-         (a redirection writes to the gate file, in sh -c, eval, a here-document or a
-         substitution too, even in a hook that also runs it); a different file (every path
-         with the gate file's name in it ends in another name: release-notes-gate.sh.orig,
-         /x/release-notes-gate.sh/run.sh); and a describe something else wrote. A reason holds
-         only when every word naming the gate is plain literal text (the certainty rule): a
-         hook whose gate name passes through a parameter-expansion operator, indirection,
-         brace expansion, arithmetic or a substitution feeding a program that runs it is left
-         unclear, taken only by --adopt. Known limits: a glob that matches the gate
-         without its name written out is not read as naming it; a group whose hooks is not an
-         array is not read; control flow is read by structure; a write through a program's
-         argument (sed -i, dd of=, curl -o) is not a write target, so --adopt may take it.
+         describe. Never taken, with or without --adopt, for four reasons, each as this
+         installer reads the command: a mention (the gate file reaching only a program that
+         does not run it, as echo, cat, wc, unlink or shellcheck do — as its argument, on its
+         stdin via a pipe, a here-string, a here-document or a < redirection, or in a shell
+         comment, and nowhere else in the command, so wc -l < '<gate>' is a mention and
+         bash < '<gate>' is not); a write target (a redirection writes to the gate file, in
+         sh -c, eval, a here-document or a substitution too, even in a hook that also runs
+         it); a different file (every path with the gate file's name in it ends in another
+         name: release-notes-gate.sh.orig, /x/release-notes-gate.sh/run.sh); and a describe
+         something else wrote. A reason holds only when the command holds no expansion this
+         installer does not resolve (the certainty rule, over the whole command): a hook with
+         a parameter-expansion operator, indirection, brace expansion or arithmetic in it, or
+         whose gate name passes through a substitution feeding a program that runs it, is
+         left unclear, taken only by --adopt.
+         Known limitation: the reader can misjudge complex, hand-written shell and read a hook
+         that runs the gate as a mention: a here-document body that runs it through $(…) or
+         backticks, a group or compound command piped into a shell ({ cat '<gate>'; } | bash),
+         $'…' quoting, $_ (test -f '<gate>' && bash "$_"), arithmetic inside [[, zsh process
+         substitution, or a launcher or copy written to another file and run. --remove then
+         leaves the hook and exits 0, and no flag takes it. If a hook wraps the gate in shell
+         like this, remove it by hand; do not rely on --remove.
+         Other known limits: a gate name not written out literally (a glob such as
+         [r]elease-notes-gate.sh, a path read from a file, a symlink under another name) is
+         not read as naming it; a group whose hooks is not an array is not read; control flow
+         is read by structure; a write through a program's argument (sed -i, dd of=, curl -o)
+         is not a write target, so --adopt may take it; under --adopt a hook it did not write
+         and cannot fully read is taken, and named; a plain mention beside an unrelated \${…}
+         is unclear; and printf -v is handled only as unclear. The full list is in
+         adapters/claude-code/README.md, under "Known limits of the reading".
          Without --adopt a hook it cannot fully read is never taken, and an install refuses
          and names it. --remove names every hook it leaves that names the gate file, with the
-         reason and its kind, and exits 1 while one of them runs the gate, or may.
+         reason and its kind, and exits 1 while one of them reads as running the gate, or as
+         possibly running it.
 
 The gate checks that the version is PRESENT in a file that records releases. It cannot
 check whether what is written there says why the release happened or what it breaks.`;

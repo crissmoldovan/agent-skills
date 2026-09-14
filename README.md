@@ -431,10 +431,11 @@ and its own `describe` over a command that never names the gate file.
 The installer could not tell whether such a hook runs the gate, so check it before you pass
 `--adopt`.
 
-**It never takes a hook, with any flag and whatever its `describe` says, for exactly four reasons,
-and keeps a hook from `--adopt` for no other:**
+**It never takes a hook, with any flag and whatever its `describe` says, for four reasons, and keeps
+a hook from `--adopt` for no other.** The reasons are applied as the installer's reader judges the
+command, and it can misjudge complex, hand-written shell (the known limitation below):
 
-- **a mention** — every place the gate file is named reaches only a program that does not run it
+- **a mention** — every place the reader finds the gate file named reaches only a program that does not run it
   (`echo`, `cat`, `grep`, `wc`, `rm`, `unlink`): as its argument, on its stdin (a pipe, a here-string,
   a here-document or a `<` redirection), or in a shell comment, with nothing that program prints
   flowing on into anything else, and nowhere else in the command. `wc -l < '<gate>'` and
@@ -447,22 +448,45 @@ and keeps a hook from `--adopt` for no other:**
   (`/x/report-progress-gate.mjs/index.mjs`);
 - **another tool's `describe`**.
 
-A reason is returned only when every word naming the gate is plain literal text (**the certainty
-rule**): an expansion the installer does not resolve — a parameter expansion with an operator
+A reason is returned only when the command holds no expansion the installer does not resolve
+(**the certainty rule**, checked over the whole command): a parameter expansion with an operator
 (`${G%.bak}`, `${G:=…}`), indirection, brace expansion or arithmetic, or a command substitution whose
-output feeds an executing program — may turn a lookalike into the gate (`G=<gate>.bak; node
+output feeds an executing program, may turn a lookalike into the gate (`G=<gate>.bak; node
 "${G%.bak}"` runs the gate) or the gate into another file, so such a hook is left unclear, which
 `--adopt` takes and `--remove` exits 1 over, never a mention or a different file.
 
 `--remove` names every hook it leaves that names the gate file, with the reason and its kind
 (`left alone: only mentions the gate file (comment)`, `left alone: names a different file (directory)`),
-and never says no gate was installed while one is there. Known limits of the reading: a glob that
-matches the gate without its name written out (`[r]eport-progress-gate.mjs`) is not read as naming it;
-a group whose `hooks` is not an array is not read; control flow is read by structure
+and never says no gate was installed while one is there.
+
+**Known limitation: some hand-written hooks that run the gate are read as mentions.** The reader
+reads shell text without running it, and it can read a complex hook that wraps the gate in shell as
+only mentioning the gate file although the shell runs the gate. The families observed:
+
+- a here-document whose body runs the gate through `$(…)` or backticks (`cat <<EOF`, then
+  `$(node '<gate>')`, then `EOF`);
+- the output of a group or compound command piped into a shell or interpreter:
+  `{ cat '<gate>'; } | bash`, `(cat '<gate>') | bash`, `if …; then cat '<gate>'; fi | bash`, or a loop;
+- ANSI-C quoting, `$'…'`, hiding a later command;
+- `$_` carrying a mentioned argument into the next command: `test -f '<gate>' && node "$_"`;
+- arithmetic that bash evaluates inside `[[`;
+- zsh process substitution: `cat '<gate>' > >(bash)`, `exec > >(bash)`;
+- a launcher or a copy written to another file and run: `cp '<gate>' x && node x`, or through `tee`.
+
+For such a hook `--remove` exits 0, says no hook in the file runs the gate as the installer reads it,
+and lists the hook as left alone; no flag, `--adopt` included, takes it over. **If a hook wraps the
+gate in shell like this, remove it by hand; do not rely on `--remove`.**
+
+Other known limits of the reading: a gate whose name is not written out literally (a
+`[r]eport-progress-gate.mjs` glob, a path read from a file, a symlink under another name) is not read
+as naming it; a group whose `hooks` is not an array is not read; control flow is read by structure
 (`false && node '<gate>'` reads as running it); a write through a program's argument (`sed -i`,
-`dd of=`, `curl -o`) is not a write target, so `--adopt` may take it; and under `--adopt` a hook the
-installer did not write and cannot fully read is taken, and named, as 0.19.0 took it. The
-release-notes gate's installer below recognises its hook the same way.
+`dd of=`, `curl -o`) is not a write target, so `--adopt` may take it; under `--adopt` a hook the
+installer did not write and cannot fully read is taken, and named, as 0.19.0 took it; the certainty
+rule covers the whole command, so a plain mention beside an unrelated `${…}` is treated as unclear;
+and `printf -v` captures are handled only as unclear. The full list is in
+[the adapter README](adapters/claude-code/README.md#known-limits-of-the-reading). The release-notes
+gate's installer below recognises its hook the same way, with the same limits.
 
 Six limits, stated here because a guard that is misread is worse than no guard:
 
@@ -549,12 +573,14 @@ gate in any other shape, including that one with another shell in place of `bash
 `sh`). A plain re-run never takes a hook it cannot fully read. `--adopt` takes it over, whatever leads
 the command and wherever the gate path sits, unless it writes to the gate file, and prints each hook
 it took that way. It never takes a hook for the same four reasons as the progress gate's installer,
-and for no other: a mention (`echo`, `cat`, `unlink`, `shellcheck`, or a comment such as
-`true # release-notes-gate.sh`), a write target, a different file (`release-notes-gate.sh.orig`, or the
-name only as a directory, `/x/release-notes-gate.sh/run.sh`), or another tool's `describe`; the known
-limits are the same too.
-`--remove` exits 1 while any hook still runs the gate, or may, and names every hook it leaves that
-names the gate file, with why. Re-running it with no `--mode` keeps the mode already installed, `off`
+applied as its reader judges the command, and for no other: a mention (`echo`, `cat`, `unlink`,
+`shellcheck`, or a comment such as `true # release-notes-gate.sh`), a write target, a different file
+(`release-notes-gate.sh.orig`, or the name only as a directory, `/x/release-notes-gate.sh/run.sh`), or
+another tool's `describe`. The known limits are the same too, including the hand-written shell it can
+read as a mention (`{ cat '<gate>'; } | bash`, a here-document body that runs `$(bash '<gate>')`):
+remove such a hook by hand.
+`--remove` exits 1 while a hook it reads as running the gate, or possibly running it, is left, and
+names every hook it leaves that names the gate file, with why. Re-running it with no `--mode` keeps the mode already installed, `off`
 included, and says so.
 
 Three limits, stated here because a guard that is misread is worse than no guard:
