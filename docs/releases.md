@@ -69,27 +69,6 @@ check is off until the user arms it.
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-### `onboard-project` — a repository's skills, chosen from evidence and seen every session
-
-A twenty-seventh skill, and the answer to a measured failure: skills load by description match and
-nothing else, so on a machine carrying 201 installed skills the one a project depends on surfaces
-by luck. Enforcement does not fix it — a gate demanding a progress report was satisfied, in real
-sessions, by an agent writing the three headings from memory without ever loading the skill.
-
-The fix is a file every session already reads. Each skill now declares where it fits in
-`references/fit.json` — repository signals (a path present or absent, a manifest field, a bounded
-grep) and history signals (dispatches, workflows, background commands, releases, writes outside the
-repository) — and `verify-skills` refuses a skill without one. The scan evaluates those
-declarations, and one yes writes `skills-profile.json` beside the Skills CLI's lock file and a
-generated `.claude/rules/skill-routing.md`, which loads at the start of every session at the same
-priority as the project CLAUDE.md.
-
-Consent is the shape of the whole thing: every skill, file and hook is a row with the evidence that
-justified it and the undo that takes it back, nothing is written before one explicit yes, and the
-scripts install nothing — they print the commands for the user to run in order. The session-start
-check is off until it is armed, reads no history, never blocks, fails open, and prints zero bytes
-unless a listed skill is missing, the evidence moved, or the routing file drifted.
-
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
