@@ -1,0 +1,5 @@
+name: example_app
+description: A fixture with a version in a yaml manifest.
+version: 2.1.0+7
+environment:
+  sdk: ">=3.0.0 <4.0.0"

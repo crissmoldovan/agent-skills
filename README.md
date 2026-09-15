@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-six public, portable Agent Skills for agent operations, reviews, releases
+  Twenty-seven public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -40,6 +40,7 @@ harnesses, and tested as part of one release catalogue.
 | `layer-repository-docs` | Make a repository's documentation legible when an organisation has more repos than anyone can track, through three entry points — audit read-only, draft the layers, update what a change overtook: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, check whether the docs are still true, update the docs after the code moved, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context. | [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/layer-repository-docs/references/entry-points.md) · [Layer contents](skills/layer-repository-docs/references/layer-contents.md) · [Loss audit](skills/layer-repository-docs/references/loss-audit.md) · [Newcomer test](skills/layer-repository-docs/references/newcomer-test.md) |
 | `report-progress` | Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn. | [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs) |
 | `isolated-change-validation` | Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted. | [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract](skills/isolated-change-validation/references/evidence-contract.md) · [Handoff bundle](skills/isolated-change-validation/references/handoff-bundle.md) |
+| `onboard-project` | Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them. | [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-project/references/fit-signals.md) · [What gets written](skills/onboard-project/references/what-gets-written.md) · [Check-hook installer](skills/onboard-project/scripts/install-check-hook.mjs) |
 | `work-in-external-repo` | Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository. | [Skill](skills/work-in-external-repo/SKILL.md) |
 
 The pack contains distinct procedures, not one monolithic workflow. Compose only
@@ -132,6 +133,9 @@ npx skills add crissmoldovan/agent-skills --skill delphi-ground delphi-imagine
 # Validate a change in a sandbox that is physically separate from the trusted tree,
 # and hand the run over as state rather than prose
 npx skills add crissmoldovan/agent-skills --skill isolated-change-validation
+
+# Choose and wire a repository's own skills, from evidence rather than description matching
+npx skills add crissmoldovan/agent-skills --skill onboard-project
 ```
 
 Document a repository in layers — a quick start, a manual, and the organisation's handbook:
@@ -158,7 +162,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-six public skills from crissmoldovan/agent-skills.
+Install or update the twenty-seven public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -320,6 +324,12 @@ say you cannot see the children rather than guessing what they are doing.
 Code `Stop` hook that holds a turn open when a report is owed and missing. It is off until a
 human installs it, and no agent may install it on your behalf — see
 [Optional hooks](#optional-hooks-adapters).
+
+```text
+Use onboard-project on this repository. Tell me which skills it should use and why, show me every
+file you would write and every command you would run before you write any of it, and if a hook is
+involved say plainly that it affects all my projects.
+```
 
 ```text
 Use isolated-change-validation: prove this in a sandbox before it goes near the repository.

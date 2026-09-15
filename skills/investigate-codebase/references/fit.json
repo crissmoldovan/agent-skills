@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "general",
+  "useWhen": "a question about how the code works whose wrong answer someone would act on"
+}

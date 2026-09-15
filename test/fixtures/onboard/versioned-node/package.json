@@ -1,0 +1,1 @@
+{ "name": "example-app", "version": "1.4.2", "scripts": { "build": "tsc -b" } }

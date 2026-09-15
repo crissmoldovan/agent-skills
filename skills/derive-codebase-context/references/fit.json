@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "the repository has no agent context file, or several that disagree",
+  "anyOf": [
+    {
+      "repo": {
+        "missing": "CLAUDE.md"
+      }
+    },
+    {
+      "repo": {
+        "exists": "AGENTS.md"
+      }
+    },
+    {
+      "repo": {
+        "exists": ".cursorrules"
+      }
+    },
+    {
+      "repo": {
+        "exists": "GEMINI.md"
+      }
+    },
+    {
+      "repo": {
+        "exists": ".github/copilot-instructions.md"
+      }
+    }
+  ]
+}

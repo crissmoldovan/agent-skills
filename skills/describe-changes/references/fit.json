@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "general",
+  "useWhen": "writing the description of a diff, a commit or a pull request"
+}

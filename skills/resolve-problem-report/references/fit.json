@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "general",
+  "useWhen": "a bug report or feature request arrives and deserves more than a quick patch"
+}

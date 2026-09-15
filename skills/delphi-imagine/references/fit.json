@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "general",
+  "useWhen": "reviewing an artefact from perspectives that would disagree with each other"
+}

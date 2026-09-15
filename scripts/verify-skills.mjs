@@ -21,6 +21,12 @@ const FIELD_LIMITS = { name: 64, description: 1024, compatibility: 500 };
 // that the skill carries that exact file. Prose that means "reference files, or scripts"
 // must not be written as a path.
 const CARRIED_FILE_PATTERN = /(?:^|[^A-Za-z0-9._/-])((?:references|scripts|assets)\/[A-Za-z0-9._/-]+)/g;
+// Every skill declares WHERE IT FITS, in a form a script can evaluate, so that onboard-project
+// can recommend it from evidence rather than from a description a matcher happened to like.
+// `signals` is evaluated against a repository; `general` fits nearly any repository; `requestOnly`
+// is never recommended by a scan. A skill with no fit.json is invisible to that scan, which is a
+// silent failure — hence a loud one here.
+const FIT_KINDS = new Set(['signals', 'general', 'requestOnly']);
 const ignoredDirectories = new Set(['.git', '.cache', '.next', '.superpowers', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
 
 function fail(message) {
@@ -102,6 +108,46 @@ function validateCarriedFiles(source, file, skillDirectory) {
   }
 }
 
+/** `references/fit.json`: present, parseable, and one of the three kinds. */
+function validateFit(skillDirectory, file) {
+  const fitPath = resolve(skillDirectory, 'references', 'fit.json');
+  const where = relative(root, file);
+  if (!existsSync(fitPath)) {
+    fail(`${where}: no references/fit.json — declare where this skill fits (kinds: ${[...FIT_KINDS].join(', ')})`);
+    return;
+  }
+  let fit;
+  try {
+    fit = JSON.parse(readFileSync(fitPath, 'utf8'));
+  } catch (error) {
+    fail(`${where}: references/fit.json does not parse: ${error.message}`);
+    return;
+  }
+  if (!fit || typeof fit !== 'object' || Array.isArray(fit)) {
+    fail(`${where}: references/fit.json must be a JSON object`);
+    return;
+  }
+  if (!FIT_KINDS.has(fit.kind)) {
+    fail(`${where}: references/fit.json kind must be one of ${[...FIT_KINDS].join(', ')}`);
+    return;
+  }
+  if (typeof fit.useWhen !== 'string' || fit.useWhen.trim() === '') {
+    fail(`${where}: references/fit.json needs a useWhen line — it is what the generated routing file says`);
+  }
+  if (fit.kind !== 'signals') return;
+  const list = Array.isArray(fit.anyOf) ? fit.anyOf : Array.isArray(fit.allOf) ? fit.allOf : null;
+  if (!list || list.length === 0) {
+    fail(`${where}: references/fit.json kind "signals" needs a non-empty anyOf or allOf`);
+    return;
+  }
+  for (const signal of list) {
+    const repo = signal?.repo;
+    const history = signal?.history;
+    const readable = (repo && (repo.exists || repo.missing || repo.grep || repo.json || repo.toml || repo.yaml)) || (history && history.count);
+    if (!readable) fail(`${where}: references/fit.json carries a signal this catalogue cannot read: ${JSON.stringify(signal)}`);
+  }
+}
+
 function validateLinks(source, file, skillDirectory) {
   const markdownLink = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+['"][^)]*['"])?\)/g;
   for (const match of source.matchAll(markdownLink)) {
@@ -151,6 +197,7 @@ for (const file of skillFiles) {
   if (bodyLines > MAX_BODY_LINES) {
     fail(`${relative(root, file)}: body is ${bodyLines} lines; the cap is ${MAX_BODY_LINES} — move detail into carried reference files`);
   }
+  validateFit(skillDirectory, file);
   validateLinks(source, file, skillDirectory);
   for (const carried of walk(skillDirectory)) {
     const extension = carried.slice(carried.lastIndexOf('.')).toLowerCase();

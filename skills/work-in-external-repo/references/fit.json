@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "writing to a repository that is not this working directory",
+  "anyOf": [
+    {
+      "history": {
+        "count": "writesOutsideRepo",
+        "atLeast": 3
+      }
+    }
+  ]
+}
