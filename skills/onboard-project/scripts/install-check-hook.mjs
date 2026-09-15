@@ -21,6 +21,10 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The entrypoint guard lives beside this file in onboard.mjs; see its comment for why both sides
+// are resolved through realpathSync.native rather than compared as typed.
+import { isEntrypoint } from './onboard.mjs';
+
 export const HOOK_MARKER = 'onboard.mjs';
 export const DESCRIBE_PREFIX = 'agent-skills onboard-project check';
 export const TIMEOUT_SECONDS = 5;
@@ -222,7 +226,7 @@ export async function main(argv, { stdout = process.stdout, stderr = process.std
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+if (isEntrypoint(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });

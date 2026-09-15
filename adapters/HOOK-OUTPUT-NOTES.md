@@ -1291,3 +1291,26 @@ because each block forces a continuation and each continuation ends in another `
 
 The throwaway directories, settings files, endpoint logs and transcripts were deleted after this was
 written.
+
+## Addendum: a generated rules file, and the onboard-project check (2026-09-14)
+
+Two live headless runs against the real CLI and a real model, in throwaway directories, to settle
+the two mechanisms `onboard-project` depends on. Both were run with the machine's own settings
+untouched: the first needed no settings at all, the second used `--settings <temporary file>`.
+
+**1. A rules file with no `paths` frontmatter loads at session start, verbatim.** A throwaway git
+repository carrying only `package.json` and
+`.claude/rules/skill-routing.md`, whose single routing line named a deliberately unguessable skill.
+Asked, with no tools, to list the routing lines it had been given, the model returned that line
+exactly, and named the file it came from. This is the whole mechanism `onboard-project` relies on:
+no forcing, no hook, no matcher — the file is simply there at the start of every session, at the
+same priority as the project CLAUDE.md.
+
+**2. The check's `SessionStart` line arrives as context.** The check hook was armed into a
+temporary settings file by `install-check-hook.mjs --settings`, in a repository whose profile was
+deliberately stale. Run by hand, the hook emitted one `additionalContext` envelope. Run through
+`claude -p --settings <file>`, the model quoted that same line back verbatim when asked what note
+it had been given at session start.
+
+Neither run tested the interactive client, a resumed session, or a repository where the check has
+nothing to say — that last one is covered by the unit tests, which assert zero bytes on stdout.

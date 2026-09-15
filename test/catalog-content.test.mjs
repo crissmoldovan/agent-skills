@@ -31,6 +31,9 @@ const landComplexChange = await read('skills/land-complex-change/SKILL.md');
 const resolveProblemReport = await read('skills/resolve-problem-report/SKILL.md');
 const layerRepositoryDocs = await read('skills/layer-repository-docs/SKILL.md');
 const isolatedChangeValidation = await read('skills/isolated-change-validation/SKILL.md');
+const onboardProject = await read('skills/onboard-project/SKILL.md');
+const onboardProjectFitSignals = await read('skills/onboard-project/references/fit-signals.md');
+const onboardProjectWrites = await read('skills/onboard-project/references/what-gets-written.md');
 const isolatedChangeValidationEvidence = await read('skills/isolated-change-validation/references/evidence-contract.md');
 const isolatedChangeValidationHandoff = await read('skills/isolated-change-validation/references/handoff-bundle.md');
 const layerRepositoryDocsEntryPoints = await read('skills/layer-repository-docs/references/entry-points.md');
@@ -65,17 +68,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.21.1 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.21.1');
-  assert.equal(rootLock.version, '0.21.1');
-  assert.equal(rootLock.packages[''].version, '0.21.1');
+test('v0.22.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.22.0');
+  assert.equal(rootLock.version, '0.22.0');
+  assert.equal(rootLock.packages[''].version, '0.22.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 26);
+  assert.equal(skillNames.length, 27);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-six skills/i);
-  assert.match(composition, /catalog ships twenty-six skills/i);
+  assert.match(architecture, /now ships twenty-seven skills/i);
+  assert.match(composition, /catalog ships twenty-seven skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -92,7 +95,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-six public, portable Agent Skills/i);
+  assert.match(readme, /twenty-seven public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -109,7 +112,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -547,4 +550,23 @@ test('isolated-change-validation carries no organisation marks and states what i
   for (const reference of ['references/evidence-contract.md', 'references/handoff-bundle.md']) {
     assert.ok(isolatedChangeValidation.includes(reference), `SKILL.md does not link ${reference}`);
   }
+});
+
+test('onboard-project states its boundaries, its consent rule, and what it never edits', () => {
+  assert.doesNotMatch(onboardProject, /\bCUE\b|\bRGC\b/);
+  // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
+  for (const sibling of ['update-agent-skills', 'derive-codebase-context', 'layer-repository-docs', 'workspace-governance', 'model-routing']) {
+    assert.match(onboardProject, new RegExp(sibling));
+  }
+  // The two rules the design turns on: one yes, and nothing installed on the user's behalf.
+  assert.match(onboardProject, /one yes/i);
+  assert.match(onboardProject, /no skill may install it on their behalf/i);
+  assert.match(onboardProject, /never edits CLAUDE\.md, AGENTS\.md/i);
+  // The hook is always its own row, and always marked.
+  assert.match(onboardProject, /affects all projects on this machine/i);
+  for (const reference of ['references/fit-signals.md', 'references/what-gets-written.md']) {
+    assert.ok(onboardProject.includes(reference), `SKILL.md does not link ${reference}`);
+  }
+  assert.match(onboardProjectFitSignals, /\*?\*?unknown\*?\*?, not zero/i);
+  assert.match(onboardProjectWrites, /Undo/);
 });

@@ -18,7 +18,7 @@
  * routing lives in its own generated rules file, which is why nothing it writes can be clobbered
  * by a regeneration somebody else owns.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -462,7 +462,30 @@ export async function main(argv, { stdout = process.stdout, stderr = process.std
   return 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+/**
+ * Whether this file is the program being run.
+ *
+ * `process.argv[1]` is the path as typed — through a symlinked install, that is the link — while
+ * `import.meta.url` is what Node resolved it to, so comparing them as written is false on every
+ * symlinked install and `main()` silently never runs. Both sides are resolved, because under
+ * `--preserve-symlinks-main` it is `import.meta.url` that keeps the link; `realpathSync.native`
+ * because it also returns the on-disk case, and a case-insensitive volume hands the JS
+ * implementation back a differently-cased path that compares unequal. Resolving can throw, and a
+ * guard that throws at load turns an import into a crash, so a failure falls back to the plain
+ * comparison, which is right when no link is in play.
+ */
+export function isEntrypoint(moduleUrl) {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync.native(invoked) === realpathSync.native(modulePath);
+  } catch {
+    return resolve(invoked) === modulePath;
+  }
+}
+
+if (isEntrypoint(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });

@@ -11,7 +11,8 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`, and
-`layer-repository-docs`, and `isolated-change-validation` — twenty-six in all. Routing
+`layer-repository-docs`, `isolated-change-validation`, and `onboard-project` — twenty-seven in
+all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -34,7 +35,10 @@ decides whether a rewrite is fit to hand over; a request enters it through `audi
 `isolated-change-validation` owns the sandbox a change is proven in before it may land —
 the physically separate lane, the hash-pinned source identity, the gates the parent runs
 itself rather than believing a builder's report, and the handoff bundle the run is
-transferred in. A new skill must state which of these it does not duplicate.
+transferred in; and `onboard-project` owns which skills a repository uses and how they are put in
+front of every session in it — the declared `fit.json` each skill carries, the profile beside the
+Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, while installing
+nothing itself. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

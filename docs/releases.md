@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, and `isolated-change-validation`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, and `onboard-project`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -54,10 +54,41 @@ and the bundle an unattended run is handed over in. The moment the change is lan
 repository it is `land-complex-change`'s; the map it is budgeted from is `blast-area`'s; and the
 verdict it produces authorizes nothing beyond itself.
 
+`onboard-project` decides which of these skills a repository should use, and puts them in front of
+every session in it. Each skill declares its own fit in `references/fit.json`, which
+`verify-skills` now requires; the scan evaluates those declarations against the repository's files
+and, for onboard and refresh only, against this machine's session history for it; and one yes
+writes a profile beside the Skills CLI's lock file plus a generated
+`.claude/rules/skill-routing.md`, the file every session already loads. It installs nothing itself
+— `update-agent-skills` owns that, and the user runs it — writes no context file
+(`derive-codebase-context`) and no documentation (`layer-repository-docs`), and its session-start
+check is off until the user arms it.
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### `onboard-project` — a repository's skills, chosen from evidence and seen every session
+
+A twenty-seventh skill, and the answer to a measured failure: skills load by description match and
+nothing else, so on a machine carrying 201 installed skills the one a project depends on surfaces
+by luck. Enforcement does not fix it — a gate demanding a progress report was satisfied, in real
+sessions, by an agent writing the three headings from memory without ever loading the skill.
+
+The fix is a file every session already reads. Each skill now declares where it fits in
+`references/fit.json` — repository signals (a path present or absent, a manifest field, a bounded
+grep) and history signals (dispatches, workflows, background commands, releases, writes outside the
+repository) — and `verify-skills` refuses a skill without one. The scan evaluates those
+declarations, and one yes writes `skills-profile.json` beside the Skills CLI's lock file and a
+generated `.claude/rules/skill-routing.md`, which loads at the start of every session at the same
+priority as the project CLAUDE.md.
+
+Consent is the shape of the whole thing: every skill, file and hook is a row with the evidence that
+justified it and the undo that takes it back, nothing is written before one explicit yes, and the
+scripts install nothing — they print the commands for the user to run in order. The session-start
+check is off until it is armed, reads no history, never blocks, fails open, and prints zero bytes
+unless a listed skill is missing, the evidence moved, or the routing file drifted.
 
 ## Release checklist
 
