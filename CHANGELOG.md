@@ -5,6 +5,78 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.22.0
+
+**What.** One new skill, `onboard-project`, and one new rule behind it: every skill in the pack now
+carries `references/fit.json`, and `verify-skills` refuses a skill without one. The skill decides
+which skills a repository should use, from evidence in the repository and in how it is worked on,
+and writes that decision into two places — `skills-profile.json` beside the Skills CLI's own lock
+file, and a generated `.claude/rules/skill-routing.md`. It carries three entry points (`onboard`,
+`refresh`, `check`), five scripts, two references, and a `SessionStart` hook with its own installer
+that is **off until you arm it**. Minor, by this repository's rule that a new skill is a minor:
+twenty-six skills become twenty-seven. Nothing else changed: no adapter, gate, installer or package
+export was touched.
+
+**Why.** A skill loads when its description happens to match the task, or when somebody types its
+name. That is the whole mechanism — there is no supported way to force-load one, and no frontmatter
+field that makes one skill require another. It works until the install base grows: on the machine
+this was built for, **201 skills were installed**, and the one a project depends on surfaced by
+luck.
+
+Enforcement does not fix that, and the pack's own gate proves it. In real sessions the
+`report-progress` gate fired, the turn came back carrying the three headings, and the skill was
+never loaded — so everything it exists to carry was absent while the gate's string match passed.
+(0.21.1 made that refusal name the skill; this is the other half of the same problem.)
+
+So the fix is not a bigger gate. It is a file every session already reads: a rules file with no
+`paths` frontmatter loads at the start of every session at the same priority as the project
+CLAUDE.md. Two live headless runs against a real model settle that it works — one where the routing
+line came back verbatim from a throwaway repository, one where the check's line arrived as
+session-start context — and both are recorded in `adapters/HOOK-OUTPUT-NOTES.md`.
+
+What makes the recommendation checkable is the declared fit. A `fit.json` states where a skill
+belongs as **repository signals** (a path present or absent, a manifest field by dotted path, a
+bounded grep) and **history signals** (agent dispatches, workflow launches, background commands,
+release commands, writes outside the repository) — so each one can be tested both ways against a
+fixture, which a description never can. Two rules hold history down: it is read by `onboard` and
+`refresh` only, never at session start, because those transcripts run to tens of megabytes; and an
+absent history is **unknown**, not zero, so a machine that has never opened a repository cannot
+drop a skill for evidence that was never going to be there.
+
+Consent is the shape of the whole thing. Every skill, file and hook is a row in one change list,
+each carrying the evidence that justified it and the undo that takes it back. Nothing is written
+before one explicit yes. The scripts install nothing at all — `apply` writes the files and prints
+the install commands in order for you to run — which keeps the network out of a module the
+session-start check also loads, and keeps every install where you can see it. A hook is always its
+own row, always marked *affects all projects on this machine*, and never armed on a general yes
+about setting a project up.
+
+**Impact.** **Additive. No migration, and existing call sites are unchanged.**
+
+- **Nothing already installed changes behaviour.** No adapter, hook, installer, package export or
+  command was touched. An installed copy of the pack gains one skill directory, a `references/fit.json`
+  in each of the others, and the catalogue text around them.
+- **The new hook is off until you arm it,** and arming it is a command you run:
+  `node <skill-folder>/scripts/install-check-hook.mjs`. It writes a `SessionStart` hook on the
+  `startup` and `resume` matchers, prints **zero bytes** unless a listed skill is missing, the
+  repository's evidence has moved or the routing file has drifted, never blocks, reads no session
+  history, and fails open. `--remove` takes it back and leaves the rest of your settings file
+  exactly as it found it.
+- **For skill authors:** `verify-skills` now fails a skill with no `references/fit.json`, one that
+  does not parse, one whose `kind` is outside `signals` / `general` / `requestOnly`, one with no
+  `useWhen` line, or a `signals` fit with an empty or unreadable signal list. Anyone carrying a
+  private skill in this layout adds one small file per skill;
+  `skills/onboard-project/references/fit-signals.md` is the grammar.
+- **Blast radius:** anyone updating the pack, plus anyone who then runs the skill in a repository.
+  `npx skills update --global --yes` (or `--project`) brings it in; nothing is installed on your
+  behalf.
+- **Dependencies and distribution:** none added, none changed. `latest` is correct for this version.
+- **Runtime behaviour:** unchanged everywhere until you run the skill. What it writes — a profile,
+  a rules file, and for a repository kept local one line in `.git/info/exclude` — is listed with its
+  undo in `skills/onboard-project/references/what-gets-written.md`.
+
+The design and the implementation plan ship with it, under `docs/superpowers/`.
+
 ## 0.21.1
 
 **What.** Two fixes in the `report-progress` Stop gate, both in `adapters/claude-code/report-progress-gate.mjs`.
