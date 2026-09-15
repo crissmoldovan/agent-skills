@@ -8,6 +8,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { isEntrypoint } from '../skills/update-agent-skills/scripts/check-pack-freshness.mjs';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 /**
  * Every script in this pack that can be RUN decides, at its last line, whether it
@@ -72,7 +73,7 @@ function run(script, argv, { env, stdin } = {}) {
   });
 }
 
-const scratch = (prefix) => mkdtemp(path.join(tmpdir(), prefix));
+const scratch = (prefix) => tempDir(prefix);
 /** What a silent no-op looks like, so a failure says so rather than printing two empty strings. */
 const observed = (result) => `exit ${result.status}, stdout ${JSON.stringify(result.stdout)}, stderr ${JSON.stringify(result.stderr)}`;
 

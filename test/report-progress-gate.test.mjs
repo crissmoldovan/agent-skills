@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   COVERAGE_ENV_FLAG,
@@ -98,7 +98,7 @@ function runInstaller(argv) {
 }
 
 async function scratch(name) {
-  return mkdtemp(path.join(tmpdir(), `${name}-`));
+  return tempDir(`${name}-`);
 }
 
 const stopPayload = (message, extra = {}) => ({

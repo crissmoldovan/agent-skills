@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   PROFILE_VERSION,
@@ -17,7 +17,7 @@ import {
   writeProfile,
 } from '../skills/onboard-project/scripts/profile.mjs';
 
-const scratch = (name) => mkdtemp(path.join(tmpdir(), `${name}-`));
+const scratch = (name) => tempDir(`${name}-`);
 
 const sampleProfile = () => ({
   version: PROFILE_VERSION,

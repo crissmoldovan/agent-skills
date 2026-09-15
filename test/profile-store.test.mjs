@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, stat, writeFile, readdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, stat, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
 
 import { ProfileStore, deriveScopeKey, validateStore } from '../skills/model-routing/scripts/profile-store.mjs';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 const roles = Object.freeze({
   driver: { provider: 'openai', model: 'gpt-5.6-sol', effort: 'high' },
@@ -19,7 +19,7 @@ const live = Object.freeze({
 });
 
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'routing-store-'));
+  const root = await tempDir('routing-store-');
   return { root, harness: 'hermes', scope: { kind: 'workspace', id: '/repos/acme/widget', home: '/example/hermes-home' } };
 }
 function input(name = 'coding', extra = {}) { return { name, roles, live, confirm: true, ...extra }; }

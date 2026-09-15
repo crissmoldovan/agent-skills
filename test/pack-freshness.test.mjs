@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   DEFAULT_SOURCE,
@@ -81,7 +81,7 @@ function stubFetch(routes) {
 }
 
 async function scratch(name) {
-  const root = await mkdtemp(path.join(tmpdir(), `pack-freshness-${name}-`));
+  const root = await tempDir(`pack-freshness-${name}-`);
   return { root, lockPath: path.join(root, 'lock.json'), cachePath: path.join(root, 'cache.json') };
 }
 
@@ -387,7 +387,7 @@ async function apiStandIn(folders) {
 }
 
 async function stateHome(name, skills) {
-  const root = await mkdtemp(path.join(tmpdir(), `pack-freshness-${name}-`));
+  const root = await tempDir(`pack-freshness-${name}-`);
   await mkdir(path.join(root, 'skills'), { recursive: true });
   await writeFile(path.join(root, 'skills', '.skill-lock.json'), JSON.stringify(lockFile(skills)));
   return root;
@@ -589,7 +589,7 @@ test('--hook and --print-stale-names are refused together rather than one silent
 // together, and the shell logic is what decides whether a verdict is delivered.
 
 async function fakeNpx(exitStatus) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'pack-freshness-npx-'));
+  const dir = await tempDir('pack-freshness-npx-');
   const file = path.join(dir, 'npx');
   await writeFile(file, [
     '#!/bin/sh',

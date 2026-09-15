@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 const root = new URL('../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
@@ -347,7 +348,7 @@ test('the byte-identity assertion fails when one carried copy is altered', async
   const path = await import('node:path');
   const { pathToFileURL } = await import('node:url');
 
-  const scratch = await mkdtemp(path.join(tmpdir(), 'run-record-mutation-'));
+  const scratch = await tempDir('run-record-mutation-');
   await cp(new URL('skills/', root), path.join(scratch, 'skills'), { recursive: true });
   const target = path.join(scratch, 'skills', 'blast-area', 'references', 'documenting-the-run.md');
   const original = await readFile(target, 'utf8');

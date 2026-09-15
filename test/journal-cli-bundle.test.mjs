@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   BUNDLER_PATH,
@@ -38,7 +38,7 @@ const SKILL_DIR = path.join(SOURCE_DIR, '..', '..', '..', 'skills', 'decision-jo
 function runNode(args, env = {}) {
   return spawnSync(process.execPath, args, { encoding: 'utf8', env: { ...process.env, ...env } });
 }
-const scratch = (prefix) => mkdtemp(path.join(tmpdir(), prefix));
+const scratch = (prefix) => tempDir(prefix);
 function sink() {
   let text = '';
   return { write(chunk) { text += chunk; }, get text() { return text; } };

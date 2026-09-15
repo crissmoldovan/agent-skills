@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import { HermesRoutingAdapter } from '../skills/model-routing/scripts/hermes-routing.mjs';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 const roles = Object.freeze({
   driver: { provider: 'routera', model: 'openai/gpt-driver' },
@@ -38,7 +38,7 @@ function fakeHermes({ failSet = null } = {}) {
   return { config, calls, run, failNext(key) { failedKey = key; } };
 }
 async function fixture(options = {}) {
-  const root = await mkdtemp(path.join(tmpdir(), 'hermes-routing-'));
+  const root = await tempDir('hermes-routing-');
   const home = path.join(root, 'hermes', 'profiles', 'work');
   const fake = fakeHermes(options);
   let inventoryLoads = 0;
