@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, copyFile, link, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 // ---------------------------------------------------------------------------
 // Which hooks the two gate installers take, driven end to end: the real installers, on settings files
@@ -77,7 +77,7 @@ function childEnv(extra) {
 const q = (value) => `'${String(value).split("'").join(`'\\''`)}'`;
 
 async function scratch(name) {
-  return mkdtemp(path.join(tmpdir(), `${name}-`));
+  return tempDir(`${name}-`);
 }
 
 function spawnCollect(file, args, { env, stdin }) {

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   DESCRIBE_PREFIX,
@@ -18,7 +18,7 @@ import {
 const packRoot = fileURLToPath(new URL('../', import.meta.url));
 const installer = path.join(packRoot, 'skills', 'onboard-project', 'scripts', 'install-check-hook.mjs');
 const checker = path.join(packRoot, 'skills', 'onboard-project', 'scripts', 'onboard.mjs');
-const scratch = (name) => mkdtemp(path.join(tmpdir(), `${name}-`));
+const scratch = (name) => tempDir(`${name}-`);
 
 function run(command, args, { home, cwd, input } = {}) {
   return new Promise((resolve) => {

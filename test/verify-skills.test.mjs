@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { cp, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'verify-skills-'));
+  const root = await tempDir('verify-skills-');
   await cp(path.join(repository, 'scripts'), path.join(root, 'scripts'), { recursive: true });
   await mkdir(path.join(root, 'skills', 'valid-skill', 'references'), { recursive: true });
   await writeFile(path.join(root, 'skills', 'valid-skill', 'SKILL.md'), '---\nname: valid-skill\ndescription: Valid fixture\n---\n');

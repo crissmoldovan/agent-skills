@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { availableParallelism, tmpdir } from 'node:os';
+import { chmod, copyFile, link, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
@@ -13,6 +13,7 @@ import * as ownership from '../adapters/claude-code/hook-ownership.mjs';
 import { HOOK_IDENTITY as PROGRESS_IDENTITY, buildHookEntries, installHooks, removeHooks } from '../adapters/claude-code/install-report-progress-gate.mjs';
 import { HOOK_IDENTITY as RELEASE_IDENTITY, buildHookEntry, installHook, removeHook } from '../adapters/claude-code/install-release-notes-gate.mjs';
 import { GATE_DIR_ENV, markerFile } from '../adapters/claude-code/report-progress-gate.mjs';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 const { classifyHook } = ownership;
 
@@ -533,7 +534,7 @@ async function inPool(items, work) {
   return results;
 }
 
-const scratch = async (name) => realpath(await mkdtemp(path.join(tmpdir(), `${name}-`)));
+const scratch = async (name) => realpath(await tempDir(`${name}-`));
 
 const allHooks = (settings) => Object.entries(settings.hooks ?? {})
   .flatMap(([event, groups]) => (Array.isArray(groups) ? groups : [])

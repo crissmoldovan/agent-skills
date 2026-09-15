@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   DESCRIBE_PREFIX,
@@ -25,7 +25,7 @@ function startupHooks(settings) {
 }
 
 async function scratchSettings(contents) {
-  const root = await mkdtemp(path.join(tmpdir(), 'freshness-hook-'));
+  const root = await tempDir('freshness-hook-');
   const file = path.join(root, 'settings.json');
   if (contents !== undefined) await writeFile(file, contents);
   return file;

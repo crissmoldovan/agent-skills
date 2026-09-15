@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 const packRoot = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(packRoot, 'skills', 'onboard-project', 'scripts', 'onboard.mjs');
 
-const scratch = (name) => mkdtemp(path.join(tmpdir(), `${name}-`));
+const scratch = (name) => tempDir(`${name}-`);
 
 function run(args, { home, cwd } = {}) {
   return new Promise((resolve) => {

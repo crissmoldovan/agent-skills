@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import { encodeProjectPath, historyCounts } from '../skills/onboard-project/scripts/history.mjs';
+import { tempDir } from './helpers/temp-dir.mjs';
 
-const scratch = (name) => mkdtemp(path.join(tmpdir(), `${name}-`));
+const scratch = (name) => tempDir(`${name}-`);
 
 /** One assistant turn's worth of transcript, in the shape Claude Code writes. */
 const toolUse = (name, input) => JSON.stringify({
