@@ -94,6 +94,11 @@ export function forgetRepoIndex(repoRoot) {
   indexCache.delete(resolve(repoRoot));
 }
 
+/** Whether a pattern needs the index at all. A plain path is answered by the filesystem. */
+export function isGlob(pattern) {
+  return /[*?[\]]/.test(String(pattern));
+}
+
 /**
  * `*` stays inside one path segment, `**` crosses them, and a trailing `/` means "this directory".
  * Deliberately small: a fit signal is a question about a repository's shape, not a shell.
@@ -212,6 +217,17 @@ export function signalId(signal) {
 function evaluateSignal(signal, repoRoot, counts) {
   if (signal?.repo?.exists) {
     const pattern = signal.repo.exists;
+    // A NAMED PATH IS ASKED OF THE FILESYSTEM, not of the index. The index is a case-sensitive set
+    // of strings gathered by a bounded walk, and both halves of that bite: on a case-insensitive
+    // volume (macOS by default, Windows) a file the session opens happily reads as absent, and a
+    // path below the walk's depth or past its file cap does too. Measured on a real repository: the
+    // context file on disk was `claude.md`, the signal asked for `CLAUDE.md`, and the scan
+    // recommended the skill whose whole job is a repository that has no context file.
+    if (!isGlob(pattern)) {
+      return existsSync(join(resolve(repoRoot), pattern.replace(/\/$/, '')))
+        ? { true: true, evidence: `${pattern} is present` }
+        : { true: false };
+    }
     const index = repoIndex(repoRoot);
     const pool = pattern.endsWith('/') ? [...index.directories, ...index.files] : index.files;
     const hit = pool.find((path) => matchesGlob(path, pattern));
@@ -223,8 +239,7 @@ function evaluateSignal(signal, repoRoot, counts) {
     // no agent context file. Kept deliberately narrow — a missing path, never a missing glob —
     // because "nothing matched this pattern" is a much weaker claim than "this file is not here".
     const pattern = signal.repo.missing;
-    const index = repoIndex(repoRoot);
-    const present = [...index.files, ...index.directories].some((path) => path === pattern.replace(/\/$/, ''));
+    const present = existsSync(join(resolve(repoRoot), pattern.replace(/\/$/, '')));
     return present ? { true: false } : { true: true, evidence: `${pattern} is not in this repository` };
   }
   for (const format of ['json', 'toml', 'yaml']) {

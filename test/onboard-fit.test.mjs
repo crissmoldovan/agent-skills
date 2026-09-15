@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   FIT_KINDS,
   evaluateRepoSignals,
+  forgetRepoIndex,
   loadCatalogue,
   matchesGlob,
   readManifestField,
@@ -187,4 +188,46 @@ test('every shipped signals fit is readable by the evaluator, and every skill de
     const list = fit.anyOf ?? fit.allOf;
     for (const signal of list) assert.notEqual(signalId(signal), 'unreadable', `${name}: ${JSON.stringify(signal)}`);
   }
+});
+
+test('exists and missing answer the filesystem, not a case-sensitive string set', async () => {
+  // Found on a real repository: the file on disk was `claude.md`, the signal asked for `CLAUDE.md`,
+  // and the volume was case-insensitive — so the session loaded the file while the scan reported it
+  // missing, and recommended the skill whose whole job is a repository with no context file.
+  const { existsSync } = await import('node:fs');
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const nodePath = await import('node:path');
+
+  const root = await mkdtemp(nodePath.join(tmpdir(), 'fit-case-'));
+  await writeFile(nodePath.join(root, 'claude.md'), '# context\n');
+  await writeFile(nodePath.join(root, 'README.md'), '# readme\n');
+  forgetRepoIndex(root);
+
+  // Whatever this filesystem says about the differently-cased name, both signals must agree with it.
+  const filesystemSaysPresent = existsSync(nodePath.join(root, 'CLAUDE.md'));
+  const exists = { version: 1, kind: 'signals', useWhen: 'x', anyOf: [{ repo: { exists: 'CLAUDE.md' } }] };
+  const missing = { version: 1, kind: 'signals', useWhen: 'x', anyOf: [{ repo: { missing: 'CLAUDE.md' } }] };
+  assert.equal(evaluateRepoSignals(exists, root).matched, filesystemSaysPresent);
+  assert.equal(evaluateRepoSignals(missing, root).matched, !filesystemSaysPresent);
+
+  // And the exact-case cases are unambiguous on every filesystem.
+  assert.equal(evaluateRepoSignals({ ...exists, anyOf: [{ repo: { exists: 'README.md' } }] }, root).matched, true);
+  assert.equal(evaluateRepoSignals({ ...missing, anyOf: [{ repo: { missing: 'README.md' } }] }, root).matched, false);
+  assert.equal(evaluateRepoSignals({ ...missing, anyOf: [{ repo: { missing: 'nothing-here.md' } }] }, root).matched, true);
+});
+
+test('a plain path is found below the index walk depth, where a glob cannot reach', async () => {
+  const { mkdir, mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const nodePath = await import('node:path');
+  const root = await mkdtemp(nodePath.join(tmpdir(), 'fit-deep-'));
+  const deep = nodePath.join(root, ...Array.from({ length: 14 }, (_, index) => `level-${index}`));
+  await mkdir(deep, { recursive: true });
+  await writeFile(nodePath.join(deep, 'buried.txt'), 'x\n');
+  forgetRepoIndex(root);
+
+  const relative = nodePath.relative(root, nodePath.join(deep, 'buried.txt')).split(nodePath.sep).join('/');
+  const fit = { version: 1, kind: 'signals', useWhen: 'x', anyOf: [{ repo: { exists: relative } }] };
+  assert.equal(evaluateRepoSignals(fit, root).matched, true, 'a named path below the walk depth was reported absent');
 });
