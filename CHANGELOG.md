@@ -5,6 +5,94 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.22.1
+
+**What.** A patch to `onboard-project` (skill version 1.0.1) that fixes the thirteen distinct defects
+an adversarial review of 0.22.0 confirmed — nineteen findings that each survived three independent
+attempts at refutation, several describing the same defect, and one of them found independently by
+running the scan on a real repository — plus three smaller gaps found while fixing them, and one
+correction to the 0.21.1 notes. Nothing else in the pack changed: no gate, installer, adapter or
+other skill.
+
+**Why.** 0.22.0 shipped with its session-start check armed on at least one machine, and several of
+these defects make that check say something untrue, or make the scan recommend a skill for a
+reason that is not the case. In order of how much they mislead:
+
+- **A named file could be reported missing while it sat in the repository.** `exists` and `missing`
+  were answered from a case-sensitive list of paths gathered by a bounded walk. On a
+  case-insensitive volume — macOS by default — a repository whose context file is `claude.md`
+  got the evidence line "CLAUDE.md is not in this repository", and was recommended the skill whose
+  whole job is a repository with no context file. A named path is now asked of the filesystem.
+- **Anything a bounded scan did not reach read as absent.** Past twenty thousand files, below twelve
+  levels, or beyond grep's budget, a signal that found nothing was reported false, printed as
+  evidence and hashed into the fingerprint. A bound now makes a signal *unknown*: it neither matches
+  nor rules a skill out, and never moves what the check compares. A history count read only in part
+  is a lower bound in the same way.
+- **The check reported "this repository's evidence has changed" when only the catalogue had.** The
+  fingerprint covered every skill in the catalogue, so installing or updating any skill with a
+  `fit.json` tripped it. The profile now records, per skill, the signals it was evaluated on and the
+  ones that were true, and the check compares only signals both the profile and the installed fit
+  define — so neither a new skill nor an edited signal is blamed on the repository.
+- **One unrelated file could flip a grep signal.** Grep read the first 400 candidates in walk order;
+  a match past that window was missed, so adding a file ahead of it moved the fingerprint. The scan
+  now stops at the first match anywhere and names that file as the evidence, which is also more
+  useful to read than a count that was never a count over the globs it named.
+- **Refresh silently dropped listed skills.** The profile was rebuilt from the current scan alone,
+  so a skill whose evidence had gone — or a weak one nobody re-passed — vanished from the profile and
+  the routing file with no row and no word. A listed skill is now kept: a `-` row says its evidence
+  is gone and how to remove it (`--drop`), a `?` row says its evidence cannot be read on this machine.
+- **`land-complex-change` could never match on its migrations signal.** A directory pattern with a
+  wildcard, `**/migrations/`, was compared as literal text. Directory patterns are globs now.
+- **The routing file's order depended on the machine's locale** (`localeCompare`), so two machines
+  rendered one profile two ways and each reported the other's committed file as drift. Code-point
+  order.
+- **Two repositories could share one local profile.** Claude Code's path encoding makes
+  `work/foo-bar` and `work/foo/bar` one name. Local file names now carry a hash of the full path, a
+  local profile records its repository, and one naming another — or naming none, as every 0.22.0
+  local profile does — is never read.
+- **In a git worktree, placement said "no origin remote"**, because the worktree's own gitdir holds
+  no config. The shared config is read now, and the exclude line goes to the shared exclude file.
+- **A failed `.git/info/exclude` write was silent** and apply exited 0; **a failed write was
+  followed by the full install and hook list**, which an agent following printed instructions would
+  have run; **the exclude write was not in the change list** the user says yes to; and **the check's
+  one-time marker was read by `plan` as a recorded placement**. Each is fixed: a failure stops apply
+  with a non-zero exit and prints no commands, the exclude line is a row with its undo, and the
+  marker is never read as a profile.
+
+The three smaller gaps: two promises the skill text made and the code did not keep are kept now — a routing file edited by
+hand is shown as the lines that would change before it is rewritten, and "don't ask again" has a
+command, `apply --decline <names>`. And the scan no longer takes evidence from tool-owned build
+output — on the repository that surfaced the case bug, a grep evidence line had named a file under
+`.trigger/tmp/build-…/`.
+
+**Correction to 0.21.1.** Its notes said the report-progress refusal "opens by naming the skill". It
+does not: the refusal opens with the gate's own line and what is missing, and names the skill
+immediately after that, before the shape it describes. The behaviour was as shipped; the sentence
+describing it was wrong, and has been corrected in the 0.21.1 entry and its release.
+
+**Impact.** **Patch. No migration is required; one refresh is recommended.**
+
+- **If you onboarded a repository with 0.22.0 and committed the profile**, run the skill's refresh
+  once there. A 0.22.0 profile has no per-skill evidence, so until a refresh writes it the check
+  makes no evidence comparison — it keeps checking installed skills and the routing file.
+- **If you onboarded a repository with 0.22.0 and kept it local**, run the skill there again. A
+  0.22.0 local profile is not read: its file name is the one that collided, and it records no
+  repository, so nothing can say which repository wrote it. The check will suggest onboarding once.
+  The old file, under `~/.agents/project-profiles/`, can be deleted.
+- **The session-start hook needs no re-arming.** It runs the installed script by path, so updating
+  the skill updates what runs.
+- **What reads differently:** grep evidence names the first matching file rather than a count, and a
+  grep that had to skip a file for its size reads as unknown when it finds nothing; the
+  change list for a local placement in a git repository has a third `~` row for
+  `.git/info/exclude`; refresh can show `-` and `?` rows; apply accepts `--drop` and `--decline`;
+  a failed apply exits 1 and prints no install or hook command.
+- **Blast radius:** anyone who installed `onboard-project` from 0.22.0, and anyone who armed its
+  check. Everything else in the pack is byte-identical to 0.22.0.
+- **Dependencies and distribution:** none added or changed. `latest` is correct for this version.
+- **Tests:** 630 passing, 0 failing — 30 new or rewritten. All but two were written ahead of the fix
+  they cover and seen failing first; the build-output skip and the `?` row were written after theirs.
+  The patch was reviewed again before release, and that review's five findings are fixed here too.
+
 ## 0.22.0
 
 **What.** One new skill, `onboard-project`, and one new rule behind it: every skill in the pack now
@@ -91,7 +179,8 @@ turn came back carrying the three headings, and the `report-progress` skill was 
 because skills load by description match, and a gate's refusal is not one. The shape passed the
 string match while everything the skill exists for was absent: numbers the author checked kept
 apart from numbers they were told, the user-facing consequence named, corrections said out loud.
-The refusal now opens by naming the skill and closes the same way as before, so an agent without
+The refusal now names the skill to load right after listing what is missing, and describes the
+shape the same way as before, so an agent without
 it installed still gets the shape from the message itself.
 
 The second fix closes a silence. The gate's ceiling is two writes — a record of the spent block,

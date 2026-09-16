@@ -3,7 +3,7 @@ name: onboard-project
 description: "Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them."
 license: MIT
 compatibility: "Any repository on a machine with Node 22+ and the Skills CLI available through npx. Git is optional: without it, files stay local. Reads the pack's own fit declarations, the repository's files, and — for onboard and refresh only — this machine's session history for this repository. Writes at most two files plus a git exclude line, and only on an explicit yes. The session-start hook is off until you arm it, and arming it affects every project on this machine."
-metadata: "group=workflow; lifecycle=setup; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=setup; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -101,8 +101,8 @@ work should be reported; it recommends the skills that own those jobs and owns n
 4. **Add the weak matches yourself, if any.** The scan is deliberately narrow: it recommends only
    what a declared fit matched. Skills installed on this machine that are *not* in the pack can
    still fit, but only a reader can say so, from their descriptions and what the scan found. Pass
-   them with `--weak <names>`; they are listed as "suggested from description, not checked", and
-   never marked required.
+   them with `--weak <names>`; they are listed as "suggested from description, not checked", never
+   marked required, and kept on every later apply until someone drops them.
    **Complete when:** every weak suggestion names the description it came from, or there are none.
 
 5. **Show the whole change list and ask once.** Every row carries its undo:
@@ -114,15 +114,19 @@ work should be reported; it recommends the skills that own those jobs and owns n
    = report-progress  (strong)  already installed (global)
    ~ write skills-profile.json — in this repository
        undo:    delete it, or git revert
-   ~ write .claude/rules/skill-routing.md
+   ~ write .claude/rules/skill-routing.md — a new file
        undo:    delete it, or git revert
+   ~ write .git/info/exclude — one line, /.claude/rules/skill-routing.md, so the routing file stays out of git status
+       undo:    remove that line
    ! arm the session-start check — affects all projects on this machine, not only this one
        command: node <skill-folder>/scripts/install-check-hook.mjs
        undo:    node <skill-folder>/scripts/install-check-hook.mjs --remove
    ```
 
-   A hook lives in the user's own settings, so it is always its own row and always marked. Never
-   fold it into a general yes about "setting the project up".
+   The exclude row appears for a local placement in a git repository — including a worktree, where
+   the line goes to the repository's shared exclude file. A hook lives in the user's own settings,
+   so it is always its own row and always marked. Never fold it into a general yes about "setting
+   the project up".
    **Complete when:** the user has seen every row, including the hook row, and answered.
 
 6. **Apply in order — files, installs, hooks — and stop at the first failure.**
@@ -132,19 +136,23 @@ work should be reported; it recommends the skills that own those jobs and owns n
    ```
 
    That writes the files and prints the install and hook commands. **Run them yourself, in order,
-   and stop at the first one that fails.** The scripts run no installs: the network stays out of a
+   and stop at the first one that fails.** If a write fails, apply exits non-zero and prints no
+   commands at all — fix the failure and apply again before anything is installed or armed. The scripts run no installs: the network stays out of a
    module the session-start check also loads, and every install stays where the user can see it.
    **Complete when:** the report says what was applied and what was not, with nothing implied.
 
 7. **Record a no properly.** If the user declines a skill, write nothing unless they say "don't
-   ask again" — then the profile records that decision with the fingerprint of that skill's own
-   evidence, so it is offered again if and only if the evidence changes.
+   ask again" — then apply with `--decline <names>`, which records that decision against the
+   fingerprint of that skill's own evidence, so it is offered again if and only if the evidence
+   changes.
    **Complete when:** a declined skill is either absent from the profile or recorded with its
    fingerprint.
 
-8. **Refresh shows differences only.** New matches, skills whose evidence disappeared (offered for
-   removal, never removed silently), listed skills that are not installed, and a routing file that
-   no longer matches its profile — shown as a diff, never overwritten quietly.
+8. **Refresh shows differences only, and never drops a listed skill on its own.** New matches;
+   a `-` row for a listed skill whose evidence is gone, kept until the user says `--drop <names>`;
+   a `?` row for one whose evidence cannot be read on this machine — no session history here, or a
+   scan that hit its bounds — which is kept without question; listed skills that are not installed;
+   and a routing file that no longer matches its profile, shown as the lines that would change.
    **Complete when:** the user sees only what changed since the last scan.
 
 9. **Arm the check only if the user asks for it.** It is off until then. It says one line when a

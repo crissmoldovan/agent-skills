@@ -32,18 +32,25 @@ re-evaluates exactly these and nothing else.
 
 | Signal | Shape | True when |
 |---|---|---|
-| exists | `{ "repo": { "exists": "CHANGELOG.md" } }` | A path matches. A trailing `/` means a directory; `*` stays inside one segment and `**` crosses them |
-| missing | `{ "repo": { "missing": "README.md" } }` | An exact path is **not** there. No globs: "nothing matched this pattern" is a much weaker claim than "this file is not here" |
+| exists | `{ "repo": { "exists": "CHANGELOG.md" } }` | A path matches. A named path is asked of the filesystem, so its case follows the volume's; a pattern with `*` or `?` is matched against the scan. A trailing `/` means a directory, with or without wildcards (`**/migrations/`); `*` stays inside one segment and `**` crosses them |
+| missing | `{ "repo": { "missing": "README.md" } }` | An exact path is **not** there, asked of the filesystem. No globs: "nothing matched this pattern" is a much weaker claim than "this file is not here" |
 | json | `{ "repo": { "json": "package.json", "field": "version" } }` | The file parses and the dotted field is present |
 | toml | `{ "repo": { "toml": "Cargo.toml", "field": "package.version" } }` | A `[section]` header and a `key = value` under it. Shallow by design |
 | yaml | `{ "repo": { "yaml": "pubspec.yaml", "field": "environment.sdk" } }` | Top-level and indented keys, two levels. Shallow by design |
-| grep | `{ "repo": { "grep": "x-hub-signature", "globs": ["**/*.ts"] } }` | A JavaScript regular expression matches inside a file the globs select |
+| grep | `{ "repo": { "grep": "x-hub-signature", "globs": ["**/*.ts"] } }` | A JavaScript regular expression matches inside a file the globs select. The scan stops at the first match and names that file as the evidence |
 
 The shallow readers are not an oversight. A fit signal asks whether a repository has a shape; a
 signal that needs a real TOML or YAML parser is asking a question that belongs in the skill itself.
 
-`grep` is bounded: a file count and a byte budget per file, over the globs you name. Name them
+`grep` is bounded: a byte budget per file and in total, over the globs you name. A file too large
+to read is skipped, and a grep that finds nothing but skipped one is unknown. Name them
 narrowly — `**/*` across a large repository is slow and matches things you did not mean.
+
+**A bound makes a signal unknown, never false.** The scan walks at most twenty thousand files and
+twelve levels, skipping dependency trees and tool-owned build output. When a glob or a grep finds
+nothing but the walk or the budget stopped before the end, the honest answer is "not in the part
+that was read", and the signal reads as unknown — it neither matches nor rules the skill out, and it
+does not move the evidence the session-start check compares.
 
 ## History signals
 
@@ -68,6 +75,8 @@ Two rules about history, and both matter:
 - It is read by **onboard** and **refresh** only. The session-start check never touches it, because
   these transcripts run to tens of megabytes and a check that costs a second at every session start
   is a check somebody will remove.
+- A history read that hit its byte budget is a lower bound: a count already past its threshold is
+  true, and one short of it is unknown.
 - An absent history is **unknown**, not zero. A machine that has never opened this repository has
   no evidence either way, and a skill must not be dropped for evidence that was never going to be
   there. In an `anyOf`, an unknown signal simply does not contribute; in an `allOf`, it prevents
