@@ -23,7 +23,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { evaluateRepoSignals, forgetRepoIndex, loadCatalogue, repoIndex } from './fit.mjs';
+import { evaluateRepoSignals, forgetRepoIndex, loadCatalogue, repoIndex, signalId } from './fit.mjs';
 import { historyCounts } from './history.mjs';
 import {
   PROFILE_VERSION,
@@ -153,12 +153,13 @@ export function resolvePlacement(repoRoot, { home = homedir() } = {}) {
  * `counts` is passed in rather than gathered, so the caller decides whether history is read at
  * all — `check` never does.
  *
- * THE EVIDENCE IS KEPT PER SKILL. 0.22.0 kept one fingerprint over every skill in the catalogue,
- * so installing or updating any skill that carries a fit.json changed it — and the armed check
- * told the user their repository had changed when only the catalogue had. `evidence` maps each
- * evaluated skill to a hash of its own true repository signals; the check compares only skills
- * that were in the catalogue when the profile was written, and only where every signal could be
- * read this time.
+ * THE EVIDENCE IS KEPT PER SKILL, AND PER SIGNAL. 0.22.0 kept one fingerprint over every skill in
+ * the catalogue, so installing or updating any skill that carries a fit.json changed it — and the
+ * armed check told the user their repository had changed when only the catalogue had. A hash per
+ * skill was still not enough: an update that edits one of a skill's signals changes that hash too.
+ * `evidence` records, for each evaluated skill, the repository signals it was evaluated on and the
+ * ones that were true; the check compares only signals both versions define and could read, so a
+ * catalogue or a fit.json can change under a profile without the repository being blamed.
  */
 export function scan(repoRoot, { home = homedir(), counts = null, pack = PACK_ROOT } = {}) {
   forgetRepoIndex(repoRoot);
@@ -177,7 +178,11 @@ export function scan(repoRoot, { home = homedir(), counts = null, pack = PACK_RO
     const withHistory = evaluateRepoSignals(fit, repoRoot, { counts });
     const repoOnly = evaluateRepoSignals(fit, repoRoot, { counts: null });
     if (repoOnly.trueSignals.length > 0) repoOnlyTrue[name] = repoOnly.trueSignals;
-    evidence[name] = fingerprintOf({ [name]: repoOnly.trueSignals });
+    const listed = Array.isArray(fit.allOf) ? fit.allOf : Array.isArray(fit.anyOf) ? fit.anyOf : [];
+    evidence[name] = {
+      signals: [...new Set(listed.map(signalId).filter((id) => !id.startsWith('history:')))].sort(),
+      true: [...repoOnly.trueSignals].sort(),
+    };
     // History signals are always unknown in a repo-only pass; only a repository signal the scan
     // could not read makes this skill's evidence unreadable.
     repoUnknown[name] = repoOnly.unknownSignals.filter((id) => !id.startsWith('history:'));
@@ -285,6 +290,11 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
     const base = { name, match: entry.match, evidence: entry.evidence ?? [], scope: installed.get(name) ?? entry.scope ?? null, required: Boolean(entry.required), install: null, undo: null };
     if (drop.includes(name)) {
       rows.push({ ...base, kind: '-', note: 'removed on request' });
+      continue;
+    }
+    if (decline.includes(name)) {
+      declined[name] = { at: new Date().toISOString().slice(0, 10), fingerprint: ownFingerprint(name) };
+      rows.push({ ...base, kind: '-', note: 'declined: removed, and not offered again until its evidence changes' });
       continue;
     }
     skills[name] = entry;
@@ -425,7 +435,7 @@ function excludeRules(repoRoot) {
   try {
     mkdirSync(join(dirs.commonDir, 'info'), { recursive: true });
     const current = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
-    if (current.split('\n').includes(EXCLUDE_ENTRY)) return true;
+    if (current.split(/\r?\n/).includes(EXCLUDE_ENTRY)) return true;
     appendFileSync(exclude, `${current.endsWith('\n') || current === '' ? '' : '\n'}${EXCLUDE_ENTRY}\n`);
     return true;
   } catch {
@@ -486,7 +496,15 @@ export function checkRepository(repoRoot, { home = homedir(), pack = PACK_ROOT }
   if (profile.evidence && typeof profile.evidence === 'object') {
     const { evidence, repoUnknown } = scan(root, { home, counts: null, pack });
     const moved = Object.entries(profile.evidence)
-      .filter(([name, hash]) => evidence[name] !== undefined && (repoUnknown[name] ?? []).length === 0 && evidence[name] !== hash)
+      .filter(([name, before]) => {
+        const now = evidence[name];
+        if (!now || !Array.isArray(before?.signals) || !Array.isArray(before?.true)) return false;
+        const unreadable = new Set(repoUnknown[name] ?? []);
+        const shared = new Set(before.signals.filter((id) => now.signals.includes(id) && !unreadable.has(id)));
+        const was = before.true.filter((id) => shared.has(id)).sort().join('\n');
+        const is = now.true.filter((id) => shared.has(id)).sort().join('\n');
+        return was !== is;
+      })
       .map(([name]) => name)
       .sort();
     if (moved.length > 0) problems.push(`the evidence for ${moved.join(', ')} has changed since the profile was written`);

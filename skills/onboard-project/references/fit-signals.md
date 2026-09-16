@@ -42,7 +42,8 @@ re-evaluates exactly these and nothing else.
 The shallow readers are not an oversight. A fit signal asks whether a repository has a shape; a
 signal that needs a real TOML or YAML parser is asking a question that belongs in the skill itself.
 
-`grep` is bounded: a byte budget per file and in total, over the globs you name. Name them
+`grep` is bounded: a byte budget per file and in total, over the globs you name. A file too large
+to read is skipped, and a grep that finds nothing but skipped one is unknown. Name them
 narrowly — `**/*` across a large repository is slow and matches things you did not mean.
 
 **A bound makes a signal unknown, never false.** The scan walks at most twenty thousand files and

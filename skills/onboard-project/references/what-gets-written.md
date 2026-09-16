@@ -20,8 +20,11 @@ already lives.
 The local file name is Claude Code's own project-directory encoding followed by a short hash of the
 full path. The encoding alone collides — `work/foo-bar` and `work/foo/bar` are one name — and in
 1.0.0 it was the whole name, so two repositories could share one profile. A local profile also
-records the repository it belongs to, and one naming a different repository is never read. A 1.0.0
-local profile at the old name is still read until the next apply writes the new one.
+records the repository it belongs to, and one naming a different repository is never read.
+
+A 1.0.0 local profile at the old name is **not read**: it carries no repository, and its name is the
+collision itself, so nothing can say which repository wrote it. A repository onboarded locally with
+1.0.0 is onboarded again, and the old file can be deleted.
 
 The marker and a profile can live at the same name, and are told apart by content: a profile has a
 skill list, and the marker never does. Only the check reads the marker.
@@ -36,8 +39,10 @@ skill list, and the marker never does. Only the check reads the marker.
   "placement": "committed",
   "fingerprint": "sha256 over the repository signals that evaluated true",
   "evidence": {
-    "release-notes": "sha256 over this skill's own true repository signals",
-    "github-webhooks": "sha256 over none — evaluated, and nothing matched"
+    "release-notes": {
+      "signals": ["exists:.changeset/", "exists:CHANGELOG.md", "json:package.json#version"],
+      "true": ["json:package.json#version"]
+    }
   },
   "skills": {
     "release-notes": {
@@ -60,11 +65,12 @@ skill list, and the marker never does. Only the check reads the marker.
   installed, and says nothing about the others.
 - `scope` records where the skill is installed, or where the plan would install it: `project` for a
   committed placement, `global` for a local one.
-- `evidence` is what the session-start check compares: one hash per skill that was in the
-  catalogue at scan time. A skill added to the catalogue later is not part of it, so installing or
-  updating skills never reads as this repository changing; a skill whose signals could not all be
-  read this time is skipped rather than reported. A profile from 1.0.0 has no `evidence` and gets
-  no evidence check until a refresh writes one.
+- `evidence` is what the session-start check compares: for each skill that was in the catalogue at
+  scan time, the repository signals it was evaluated on and the ones that were true. The check
+  compares only signals that both the profile and the installed fit define, and that it could read
+  this time — so a skill added to the catalogue, or a fit.json that edits a signal, never reads as
+  this repository changing. A profile from 1.0.0 has no `evidence` and gets no evidence check until
+  a refresh writes one.
 - `fingerprint` is the same information as one hash, kept for profiles written by 1.0.0.
 - `declined` remembers a "don't ask again" (`apply --decline <names>`) against the fingerprint of
   **that skill's own** true signals, so it is offered again if and only if its evidence changes.

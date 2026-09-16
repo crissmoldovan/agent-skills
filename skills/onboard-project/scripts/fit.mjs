@@ -302,7 +302,10 @@ function evaluateSignal(signal, repoRoot, counts) {
       try {
         const full = join(resolve(repoRoot), path);
         const size = statSync(full).size;
-        if (size > LIMITS.grepFileBytes) continue; // a generated or vendored blob, not source
+        if (size > LIMITS.grepFileBytes) {
+          unread = true; // skipped for its size: its contents are unknown, so a no-match is too
+          continue;
+        }
         if (spent + size > LIMITS.grepTotalBytes) {
           unread = true;
           break;

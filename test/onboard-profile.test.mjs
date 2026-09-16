@@ -189,12 +189,14 @@ test('a local profile records its repository, and one written for another reposi
   assert.equal(readProfile(other, { home }), null, 'another repository\'s profile was read as this one\'s');
 });
 
-test('a 0.22.0 local profile is still read from its old name', async () => {
+test('a 0.22.0 local profile is not read, because its name cannot say which repository it belongs to', async () => {
+  // It has no \`repo\` field, and its name is the collision itself: \`foo-bar\` and \`foo/bar\` share it.
+  // Reading it would hand one repository another's skills — and refresh keeps listed skills now.
   const home = await scratch('profile-home-legacy');
   const repo = await scratch('profile-repo-legacy');
   await mkdir(path.dirname(legacyLocalProfilePath(repo, { home })), { recursive: true });
   await writeFile(legacyLocalProfilePath(repo, { home }), JSON.stringify({ ...sampleProfile(), placement: 'local' }));
-  assert.equal(readProfile(repo, { home })?.placement, 'local');
+  assert.equal(readProfile(repo, { home }), null);
 });
 
 test('the suggestion marker is not a profile, and is read and written on its own', async () => {
@@ -205,10 +207,11 @@ test('the suggestion marker is not a profile, and is read and written on its own
   assert.equal(readProfile(repo, { home }), null, 'the marker was read as a profile');
   assert.equal(readSuggestionMarker(repo, { home })?.onboarding, 'suggested');
 
-  // The 0.22.0 marker lived at the old profile name; it still counts as a marker, never as a profile.
+  // The 0.22.0 marker lived at the colliding name too; it is not read either — the worst this costs
+  // is one more suggestion, where reading it could silence one for the wrong repository.
   const old = await scratch('profile-repo-marker-legacy');
   await mkdir(path.dirname(legacyLocalProfilePath(old, { home })), { recursive: true });
   await writeFile(legacyLocalProfilePath(old, { home }), JSON.stringify({ version: 1, onboarding: 'suggested', at: '2026-09-15' }));
   assert.equal(readProfile(old, { home }), null);
-  assert.equal(readSuggestionMarker(old, { home })?.onboarding, 'suggested');
+  assert.equal(readSuggestionMarker(old, { home }), null);
 });

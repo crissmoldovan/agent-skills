@@ -353,3 +353,16 @@ test('evidence is never taken from a tool\'s own build output', async () => {
   const result = evaluateRepoSignals(signals([{ repo: { grep: 'API_KEY', globs: ['**/*.mjs'] } }]), root);
   assert.equal(result.matched, false, 'a generated bundle was read as the repository\'s own source');
 });
+
+test('a grep whose only match sits in a file too large to read is unknown, not false', async () => {
+  const root = await tempDir('fit-grep-oversized-');
+  await writeFile(path.join(root, 'small.ts'), 'export {}\n');
+  await writeFile(path.join(root, 'large.ts'), `// ${'x'.repeat(300)}\nconst header = 'x-hub-signature-256'\n`);
+  await withLimits({ grepFileBytes: 100 }, () => {
+    forgetRepoIndex(root);
+    const result = evaluateRepoSignals(signals([{ repo: { grep: 'x-hub-signature', globs: ['*.ts'] } }]), root);
+    assert.equal(result.matched, false);
+    assert.deepEqual(result.unknownSignals, ['grep:x-hub-signature@*.ts'], 'a file skipped for its size read as no match');
+  });
+  forgetRepoIndex(root);
+});

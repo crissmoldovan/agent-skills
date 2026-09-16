@@ -485,3 +485,59 @@ test('a routing file that was edited by hand is shown as a diff before it is rew
   const again = (await planJson(repo, home)).rows.find((entry) => entry.kind === '~' && entry.path === '.claude/rules/skill-routing.md');
   assert.equal(again.diff, undefined);
 });
+
+
+// ---- re-review of the 0.22.1 patch -------------------------------------------------------------
+
+test('--decline also works on a listed skill that no longer matches', async () => {
+  const repo = await repository('onboard-decline-listed');
+  const home = await scratch('onboard-decline-listed-home');
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  await writeFile(path.join(repo, 'package.json'), JSON.stringify({ name: 'a-repo' }, null, 2));
+
+  const declined = await run(['apply', '--repo', repo, '--yes', '--decline', 'release-notes'], { home });
+  assert.equal(declined.status, 0, declined.stderr);
+  const profile = JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8'));
+  assert.equal(profile.skills['release-notes'], undefined, '--decline left a listed, unmatched skill in the profile');
+  assert.match(profile.declined['release-notes']?.fingerprint ?? '', /^[0-9a-f]{64}$/);
+});
+
+test('an exclude file with Windows line endings does not gain a second copy of the line', async () => {
+  const repo = await repository('onboard-exclude-crlf');
+  const home = await scratch('onboard-exclude-crlf-home');
+  await mkdir(path.join(repo, '.git', 'info'), { recursive: true });
+  await writeFile(path.join(repo, '.git', 'info', 'exclude'), '# git ls-files --others --exclude-from=.git/info/exclude\r\n/.claude/rules/skill-routing.md\r\n');
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  const lines = (await readFile(path.join(repo, '.git', 'info', 'exclude'), 'utf8')).split(/\r?\n/).filter((line) => line === '/.claude/rules/skill-routing.md');
+  assert.equal(lines.length, 1, `the exclude line appears ${lines.length} times`);
+});
+
+test('a skill whose fit.json changes a signal is not reported as this repository changing', async () => {
+  const repo = await repository('onboard-fit-edited');
+  const home = await scratch('onboard-fit-edited-home');
+  const packA = await scratch('onboard-fit-edited-pack-a');
+  for (const name of await readdir(path.join(packRoot, 'skills'))) {
+    const fit = path.join(packRoot, 'skills', name, 'references', 'fit.json');
+    if (!existsSync(fit)) continue;
+    await mkdir(path.join(packA, 'skills', name, 'references'), { recursive: true });
+    await cp(fit, path.join(packA, 'skills', name, 'references', 'fit.json'));
+  }
+  // Pack B: the same, except release-notes asks for a different manifest field — also true here.
+  const packB = await scratch('onboard-fit-edited-pack-b');
+  await cp(packA, packB, { recursive: true });
+  const fitB = path.join(packB, 'skills', 'release-notes', 'references', 'fit.json');
+  const edited = JSON.parse(await readFile(fitB, 'utf8'));
+  edited.anyOf = edited.anyOf.map((signal) => (signal.repo?.json === 'package.json' ? { repo: { json: 'package.json', field: 'name' } } : signal));
+  await writeFile(fitB, JSON.stringify(edited));
+
+  await run(['apply', '--repo', repo, '--yes', '--pack', packA], { home });
+  await installRequired(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')));
+  const afterUpdate = await run(['check', '--repo', repo, '--pack', packB], { home });
+  assert.equal(afterUpdate.stdout, '', `a changed signal definition read as repository drift: ${afterUpdate.stdout}`);
+
+  // A real change under the signals both versions share is still reported.
+  await mkdir(path.join(repo, '.changeset'), { recursive: true });
+  await writeFile(path.join(repo, '.changeset', 'config.json'), '{}');
+  assert.match((await run(['check', '--repo', repo, '--pack', packB], { home })).stdout, /release-notes/);
+});

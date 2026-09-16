@@ -30,8 +30,9 @@ reason that is not the case. In order of how much they mislead:
   is a lower bound in the same way.
 - **The check reported "this repository's evidence has changed" when only the catalogue had.** The
   fingerprint covered every skill in the catalogue, so installing or updating any skill with a
-  `fit.json` tripped it. The profile now keeps one evidence hash per skill, and the check compares
-  only skills that were in the catalogue when the profile was written.
+  `fit.json` tripped it. The profile now records, per skill, the signals it was evaluated on and the
+  ones that were true, and the check compares only signals both the profile and the installed fit
+  define — so neither a new skill nor an edited signal is blamed on the repository.
 - **One unrelated file could flip a grep signal.** Grep read the first 400 candidates in walk order;
   a match past that window was missed, so adding a file ahead of it moved the fingerprint. The scan
   now stops at the first match anywhere and names that file as the evidence, which is also more
@@ -46,8 +47,9 @@ reason that is not the case. In order of how much they mislead:
   rendered one profile two ways and each reported the other's committed file as drift. Code-point
   order.
 - **Two repositories could share one local profile.** Claude Code's path encoding makes
-  `work/foo-bar` and `work/foo/bar` one name. Local file names now carry a hash of the full path, and
-  a local profile records its repository so one naming another is never read.
+  `work/foo-bar` and `work/foo/bar` one name. Local file names now carry a hash of the full path, a
+  local profile records its repository, and one naming another — or naming none, as every 0.22.0
+  local profile does — is never read.
 - **In a git worktree, placement said "no origin remote"**, because the worktree's own gitdir holds
   no config. The shared config is read now, and the exclude line goes to the shared exclude file.
 - **A failed `.git/info/exclude` write was silent** and apply exited 0; **a failed write was
@@ -70,22 +72,26 @@ describing it was wrong, and has been corrected in the 0.21.1 entry and its rele
 
 **Impact.** **Patch. No migration is required; one refresh is recommended.**
 
-- **If you onboarded a repository with 0.22.0**, run the skill's refresh once there. A 0.22.0
-  profile has no per-skill evidence, so the check makes no evidence comparison for it at all until a
-  refresh writes one — it keeps checking installed skills and the routing file.
-- **Local profiles move to a new file name** on the next apply. The 0.22.0 name is still read until
-  then, and nothing needs deleting by hand.
+- **If you onboarded a repository with 0.22.0 and committed the profile**, run the skill's refresh
+  once there. A 0.22.0 profile has no per-skill evidence, so until a refresh writes it the check
+  makes no evidence comparison — it keeps checking installed skills and the routing file.
+- **If you onboarded a repository with 0.22.0 and kept it local**, run the skill there again. A
+  0.22.0 local profile is not read: its file name is the one that collided, and it records no
+  repository, so nothing can say which repository wrote it. The check will suggest onboarding once.
+  The old file, under `~/.agents/project-profiles/`, can be deleted.
 - **The session-start hook needs no re-arming.** It runs the installed script by path, so updating
   the skill updates what runs.
-- **What reads differently:** grep evidence names the first matching file rather than a count; the
+- **What reads differently:** grep evidence names the first matching file rather than a count, and a
+  grep that had to skip a file for its size reads as unknown when it finds nothing; the
   change list for a local placement in a git repository has a third `~` row for
   `.git/info/exclude`; refresh can show `-` and `?` rows; apply accepts `--drop` and `--decline`;
   a failed apply exits 1 and prints no install or hook command.
 - **Blast radius:** anyone who installed `onboard-project` from 0.22.0, and anyone who armed its
   check. Everything else in the pack is byte-identical to 0.22.0.
 - **Dependencies and distribution:** none added or changed. `latest` is correct for this version.
-- **Tests:** 626 passing, 0 failing — 26 new. Twenty-four were written ahead of the fix they cover and
-  seen failing first; the build-output skip and the `?` row were written after theirs.
+- **Tests:** 630 passing, 0 failing — 30 new or rewritten. All but two were written ahead of the fix
+  they cover and seen failing first; the build-output skip and the `?` row were written after theirs.
+  The patch was reviewed again before release, and that review's five findings are fixed here too.
 
 ## 0.22.0
 

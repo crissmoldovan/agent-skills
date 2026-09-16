@@ -49,7 +49,12 @@ export function localProfilePath(repoRoot, { home = homedir() } = {}) {
   return join(home, '.agents', 'project-profiles', `${encodePath(resolved).slice(0, 160)}-${digest}.json`);
 }
 
-/** The 0.22.0 name. Read as a fallback so an existing local profile keeps working; never written. */
+/**
+ * The 0.22.0 name. Exported so the collision can be tested and documented, and NEVER READ: a file
+ * at this name carries no \`repo\` field, so nothing can tell which of the repositories that share the
+ * name wrote it — and reading it would copy one repository's skills into another's profile, where a
+ * refresh now keeps them. A repository onboarded locally with 0.22.0 is simply onboarded again.
+ */
 export function legacyLocalProfilePath(repoRoot, { home = homedir() } = {}) {
   return join(home, '.agents', 'project-profiles', `${encodePath(repoRoot)}.json`);
 }
@@ -93,19 +98,14 @@ function isProfile(record) {
 }
 
 /**
- * This repository's record under the user's agents directory: the current name, then the 0.22.0
- * name. A record that names a different repository is refused — the old name collided, and a
- * collision must read as "nothing here", not as somebody else's profile.
+ * This repository's record under the user's agents directory. It must name this repository: a
+ * record that names another, or none at all, is refused, because a collision has to read as
+ * "nothing here" rather than as somebody else's profile.
  */
 function readLocalRecord(repoRoot, { home }) {
   const resolved = resolve(repoRoot);
-  for (const path of [localProfilePath(resolved, { home }), legacyLocalProfilePath(resolved, { home })]) {
-    const record = readJson(path);
-    if (!record) continue;
-    if (record.repo !== undefined && record.repo !== resolved) continue;
-    return record;
-  }
-  return null;
+  const record = readJson(localProfilePath(resolved, { home }));
+  return record && record.repo === resolved ? record : null;
 }
 
 /** The committed profile if there is one, else the local one. Corruption and markers read as absent. */
