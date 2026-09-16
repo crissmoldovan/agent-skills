@@ -7,15 +7,24 @@ skill exists.
 | What | Where | Written by | Undo |
 |---|---|---|---|
 | The project's skill list | `skills-profile.json` at the repository root (committed placement) | `apply --yes` | Delete it, or `git revert` |
-| The same list, kept out of the repository | `<agents dir>/project-profiles/<encoded repo path>.json` (local placement) | `apply --yes` | Delete that file |
+| The same list, kept out of the repository | `<agents dir>/project-profiles/<encoded repo path>-<hash>.json` (local placement) | `apply --yes` | Delete that file |
 | The routing every session loads | `.claude/rules/skill-routing.md` | `apply --yes` | Delete it, or `git revert` |
-| A git exclude line for that file | `.git/info/exclude` (local placement only) | `apply --yes` | Remove the line |
+| A git exclude line for that file | `.git/info/exclude`, or the shared one in a worktree (local placement only) — a row of its own in the change list | `apply --yes` | Remove the line |
 | The user's placement defaults | `<agents dir>/onboard-project.json` | You, by hand | Delete or edit it |
 | The session-start check | A `SessionStart` hook in the user's `settings.json` | `install-check-hook.mjs`, run by the user | `install-check-hook.mjs --remove` |
-| A one-time "onboarding exists" marker | `<agents dir>/project-profiles/<encoded repo path>.json` | `check`, once per repository | Delete that file |
+| A one-time "onboarding exists" marker | `<agents dir>/project-profiles/<encoded repo path>-<hash>.json` | `check`, once per repository | Delete that file |
 
 `<agents dir>` is the Skills CLI's own directory under the user's home, where its global lock file
 already lives.
+
+The local file name is Claude Code's own project-directory encoding followed by a short hash of the
+full path. The encoding alone collides — `work/foo-bar` and `work/foo/bar` are one name — and in
+1.0.0 it was the whole name, so two repositories could share one profile. A local profile also
+records the repository it belongs to, and one naming a different repository is never read. A 1.0.0
+local profile at the old name is still read until the next apply writes the new one.
+
+The marker and a profile can live at the same name, and are told apart by content: a profile has a
+skill list, and the marker never does. Only the check reads the marker.
 
 ## The profile
 
@@ -26,6 +35,10 @@ already lives.
   "scannedAt": "2026-09-14T23:50:00Z",
   "placement": "committed",
   "fingerprint": "sha256 over the repository signals that evaluated true",
+  "evidence": {
+    "release-notes": "sha256 over this skill's own true repository signals",
+    "github-webhooks": "sha256 over none — evaluated, and nothing matched"
+  },
   "skills": {
     "release-notes": {
       "match": "strong",
@@ -47,8 +60,16 @@ already lives.
   installed, and says nothing about the others.
 - `scope` records where the skill is installed, or where the plan would install it: `project` for a
   committed placement, `global` for a local one.
-- `declined` remembers a "don't ask again" against the fingerprint of **that skill's own** true
-  signals, so it is offered again if and only if its evidence changes.
+- `evidence` is what the session-start check compares: one hash per skill that was in the
+  catalogue at scan time. A skill added to the catalogue later is not part of it, so installing or
+  updating skills never reads as this repository changing; a skill whose signals could not all be
+  read this time is skipped rather than reported. A profile from 1.0.0 has no `evidence` and gets
+  no evidence check until a refresh writes one.
+- `fingerprint` is the same information as one hash, kept for profiles written by 1.0.0.
+- `declined` remembers a "don't ask again" (`apply --decline <names>`) against the fingerprint of
+  **that skill's own** true signals, so it is offered again if and only if its evidence changes.
+- A skill the profile lists is never removed by a scan. One whose evidence is gone stays, shown as
+  a `-` row, until `apply --drop <names>`; a weak one stays whether or not `--weak` is passed again.
 - Committed evidence carries counts and repository-relative paths only. Never an absolute path,
   never a file's contents, never anything read out of session history beyond a number.
 

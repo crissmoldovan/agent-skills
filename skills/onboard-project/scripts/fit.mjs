@@ -36,13 +36,28 @@ const SKIPPED = new Set([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'out', 'target', 'vendor',
   'coverage', '.next', '.nuxt', '.turbo', '.venv', 'venv', '__pycache__', '.cache',
   '.gradle', '.idea', '.terraform', 'Pods', 'DerivedData',
+  // Tool-owned build and deploy output. Found on a real repository: a grep signal's evidence line
+  // named a file under `.trigger/tmp/build-…/`, a throwaway bundle, as the reason to recommend a skill.
+  '.trigger', '.vercel', '.netlify', '.wrangler', '.svelte-kit', '.output', '.expo', '.parcel-cache',
+  '.docusaurus', '.angular', '.nx', '.yarn',
 ]);
 
-/** Bounds. A scan runs on somebody's laptop while they wait, and a repository can be enormous. */
-const MAX_FILES = 20000;
-const MAX_DEPTH = 12;
-const MAX_GREP_FILES = 400;
-const MAX_GREP_BYTES = 512 * 1024;
+/**
+ * Bounds. A scan runs on somebody's laptop while they wait, and a repository can be enormous.
+ *
+ * WHAT A BOUND IS ALLOWED TO DO: make an answer UNKNOWN, never make it false. A walk that stopped
+ * at twenty thousand files has not seen the rest of the tree, so "no glob matched" means "none in
+ * the part it read" — and reported as false, that became a confident, printed, fingerprinted
+ * falsehood. Every place below that hits a bound says so, and the signal reads as unknown.
+ *
+ * Exported and mutable so a test can lower them instead of building a twenty-thousand-file fixture.
+ */
+export const LIMITS = {
+  files: 20000,
+  depth: 12,
+  grepFileBytes: 512 * 1024,
+  grepTotalBytes: 64 * 1024 * 1024,
+};
 
 const indexCache = new Map();
 
@@ -59,7 +74,11 @@ export function repoIndex(repoRoot) {
   const directories = [];
   let truncated = false;
   const walk = (directory, depth) => {
-    if (truncated || depth > MAX_DEPTH) return;
+    if (truncated) return;
+    if (depth > LIMITS.depth) {
+      truncated = true; // a tree below the depth bound is a tree this index has not seen
+      return;
+    }
     let entries;
     try {
       entries = readdirSync(directory, { withFileTypes: true });
@@ -75,7 +94,7 @@ export function repoIndex(repoRoot) {
         directories.push(rel);
         walk(full, depth + 1);
       } else if (entry.isFile()) {
-        if (files.length >= MAX_FILES) {
+        if (files.length >= LIMITS.files) {
           truncated = true;
           return;
         }
@@ -105,10 +124,19 @@ export function isGlob(pattern) {
  */
 export function matchesGlob(path, pattern) {
   if (pattern.endsWith('/')) {
+    // A DIRECTORY PATTERN IS STILL A GLOB. 0.22.0 compared a trailing-slash pattern as literal text,
+    // so `**/migrations/` could only match a directory literally named `**/migrations` — in every
+    // repository, never — and land-complex-change shipped a signal that was dead on arrival.
     const directory = pattern.slice(0, -1);
-    return path === directory || path.startsWith(`${directory}/`);
+    if (!isGlob(directory)) return path === directory || path.startsWith(`${directory}/`);
+    return new RegExp(`^${globSource(directory)}(?:/.*)?$`).test(path);
   }
-  const expression = pattern
+  return new RegExp(`^${globSource(pattern)}$`).test(path);
+}
+
+/** The regular-expression source for a glob, unanchored. */
+function globSource(pattern) {
+  return pattern
     .split('')
     .reduce((accumulator, character, position, all) => {
       if (character === '*' && all[position - 1] === '*') return accumulator; // handled below
@@ -121,7 +149,6 @@ export function matchesGlob(path, pattern) {
       if (character === '/' && all[position - 1] === '*' && all[position - 2] === '*') return accumulator;
       return accumulator + character.replace(/[.+^${}()|[\]\\]/g, '\\$&');
     }, '');
-  return new RegExp(`^${expression}$`).test(path);
 }
 
 /** A dotted path into a parsed object. Returns `undefined` for anything absent. */
@@ -231,7 +258,8 @@ function evaluateSignal(signal, repoRoot, counts) {
     const index = repoIndex(repoRoot);
     const pool = pattern.endsWith('/') ? [...index.directories, ...index.files] : index.files;
     const hit = pool.find((path) => matchesGlob(path, pattern));
-    return hit ? { true: true, evidence: `${hit} is present` } : { true: false };
+    if (hit) return { true: true, evidence: `${hit} is present` };
+    return index.truncated ? { unknown: true } : { true: false };
   }
   if (signal?.repo?.missing) {
     // The absence of a file is evidence too, and it is the signal that matters most for the
@@ -252,39 +280,53 @@ function evaluateSignal(signal, repoRoot, counts) {
       : { true: true, evidence: `${file} has a ${field.split('.').pop()}` };
   }
   if (signal?.repo?.grep) {
+    // THE FIRST MATCH ANSWERS THE QUESTION, wherever it sits. 0.22.0 read the first 400 candidates
+    // in walk order and counted matches among them, so one unrelated file added ahead of the only
+    // match pushed it out of the window: the signal flipped, the fingerprint moved, and the armed
+    // check reported evidence drift for a change that touched nothing the fit asks about. The
+    // count it printed was a count over the window, not over the globs it named. A signal needs
+    // only to know whether the pattern is there, so the scan stops at the first match and names it.
     const globs = signal.repo.globs ?? ['**/*'];
     const index = repoIndex(repoRoot);
-    const candidates = index.files.filter((path) => globs.some((glob) => matchesGlob(path, glob))).slice(0, MAX_GREP_FILES);
+    const candidates = index.files.filter((path) => globs.some((glob) => matchesGlob(path, glob)));
     let expression;
     try {
       expression = new RegExp(signal.repo.grep);
     } catch {
       return { true: false }; // an unreadable pattern is not evidence of anything
     }
-    let hits = 0;
+    let spent = 0;
+    let unread = false;
     for (const path of candidates) {
       let source;
       try {
         const full = join(resolve(repoRoot), path);
-        if (statSync(full).size > MAX_GREP_BYTES) continue;
+        const size = statSync(full).size;
+        if (size > LIMITS.grepFileBytes) continue; // a generated or vendored blob, not source
+        if (spent + size > LIMITS.grepTotalBytes) {
+          unread = true;
+          break;
+        }
+        spent += size;
         source = readFileSync(full, 'utf8');
       } catch {
         continue;
       }
-      if (expression.test(source)) hits += 1;
+      if (expression.test(source)) return { true: true, evidence: `${signal.repo.grep} appears in ${path}` };
     }
-    return hits > 0
-      ? { true: true, evidence: `${signal.repo.grep} appears in ${hits} file${hits === 1 ? '' : 's'} under ${globs.join(', ')}` }
-      : { true: false };
+    return unread || index.truncated ? { unknown: true } : { true: false };
   }
   if (signal?.history?.count) {
     const name = signal.history.count;
     const atLeast = Number(signal.history.atLeast ?? 1);
     if (!counts || counts.known !== true || !HISTORY_COUNTS.includes(name)) return { unknown: true };
     const value = Number(counts[name] ?? 0);
-    return value >= atLeast
-      ? { true: true, evidence: `${value} ${humanCount(name)} in this repository's history (needs ${atLeast})` }
-      : { true: false };
+    if (value >= atLeast) {
+      return { true: true, evidence: `${value} ${humanCount(name)} in this repository's history (needs ${atLeast})` };
+    }
+    // A count read from part of the history is a lower bound: already past the threshold is true,
+    // short of it is unknown, because the transcripts left unread may carry the rest.
+    return counts.truncated ? { unknown: true } : { true: false };
   }
   return { true: false };
 }

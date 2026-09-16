@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   FIT_KINDS,
+  LIMITS,
   evaluateRepoSignals,
   forgetRepoIndex,
   loadCatalogue,
@@ -67,8 +71,7 @@ test('grep searches a bounded glob and says how many files carried the pattern',
   const webhook = signals([{ repo: { grep: 'createHmac', globs: ['**/*.ts'] } }]);
   const hit = evaluateRepoSignals(webhook, fixture('webhooks'));
   assert.equal(hit.matched, true);
-  assert.match(hit.evidence[0], /createHmac/);
-  assert.match(hit.evidence[0], /1 file/);
+  assert.match(hit.evidence[0], /createHmac appears in src\/webhook\.ts/);
   assert.equal(evaluateRepoSignals(webhook, fixture('versioned-node')).matched, false);
 });
 
@@ -195,11 +198,9 @@ test('exists and missing answer the filesystem, not a case-sensitive string set'
   // and the volume was case-insensitive — so the session loaded the file while the scan reported it
   // missing, and recommended the skill whose whole job is a repository with no context file.
   const { existsSync } = await import('node:fs');
-  const { mkdtemp, writeFile } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const nodePath = await import('node:path');
+  const nodePath = path;
 
-  const root = await mkdtemp(nodePath.join(tmpdir(), 'fit-case-'));
+  const root = await tempDir('fit-case-');
   await writeFile(nodePath.join(root, 'claude.md'), '# context\n');
   await writeFile(nodePath.join(root, 'README.md'), '# readme\n');
   forgetRepoIndex(root);
@@ -218,10 +219,8 @@ test('exists and missing answer the filesystem, not a case-sensitive string set'
 });
 
 test('a plain path is found below the index walk depth, where a glob cannot reach', async () => {
-  const { mkdir, mkdtemp, writeFile } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const nodePath = await import('node:path');
-  const root = await mkdtemp(nodePath.join(tmpdir(), 'fit-deep-'));
+  const nodePath = path;
+  const root = await tempDir('fit-deep-');
   const deep = nodePath.join(root, ...Array.from({ length: 14 }, (_, index) => `level-${index}`));
   await mkdir(deep, { recursive: true });
   await writeFile(nodePath.join(deep, 'buried.txt'), 'x\n');
@@ -230,4 +229,127 @@ test('a plain path is found below the index walk depth, where a glob cannot reac
   const relative = nodePath.relative(root, nodePath.join(deep, 'buried.txt')).split(nodePath.sep).join('/');
   const fit = { version: 1, kind: 'signals', useWhen: 'x', anyOf: [{ repo: { exists: relative } }] };
   assert.equal(evaluateRepoSignals(fit, root).matched, true, 'a named path below the walk depth was reported absent');
+});
+
+
+// ---- review of 0.22.0: truncation, directory globs, grep order, history budget ------------------
+
+/** Run `body` with the evaluator's bounds lowered, and put them back whatever happens. */
+async function withLimits(overrides, body) {
+  const saved = { ...LIMITS };
+  Object.assign(LIMITS, overrides);
+  try {
+    return await body();
+  } finally {
+    Object.assign(LIMITS, saved);
+  }
+}
+
+test('a glob that finds nothing in a truncated index is unknown, not false', async () => {
+  const root = await tempDir('fit-truncated-');
+  await mkdir(path.join(root, 'aaa-big'), { recursive: true });
+  for (let index = 0; index < 12; index += 1) await writeFile(path.join(root, 'aaa-big', `f${index}.txt`), 'x\n');
+  await mkdir(path.join(root, 'zzz', 'migrations'), { recursive: true });
+  await writeFile(path.join(root, 'zzz', 'migrations', '0001.sql'), 'select 1;\n');
+
+  await withLimits({ files: 5 }, () => {
+    forgetRepoIndex(root);
+    assert.equal(repoIndex(root).truncated, true, 'the fixture did not truncate the walk');
+    const result = evaluateRepoSignals(signals([{ repo: { exists: '**/*.sql' } }]), root);
+    assert.equal(result.matched, false);
+    assert.deepEqual(result.unknownSignals, ['exists:**/*.sql'], 'an incomplete walk reported a glob as absent');
+    assert.deepEqual(result.trueSignals, []);
+  });
+  forgetRepoIndex(root);
+});
+
+test('a glob that does find something in a truncated index is still true', async () => {
+  const root = await tempDir('fit-truncated-hit-');
+  for (let index = 0; index < 12; index += 1) await writeFile(path.join(root, `a${index}.sql`), 'select 1;\n');
+  await withLimits({ files: 5 }, () => {
+    forgetRepoIndex(root);
+    assert.equal(evaluateRepoSignals(signals([{ repo: { exists: '*.sql' } }]), root).matched, true);
+  });
+  forgetRepoIndex(root);
+});
+
+test('a walk cut short by depth says it was cut short', async () => {
+  const root = await tempDir('fit-depth-flag-');
+  await mkdir(path.join(root, 'a', 'b', 'c', 'd'), { recursive: true });
+  await writeFile(path.join(root, 'a', 'b', 'c', 'd', 'deep.txt'), 'x\n');
+  await withLimits({ depth: 1 }, () => {
+    forgetRepoIndex(root);
+    assert.equal(repoIndex(root).truncated, true);
+  });
+  forgetRepoIndex(root);
+});
+
+test('a directory pattern with a wildcard is a glob, not a literal', () => {
+  assert.equal(matchesGlob('app/migrations/0001_initial.py', '**/migrations/'), true);
+  assert.equal(matchesGlob('app/migrations', '**/migrations/'), true);
+  assert.equal(matchesGlob('migrations/0001.sql', '**/migrations/'), true);
+  assert.equal(matchesGlob('src/db/migrations/x.ts', 'src/*/migrations/'), true);
+  assert.equal(matchesGlob('app/migrations-old/0001.py', '**/migrations/'), false);
+  assert.equal(matchesGlob('app/notmigrations/0001.py', '**/migrations/'), false);
+});
+
+test('land-complex-change matches a repository whose only cross-surface evidence is a migrations directory', async () => {
+  const root = await tempDir('fit-django-');
+  await mkdir(path.join(root, 'shop', 'migrations'), { recursive: true });
+  await writeFile(path.join(root, 'shop', 'migrations', '0001_initial.py'), '# generated\n');
+  await writeFile(path.join(root, 'manage.py'), '#!/usr/bin/env python\n');
+  forgetRepoIndex(root);
+  const fit = loadCatalogue(packRoot).get('land-complex-change');
+  const result = evaluateRepoSignals(fit, root);
+  assert.equal(result.matched, true, 'the shipped **/migrations/ signal still never matches');
+  assert.ok(result.trueSignals.includes('exists:**/migrations/'));
+});
+
+test('grep finds a match wherever it sits in walk order, and names the file it found', async () => {
+  const root = await tempDir('fit-grep-order-');
+  await mkdir(path.join(root, 'aaa'), { recursive: true });
+  for (let index = 0; index < 450; index += 1) await writeFile(path.join(root, 'aaa', `f${String(index).padStart(3, '0')}.ts`), 'export {}\n');
+  await mkdir(path.join(root, 'zzz'), { recursive: true });
+  await writeFile(path.join(root, 'zzz', 'hook.ts'), "const header = 'x-hub-signature-256'\n");
+  forgetRepoIndex(root);
+
+  const fit = signals([{ repo: { grep: 'x-hub-signature', globs: ['**/*.ts'] } }]);
+  const first = evaluateRepoSignals(fit, root);
+  assert.equal(first.matched, true, 'a match past the first 400 candidates was missed');
+  assert.match(first.evidence[0], /zzz\/hook\.ts/);
+
+  // One more unrelated file must not move the answer, which is what moved the fingerprint.
+  await writeFile(path.join(root, 'aaa', 'extra.ts'), 'export {}\n');
+  forgetRepoIndex(root);
+  assert.equal(evaluateRepoSignals(fit, root).matched, true);
+});
+
+test('a grep that runs out of its byte budget before finding anything is unknown, not false', async () => {
+  const root = await tempDir('fit-grep-budget-');
+  for (let index = 0; index < 20; index += 1) await writeFile(path.join(root, `f${index}.ts`), `${'x'.repeat(200)}\n`);
+  await withLimits({ grepTotalBytes: 500 }, () => {
+    forgetRepoIndex(root);
+    const result = evaluateRepoSignals(signals([{ repo: { grep: 'never-present', globs: ['*.ts'] } }]), root);
+    assert.equal(result.matched, false);
+    assert.deepEqual(result.unknownSignals, ['grep:never-present@*.ts']);
+  });
+  forgetRepoIndex(root);
+});
+
+test('a history count below its threshold is unknown when the history read was cut short', () => {
+  const fit = signals([{ history: { count: 'agentDispatches', atLeast: 5 } }]);
+  const cutShort = evaluateRepoSignals(fit, fixture('bare'), { counts: { known: true, truncated: true, agentDispatches: 2 } });
+  assert.equal(cutShort.matched, false);
+  assert.deepEqual(cutShort.unknownSignals, ['history:agentDispatches>=5']);
+  const enoughAnyway = evaluateRepoSignals(fit, fixture('bare'), { counts: { known: true, truncated: true, agentDispatches: 7 } });
+  assert.equal(enoughAnyway.matched, true, 'a count already past its threshold is true however much was left unread');
+});
+
+test('evidence is never taken from a tool\'s own build output', async () => {
+  const root = await tempDir('fit-build-output-');
+  await mkdir(path.join(root, '.trigger', 'tmp', 'build-abc'), { recursive: true });
+  await writeFile(path.join(root, '.trigger', 'tmp', 'build-abc', 'bundle.mjs'), 'process.env.API_KEY\n');
+  forgetRepoIndex(root);
+  const result = evaluateRepoSignals(signals([{ repo: { grep: 'API_KEY', globs: ['**/*.mjs'] } }]), root);
+  assert.equal(result.matched, false, 'a generated bundle was read as the repository\'s own source');
 });

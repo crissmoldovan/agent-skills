@@ -8,7 +8,10 @@ import {
   PROFILE_VERSION,
   fingerprintOf,
   installedSkills,
+  legacyLocalProfilePath,
   localProfilePath,
+  readSuggestionMarker,
+  writeSuggestionMarker,
   profilePaths,
   readProfile,
   renderRules,
@@ -136,4 +139,76 @@ test('a profile is written atomically, so two sessions cannot leave half a file'
   assert.equal(written.version, PROFILE_VERSION);
   const entries = (await import('node:fs/promises')).readdir;
   assert.equal((await entries(repo)).filter((name) => name.includes('.tmp')).length, 0, 'a temporary file was left behind');
+});
+
+
+// ---- review of 0.22.0: ordering, path collisions, the suggestion marker -------------------------
+
+test('the routing file orders by code point, so two machines with different locales render the same bytes', () => {
+  const profile = {
+    ...sampleProfile(),
+    skills: {
+      'alpha-skill': { match: 'strong', evidence: [], useWhen: 'lower-case first by locale', required: true, scope: 'project' },
+      'Zeta-skill': { match: 'strong', evidence: [], useWhen: 'upper-case first by code point', required: true, scope: 'project' },
+    },
+  };
+  const rules = renderRules(profile);
+  // localeCompare puts `alpha` before `Zeta` in most locales; code point order puts `Z` (0x5A) first.
+  assert.ok(rules.indexOf('`Zeta-skill`') < rules.indexOf('`alpha-skill`'), 'the order depends on the runtime locale');
+});
+
+test('two repositories whose paths differ only by a separator get different local profiles', () => {
+  const home = path.join(path.sep, 'h');
+  const dashed = localProfilePath(path.join(path.sep, 'w', 'foo-bar'), { home });
+  const nested = localProfilePath(path.join(path.sep, 'w', 'foo', 'bar'), { home });
+  assert.notEqual(dashed, nested);
+  // The 0.22.0 name collided, which is exactly why it is only ever read as a fallback now.
+  assert.equal(
+    legacyLocalProfilePath(path.join(path.sep, 'w', 'foo-bar'), { home }),
+    legacyLocalProfilePath(path.join(path.sep, 'w', 'foo', 'bar'), { home }),
+  );
+});
+
+test('a local profile records its repository, and one written for another repository is not read', async () => {
+  const home = await scratch('profile-home-owner');
+  const mine = await scratch('profile-repo-mine');
+  writeProfile(mine, { ...sampleProfile(), placement: 'local' }, { home });
+  const written = JSON.parse(await readFile(localProfilePath(mine, { home }), 'utf8'));
+  assert.equal(written.repo, path.resolve(mine), 'a local profile does not say which repository it belongs to');
+
+  // A committed profile must not carry an absolute path: it is published with the repository.
+  const committed = await scratch('profile-repo-committed');
+  writeProfile(committed, { ...sampleProfile(), placement: 'committed' }, { home });
+  const onDisk = JSON.parse(await readFile(path.join(committed, 'skills-profile.json'), 'utf8'));
+  assert.equal(onDisk.repo, undefined, 'a committed profile carries a machine path');
+
+  // A legacy-named file that belongs to some other repository is refused.
+  const other = await scratch('profile-repo-other');
+  await mkdir(path.dirname(legacyLocalProfilePath(other, { home })), { recursive: true });
+  await writeFile(legacyLocalProfilePath(other, { home }), JSON.stringify({ ...sampleProfile(), placement: 'local', repo: '/somewhere/else' }));
+  assert.equal(readProfile(other, { home }), null, 'another repository\'s profile was read as this one\'s');
+});
+
+test('a 0.22.0 local profile is still read from its old name', async () => {
+  const home = await scratch('profile-home-legacy');
+  const repo = await scratch('profile-repo-legacy');
+  await mkdir(path.dirname(legacyLocalProfilePath(repo, { home })), { recursive: true });
+  await writeFile(legacyLocalProfilePath(repo, { home }), JSON.stringify({ ...sampleProfile(), placement: 'local' }));
+  assert.equal(readProfile(repo, { home })?.placement, 'local');
+});
+
+test('the suggestion marker is not a profile, and is read and written on its own', async () => {
+  const home = await scratch('profile-home-marker');
+  const repo = await scratch('profile-repo-marker');
+  assert.equal(readSuggestionMarker(repo, { home }), null);
+  writeSuggestionMarker(repo, { home });
+  assert.equal(readProfile(repo, { home }), null, 'the marker was read as a profile');
+  assert.equal(readSuggestionMarker(repo, { home })?.onboarding, 'suggested');
+
+  // The 0.22.0 marker lived at the old profile name; it still counts as a marker, never as a profile.
+  const old = await scratch('profile-repo-marker-legacy');
+  await mkdir(path.dirname(legacyLocalProfilePath(old, { home })), { recursive: true });
+  await writeFile(legacyLocalProfilePath(old, { home }), JSON.stringify({ version: 1, onboarding: 'suggested', at: '2026-09-15' }));
+  assert.equal(readProfile(old, { home }), null);
+  assert.equal(readSuggestionMarker(old, { home })?.onboarding, 'suggested');
 });
