@@ -69,17 +69,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.22.1 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.22.1');
-  assert.equal(rootLock.version, '0.22.1');
-  assert.equal(rootLock.packages[''].version, '0.22.1');
+test('v0.23.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.23.0');
+  assert.equal(rootLock.version, '0.23.0');
+  assert.equal(rootLock.packages[''].version, '0.23.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 27);
+  assert.equal(skillNames.length, 28);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-seven skills/i);
-  assert.match(composition, /catalog ships twenty-seven skills/i);
+  assert.match(architecture, /now ships twenty-eight skills/i);
+  assert.match(composition, /catalog ships twenty-eight skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -96,7 +96,7 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-seven public, portable Agent Skills/i);
+  assert.match(readme, /twenty-eight public, portable Agent Skills/i);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);

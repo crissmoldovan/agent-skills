@@ -8,10 +8,14 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, and `onboard-project`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, and `request-decisions`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
+
+`request-decisions` owns the ask that unblocks work on another person's or agent's
+judgement — the answer sheet they reply to, chosen at brief, normal or deep depth, and the
+ledger of what came back; `decision-journal` records why a decision was made once it has been.
 
 Routing and lifecycle compose as documented in [the composition guide](composition.md).
 `blocks` is independent review tooling. `release-ledger`, `github-webhooks`,
