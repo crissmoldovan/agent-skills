@@ -78,10 +78,11 @@ the brief exactly. They must not drift apart.]
 
 ## Keeping the files and the brief in step
 
-The brief's recommendation and the file's "Change" section are the same sentence.
+The brief's recommendation and the file's `## What needs to change, or be answered`
+section are the same sentence.
 When one moves, move the other in the same edit. A reader who finds them disagreeing
 stops believing both.
 
 When an answer arrives, update the file's **Status** and add the answer under
-"What needs to change" with its date. The file becomes the record of what was
+`## What needs to change, or be answered` with its date. The file becomes the record of what was
 decided, which is what the next person reads.

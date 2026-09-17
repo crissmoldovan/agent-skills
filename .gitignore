@@ -1,4 +1,6 @@
 node_modules/
+# the bare form too: a trailing slash does not match a node_modules SYMLINK,
+# which is how one was committed once.
 node_modules
 dist/
 *.tgz

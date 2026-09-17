@@ -12,7 +12,8 @@ clarifications, missing facts. Replace the bracketed parts; keep the order.
 nothing else waits on this reader.]
 
 **[X] are a yes/no** — if you agree with the recommendation, say yes and we build it.
-**[Y] need you to choose or write something**, marked **WRITE / CHOOSE** below.
+**[Y] need you to choose, write, confirm a reading or explain something**, marked
+**CHOOSE / WRITE / APPROVE OR EDIT / WHICH / EXPLAIN** below.
 
 ---
 
@@ -54,6 +55,21 @@ and [the per-item file / where the evidence sits].
 [Current state, and exactly what is missing that only they hold.]
 **Needed from you:** [the words, the number, or the name.]
 
+### Q5 · [title] — **APPROVE OR EDIT** *([item file numbers])*
+Today it reads: "[the current wording, quoted.]"
+Proposed: "[your draft, in full — this is what they are approving.]"
+[If it applies to more than one place, say how many and where.]
+
+### Q6 · [title] — **WHICH** *([item file numbers])*
+[The ambiguity, quoted: the phrase, field or figure that can be read two ways.]
+1. **[Your reading, and what we would build on it]**
+2. [The other reading, and what that would mean instead]
+**We read it as 1.** Confirm, or point at the other.
+
+### Q7 · [title] — **EXPLAIN** *([item file numbers])*
+[What you found, measured, and the specific thing you cannot explain from it.]
+**Needed from you:** one sentence — [the exact question.]
+
 ---
 
 ## Not for you, but worth raising
@@ -84,6 +100,7 @@ D3  the reseller channel counts as ours, not a competitor ........... YES / NO  
 D5  order results by best rank, then score ......................... YES / NO  (or: score only)
 D6  score bands: cut-offs ....... 70/55/35 / 75/55/35  and names .... WRITE: ............
 D9  summary cards to keep visible by default ......... WRITE: ............
+Q7  we read "active" as the active ingredient — correct? ... READING A / READING B
 D16 ship the annotation fix ahead of the data refresh .............. YES / NO
 ```
 
@@ -96,6 +113,12 @@ one scoring 64.2.
 2. Score alone
 3. Number of new opportunities, then score
 On silence: we build option 1.
+
+### Q7 · "Active" in the card titles — **WHICH** *(26)*
+A reviewer flagged the title "[care by concern and active]" as unclear.
+1. **"Active" means the active ingredient — we would retitle to "…and active ingredient"**
+2. "Active" means an active user segment — a different title entirely
+**We read it as 1.** Confirm, or point at the other.
 
 ### D16 · Release — **YES/NO** *(02, 32)*
 Production is held for a data refresh, so the two reviewers who asked for
