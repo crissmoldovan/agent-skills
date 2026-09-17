@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-seven public, portable Agent Skills for agent operations, reviews, releases
+  Twenty-eight public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -41,6 +41,7 @@ harnesses, and tested as part of one release catalogue.
 | `report-progress` | Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn. | [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs) |
 | `isolated-change-validation` | Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted. | [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract](skills/isolated-change-validation/references/evidence-contract.md) · [Handoff bundle](skills/isolated-change-validation/references/handoff-bundle.md) |
 | `onboard-project` | Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them. | [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-project/references/fit-signals.md) · [What gets written](skills/onboard-project/references/what-gets-written.md) · [Check-hook installer](skills/onboard-project/scripts/install-check-hook.mjs) |
+| `request-answers` | The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth. | [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) |
 | `work-in-external-repo` | Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository. | [Skill](skills/work-in-external-repo/SKILL.md) |
 
 The pack contains distinct procedures, not one monolithic workflow. Compose only
@@ -162,7 +163,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-seven public skills from crissmoldovan/agent-skills.
+Install or update the twenty-eight public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported

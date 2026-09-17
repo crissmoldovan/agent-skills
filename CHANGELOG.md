@@ -5,6 +5,27 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.23.0
+
+**What.** One new skill, `request-answers` (skill version 1.0.0): how to ask when work
+needs something only another person or agent can give. It drops every question that can be
+answered from the system under discussion, then sends one brief whose answer sheet can be
+replied to in a single block, at `brief`, `normal` or `deep` depth. Nothing else in the pack
+changed: no gate, installer, adapter or other skill.
+
+**Why.** The catalog had no skill for the ask itself. `decision-journal` records why a
+decision was made, `report-progress` says where work stands, and `delphi-ground` builds the
+facts before anyone reasons — but nothing covered the request that unblocks work, which is
+where days are lost. On the run it was written from, twelve queued questions across four
+owners became three once each was tested against the data, and the one blocked stakeholder
+received sixteen decisions as a single answer sheet.
+
+**How it behaves.** The iron rule is never to ask what you can answer yourself, and the
+ledger records those self-answers with their evidence so the question is not re-asked.
+Depth is chosen from what the recipient needs, and the answer sheet is answerable on its own
+at every depth. An agent recipient gets the same sheet plus a one-line reply contract and is
+asked to name the file or command behind its answer.
+
 ## 0.22.1
 
 **What.** A patch to `onboard-project` (skill version 1.0.1) that fixes the thirteen distinct defects
