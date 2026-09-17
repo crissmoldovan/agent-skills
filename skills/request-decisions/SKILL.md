@@ -111,12 +111,12 @@ to a visible answer slot. Sub-answers sit indented under their parent. The recip
 copies the block, types over it, sends it back.
 
 ```
-D1  filters restored, one "At Tesco" filter, product type back ....... YES / NO
-D2  show "Tesco · Finest" etc. ....................................... YES / NO
-    is Creamfields a Tesco own-label range? ......................... YES / NO
-D5  order by best opportunity rank, then score ...................... YES / NO  (or: score only)
-D6  score bands: cut-offs ....... 70/55/35 / 75/55/35.4  and names ... WRITE: ............
-D13 CHOOSE 3 summaries to keep visible ............. WRITE: ............
+D1  restore the filter groups, merged into one "stocked" filter ...... YES / NO
+D2  show each own-label sub-range by name ........................... YES / NO
+    does the value range count as own label? ....................... YES / NO
+D5  order results by best rank, then score ......................... YES / NO  (or: score only)
+D6  score bands: cut-offs ....... 70/55/35 / 75/55/35  and names .... WRITE: ............
+D9  summary cards to keep visible by default ......... WRITE: ............
 ```
 
 If a line cannot be understood alone, the line is wrong, not the reader.
