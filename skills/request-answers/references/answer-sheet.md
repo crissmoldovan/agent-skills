@@ -8,6 +8,9 @@ clarifications, missing facts. Replace the bracketed parts; keep the order.
 ````markdown
 # [N] things I need from you — [what this is about]
 
+**[N] asks · depth: [brief | normal | deep]** — [what that means here: sheet only /
+detail under each / detail plus attached files.]
+
 [One or two sentences: where the asks came from, what is already settled, and that
 nothing else waits on this reader.]
 
@@ -75,6 +78,9 @@ Proposed: "[your draft, in full — this is what they are approving.]"
 ## Not for you, but worth raising
 
 - **[Person]:** [the question, one sentence, and what it blocks.]
+
+[With nothing to list, keep the heading and write: nothing outstanding with anyone
+else.]
 ````
 
 ## Worked example
@@ -85,7 +91,9 @@ sixteen decisions went to the person who owned the product's voice. Names, figur
 and screens below are invented; the shape is what matters.
 
 ````markdown
-# 16 decisions — [product] review
+# 16 asks — [product] review
+
+**16 asks · depth: normal** — detail under each, no attached files.
 
 Two reviewers left 38 notes on production last week. Five are already fixed.
 **Sixteen need your answer** — nothing else is waiting on you; the rest is either

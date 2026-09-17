@@ -106,10 +106,14 @@ Four parts, in this order.
 
 ### 1. The header
 
-State the count and the shape, so the size of the job is known before reading:
+Three things, in two lines. The depth line is a required slot: agents given this
+skill wrote the brief correctly and silently dropped the depth, so it is a field to
+fill in rather than a rule to remember.
 
-> Sixteen asks, and nothing else is waiting on you. **Nine are a yes/no**; **five
-> need you to choose or write something**; **two are readings to confirm.**
+> **16 asks · depth: normal** — detail under each, no attached files.
+>
+> Nothing else is waiting on you. **Nine are a yes/no**; **five need you to choose
+> or write something**; **two are readings to confirm.**
 
 ### 2. The answer sheet
 
@@ -149,13 +153,18 @@ The items owned by other people, each with the person named. It stops the recipi
 answering something that was never theirs, and lets them chase it in the same
 conversation.
 
+**This section is never omitted.** With nothing in it, write the one line — *"Not for
+you: nothing outstanding with anyone else."* A tested agent dropped the section and
+with it two items belonging to two named colleagues, which read as though nobody was
+waiting on anything.
+
 ## Classify every item
 
 | Marker | Use when | The line in the sheet |
 |---|---|---|
 | **YES/NO** | you have a recommendation and agreement is enough | `... YES / NO` |
 | **CHOOSE** | two to four real options, none obviously right | `... OPTION A / OPTION B` |
-| **WRITE** | only they hold the words, the number or the name | `... WRITE: ............` |
+| **WRITE** | only they hold the words, the number or the name — **never where you could draft one** | `... WRITE: ............` |
 | **APPROVE OR EDIT** | you drafted the words and they own the voice | `... APPROVED / EDIT: ......` |
 | **WHICH** | two readings of something ambiguous, and you need to know which | `... READING A / READING B` |
 | **EXPLAIN** | only they know why, and a sentence settles it | `... WHY: ............` |
@@ -165,7 +174,10 @@ The last two are the clarification cases. Put your best reading in the line —
 writing one from scratch.
 
 A **YES/NO** without a recommendation is a **CHOOSE** pretending. A **WRITE** you
-could have drafted is laziness: draft it and downgrade it to **APPROVE OR EDIT**.
+could have drafted is laziness: draft it and downgrade it to **APPROVE OR EDIT**. In
+testing, one agent asked "what should the four bands be called?" while another
+proposed "Strong / Good / Fair / Weak" for the same item — the second is answerable
+in a second, the first is homework.
 
 ## Deep depth: a file per item
 
@@ -212,13 +224,14 @@ withdraw the question.
 ## Verification checklist
 
 - [ ] Every item needs someone: none is answerable from the system
-- [ ] The depth is stated, and matches what the recipient needs
+- [ ] The header's depth slot is filled in, and matches what the recipient needs
 - [ ] The answer sheet can be answered without the detail
 - [ ] Every line has one question and one place to answer
 - [ ] Every item carries a measured present state, quoted where it is text
 - [ ] Every item has one recommendation, or is honestly marked CHOOSE, WRITE, WHICH or EXPLAIN
+- [ ] No WRITE line asks for something you could have drafted
 - [ ] The header's count matches the sheet's lines
-- [ ] Items owned by others are in the closing section, with names
+- [ ] The closing section exists — with the other owners named, or the one line saying there are none
 - [ ] Silence has a stated consequence for every item
 - [ ] At deep depth: every item links to a file, and the index lists them all
 - [ ] The ledger holds every question, including those answered without asking
@@ -237,15 +250,38 @@ withdraw the question.
 | Describing the current state from memory | One wrong detail and the whole brief is doubted |
 | Options invented to look balanced | They pick one and you build something nobody wanted |
 | Deep depth by default | The brief drowns; nothing gets read |
+| Leaving the depth slot blank | They cannot tell whether more detail exists |
+| Dropping "not for you" because it felt empty | Items belonging to named colleagues disappear |
 | Brief depth for a judgement call | They cannot answer, so they don't |
 | A brief with no ledger | The same questions again next week |
 | Leaving an answered question on the list | They trust none of it |
 
-## Real-world impact
+## How this was tested
 
-On the run this skill was written from: twelve questions across four owners became
-three, a blocked stakeholder received sixteen decisions as one answer sheet with a
-file per item behind it, and the nine self-answered questions were recorded with
-their evidence — including one where the other party's own unused helper proved a
-change was unfinished rather than deliberate, turning a week of waiting into a
-heads-up.
+Five agents were given the same scenario: twelve complaints outstanding, eight of
+them answerable from facts the agent already held, one owner who decides and two
+colleagues who own a slice. Two had no skill, two had it, one had it after the fixes
+below.
+
+| | without the skill | with it |
+|---|---|---|
+| answerable items dropped, of eight | 2 and 5 | 6 and 6 |
+| one answer sheet, answerable on a phone | neither | both |
+| a recommendation on every item | 2 of 9, 3 of 5 | one of the two |
+| silence given a consequence | neither — both wrote "no rush" | both |
+
+Both unaided agents wrote numbered prose to someone about to walk into a meeting,
+left several decisions as open questions, and told her nothing was urgent. One of
+the two with the skill also caught an arithmetic problem neither baseline saw.
+
+Three failures survived the first version, and each was fixed by making the thing
+structural rather than adding a rule:
+
+- **both skipped the depth**, so it became a slot in the header line
+- **one dropped "not for you"** when it felt empty, taking two colleagues' items with
+  it — so the section is now never omitted
+- **one asked for band names it could have drafted**, so the WRITE row carries the
+  prohibition where it is read
+
+A fifth agent on the fixed skill produced the depth slot, the closing section naming
+both colleagues, and drafted band names offered for approval.
