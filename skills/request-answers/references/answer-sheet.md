@@ -95,18 +95,21 @@ being built or sits with the data team.
 
 ## The answer sheet — reply with just this
 
+*Six of the sixteen lines are shown here; a real sheet carries every one, because
+the header's count has to match it.*
+
 ```
-D3  the reseller channel counts as ours, not a competitor ........... YES / NO  (or: competitor, labelled / toggle)
-D5  order results by best rank, then score ......................... YES / NO  (or: score only)
-D6  score bands: cut-offs ....... 70/55/35 / 75/55/35  and names .... WRITE: ............
-D9  summary cards to keep visible by default ......... WRITE: ............
+Q3  the reseller channel counts as ours, not a competitor ........... YES / NO  (or: competitor, labelled / toggle)
+Q5  order results by best rank, then score ......................... YES / NO  (or: score only)
+Q6  score bands: cut-offs ....... 70/55/35 / 75/55/35  and names .... WRITE: ............
 Q7  we read "active" as the active ingredient — correct? ... READING A / READING B
-D16 ship the annotation fix ahead of the data refresh .............. YES / NO
+Q9  summary cards to keep visible by default ......... WRITE: ............
+Q16 ship the annotation fix ahead of the data refresh .............. YES / NO
 ```
 
 ## The detail
 
-### D5 · Order of recommended items — **CHOOSE** *(07)*
+### Q5 · Order of recommended items — **CHOOSE** *(07)*
 They are alphabetical within each count today, so an item scoring 33.6 sits above
 one scoring 64.2.
 1. **Best rank first, then score**
@@ -120,7 +123,7 @@ A reviewer flagged the title "[care by concern and active]" as unclear.
 2. "Active" means an active user segment — a different title entirely
 **We read it as 1.** Confirm, or point at the other.
 
-### D16 · Release — **YES/NO** *(02, 32)*
+### Q16 · Release — **YES/NO** *(02, 32)*
 Production is held for a data refresh, so the two reviewers who asked for
 box-level notes still cannot leave them. Two changes are ready and tested.
 **We recommend:** ship those ahead of the data.
