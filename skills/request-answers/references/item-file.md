@@ -12,13 +12,13 @@ Every file carries these headings, in this order, and nothing else:
 | Line or heading, exactly as written | What goes in it |
 |---|---|
 | `# NN · [title]` | the item, as a reader would say it |
-| `**Status:**` | one of: open · decision needed · fixed, verify · part fixed · changed, wrong direction |
+| `**Status:**` | one of: open · answer needed · fixed, verify · part fixed · changed, wrong direction |
 | `**Owner:**` | the person who answers or acts, by name |
 | `**Where:**` | the exact screen, file, endpoint or record |
 | `## What was asked` | the original words, quoted, with who and when |
 | `## What it looks like now` | the present state, measured — counts, quoted strings, a table if two things differ |
 | `## What we found` | why it is like this; the cause, not the symptom |
-| `## What needs to change, or be decided` | what to do, or the options if it is a decision |
+| `## What needs to change, or be answered` | what to do, or the options if it is a decision |
 | `## How to verify` | what a person checks to agree it is done, in steps they can follow |
 
 The headings are the contract: the template below carries them verbatim, so a file
@@ -43,8 +43,8 @@ counting rows.
 ```markdown
 # 07 · [Item as a reader would say it]
 
-**Status:** decision needed
-**Owner:** [name] — [what they decide or do]
+**Status:** answer needed
+**Owner:** [name] — [what they answer or do]
 **Where:** [screen · file · record]
 
 ## What was asked
@@ -66,7 +66,7 @@ counting rows.
 [The cause. Name the commit, the column, the function, the missing file — whatever
 makes it true. Say what you could not check.]
 
-## What needs to change, or be decided
+## What needs to change, or be answered
 
 [Either the change, or numbered options with the recommendation in bold, matching
 the brief exactly. They must not drift apart.]

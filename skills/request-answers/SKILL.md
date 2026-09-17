@@ -1,13 +1,13 @@
 ---
-name: request-decisions
-description: "The way to ask when work needs something only someone else can give — a person or another agent: drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, each item carrying the context that answer needs. Use for any decision, sign-off, ruling, missing fact or wording you are blocked on, at brief, normal or deep depth."
+name: request-answers
+description: "The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth."
 license: MIT
 compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item and needs a filesystem; brief and normal are transcript-only. Output is the brief, optionally per-item files, and a ledger row per question."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
 
-# Request decisions
+# Request answers
 
 Work stops on someone else's input more often than on anything technical: a choice
 of wording, a ruling, a number only they hold, the intent behind code they wrote.
@@ -16,14 +16,21 @@ of prose with the questions buried in it, an open "thoughts?", or a list of twen
 items of which four were actually theirs.
 
 **This is how to ask whenever you need something from another person or another
-agent.** It applies to a decision, a sign-off, a ruling, a missing fact, a piece of
-copy, or an explanation of intent. The recipient answers what is cheap to answer:
-make the reply one block they can type in two minutes and you get it today.
+agent** — one question or twenty. It covers a plain question, a decision, a
+clarification of something ambiguous, a sign-off, a ruling, a fact only they hold, a
+piece of copy, and "why did you do it this way". The recipient answers what is cheap
+to answer: make the reply one block they can type in two minutes and you get it
+today.
+
+The unit is an **ask**: one thing you need back, with one place to put it. A
+decision is an ask whose answer is a choice; a clarification is an ask whose answer
+is a sentence. Everything below treats them the same way.
 
 **What this is not.** Recording why a decision was made afterwards is
 `decision-journal`. Saying where multi-phase work stands is `report-progress`.
 Building a verified-facts briefing before anyone reasons about an artefact is
-`delphi-ground`. This skill owns the ask itself and the ledger of what came back.
+`delphi-ground`. This skill owns the ask itself — of any kind — and the ledger of
+what came back.
 
 ## The iron rule
 
@@ -41,7 +48,7 @@ Sort each candidate into one of four:
 - **answered here** — with the evidence, and it leaves the ask
 - **needs their judgement** — a preference, a name, a trade-off, a sign-off
 - **needs their access** — a truth only their system, scrape or inbox holds
-- **needs their intent** — why they did something, where the artefact is ambiguous
+- **needs their intent** — why they did it this way, or which of two readings is meant
 
 Only the last three reach anyone. Keep the answered ones in the ledger: that is the
 record that a question was closed rather than forgotten, and it stops the same
@@ -101,8 +108,8 @@ Four parts, in this order.
 
 State the count and the shape, so the size of the job is known before reading:
 
-> Sixteen need your answer — nothing else is waiting on you. **Nine are a yes/no**;
-> **seven need you to choose or write something.**
+> Sixteen asks, and nothing else is waiting on you. **Nine are a yes/no**; **five
+> need you to choose or write something**; **two are readings to confirm.**
 
 ### 2. The answer sheet
 
@@ -111,12 +118,13 @@ to a visible answer slot. Sub-answers sit indented under their parent. The recip
 copies the block, types over it, sends it back.
 
 ```
-D1  restore the filter groups, merged into one "stocked" filter ...... YES / NO
-D2  show each own-label sub-range by name ........................... YES / NO
+Q1  restore the filter groups, merged into one "stocked" filter ...... YES / NO
+Q2  show each own-label sub-range by name ........................... YES / NO
     does the value range count as own label? ....................... YES / NO
-D5  order results by best rank, then score ......................... YES / NO  (or: score only)
-D6  score bands: cut-offs ....... 70/55/35 / 75/55/35  and names .... WRITE: ............
-D9  summary cards to keep visible by default ......... WRITE: ............
+Q5  order results by best rank, then score ......................... YES / NO  (or: score only)
+Q6  score bands: cut-offs ....... 70/55/35 / 75/55/35  and names .... WRITE: ............
+Q7  we read "active" as the active ingredient — correct? .. READING A / READING B
+Q9  summary cards to keep visible by default ......... WRITE: ............
 ```
 
 If a line cannot be understood alone, the line is wrong, not the reader.
@@ -149,6 +157,12 @@ conversation.
 | **CHOOSE** | two to four real options, none obviously right | `... OPTION A / OPTION B` |
 | **WRITE** | only they hold the words, the number or the name | `... WRITE: ............` |
 | **APPROVE OR EDIT** | you drafted the words and they own the voice | `... APPROVED / EDIT: ......` |
+| **WHICH** | two readings of something ambiguous, and you need to know which | `... READING A / READING B` |
+| **EXPLAIN** | only they know why, and a sentence settles it | `... WHY: ............` |
+
+The last two are the clarification cases. Put your best reading in the line —
+*"we read this as X; is that right?"* — because confirming a reading is cheaper than
+writing one from scratch.
 
 A **YES/NO** without a recommendation is a **CHOOSE** pretending. A **WRITE** you
 could have drafted is laziness: draft it and downgrade it to **APPROVE OR EDIT**.
@@ -202,7 +216,7 @@ withdraw the question.
 - [ ] The answer sheet can be answered without the detail
 - [ ] Every line has one question and one place to answer
 - [ ] Every item carries a measured present state, quoted where it is text
-- [ ] Every item has one recommendation, or is honestly marked CHOOSE or WRITE
+- [ ] Every item has one recommendation, or is honestly marked CHOOSE, WRITE, WHICH or EXPLAIN
 - [ ] The header's count matches the sheet's lines
 - [ ] Items owned by others are in the closing section, with names
 - [ ] Silence has a stated consequence for every item
@@ -215,6 +229,7 @@ withdraw the question.
 | Mistake | What it costs |
 |---|---|
 | Asking everything you are unsure about | They answer the cheap ones and stall on the rest |
+| An open clarification ("what did you mean?") | Put your reading in the line and ask them to confirm it |
 | One brief per topic instead of per owner | Everyone waits for everyone else |
 | Prose with the questions inside it | You get opinions, not answers |
 | No recommendation | The decision comes back as a question |

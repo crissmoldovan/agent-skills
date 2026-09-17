@@ -7,7 +7,7 @@ the next version. Entries before v0.12.0 live only on the Releases page.
 
 ## 0.23.0
 
-**What.** One new skill, `request-decisions` (skill version 1.0.0): how to ask when work
+**What.** One new skill, `request-answers` (skill version 1.0.0): how to ask when work
 needs something only another person or agent can give. It drops every question that can be
 answered from the system under discussion, then sends one brief whose answer sheet can be
 replied to in a single block, at `brief`, `normal` or `deep` depth. Nothing else in the pack

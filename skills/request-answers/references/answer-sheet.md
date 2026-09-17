@@ -1,14 +1,15 @@
 # The brief: template and worked example
 
-One brief per person. Replace the bracketed parts; keep the order.
+One brief per person or agent, whatever the asks are — questions, decisions,
+clarifications, missing facts. Replace the bracketed parts; keep the order.
 
 ## Template
 
 ````markdown
-# [N] decisions — [what this is about]
+# [N] things I need from you — [what this is about]
 
-[One or two sentences: where the requests came from, what is already settled, and
-that nothing else waits on this reader.]
+[One or two sentences: where the asks came from, what is already settled, and that
+nothing else waits on this reader.]
 
 **[X] are a yes/no** — if you agree with the recommendation, say yes and we build it.
 **[Y] need you to choose or write something**, marked **WRITE / CHOOSE** below.
@@ -20,12 +21,14 @@ that nothing else waits on this reader.]
 Copy these lines and answer in place. "Yes" means: do what we recommend.
 
 ```
-D1  [the decision, in eight words] ................................. YES / NO
-D2  [the decision] ................................................. YES / NO
+Q1  [the ask, in eight words] ..................................... YES / NO
+Q2  [the ask] ..................................................... YES / NO
     [the sub-question that comes with it] ......................... YES / NO
-D3  [the decision] ........... OPTION A / OPTION B / OPTION C
-D4  [the decision] ................................................. WRITE: ............
-D5  [drafted wording, shown below] ................. APPROVED / EDIT: ............
+Q3  [the ask] ................. OPTION A / OPTION B / OPTION C
+Q4  [the ask] ..................................................... WRITE: ............
+Q5  [drafted wording, shown below] ................. APPROVED / EDIT: ............
+Q6  we read [the thing] as [your reading] — correct? ... READING A / READING B
+Q7  why is [the thing] done this way? ............................. WHY: ............
 ```
 
 ---
@@ -35,19 +38,19 @@ D5  [drafted wording, shown below] ................. APPROVED / EDIT: ..........
 Each item: what it looks like today, the options, our recommendation in **bold**,
 and [the per-item file / where the evidence sits].
 
-### D1 · [title] — **YES/NO** *([item file numbers])*
+### Q1 · [title] — **YES/NO** *([item file numbers])*
 [What a reader sees today, quoted and measured.]
 [Whose request this answers, in their words.]
 **We recommend:** [one sentence.]
 [On silence: we do this / this one blocks.]
 
-### D3 · [title] — **CHOOSE** *([item file numbers])*
+### Q3 · [title] — **CHOOSE** *([item file numbers])*
 [Current state.]
 1. [Option, and its consequence]
 2. **[Recommended option, and its consequence]**
 3. [Option, and its consequence]
 
-### D4 · [title] — **WRITE** *([item file numbers])*
+### Q4 · [title] — **WRITE** *([item file numbers])*
 [Current state, and exactly what is missing that only they hold.]
 **Needed from you:** [the words, the number, or the name.]
 

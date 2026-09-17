@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`, and
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, and
-`request-decisions` — twenty-eight in
+`request-answers` — twenty-eight in
 all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
@@ -21,7 +21,7 @@ visibility; Blocks owns GitHub-hosted review interaction and bounded status wait
 owns what a proposed change would affect and `visualise-blast-area` owns drawing it;
 `land-complex-change` owns the declared touch-set budget and the regression gate
 ladder; `resolve-problem-report` owns the arc from a report to a resolution;
-`new-ux-discovery` owns gated UX opportunity discovery; `request-decisions` owns the ask
+`new-ux-discovery` owns gated UX opportunity discovery; `request-answers` owns the ask
 that unblocks work on another person's judgement — the answer sheet they reply to and the
 ledger of what came back — while `decision-journal` owns the
 record of why a decision was made; `delphi-ground` owns the verified-facts briefing
