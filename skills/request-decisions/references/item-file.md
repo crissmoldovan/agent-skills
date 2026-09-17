@@ -9,17 +9,20 @@ the brief links each item to its file.
 One file per item, named `NN-kebab-title.md`, numbered in the order the brief uses.
 Every file carries these headings, in this order, and nothing else:
 
-| Heading | What goes in it |
+| Line or heading, exactly as written | What goes in it |
 |---|---|
-| Title line | `# NN · [the item, as a reader would say it]` |
-| **Status** | one of: open · decision needed · fixed, verify · part fixed · changed, wrong direction |
-| **Owner** | the person who answers or acts, by name |
-| **Where** | the exact screen, file, endpoint or record |
-| Requests | the original words, quoted, with who and when |
-| Now | the present state, measured — counts, quoted strings, a table if two things differ |
-| Found | why it is like this; the cause, not the symptom |
-| Change | what to do, or the options if it is a decision |
-| Verify | what a person checks to agree it is done, in steps they can follow |
+| `# NN · [title]` | the item, as a reader would say it |
+| `**Status:**` | one of: open · decision needed · fixed, verify · part fixed · changed, wrong direction |
+| `**Owner:**` | the person who answers or acts, by name |
+| `**Where:**` | the exact screen, file, endpoint or record |
+| `## What was asked` | the original words, quoted, with who and when |
+| `## What it looks like now` | the present state, measured — counts, quoted strings, a table if two things differ |
+| `## What we found` | why it is like this; the cause, not the symptom |
+| `## What needs to change, or be decided` | what to do, or the options if it is a decision |
+| `## How to verify` | what a person checks to agree it is done, in steps they can follow |
+
+The headings are the contract: the template below carries them verbatim, so a file
+can be checked against this table line by line.
 
 Two rules carry the weight:
 
