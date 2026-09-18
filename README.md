@@ -11,6 +11,11 @@ A public package by **Criss Moldovan**. Every skill is independently discoverabl
 under `skills/<name>/SKILL.md`, installable through Agent Skills-compatible
 harnesses, and tested as part of one release catalogue.
 
+**To read it in a browser:** [the site](https://crissmoldovan.github.io/agent-skills/)
+lists every skill with its description, its install command and the asks it
+publishes, and reads every skill, reference and document in this repository. It is
+generated from the skills, so it says what the pack says.
+
 ## What is in the pack
 
 Twenty-eight skills. Each one below carries its own install command and a couple of
@@ -889,6 +894,29 @@ npm run verify
 The command runs catalogue and digest tests, skill validation, the lifecycle and
 journal runtime suites, the workspace-governance suite, TypeScript builds, and
 isolated package-consumer verification.
+
+## The site
+
+```bash
+npm run site                       # writes site/dist
+npx http-server site/dist          # or any static server
+```
+
+`scripts/build-site.mjs` generates the site from the pack: a skill's description is
+the one in its own frontmatter, because that is the text a runtime matches on, and
+an ask is a prompt the skill's own `## Usage Examples` publishes, verbatim — a skill
+that publishes none is shown without any rather than given invented ones. The page
+is one file with no framework and no build step of its own; its only dependency is
+the markdown renderer, loaded from a CDN, and with no network it shows each document
+as plain text instead.
+
+The output is not committed: `.github/workflows/pages.yml` builds it on the runner
+on every push to `main` and publishes it to GitHub Pages. A committed copy would be
+a second answer to what the pack contains, and the two would drift.
+
+Publishing needs GitHub Pages turned on once, with **Settings → Pages → Source:
+GitHub Actions**. Until that is done the workflow builds the site and stops at the
+deploy step, and the link above is not live; `npm run site` works either way.
 
 ## License
 
