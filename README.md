@@ -16,33 +16,61 @@ harnesses, and tested as part of one release catalogue.
 | Skill | Description | Details |
 |---|---|---|
 | `model-routing` | Decide which model owns which task and when to escalate: give the cheap tier the legwork, keep planning and final review with the expensive one, and protect the driver's context. Symptoms: do this cheaply, which model should do this, delegate the legwork, we're burning tokens, this is too big for one context, set up / switch / inspect / clear a routing profile. | [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill model-routing` | |
 | `agent-lifecycle` | Add live child-agent visibility to something you are building — an orchestrator, CLI, desktop app or web UI: one event schema over several child runtimes, plus recovery of events missed across a disconnect or restart. Symptoms: show what my subagents are doing, stream agent status into the UI, normalise different child runtimes behind one interface, my agent events stop after a reconnect. This builds the feature; it is not a dispatch or routing policy. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill agent-lifecycle` | |
 | `blocks` | Low-level primitives for talking to Blocks: resolve a workspace, open or read a session, collect GitHub review evidence, classify status, and wait with a visible bound. Symptoms: ask Blocks, start a Blocks session, what is Blocks doing, await the Blocks response. This is the plumbing other skills call — for the review-until-clean loop on a pull request use request-blocks-review. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill blocks` | |
 | `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill request-blocks-review` | |
 | `secure-credential-setup` | Get an API key, token or password into a secret store without the value ever appearing in the transcript: one credential at a time, one exact copy-pasteable terminal command for the user to run, then verification that it authenticates without printing it. Symptoms: where do I put this key, set up my API token, add it to .env / the keychain / the secret manager, here's my key (don't paste it back), the tool says unauthorized and no credential is configured. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill secure-credential-setup` | |
 | `derive-codebase-context` | Write agent context for a repository from the repo itself: a CLAUDE.md / AGENTS.md that matches reality, the boundaries agents must not cross, and a map of where things live. Symptoms: write or fix our CLAUDE.md, the agent guidance is stale, the context files have multiplied (CLAUDE.md + AGENTS.md + Cursor rules), agents keep rediscovering the same layout, someone proposes a code knowledge graph / vector index / semantic search over the codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill derive-codebase-context` | |
 | `publish-agent-skill` | Publish an Agent Skill through a verified release. | [Skill](skills/publish-agent-skill/SKILL.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill publish-agent-skill` | |
 | `update-agent-skills` | Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack. It moves installed copies; it does not publish a new release — that is publish-agent-skill. | [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill update-agent-skills` · optional session hook: `node <skill-folder>/scripts/install-freshness-hook.mjs` | |
 | `release-ledger` | Build a what's-new feature into a product: capture merged work, categorise it nightly, and show each signed-in user only what shipped since they last looked, plus a digest and hand-written announcements. Symptoms: what's-new popup, in-app changelog for users, since-you-were-away digest, tell logged-in users what changed, product updates feed. This writes tables, jobs and UI into an app; it does not write the notes for one version — that is release-notes. | [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill release-ledger` | |
 | `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill github-webhooks` | |
 | `describe-changes` | Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill describe-changes` | |
 | `release-notes` | Write the note for one version and put it everywhere the project records releases — what shipped, why it shipped, and what it means for a reader deciding whether to adopt it. Symptoms: ship/cut a release, publish to npm, bump the version, changeset, release notes, CHANGELOG entry, tag a version, patch/minor/major release, create a GitHub/GitLab Release. It writes and places the note and makes the semver call; for describing a change that already landed use describe-changes, and for a what's-new feature inside a product use release-ledger. | [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill release-notes` | |
 | `investigate-codebase` | Answer a question about a codebase with evidence a reader can re-run: path and line, command output, and searched negatives reported as searched rather than as absence. Symptoms: how does X actually work, does anything still call this, is this dead code, where does this value come from, two sources disagree (a doc against the code, a registry against the runtime), I need to be sure before I delete it. For a failing test or a live bug use systematic debugging; this answers questions rather than repairing behaviour. | [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill investigate-codebase` | |
 | `blast-area` | Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill blast-area` | |
 | `visualise-blast-area` | Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into. | [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill visualise-blast-area` | |
 | `decision-journal` | Record a decision and the alternatives it rejected, anchored to evidence, so the reasoning survives the session — append-only, retractable, with show/trace/digest to read it back. Symptoms: we considered X and rejected it, why is this like this, what did we already rule out, I'm assuming Y without checking, that turned out to be wrong, write this down before you compact. Records the choice, not the diff — for what a change did, use describe-changes. | [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) · [CLI installer](skills/decision-journal/scripts/install-cli.mjs) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill decision-journal` · then put its CLI on PATH: `node <skill-folder>/scripts/install-cli.mjs` | |
 | `delphi-ground` | Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention. | [Skill](skills/delphi-ground/SKILL.md) · [Briefing format](skills/delphi-ground/references/briefing-format.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill delphi-ground` | |
 | `delphi-imagine` | Critique a plan, spec, design or document from one or more named perspectives — a compliance reviewer, an SRE, a first-time user — grounded in checkable facts instead of an invented company: three concrete moments each labelled observed, inferred or constructed, a mandatory case where the thing is useless, and every gap traced to a moment and costed. Symptoms: review this as a security person, what would a CTO say, poke holes in this plan, get me a second opinion, red-team this design, the last review was agreeable rather than useful. Ground it with delphi-ground first; a critique that reads well but cannot be checked is the failure mode this exists to avoid. | [Skill](skills/delphi-imagine/SKILL.md) · [Output contract](skills/delphi-imagine/references/output-contract.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill delphi-imagine` | |
 | `land-complex-change` | Land a change whose side effects are the risk rather than the code: derive a touch-set budget from its blast map, arm one regression gate per affected surface and watch each fail first, land in steps that revert one at a time, and stop rather than absorb anything that appears outside the budget. Symptoms: this refactor touches code every user depends on, this migration cannot be taken back, prove the deletion is safe before I merge it, the last attempt grew until review was an argument about scope, land it in stages, this runs unattended overnight. For a routine merge-and-deploy use a ship or land-and-deploy skill; this is for the change you are nervous about. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill land-complex-change` | |
 | `resolve-problem-report` | Take a reported problem end to end: reproduce the claim, find the root cause, offer candidate fixes with trade-offs, spec the chosen one, and land it through review. Symptoms: a user reported X, this is broken in production, a flaky test is hiding something real, someone filed a bug or feature request, this keeps coming back. Use it when the report deserves more than a quick patch; for a one-line fix, just fix it. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill resolve-problem-report` | |
 | `new-ux-discovery` | Find UX improvements a codebase can already support, evidence-backed and ranked — across the CLI, the API, MCP tools, notifications and error text as much as the UI. Symptoms: what should we improve next, where does this feel rough, what's low-hanging UX we could ship this week, turn this diff into a follow-up list, roadmap candidates from the code we already have. Not a visual design pass — for look and feel use a design skill. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill new-ux-discovery` | |
 | `workspace-governance` | Audit repository placement and explain inherited policy. | [Skill](skills/workspace-governance/SKILL.md) · [Guide](docs/workspace-governance/index.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill workspace-governance` · its CLI installs separately, see the guide | |
 | `layer-repository-docs` | Make a repository's documentation legible when an organisation has more repos than anyone can track, through three entry points — audit read-only, draft the layers, update what a change overtook: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, check whether the docs are still true, update the docs after the code moved, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context. | [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/layer-repository-docs/references/entry-points.md) · [Layer contents](skills/layer-repository-docs/references/layer-contents.md) · [Loss audit](skills/layer-repository-docs/references/loss-audit.md) · [Newcomer test](skills/layer-repository-docs/references/newcomer-test.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill layer-repository-docs` | |
 | `report-progress` | Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn. | [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill report-progress` | |
 | `isolated-change-validation` | Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted. | [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract](skills/isolated-change-validation/references/evidence-contract.md) · [Handoff bundle](skills/isolated-change-validation/references/handoff-bundle.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill isolated-change-validation` | |
 | `onboard-project` | Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them. | [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-project/references/fit-signals.md) · [What gets written](skills/onboard-project/references/what-gets-written.md) · [Check-hook installer](skills/onboard-project/scripts/install-check-hook.mjs) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill onboard-project` | |
 | `request-answers` | The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth. | [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill request-answers` | |
 | `work-in-external-repo` | Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository. | [Skill](skills/work-in-external-repo/SKILL.md) |
+| ↳ install | `npx skills add crissmoldovan/agent-skills --skill work-in-external-repo` | |
 
 The pack contains distinct procedures, not one monolithic workflow. Compose only
 what the task needs. `model-routing` and `agent-lifecycle` cover economical,
@@ -87,67 +115,26 @@ Skills CLI:
 npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 ```
 
-Install selected skills:
+Install one skill, or a few together — every skill's own command is in the table
+above, on the `↳ install` row beneath it:
 
 ```bash
-# Observable routed delegation
+# one skill
+npx skills add crissmoldovan/agent-skills --skill request-answers
+
+# several at once, in one call
 npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
-
-# Blocks interaction plus the completed-PR review loop
-npx skills add crissmoldovan/agent-skills --skill blocks request-blocks-review
-
-# Secure credential placement
-npx skills add crissmoldovan/agent-skills --skill secure-credential-setup
-
-# Repository context and boundaries
-npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
-
-# Verified publication and all-plane updates
-npx skills add crissmoldovan/agent-skills --skill publish-agent-skill update-agent-skills
-
-# Release-ledger capture, change descriptions, and the note for one version
-npx skills add crissmoldovan/agent-skills --skill release-ledger github-webhooks describe-changes release-notes
-
-# Evidence-backed code answers and change mapping
-npx skills add crissmoldovan/agent-skills --skill investigate-codebase blast-area visualise-blast-area
-
-# Contained change delivery and end-to-end report resolution
-npx skills add crissmoldovan/agent-skills --skill land-complex-change resolve-problem-report
-
-# Read-only repository governance (CLI installed separately)
-npx skills add crissmoldovan/agent-skills --skill workspace-governance
-
-# UX opportunities a codebase can already support
-npx skills add crissmoldovan/agent-skills --skill new-ux-discovery
-
-# Progress reports over long work, and changes that belong in another repository
-npx skills add crissmoldovan/agent-skills --skill report-progress work-in-external-repo
-
-# Decision records with checkable evidence. The skill carries its own CLI; put it on
-# PATH once, from the folder the skill was installed to, so hooks and your shell find it
-npx skills add crissmoldovan/agent-skills --skill decision-journal
-node <skill-folder>/scripts/install-cli.mjs
-
-# Grounded, evidence-first reviews of an artefact
-npx skills add crissmoldovan/agent-skills --skill delphi-ground delphi-imagine
-
-# Validate a change in a sandbox that is physically separate from the trusted tree,
-# and hand the run over as state rather than prose
-npx skills add crissmoldovan/agent-skills --skill isolated-change-validation
-
-# Choose and wire a repository's own skills, from evidence rather than description matching
-npx skills add crissmoldovan/agent-skills --skill onboard-project
 ```
 
-Document a repository in layers — a quick start, a manual, and the organisation's handbook:
+Three skills carry a second step, stated on their row in the table:
+`decision-journal` puts its CLI on PATH, `update-agent-skills` can install a session
+hook that checks freshness, and `workspace-governance` installs its CLI separately.
 
-```bash
-npx skills add crissmoldovan/agent-skills --skill layer-repository-docs
-```
-
-It has three entry points, and it announces the one it picked before it starts: `check` or `need`
-audits and writes nothing, `draft` or `ensure` writes the layers, `update` takes only what a change
-overtook. With no word at all it audits. In a harness with slash commands that is
+One skill takes a word when you call it: `layer-repository-docs` has three entry
+points, and it announces the one it picked before it starts — `check` or `need`
+audits and writes nothing, `draft` or `ensure` writes the layers, `update` takes only
+what a change overtook. With no word at all it audits. In a harness with slash
+commands that is
 
 ```text
 /layer-repository-docs check
