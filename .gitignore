@@ -19,3 +19,8 @@ pnpm-lock.yaml
 **/.agents/journal/
 packages/agent-journal/workspaces/
 workspaces/
+
+# The site is generated from the skills by scripts/build-site.mjs and published
+# by .github/workflows/pages.yml, which builds it on the runner. Committing a
+# copy would be a second source of truth for what the pack contains.
+site/dist/
