@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
 
@@ -570,4 +570,52 @@ test('onboard-project states its boundaries, its consent rule, and what it never
   }
   assert.match(onboardProjectFitSignals, /\*?\*?unknown\*?\*?, not zero/i);
   assert.match(onboardProjectWrites, /Undo/);
+});
+
+// Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
+// "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
+// the example would invoke a sibling skill they may not have. Nothing failed, because the tests
+// checked that each description and link appeared, never that an ask belonged to its own entry.
+test("no skill's example ask tells the reader to use a different skill", () => {
+  const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
+  const names = entries.map(([, name]) => name);
+  assert.equal(names.length, 28, 'every skill has a catalog entry');
+  for (const [, name, entry] of entries) {
+    const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
+    for (const ask of asks) {
+      for (const other of names) {
+        if (other === name) continue;
+        assert.doesNotMatch(
+          ask,
+          new RegExp(`\\bUse ${other}\\b`),
+          `${name}'s ask tells the reader to use ${other}: ${ask}`,
+        );
+      }
+    }
+  }
+});
+
+// The README tells a reader that the fuller examples "are in each skill's own Usage Examples
+// section". That was true of 27 skills: workspace-governance had none, so a reader who followed
+// the sentence for that skill found nothing. Blocks caught it on the catalog rewrite. The promise
+// is the invariant, so the invariant is what is tested.
+test('every skill publishes a Usage Examples section, as the README promises', async () => {
+  const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+  assert.equal(names.length, 28, 'the sweep must cover the whole pack');
+  for (const name of names) {
+    const source = await read(`skills/${name}/SKILL.md`);
+    assert.match(
+      source,
+      /^## Usage Examples$/m,
+      `${name} has no Usage Examples section, so the README's promise is false for it`,
+    );
+    const section = source.split(/^## Usage Examples$/m)[1];
+    assert.match(
+      section,
+      /```/,
+      `${name}'s Usage Examples section shows no example a reader can copy`,
+    );
+  }
 });
