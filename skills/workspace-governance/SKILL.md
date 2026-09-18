@@ -91,6 +91,27 @@ workspacectl audit --manifest manifest.json --node org --principal reader --root
 workspacectl verify-plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --plan preview.json
 ```
 
+## Usage Examples
+
+```text
+Audit the declared repository catalog in manifest.json for the reader principal.
+Validate it first, and stop on any schema error rather than repairing it. Report
+missing, misplaced, duplicate and blocked entries, and move nothing.
+```
+
+```text
+Explain what policy applies to node repo for principal reader, and where each
+field came from. I want the inherited constraints and their provenance, not a
+summary — and do not treat a later setting as permission to bypass an ancestor's.
+```
+
+```text
+Before I design any moves: give me a local placement preview for node org under
+$SCAN_ROOT, saved outside the scan root, then verify it with the same explicit
+manifest, node, principal and root. Tell me the exit code and whether the scan
+was complete — a partial scan cannot prove a checkout missing.
+```
+
 ## Pitfalls
 
 - Public or restricted catalog visibility is not an OS sandbox or credential ACL.
