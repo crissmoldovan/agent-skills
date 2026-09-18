@@ -571,3 +571,26 @@ test('onboard-project states its boundaries, its consent rule, and what it never
   assert.match(onboardProjectFitSignals, /\*?\*?unknown\*?\*?, not zero/i);
   assert.match(onboardProjectWrites, /Undo/);
 });
+
+// Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
+// "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
+// the example would invoke a sibling skill they may not have. Nothing failed, because the tests
+// checked that each description and link appeared, never that an ask belonged to its own entry.
+test("no skill's example ask tells the reader to use a different skill", () => {
+  const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
+  const names = entries.map(([, name]) => name);
+  assert.equal(names.length, 28, 'every skill has a catalog entry');
+  for (const [, name, entry] of entries) {
+    const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
+    for (const ask of asks) {
+      for (const other of names) {
+        if (other === name) continue;
+        assert.doesNotMatch(
+          ask,
+          new RegExp(`\\bUse ${other}\\b`),
+          `${name}'s ask tells the reader to use ${other}: ${ask}`,
+        );
+      }
+    }
+  }
+});

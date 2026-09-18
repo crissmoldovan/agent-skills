@@ -59,7 +59,6 @@ npx skills add crissmoldovan/agent-skills --skill blocks
 
 Ask it:
 
-- *"Use request-blocks-review on this finished PR. Keep the wait visible, fix accepted findings, rerun verification, and request current-head re-review until clean."*
 - *"Resolve the Blocks workspace for this repository."*
 - *"Get Blocks status for PR 42 against this request baseline."*
 
