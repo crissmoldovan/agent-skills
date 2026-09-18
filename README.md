@@ -13,93 +13,453 @@ harnesses, and tested as part of one release catalogue.
 
 ## What is in the pack
 
-| Skill | Description | Details |
-|---|---|---|
-| `model-routing` | Decide which model owns which task and when to escalate: give the cheap tier the legwork, keep planning and final review with the expensive one, and protect the driver's context. Symptoms: do this cheaply, which model should do this, delegate the legwork, we're burning tokens, this is too big for one context, set up / switch / inspect / clear a routing profile. | [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill model-routing` | |
-| `agent-lifecycle` | Add live child-agent visibility to something you are building — an orchestrator, CLI, desktop app or web UI: one event schema over several child runtimes, plus recovery of events missed across a disconnect or restart. Symptoms: show what my subagents are doing, stream agent status into the UI, normalise different child runtimes behind one interface, my agent events stop after a reconnect. This builds the feature; it is not a dispatch or routing policy. | [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill agent-lifecycle` | |
-| `blocks` | Low-level primitives for talking to Blocks: resolve a workspace, open or read a session, collect GitHub review evidence, classify status, and wait with a visible bound. Symptoms: ask Blocks, start a Blocks session, what is Blocks doing, await the Blocks response. This is the plumbing other skills call — for the review-until-clean loop on a pull request use request-blocks-review. | [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill blocks` | |
-| `request-blocks-review` | Run Blocks review/fix/re-review until a GitHub PR is clean. | [Skill](skills/request-blocks-review/SKILL.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill request-blocks-review` | |
-| `secure-credential-setup` | Get an API key, token or password into a secret store without the value ever appearing in the transcript: one credential at a time, one exact copy-pasteable terminal command for the user to run, then verification that it authenticates without printing it. Symptoms: where do I put this key, set up my API token, add it to .env / the keychain / the secret manager, here's my key (don't paste it back), the tool says unauthorized and no credential is configured. | [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill secure-credential-setup` | |
-| `derive-codebase-context` | Write agent context for a repository from the repo itself: a CLAUDE.md / AGENTS.md that matches reality, the boundaries agents must not cross, and a map of where things live. Symptoms: write or fix our CLAUDE.md, the agent guidance is stale, the context files have multiplied (CLAUDE.md + AGENTS.md + Cursor rules), agents keep rediscovering the same layout, someone proposes a code knowledge graph / vector index / semantic search over the codebase. | [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill derive-codebase-context` | |
-| `publish-agent-skill` | Publish an Agent Skill through a verified release. | [Skill](skills/publish-agent-skill/SKILL.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill publish-agent-skill` | |
-| `update-agent-skills` | Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack. It moves installed copies; it does not publish a new release — that is publish-agent-skill. | [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill update-agent-skills` · optional session hook: `node <skill-folder>/scripts/install-freshness-hook.mjs` | |
-| `release-ledger` | Build a what's-new feature into a product: capture merged work, categorise it nightly, and show each signed-in user only what shipped since they last looked, plus a digest and hand-written announcements. Symptoms: what's-new popup, in-app changelog for users, since-you-were-away digest, tell logged-in users what changed, product updates feed. This writes tables, jobs and UI into an app; it does not write the notes for one version — that is release-notes. | [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill release-ledger` | |
-| `github-webhooks` | Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. | [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill github-webhooks` | |
-| `describe-changes` | Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'. | [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill describe-changes` | |
-| `release-notes` | Write the note for one version and put it everywhere the project records releases — what shipped, why it shipped, and what it means for a reader deciding whether to adopt it. Symptoms: ship/cut a release, publish to npm, bump the version, changeset, release notes, CHANGELOG entry, tag a version, patch/minor/major release, create a GitHub/GitLab Release. It writes and places the note and makes the semver call; for describing a change that already landed use describe-changes, and for a what's-new feature inside a product use release-ledger. | [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill release-notes` | |
-| `investigate-codebase` | Answer a question about a codebase with evidence a reader can re-run: path and line, command output, and searched negatives reported as searched rather than as absence. Symptoms: how does X actually work, does anything still call this, is this dead code, where does this value come from, two sources disagree (a doc against the code, a registry against the runtime), I need to be sure before I delete it. For a failing test or a live bug use systematic debugging; this answers questions rather than repairing behaviour. | [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill investigate-codebase` | |
-| `blast-area` | Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break. | [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill blast-area` | |
-| `visualise-blast-area` | Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into. | [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill visualise-blast-area` | |
-| `decision-journal` | Record a decision and the alternatives it rejected, anchored to evidence, so the reasoning survives the session — append-only, retractable, with show/trace/digest to read it back. Symptoms: we considered X and rejected it, why is this like this, what did we already rule out, I'm assuming Y without checking, that turned out to be wrong, write this down before you compact. Records the choice, not the diff — for what a change did, use describe-changes. | [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) · [CLI installer](skills/decision-journal/scripts/install-cli.mjs) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill decision-journal` · then put its CLI on PATH: `node <skill-folder>/scripts/install-cli.mjs` | |
-| `delphi-ground` | Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention. | [Skill](skills/delphi-ground/SKILL.md) · [Briefing format](skills/delphi-ground/references/briefing-format.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill delphi-ground` | |
-| `delphi-imagine` | Critique a plan, spec, design or document from one or more named perspectives — a compliance reviewer, an SRE, a first-time user — grounded in checkable facts instead of an invented company: three concrete moments each labelled observed, inferred or constructed, a mandatory case where the thing is useless, and every gap traced to a moment and costed. Symptoms: review this as a security person, what would a CTO say, poke holes in this plan, get me a second opinion, red-team this design, the last review was agreeable rather than useful. Ground it with delphi-ground first; a critique that reads well but cannot be checked is the failure mode this exists to avoid. | [Skill](skills/delphi-imagine/SKILL.md) · [Output contract](skills/delphi-imagine/references/output-contract.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill delphi-imagine` | |
-| `land-complex-change` | Land a change whose side effects are the risk rather than the code: derive a touch-set budget from its blast map, arm one regression gate per affected surface and watch each fail first, land in steps that revert one at a time, and stop rather than absorb anything that appears outside the budget. Symptoms: this refactor touches code every user depends on, this migration cannot be taken back, prove the deletion is safe before I merge it, the last attempt grew until review was an argument about scope, land it in stages, this runs unattended overnight. For a routine merge-and-deploy use a ship or land-and-deploy skill; this is for the change you are nervous about. | [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill land-complex-change` | |
-| `resolve-problem-report` | Take a reported problem end to end: reproduce the claim, find the root cause, offer candidate fixes with trade-offs, spec the chosen one, and land it through review. Symptoms: a user reported X, this is broken in production, a flaky test is hiding something real, someone filed a bug or feature request, this keeps coming back. Use it when the report deserves more than a quick patch; for a one-line fix, just fix it. | [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill resolve-problem-report` | |
-| `new-ux-discovery` | Find UX improvements a codebase can already support, evidence-backed and ranked — across the CLI, the API, MCP tools, notifications and error text as much as the UI. Symptoms: what should we improve next, where does this feel rough, what's low-hanging UX we could ship this week, turn this diff into a follow-up list, roadmap candidates from the code we already have. Not a visual design pass — for look and feel use a design skill. | [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill new-ux-discovery` | |
-| `workspace-governance` | Audit repository placement and explain inherited policy. | [Skill](skills/workspace-governance/SKILL.md) · [Guide](docs/workspace-governance/index.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill workspace-governance` · its CLI installs separately, see the guide | |
-| `layer-repository-docs` | Make a repository's documentation legible when an organisation has more repos than anyone can track, through three entry points — audit read-only, draft the layers, update what a change overtook: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, check whether the docs are still true, update the docs after the code moved, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context. | [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/layer-repository-docs/references/entry-points.md) · [Layer contents](skills/layer-repository-docs/references/layer-contents.md) · [Loss audit](skills/layer-repository-docs/references/loss-audit.md) · [Newcomer test](skills/layer-repository-docs/references/newcomer-test.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill layer-repository-docs` | |
-| `report-progress` | Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn. | [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill report-progress` | |
-| `isolated-change-validation` | Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted. | [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract](skills/isolated-change-validation/references/evidence-contract.md) · [Handoff bundle](skills/isolated-change-validation/references/handoff-bundle.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill isolated-change-validation` | |
-| `onboard-project` | Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them. | [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-project/references/fit-signals.md) · [What gets written](skills/onboard-project/references/what-gets-written.md) · [Check-hook installer](skills/onboard-project/scripts/install-check-hook.mjs) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill onboard-project` | |
-| `request-answers` | The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth. | [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill request-answers` | |
-| `work-in-external-repo` | Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository. | [Skill](skills/work-in-external-repo/SKILL.md) |
-| ↳ install | `npx skills add crissmoldovan/agent-skills --skill work-in-external-repo` | |
+Twenty-eight skills. Each one below carries its own install command and a couple of
+example asks — invoke a skill by naming it, or let your agent pick it up from the
+description.
 
-The pack contains distinct procedures, not one monolithic workflow. Compose only
-what the task needs. `model-routing` and `agent-lifecycle` cover economical,
-observable delegation; `request-blocks-review` uses `blocks`; `release-ledger`
-can compose with `github-webhooks` for capture and `describe-changes` for entries,
-and `release-notes` writes and places the note for one version — the artefact
-neither of those produces;
-a target-specific private publisher/updater may fully override the generic public
-workflow.
+### `model-routing`
 
-The six change-and-evidence skills compose the way the release trio does — by name,
-at the point of use, with no coordinator between them. `investigate-codebase`
-answers a question about a codebase; `blast-area` uses that searching to map what a
-proposed change would touch; `visualise-blast-area` draws the resulting map;
-`land-complex-change` builds against it inside a declared touch-set budget with a
-regression gate per affected surface; `resolve-problem-report` runs the whole arc
-from a report and hands its build half to `land-complex-change`; and
-`new-ux-discovery` reads a blast map to find what a change newly makes possible.
-Each is usable alone, and each names the sibling that owns the adjacent job instead
-of restating it.
+Decide which model owns which task and when to escalate: give the cheap tier the legwork, keep planning and final review with the expensive one, and protect the driver's context. Symptoms: do this cheaply, which model should do this, delegate the legwork, we're burning tokens, this is too big for one context, set up / switch / inspect / clear a routing profile.
 
-`report-progress` and `work-in-external-repo` stand beside that family rather than
-inside it, because neither one does the work. `report-progress` fixes the shape of what
-the reader is told while the others run: it sources "what is running" from
-`agent-lifecycle` evidence and hands a landed diff to `describe-changes` instead of
-paraphrasing either. `work-in-external-repo` settles which repository a change belongs
-in and proves the checkout before anything is written, then hands a clean worktree to
-`land-complex-change` and the destination line to `report-progress`.
+```bash
+npx skills add crissmoldovan/agent-skills --skill model-routing
+```
 
+Ask it:
+
+- *"Use model-routing for this task. Keep acceptance quality fixed, send the bounded implementation to the cheap tier, and keep planning and final review where…"*
+- *"Set up routing as "balanced"."*
+- *"Use the active routing profile."*
+
+More: [Skill](skills/model-routing/SKILL.md) · [Guide](docs/model-routing/index.md)
+
+### `agent-lifecycle`
+
+Add live child-agent visibility to something you are building — an orchestrator, CLI, desktop app or web UI: one event schema over several child runtimes, plus recovery of events missed across a disconnect or restart. Symptoms: show what my subagents are doing, stream agent status into the UI, normalise different child runtimes behind one interface, my agent events stop after a reconnect. This builds the feature; it is not a dispatch or routing policy.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill agent-lifecycle
+```
+
+Ask it:
+
+- *"Use agent-lifecycle to add child visibility to this orchestrator: one event schema over both child runtimes, a projection the UI can render, and recovery of…"*
+- *"Show the current child lifecycle status."*
+- *"Integrate agent-lifecycle into this orchestrator."*
+
+More: [Skill](skills/agent-lifecycle/SKILL.md) · [Guide](docs/lifecycle/index.md)
+
+### `blocks`
+
+Low-level primitives for talking to Blocks: resolve a workspace, open or read a session, collect GitHub review evidence, classify status, and wait with a visible bound. Symptoms: ask Blocks, start a Blocks session, what is Blocks doing, await the Blocks response. This is the plumbing other skills call — for the review-until-clean loop on a pull request use request-blocks-review.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill blocks
+```
+
+Ask it:
+
+- *"Use request-blocks-review on this finished PR. Keep the wait visible, fix accepted findings, rerun verification, and request current-head re-review until clean."*
+- *"Resolve the Blocks workspace for this repository."*
+- *"Get Blocks status for PR 42 against this request baseline."*
+
+More: [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md)
+
+### `request-blocks-review`
+
+Run Blocks review/fix/re-review until a GitHub PR is clean.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill request-blocks-review
+```
+
+Ask it:
+
+- *"Implementation is finished and tests are green."*
+- *"Resume the Blocks review loop on PR 42."*
+
+More: [Skill](skills/request-blocks-review/SKILL.md)
+
+### `secure-credential-setup`
+
+Get an API key, token or password into a secret store without the value ever appearing in the transcript: one credential at a time, one exact copy-pasteable terminal command for the user to run, then verification that it authenticates without printing it. Symptoms: where do I put this key, set up my API token, add it to .env / the keychain / the secret manager, here's my key (don't paste it back), the tool says unauthorized and no credential is configured.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill secure-credential-setup
+```
+
+Ask it:
+
+- *"Use secure-credential-setup. Ask for one credential at the exact gate and verify authentication without printing any part of the value."*
+- *"Set up the API key for this workspace safely."*
+- *"Configure two workspace credentials."*
+
+More: [Skill](skills/secure-credential-setup/SKILL.md) · [Terminal patterns](skills/secure-credential-setup/references/terminal-entry-patterns.md)
+
+### `derive-codebase-context`
+
+Write agent context for a repository from the repo itself: a CLAUDE.md / AGENTS.md that matches reality, the boundaries agents must not cross, and a map of where things live. Symptoms: write or fix our CLAUDE.md, the agent guidance is stale, the context files have multiplied (CLAUDE.md + AGENTS.md + Cursor rules), agents keep rediscovering the same layout, someone proposes a code knowledge graph / vector index / semantic search over the codebase.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill derive-codebase-context
+```
+
+Ask it:
+
+- *"Use derive-codebase-context. Reuse what exists, derive only missing context, boundaries, and atlas layers, and mutation-test every new enforcement gate."*
+- *"Set up derived codebase context in this repo."*
+- *"We have CLAUDE.md, AGENTS.md and Cursor rules that disagree."*
+
+More: [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/derive-codebase-context/references/onboarding.md)
+
+### `publish-agent-skill`
+
+Publish an Agent Skill through a verified release.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill publish-agent-skill
+```
+
+Ask it:
+
+- *"Use publish-agent-skill for the current repository. Require catalogue README, human release notes, update guidance, discovery, and provenance. Synchronize real…"*
+- *"Publish this Agent Skill to the current repository."*
+- *"Publish this skill to the current public pack and also update the private plugin repository I named."*
+
+More: [Skill](skills/publish-agent-skill/SKILL.md)
+
+### `update-agent-skills`
+
+Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack. It moves installed copies; it does not publish a new release — that is publish-agent-skill.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill update-agent-skills
+node <skill-folder>/scripts/install-freshness-hook.mjs   # optional: check freshness each session
+```
+
+Ask it:
+
+- *"Use update-agent-skills. Make changelog, catalogue README, release notes, and agent update guidance agree; then update only the planes I explicitly named."*
+- *"Update this released skill for all supported agents in global scope on this machine."*
+- *"Prepare the update communication only."*
+
+More: [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs)
+
+### `release-ledger`
+
+Build a what's-new feature into a product: capture merged work, categorise it nightly, and show each signed-in user only what shipped since they last looked, plus a digest and hand-written announcements. Symptoms: what's-new popup, in-app changelog for users, since-you-were-away digest, tell logged-in users what changed, product updates feed. This writes tables, jobs and UI into an app; it does not write the notes for one version — that is release-notes.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill release-ledger
+```
+
+Ask it:
+
+- *"Use release-ledger to onboard a since-you-were-away system into this app. Investigate the stack first, decide the capture path with me, use github-webhooks…"*
+- *"Onboard a release ledger into this app."*
+- *"We already capture merged pull requests into a queue table but nothing reads it."*
+
+More: [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-ledger/references/system-model.md)
+
+### `github-webhooks`
+
+Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill github-webhooks
+```
+
+Ask it:
+
+- *"Set up GitHub webhook handling in this app."*
+- *"We already receive pull_request events but the handler returns early unless the title matches our ticket convention."*
+- *"Add check_run to our event map."*
+
+More: [Skill](skills/github-webhooks/SKILL.md) · [Event types](skills/github-webhooks/references/event-types.md)
+
+### `describe-changes`
+
+Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill describe-changes
+```
+
+Ask it:
+
+- *"Describe this merge for a release ledger."*
+- *"Describe the range v2.3.0..v2.4.0."*
+- *"This PR says it is a performance fix."*
+
+More: [Skill](skills/describe-changes/SKILL.md) · [Output contract](skills/describe-changes/references/output-contract.md)
+
+### `release-notes`
+
+Write the note for one version and put it everywhere the project records releases — what shipped, why it shipped, and what it means for a reader deciding whether to adopt it. Symptoms: ship/cut a release, publish to npm, bump the version, changeset, release notes, CHANGELOG entry, tag a version, patch/minor/major release, create a GitHub/GitLab Release. It writes and places the note and makes the semver call; for describing a change that already landed use describe-changes, and for a what's-new feature inside a product use release-ledger.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill release-notes
+```
+
+Ask it:
+
+- *"Use release-notes before you publish this. Run the impact analysis rather than guessing at it, settle the semver bump against what that analysis says instead…"*
+
+More: [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
+
+### `investigate-codebase`
+
+Answer a question about a codebase with evidence a reader can re-run: path and line, command output, and searched negatives reported as searched rather than as absence. Symptoms: how does X actually work, does anything still call this, is this dead code, where does this value come from, two sources disagree (a doc against the code, a registry against the runtime), I need to be sure before I delete it. For a failing test or a live bug use systematic debugging; this answers questions rather than repairing behaviour.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill investigate-codebase
+```
+
+Ask it:
+
+- *"Use investigate-codebase for this question. Score it before spending anything, announce the band and what it buys, run searches with controls so an empty…"*
+- *"Is the generated job registry actually read at runtime, or is the page the source of truth?"*
+- *"The ticket says this timeout is caused by the retry wrapper."*
+
+More: [Skill](skills/investigate-codebase/SKILL.md) · [Complexity rubric](skills/investigate-codebase/references/complexity-rubric.md)
+
+### `blast-area`
+
+Map what a set of changes would affect before making it: callers, data contracts, jobs, UI, tests, build toolchains, deploy ordering, and second-order readers — with searched negatives and a list of what the map cannot see. Use when you need to know what a change would break.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill blast-area
+```
+
+Ask it:
+
+- *"Use blast-area for this proposed change, then visualise-blast-area on the result. I want the surfaces it hits, when each break would surface, the deploy…"*
+- *"I want to drop the status column from the jobs table."*
+- *"We are renaming this exported helper across the monorepo."*
+
+More: [Skill](skills/blast-area/SKILL.md) · [Surface checklist](skills/blast-area/references/surface-checklist.md)
+
+### `visualise-blast-area`
+
+Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill visualise-blast-area
+```
+
+Ask it:
+
+- *"Here is the blast map for the column drop."*
+- *"Render this map and make the changed set obvious against the merely affected set."*
+- *"This map has about three hundred nodes."*
+
+More: [Skill](skills/visualise-blast-area/SKILL.md) · [Mermaid contract](skills/visualise-blast-area/references/mermaid-contract.md)
+
+### `decision-journal`
+
+Record a decision and the alternatives it rejected, anchored to evidence, so the reasoning survives the session — append-only, retractable, with show/trace/digest to read it back. Symptoms: we considered X and rejected it, why is this like this, what did we already rule out, I'm assuming Y without checking, that turned out to be wrong, write this down before you compact. Records the choice, not the diff — for what a change did, use describe-changes.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill decision-journal
+node <skill-folder>/scripts/install-cli.mjs   # its CLI, once, so hooks and your shell find it
+```
+
+Ask it:
+
+- *"Use decision-journal while you work. Record the choices that did not feel like choices, cite what you actually read, and say plainly where you consulted…"*
+
+More: [Skill](skills/decision-journal/SKILL.md) · [Anchors](skills/decision-journal/references/anchors.md) · [CLI installer](skills/decision-journal/scripts/install-cli.mjs)
+
+### `delphi-ground`
+
+Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill delphi-ground
+```
+
+Ask it:
+
+- *"Use delphi-ground on this spec, then delphi-imagine from three perspectives that would disagree. Withhold prior findings, and stop if the briefing comes back…"*
+- *"Use delphi-ground on docs/specs/retention.md before I fan out reviewers."*
+- *"Use delphi-ground on the same artefact these findings came from, then tell me which of them cite something checkable and which are assertions."*
+
+More: [Skill](skills/delphi-ground/SKILL.md) · [Briefing format](skills/delphi-ground/references/briefing-format.md)
+
+### `delphi-imagine`
+
+Critique a plan, spec, design or document from one or more named perspectives — a compliance reviewer, an SRE, a first-time user — grounded in checkable facts instead of an invented company: three concrete moments each labelled observed, inferred or constructed, a mandatory case where the thing is useless, and every gap traced to a moment and costed. Symptoms: review this as a security person, what would a CTO say, poke holes in this plan, get me a second opinion, red-team this design, the last review was agreeable rather than useful. Ground it with delphi-ground first; a critique that reads well but cannot be checked is the failure mode this exists to avoid.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill delphi-imagine
+```
+
+Ask it:
+
+- *"Use delphi-imagine on docs/specs/journal.md as a support engineer who gets the escalation when this misbehaves."*
+- *"Use delphi-imagine on the same spec as someone who thinks this whole approach is surveillance infrastructure."*
+- *"Use delphi-imagine on this artefact as a maintainer inheriting it."*
+
+More: [Skill](skills/delphi-imagine/SKILL.md) · [Output contract](skills/delphi-imagine/references/output-contract.md)
+
+### `land-complex-change`
+
+Land a change whose side effects are the risk rather than the code: derive a touch-set budget from its blast map, arm one regression gate per affected surface and watch each fail first, land in steps that revert one at a time, and stop rather than absorb anything that appears outside the budget. Symptoms: this refactor touches code every user depends on, this migration cannot be taken back, prove the deletion is safe before I merge it, the last attempt grew until review was an argument about scope, land it in stages, this runs unattended overnight. For a routine merge-and-deploy use a ship or land-and-deploy skill; this is for the change you are nervous about.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill land-complex-change
+```
+
+Ask it:
+
+- *"Use land-complex-change to build this. Derive the touch-set budget from the blast map first, arm one regression gate per affected surface and watch each fail…"*
+- *"Here is the blast map for dropping the status column."*
+- *"This is a pure refactor and the claim is no behaviour change."*
+
+More: [Skill](skills/land-complex-change/SKILL.md) · [Side-effect budget](skills/land-complex-change/references/side-effect-budget.md)
+
+### `resolve-problem-report`
+
+Take a reported problem end to end: reproduce the claim, find the root cause, offer candidate fixes with trade-offs, spec the chosen one, and land it through review. Symptoms: a user reported X, this is broken in production, a flaky test is hiding something real, someone filed a bug or feature request, this keeps coming back. Use it when the report deserves more than a quick patch; for a one-line fix, just fix it.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill resolve-problem-report
+```
+
+Ask it:
+
+- *"Use resolve-problem-report on this report. Reproduce the reporter's numbers before agreeing with them, offer candidates with what each one does not fix, and…"*
+- *"Here is the report as it came in."*
+- *"They say the nightly total double-counts and they quote nine figures."*
+
+More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md)
+
+### `new-ux-discovery`
+
+Find UX improvements a codebase can already support, evidence-backed and ranked — across the CLI, the API, MCP tools, notifications and error text as much as the UI. Symptoms: what should we improve next, where does this feel rough, what's low-hanging UX we could ship this week, turn this diff into a follow-up list, roadmap candidates from the code we already have. Not a visual design pass — for look and feel use a design skill.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill new-ux-discovery
+```
+
+Ask it:
+
+- *"Use new-ux-discovery on this repository. Enumerate the surfaces first, gate every candidate through the not-already-implemented sweep and the no-confusion…"*
+- *"Sweep this repository for UX improvements it could already support."*
+- *"We just merged the change that splits enrichment into two stages."*
+
+More: [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-ux-discovery/references/gates.md)
+
+### `workspace-governance`
+
+Audit repository placement and explain inherited policy.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill workspace-governance
+# its CLI installs separately — see packages/workspace-governance/README.md
+```
+
+Ask it:
+
+- *"Use workspace-governance to validate this declared catalog, explain inherited policy and produce one workspace report covering hierarchy, checkout placement…"*
+
+More: [Skill](skills/workspace-governance/SKILL.md) · [Guide](docs/workspace-governance/index.md)
+
+### `layer-repository-docs`
+
+Make a repository's documentation legible when an organisation has more repos than anyone can track, through three entry points — audit read-only, draft the layers, update what a change overtook: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, check whether the docs are still true, update the docs after the code moved, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill layer-repository-docs
+```
+
+Ask it:
+
+- *"/layer-repository-docs check"*
+- *"This repo has grown three files at the root that all claim to explain it and none of them agree."*
+- *"We have far more repositories than anyone can keep track of and every README is a different shape."*
+
+More: [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/layer-repository-docs/references/entry-points.md) · [Layer contents](skills/layer-repository-docs/references/layer-contents.md) · [Loss audit](skills/layer-repository-docs/references/loss-audit.md) · [Newcomer test](skills/layer-repository-docs/references/newcomer-test.md)
+
+### `report-progress`
+
+Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill report-progress
+```
+
+Ask it:
+
+- *"Use report-progress at each phase boundary and before you end a turn with background work running. What is done, what is running, what is next — each with a…"*
+- *"Give me a status report on the migration."*
+- *"Before you end this turn: you started three background agents."*
+
+More: [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
+
+### `isolated-change-validation`
+
+Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill isolated-change-validation
+```
+
+Ask it:
+
+- *"Use isolated-change-validation: prove this in a sandbox before it goes near the repository. Copy the source into a scratch lane, hash-pin it before the first…"*
+- *"Validate this change in a sandbox."*
+- *"The builder reports 1042 passing."*
+
+More: [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract](skills/isolated-change-validation/references/evidence-contract.md) · [Handoff bundle](skills/isolated-change-validation/references/handoff-bundle.md)
+
+### `onboard-project`
+
+Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill onboard-project
+```
+
+Ask it:
+
+- *"Use onboard-project on this repository. Tell me which skills it should use and why, show me every file you would write and every command you would run before…"*
+- *"Onboard this project."*
+- *"We added migrations and a background worker since you last looked."*
+
+More: [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-project/references/fit-signals.md) · [What gets written](skills/onboard-project/references/what-gets-written.md) · [Check-hook installer](skills/onboard-project/scripts/install-check-hook.mjs)
+
+### `request-answers`
+
+The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill request-answers
+```
+
+Ask it:
+
+- *"I am blocked on Dana for four things."*
+- *"Turn this list of twelve open questions into asks."*
+- *"Ask the subagent for the three facts we are missing."*
+
+More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md)
+
+### `work-in-external-repo`
+
+Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill work-in-external-repo
+```
+
+Ask it:
+
+- *"Use work-in-external-repo: this change belongs in another repository, not in this working directory. Prove the checkout by its origin remote before writing…"*
+- *"The change goes in <owner>/<repo>, not in this working directory."*
+- *"Before you branch: fetch the base and tell me how far behind that checkout is."*
+
+More: [Skill](skills/work-in-external-repo/SKILL.md)
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -205,145 +565,18 @@ may continue using old instructions until reopened.
 
 ## Use the skills
 
-```text
-Use model-routing for this task. Keep acceptance quality fixed, send the bounded
-implementation to the cheap tier, and keep planning and final review where they are.
-```
+Name the skill and say what you want. Every skill's own example asks sit beside it
+in [What is in the pack](#what-is-in-the-pack), with its install command; the fuller
+examples, including the ones with flags and edge cases, are in each skill's own
+`Usage Examples` section.
 
-```text
-Use agent-lifecycle to add child visibility to this orchestrator: one event schema
-over both child runtimes, a projection the UI can render, and recovery of whatever
-was missed while the connection was down.
-```
+The twenty-eight, in the order they appear above:
 
-```text
-Use decision-journal while you work. Record the choices that did not feel like
-choices, cite what you actually read, and say plainly where you consulted nothing.
-```
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `work-in-external-repo`
 
-```text
-Use delphi-ground on this spec, then delphi-imagine from three perspectives that
-would disagree. Withhold prior findings, and stop if the briefing comes back thin.
-```
-
-```text
-Use request-blocks-review on this finished PR. Keep the wait visible, fix accepted
-findings, rerun verification, and request current-head re-review until clean.
-```
-
-```text
-Use secure-credential-setup. Ask for one credential at the exact gate and verify
-authentication without printing any part of the value.
-```
-
-```text
-Use derive-codebase-context. Reuse what exists, derive only missing context,
-boundaries, and atlas layers, and mutation-test every new enforcement gate.
-```
-
-```text
-Use publish-agent-skill for the current repository. Require catalogue README,
-human release notes, update guidance, discovery, and provenance. Synchronize real
-local libraries only if I explicitly name the target.
-```
-
-```text
-Use update-agent-skills. Make changelog, catalogue README, release notes, and agent
-update guidance agree; then update only the planes I explicitly named.
-```
-
-```text
-Use release-ledger to onboard a since-you-were-away system into this app.
-Investigate the stack first, decide the capture path with me, use github-webhooks
-when automatic GitHub capture is selected, and use describe-changes to write each
-entry from its diff in short, medium, and detailed registers.
-```
-
-```text
-Use release-notes before you publish this. Run the impact analysis rather than guessing at
-it, settle the semver bump against what that analysis says instead of against the plan, and
-write what / why / impact — then find every place this project records releases and put the
-note in all of them before the tag goes up.
-```
-
-`release-notes` also has a mechanical half, and it is not that prompt: an optional Claude
-Code `PreToolUse` hook that refuses a release whose version no release-note file mentions.
-It is off until a human installs it, and no agent may install it on your behalf — see
-[Optional hooks](#optional-hooks-adapters).
-
-```text
-Use investigate-codebase for this question. Score it before spending anything, announce
-the band and what it buys, run searches with controls so an empty result means something,
-and tell me plainly what was not searched.
-```
-
-```text
-Use blast-area for this proposed change, then visualise-blast-area on the result. I want
-the surfaces it hits, when each break would surface, the deploy ordering with its reason,
-and the blind spots drawn on the diagram rather than written underneath it.
-```
-
-```text
-Use land-complex-change to build this. Derive the touch-set budget from the blast map
-first, arm one regression gate per affected surface and watch each fail before the change,
-and stop the work rather than absorb anything discovered outside the budget.
-```
-
-```text
-Use resolve-problem-report on this report. Reproduce the reporter's numbers before
-agreeing with them, offer candidates with what each one does not fix, and come back with a
-question or a refutation if that is the honest answer.
-```
-
-```text
-Use new-ux-discovery on this repository. Enumerate the surfaces first, gate every candidate
-through the not-already-implemented sweep and the no-confusion check, and show me the
-dropped candidates with the reason each was dropped.
-```
-
-```text
-Use report-progress at each phase boundary and before you end a turn with background work
-running. What is done, what is running, what is next — each with a count or an artefact.
-Keep numbers you verified by running something apart from numbers a subagent claimed, and
-say you cannot see the children rather than guessing what they are doing.
-```
-
-`report-progress` also has a mechanical half, and it is not that prompt: an optional Claude
-Code `Stop` hook that holds a turn open when a report is owed and missing. It is off until a
-human installs it, and no agent may install it on your behalf — see
-[Optional hooks](#optional-hooks-adapters).
-
-```text
-Use onboard-project on this repository. Tell me which skills it should use and why, show me every
-file you would write and every command you would run before you write any of it, and if a hook is
-involved say plainly that it affects all my projects.
-```
-
-```text
-Use isolated-change-validation: prove this in a sandbox before it goes near the repository.
-Copy the source into a scratch lane, hash-pin it before the first edit, tell me the allowed
-existing and new paths before you dispatch a builder, run the typecheck, build and suites
-yourself rather than taking the builder's totals, and write the handoff bundle somewhere the
-scratch directory's cleanup cannot reach.
-```
-
-```text
-Use work-in-external-repo: this change belongs in another repository, not in this working
-directory. Prove the checkout by its origin remote before writing anything, fetch the base
-and tell me how far behind it is, work in a worktree of your own, and name the repository,
-branch, worktree path and commits in the result.
-```
-
-```text
-Use workspace-governance to validate this declared catalog, explain inherited
-policy and produce one workspace report covering hierarchy, checkout placement and
-the selected inert workflow. Treat previews as read-only and local principal
-selection as advisory, never approval to move repositories.
-```
-
-The workspace-governance CLI is installed separately from a built local tarball;
-see [build/install guidance](packages/workspace-governance/README.md). Installing
-the skill does not install the CLI; the v0.1 candidate is unpublished.
+A skill can also be picked up without being named: the `description` in its
+frontmatter is written as the triggering condition, which is what an agent reads when
+it decides whether a skill applies.
 
 ## Optional hooks (adapters)
 

@@ -256,6 +256,25 @@ withdraw the question.
 | A brief with no ledger | The same questions again next week |
 | Leaving an answered question on the list | They trust none of it |
 
+## Usage Examples
+
+```text
+I am blocked on Dana for four things. Use request-answers: drop anything you can
+settle from the repo or the data first, then give me one brief with an answer sheet
+she can reply to in a single block, normal depth.
+```
+
+```text
+Turn this list of twelve open questions into asks. Group them by who can actually
+answer, put each person's in their own brief, and say what happens on silence for
+every line.
+```
+
+```text
+Ask the subagent for the three facts we are missing. Same answer sheet, one key per
+line, and make it name the file or command behind each answer.
+```
+
 ## How this was tested
 
 Five agents were given the same scenario: twelve complaints outstanding, eight of
