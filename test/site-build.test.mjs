@@ -32,7 +32,7 @@ test('the site carries every skill in the pack, and invents none', () => {
     skillNames,
     'the manifest and the skills directory must name the same skills',
   );
-  assert.equal(manifest.skills.length, 28);
+  assert.equal(manifest.skills.length, 29);
 });
 
 test("each entry states the description a runtime matches, copied from the skill's own frontmatter", async () => {
@@ -123,12 +123,12 @@ test('a skill whose examples are not prompts is shown without invented ones', as
   assert.deepEqual(notes.commands, []);
 
   const withAsks = manifest.skills.filter((skill) => skill.examples.length);
-  assert.equal(withAsks.length, 26, 'every other skill publishes prompts, and the site shows them');
+  assert.equal(withAsks.length, 27, 'every other skill publishes prompts, and the site shows them');
 });
 
 test('every document the site links is written into the output', async () => {
   const docs = [...manifest.skills.flatMap((skill) => skill.documents), ...manifest.documents];
-  assert.ok(docs.length >= 28 + 84, 'the skills and their references both belong on the site');
+  assert.ok(docs.length >= 29 + 85, 'the skills and their references both belong on the site');
   for (const doc of docs) {
     assert.ok(
       await exists(path.join(out, 'content', doc.path)),
@@ -147,7 +147,7 @@ test('the page needs no install and no build step, and shows its text with no ne
     'with no network the page must still show the text',
   );
   assert.ok(!/<\/script/i.test(JSON.stringify(manifest)), 'no manifest value may close the script');
-  assert.equal(result.skills, 28);
+  assert.equal(result.skills, 29);
 });
 
 test('the shell needs no build step of its own: no bundler, no framework, no npm dependency', () => {
