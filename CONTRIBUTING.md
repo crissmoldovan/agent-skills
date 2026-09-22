@@ -157,8 +157,9 @@ under a line reading "in the order they appear above", while the catalog placed
 defect at severity 5, so the check went green and #68 merged with the defect still in
 it — an hour before this pull request was opened, which is where it was finally fixed.
 Read that twice before trusting a severity number to decide anything: the grade moved,
-the defect did not. Five measured runs took between 3m31s and 8m05s, which is the price
-of the copy-edit pass.
+the defect did not. That list now has a test, because a claim a document makes about
+itself is checkable and should not have needed a reviewer twice. Five measured runs took
+between 3m31s and 8m05s, which is the price of the copy-edit pass.
 
 If any of these is ever dropped, say in the commit which of the three reasons above
 stopped being true.
