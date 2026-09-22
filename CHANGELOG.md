@@ -5,6 +5,47 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.24.1
+
+**What.** Three skills separate their worked specimens from their asks:
+`handoff-prompt`, `report-progress` and `work-in-external-repo`. Each gains a
+`## What it looks like` section holding the specimens, and `## Usage Examples` is left
+holding only things a reader can use. In `work-in-external-repo` the end-to-end git
+sequence also changes fence from `text` to `bash`, which is what it always was. No
+guidance changed and no wording inside any example changed. The other twenty-six skills
+are untouched.
+
+**Why.** `## Usage Examples` answers one question: how to use the skill. These three had
+been answering two under that heading, because each ends with worked specimens — a good
+report and a bad one, a good handoff and the version that usually arrives, a command
+sequence and the result it should produce. A specimen of output is not a way to use the
+skill, and the heading did not distinguish them.
+
+It showed up downstream. A consumer reading every `text` block under the heading as a
+prompt published `handoff-prompt`'s deliberate anti-example — the one the skill annotates
+"it cannot be sent at all" — as something to say to make the skill fire. A reader copying
+it pasted the exact text the skill exists to prevent. The same consumer published
+`work-in-external-repo`'s git sequence as a prompt, because a shell script fenced as
+`text` is indistinguishable from prose meant for an agent. Both consumers were reading
+the structure correctly; the structure was wrong.
+
+**How it behaves.** `## Usage Examples` now holds prompts and, where there are any,
+runnable commands: three asks in `handoff-prompt`, three in `report-progress`, and four
+plus the shell sequence in `work-in-external-repo`. The specimens keep their own
+subheadings verbatim under `## What it looks like`, which opens with one line saying what
+they are. `agent-lifecycle` and `model-routing`, which deliberately give every ask its own
+`###` subheading, are unchanged — that shape was never ambiguous.
+
+`test/work-in-external-repo.test.mjs` now asserts the asks and the shell sequence
+separately, and fails with "expected a runnable shell sequence, found 0" if the fence is
+ever mislabelled `text` again.
+
+**Who should update.** Anyone who parses `## Usage Examples` to extract prompts, and
+anyone republishing the pack's examples: the section now yields prompts and commands, and
+the specimens are somewhere they cannot be mistaken for either. No action for a reader or
+an agent loading these skills — the guidance, the procedures and the verification
+checklists are byte-identical.
+
 ## 0.24.0
 
 **What.** One new skill, `handoff-prompt` (skill version 1.0.0): how to write work that is

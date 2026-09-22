@@ -184,7 +184,7 @@ and whether you removed it. "Done, 2 commits" tells me nothing about where they 
 
 ### The sequence, end to end
 
-```text
+```bash
 # 1. Locate, then prove it — a matching directory name is not proof of anything.
 find <search-root> -maxdepth 3 -type d -name .git
 git -C <candidate> remote get-url origin       # must equal the named target
@@ -205,6 +205,11 @@ git -C <parent>/<repo>-wt-<slug> commit -F <message-file>
 git -C <candidate> worktree remove <parent>/<repo>-wt-<slug>
 git -C <candidate> worktree prune
 ```
+
+## What it looks like
+
+A specimen, not a prompt. This is what the result should say when the work is
+done and handed back.
 
 ### A result that names where the work landed
 

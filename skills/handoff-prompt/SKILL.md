@@ -141,6 +141,10 @@ evidence, what is running, what the next act is and what it waits on. Assume the
 reader knows nothing about today.
 ```
 
+## What it looks like
+
+Specimens, not prompts. The asks are above; these are what the block should and should not look like.
+
 ### A handoff that works
 
 ````text
