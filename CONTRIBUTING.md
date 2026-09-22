@@ -121,6 +121,37 @@ machine inventories in the public tree. See its
 is private/unpublished; packaging tests do not authorize a release, global install
 or live agent update.
 
+## The three checks on a pull request, and why each is kept
+
+Measured 2026-09-22, so that none of them is removed later as unexplained noise.
+
+**`verify`** — `npm run verify` on Node 24. In 30 runs it has succeeded 29 times and
+failed none. It rarely catches the person who just ran verify locally, because it
+tests the same configuration they did. It is kept because the release checklist in
+[`docs/releases.md`](docs/releases.md) says to merge *after CI succeeds*, and without
+a job that is a form of words — and because the contributor it does catch is the one
+who did not run verify.
+
+**`journal-node-floor`** — the same suite plus the committed CLI bundle on **Node 22**.
+This is the only check testing something a maintainer's machine cannot. `decision-journal`
+installs its CLI behind whatever `node` a user already has, down to major 22, so a
+Node-24-only API reaching `packages/agent-journal/src` would pass everything else and
+throw on the first machine that installed the skill. That is not hypothetical: it is how
+the floor came to be 24 in the first place, unmeasured. The job's own comment in
+[`verify.yml`](.github/workflows/verify.yml) carries the full reasoning.
+
+**Blocks PR review** — **keep it.** It is deliberate, not leftover plumbing, and it earns
+its place on a repository whose failure mode is prose drifting from the thing it
+describes. On the last four pull requests it posted a finding every time: a stray blank
+line, an over-permissive `split()[1]` in a test assertion, a misplaced list connector —
+all real, none above severity 5. That is the point rather than a disappointment: the
+severity-7 defects are caught by the suite, and the ones below it are exactly the class
+`.blocks/review.md` explains this repository keeps producing. It costs roughly ten
+minutes of latency per pull request, which is the price of the copy-edit pass.
+
+If any of these is ever dropped, say in the commit which of the three reasons above
+stopped being true.
+
 ## Pull requests
 
 - Keep each PR focused.
