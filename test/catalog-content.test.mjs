@@ -627,11 +627,12 @@ test('every skill publishes a Usage Examples section, as the README promises', a
 // A severity number is a judgement; this is not. The list makes a claim about itself, so the
 // claim is what is tested.
 test('the flat skill list is in the catalog order it claims, and covers the pack', async () => {
-  const promise = readme.match(/^The twenty-nine, in the order they appear above:$/m);
-  assert.ok(promise, 'the flat list no longer announces itself as catalog-ordered');
+  const sentinel = readme.match(/^The twenty-nine, in the order they appear above:$/m);
+  assert.ok(sentinel, 'the flat list no longer announces itself as catalog-ordered');
 
-  const after = readme.slice(readme.indexOf(promise[0]) + promise[0].length);
+  const after = readme.slice(readme.indexOf(sentinel[0]) + sentinel[0].length);
   const listLine = after.split('\n').find((line) => line.trim() !== '');
+  assert.ok(listLine, 'the sentence promising catalog order is followed by no list');
   const flat = [...listLine.matchAll(/`([a-z0-9-]+)`/g)].map(([, name]) => name);
 
   const onDisk = (await readdir(new URL('skills/', root), { withFileTypes: true }))
