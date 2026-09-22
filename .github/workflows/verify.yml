@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  # Why this job exists although it has never once failed: measured 2026-09-22,
+  # 30 runs, 29 success, 0 failures. It runs the same `npm run verify` on the same
+  # Node 24 a contributor runs locally, so it will rarely catch the person who
+  # just ran it. It is here because the release checklist says "merge through a
+  # reviewed pull request AFTER CI SUCCEEDS", and without a job that statement is
+  # a form of words. It also catches the contributor who did not run verify, which
+  # on a solo repository is a future contributor rather than a current one.
   verify:
     runs-on: ubuntu-latest
     steps:

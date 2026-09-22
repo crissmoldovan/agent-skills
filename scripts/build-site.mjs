@@ -465,7 +465,9 @@ export async function buildSite({ root, out }) {
   await mkdir(out, { recursive: true });
   await writeFile(path.join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(path.join(out, 'index.html'), page(manifest));
-  // GitHub Pages must not run Jekyll over the content.
+  // Kept although nothing publishes this: it is zero bytes, every other static
+  // host ignores it, and a Pages deployment without it would silently run Jekyll
+  // over the content.
   await writeFile(path.join(out, '.nojekyll'), '');
 
   return { skills: skills.length, documents: documents.length, files: files.length, out };

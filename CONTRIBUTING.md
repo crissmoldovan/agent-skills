@@ -121,6 +121,49 @@ machine inventories in the public tree. See its
 is private/unpublished; packaging tests do not authorize a release, global install
 or live agent update.
 
+## The three checks on a pull request, and why each is kept
+
+Measured 2026-09-22, so that none of them is removed later as unexplained noise.
+
+**`verify`** — `npm run verify` on Node 24. In 30 runs it has succeeded 29 times and
+failed none. It rarely catches the person who just ran verify locally, because it
+tests the same configuration they did. It is kept because the release checklist in
+[`docs/releases.md`](docs/releases.md) says to merge *after CI succeeds*, and without
+a job that is a form of words — and because the contributor it does catch is the one
+who did not run verify.
+
+**`journal-node-floor`** — the same suite plus the committed CLI bundle on **Node 22**.
+This is the only check testing something a maintainer's machine cannot. `decision-journal`
+installs its CLI behind whatever `node` a user already has, down to major 22, so a
+Node-24-only API reaching `packages/agent-journal/src` would pass everything else and
+throw on the first machine that installed the skill. That is not hypothetical: it is how
+the floor came to be 24 in the first place, unmeasured. The job's own comment in
+[`verify.yml`](.github/workflows/verify.yml) carries the full reasoning.
+
+**Blocks PR review** — **keep it.** It is deliberate, not leftover plumbing, and it earns
+its place on a repository whose failure mode is prose drifting from the thing it
+describes. Across pull requests #65 to #68 it posted ten observations, at least one on
+each. Two, to show the class: a new test's `split()[1]` matched a fenced block anywhere
+*after* the `## Usage Examples` heading rather than inside that section, and `--out`
+with no argument threw a bare `TypeError` instead of printing usage. That is the point
+rather than a disappointment — the severity-7 defects are what the suite is for, and the
+ones below it are exactly the class [`.blocks/review.md`](.blocks/review.md) explains
+this repository keeps producing.
+
+It has failed a check exactly once, on #68, and that run is the argument for keeping it.
+It found that the README's flat list ended `work-in-external-repo · handoff-prompt`
+under a line reading "in the order they appear above", while the catalog placed
+`handoff-prompt` first — and called it severity 7. On the next head it reported the same
+defect at severity 5, so the check went green and #68 merged with the defect still in
+it — an hour before this pull request was opened, which is where it was finally fixed.
+Read that twice before trusting a severity number to decide anything: the grade moved,
+the defect did not. That list now has a test, because a claim a document makes about
+itself is checkable and should not have needed a reviewer twice. Five measured runs took
+between 3m31s and 8m05s, which is the price of the copy-edit pass.
+
+If any of these is ever dropped, say in the commit which of the three reasons above
+stopped being true.
+
 ## Pull requests
 
 - Keep each PR focused.

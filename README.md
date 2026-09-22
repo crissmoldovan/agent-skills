@@ -592,7 +592,7 @@ examples, including the ones with flags and edge cases, are in each skill's own
 
 The twenty-nine, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `work-in-external-repo` · `handoff-prompt`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -926,13 +926,14 @@ is one file with no framework and no build step of its own; its only dependency 
 the markdown renderer, loaded from a CDN, and with no network it shows each document
 as plain text instead.
 
-The output is not committed: `.github/workflows/pages.yml` builds it on the runner
-on every push to `main` and publishes it to GitHub Pages. A committed copy would be
-a second answer to what the pack contains, and the two would drift.
+The output is not committed, and nothing publishes it: a committed copy would be a
+second answer to what the pack contains, and the two would drift. The site is a local
+reader — build it with `npm run site` and serve `site/dist` with any static server.
 
-Publishing needs GitHub Pages turned on once, with **Settings → Pages → Source:
-GitHub Actions**. Until that is done the workflow builds the site and stops at the
-deploy step, and the link above is not live; `npm run site` works either way.
+There is deliberately no hosted copy. The pack's public homes are this repository and
+its [skills.sh listing](https://skills.sh/crissmoldovan/agent-skills); a third would be
+another URL to keep true. `site/dist` is a plain static directory, so if that changes
+its mind it can be served from anywhere without a build step.
 
 ## License
 
