@@ -142,12 +142,23 @@ the floor came to be 24 in the first place, unmeasured. The job's own comment in
 
 **Blocks PR review** — **keep it.** It is deliberate, not leftover plumbing, and it earns
 its place on a repository whose failure mode is prose drifting from the thing it
-describes. On the last four pull requests it posted a finding every time: a stray blank
-line, an over-permissive `split()[1]` in a test assertion, a misplaced list connector —
-all real, none above severity 5. That is the point rather than a disappointment: the
-severity-7 defects are caught by the suite, and the ones below it are exactly the class
-`.blocks/review.md` explains this repository keeps producing. It costs roughly ten
-minutes of latency per pull request, which is the price of the copy-edit pass.
+describes. Across pull requests #65 to #68 it posted ten observations, at least one on
+each. Two, to show the class: a new test's `split()[1]` matched a fenced block anywhere
+*after* the `## Usage Examples` heading rather than inside that section, and `--out`
+with no argument threw a bare `TypeError` instead of printing usage. That is the point
+rather than a disappointment — the severity-7 defects are what the suite is for, and the
+ones below it are exactly the class [`.blocks/review.md`](.blocks/review.md) explains
+this repository keeps producing.
+
+It has failed a check exactly once, on #68, and that run is the argument for keeping it.
+It found that the README's flat list ended `work-in-external-repo · handoff-prompt`
+under a line reading "in the order they appear above", while the catalog placed
+`handoff-prompt` first — and called it severity 7. On the next head it reported the same
+defect at severity 5, so the check went green and #68 merged with the defect still in
+it — an hour before this pull request was opened, which is where it was finally fixed.
+Read that twice before trusting a severity number to decide anything: the grade moved,
+the defect did not. Five measured runs took between 3m31s and 8m05s, which is the price
+of the copy-edit pass.
 
 If any of these is ever dropped, say in the commit which of the three reasons above
 stopped being true.
