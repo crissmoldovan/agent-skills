@@ -50,7 +50,7 @@ the ask, not the change.
 ## Prerequisites
 
 1. **The receiver, named.** A repository, a team, a session, a person. "Another
-   agent" is not a receiver; `cueplusplus/cue-ui`'s maintainer is.
+   agent" is not a receiver; the maintainer of `acme/design-system` is.
    **Complete when:** the handoff can say who it is for in its first line.
 2. **What the receiver already knows.** Everything else must be restated. Assume
    no shared transcript, no open file, no memory of this session's decisions.
@@ -144,13 +144,13 @@ reader knows nothing about today.
 ### A handoff that works
 
 ````text
-For: the session working on cueplusplus/cue-ui.
+For: the session working on acme/design-system.
 
 Ask: add an `inline` variant to `ToolCall` and `ToolGroup`.
 
 Context you do not have: a console in another repository renders twenty tool
 rows per transcript. It currently patches your published package to get this —
-`patches/@cueplusplus__ui@0.10.0.patch`, 9 hunks across
+`patches/@acme__ui@0.10.0.patch`, 9 hunks across
 `dist/elements/tool-call.{js,d.ts}` and `tool-group.{js,d.ts}` — so the change
 already exists and is exercised by a real consumer.
 
