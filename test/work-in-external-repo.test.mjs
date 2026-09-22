@@ -236,11 +236,17 @@ test('the trigger points and the counter-triggers are both explicit', () => {
   assert.match(when, /without a worktree|no worktree/i, 'reading another repository is not allowed without ceremony');
 });
 
+// The end-to-end sequence is shell, and used to be fenced as `text`, which is the
+// fence a consumer reads as "something to say to an agent" — so it was published as
+// one. It is `bash` now. The asks and the commands are therefore asserted separately:
+// the prompts a reader pastes, and the commands they run without inventing flags.
 test('the usage examples carry git commands an agent can run without inventing flags', () => {
   const examples = section(skill, 'Usage Examples');
-  const fenced = [...examples.matchAll(/```text\n([\s\S]*?)\n```/g)].map((match) => match[1]);
-  assert.ok(fenced.length >= 4, `expected pasteable text blocks, found ${fenced.length}`);
-  const commands = fenced.join('\n');
+  const asks = [...examples.matchAll(/```text\n([\s\S]*?)\n```/g)].map((match) => match[1]);
+  assert.ok(asks.length >= 4, `expected pasteable text blocks, found ${asks.length}`);
+  const shell = [...examples.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((match) => match[1]);
+  assert.ok(shell.length >= 1, `expected a runnable shell sequence, found ${shell.length}`);
+  const commands = shell.join('\n');
   for (const command of [
     /git -C \S+ remote get-url origin/,
     /git -C \S+ fetch \S+/,

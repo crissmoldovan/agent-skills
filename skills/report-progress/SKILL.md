@@ -267,6 +267,10 @@ right number is and how you got it, and carry on — no apology paragraph, and d
 the old number as if it had been right.
 ```
 
+## What it looks like
+
+Specimens, not prompts. The asks are above; these are what the output should and should not look like.
+
 ### A report that works
 
 ```text
