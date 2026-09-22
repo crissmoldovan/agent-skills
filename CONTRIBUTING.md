@@ -10,10 +10,9 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
-`workspace-governance`, `report-progress`, `work-in-external-repo`, and
-`layer-repository-docs`, `isolated-change-validation`, `onboard-project`, and
-`request-answers` — twenty-eight in
-all. Routing
+`workspace-governance`, `report-progress`, `work-in-external-repo`,
+`layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
+`request-answers`, and `handoff-prompt` — twenty-nine in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;

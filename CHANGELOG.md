@@ -5,6 +5,35 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.24.0
+
+**What.** One new skill, `handoff-prompt` (skill version 1.0.0): how to write work that is
+going to another session, agent or person as one block they can copy without editing.
+Nothing else in the pack changed: no gate, installer, adapter or other skill.
+
+**Why.** Work moves between contexts constantly and it moves as prose written for whoever
+was in the room. Two failures do most of the damage. The first is reference instead of
+restatement — "apply the fix we discussed to that component" — where every noun resolves
+only in a conversation the receiver cannot see. The second is the unpasteable deliverable,
+where the handoff arrives interleaved with commentary to the sender, so there is no
+contiguous region to select and the sender edits by hand; edits are where scope quietly
+changes. The request that prompted it was narrower — *stop making me ask for a code block*
+— but the block is the smallest part of the problem.
+
+**How it behaves.** The block is the deliverable: everything the receiver needs is inside
+one fence, everything the sender needs in order to decide whether to send it stays above.
+Context is restated rather than referenced, each claim carries where it came from and each
+judgement is labelled as one, scope comes with at least one non-goal, and machine-local
+paths, session identifiers and anything secret are stripped, because a handoff is a paste
+into a destination the sender does not control. The fence is chosen longer than the longest
+backtick run inside it, which is the defect that silently truncates a handoff about code.
+`references/handoff-contract.md` carries the block's anatomy, the fence rules in full, and
+variants for a feature request, an agent brief and a session handover.
+
+It sits beside two neighbours rather than inside them: `request-answers` is for a question
+you need answered back, this is for work you are handing away; and `work-in-external-repo`
+writes into another repository, where this only produces the ask.
+
 ## 0.23.0
 
 **What.** One new skill, `request-answers` (skill version 1.0.0): how to ask when work

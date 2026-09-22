@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "work is going to another session, agent, repository or person and the sender will copy it across"
+}

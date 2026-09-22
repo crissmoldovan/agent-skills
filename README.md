@@ -449,6 +449,22 @@ Ask it:
 
 More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md)
 
+### `handoff-prompt`
+
+Write work that is going to another session, agent or person as one self-contained block they can copy without editing: the receiver's missing context restated rather than referenced, every claim carrying where it came from, scope and non-goals stated, and the fence chosen so nested code cannot break it. Symptoms: write this as a prompt I can paste, draft a brief for another agent, file this as a feature request against another repo, hand this to the team that owns X, put it in a code block so I can copy it, I'll pass this over. Commentary to the sender stays outside the block and the block stays whole. It does not do the work it describes and it does not open the issue or the pull request — to write into another repository use work-in-external-repo, and when you need an answer back rather than to hand work away, use request-answers.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill handoff-prompt
+```
+
+Ask it:
+
+- *"Write this as a prompt I can paste into a session working on <owner>/<repo>."*
+- *"Draft the feature request against the shared library — say what we are NOT asking for."*
+- *"Hand this to tomorrow's session: what is done with evidence, what is running, what is next."*
+
+More: [Skill](skills/handoff-prompt/SKILL.md) · [Handoff contract](skills/handoff-prompt/references/handoff-contract.md)
+
 ### `work-in-external-repo`
 
 Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository.
@@ -514,7 +530,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-eight public skills from crissmoldovan/agent-skills.
+Install or update the twenty-nine public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -574,9 +590,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The twenty-eight, in the order they appear above:
+The twenty-nine, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `work-in-external-repo`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `work-in-external-repo` · `handoff-prompt`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when

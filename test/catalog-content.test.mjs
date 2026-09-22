@@ -69,17 +69,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.23.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.23.0');
-  assert.equal(rootLock.version, '0.23.0');
-  assert.equal(rootLock.packages[''].version, '0.23.0');
+test('v0.24.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.24.0');
+  assert.equal(rootLock.version, '0.24.0');
+  assert.equal(rootLock.packages[''].version, '0.24.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 28);
+  assert.equal(skillNames.length, 29);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-eight skills/i);
-  assert.match(composition, /catalog ships twenty-eight skills/i);
+  assert.match(architecture, /now ships twenty-nine skills/i);
+  assert.match(composition, /catalog ships twenty-nine skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -579,7 +579,7 @@ test('onboard-project states its boundaries, its consent rule, and what it never
 test("no skill's example ask tells the reader to use a different skill", () => {
   const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
   const names = entries.map(([, name]) => name);
-  assert.equal(names.length, 28, 'every skill has a catalog entry');
+  assert.equal(names.length, 29, 'every skill has a catalog entry');
   for (const [, name, entry] of entries) {
     const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
     for (const ask of asks) {
@@ -603,7 +603,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
   const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  assert.equal(names.length, 28, 'the sweep must cover the whole pack');
+  assert.equal(names.length, 29, 'the sweep must cover the whole pack');
   for (const name of names) {
     const source = await read(`skills/${name}/SKILL.md`);
     assert.match(
