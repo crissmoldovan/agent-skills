@@ -80,11 +80,22 @@ comment naming the head, another gets only help text and reports the verdict as 
 check. Reading comments alone leaves a completed, clean, zero-finding review looking
 like `reviewing` until the wait times out. A completed check means the review
 **finished**, never that it was clean — what it found is still decided by the inline
-comments, or a false clean would ride in on a green check.
+comments and by the check's **own summary**, or a false clean would ride in on a green
+check. Blocks concludes its check `success` on runs that never happened: a logged-out
+agent's "Authentication failed … Not logged in" and a "Rate limit or quota exceeded"
+notice both went green, and both used to read as clean. Only a check inside the
+request window counts — re-requesting on an unchanged head creates no new run, and the
+previous round's check must not answer for this one.
 
 Always compare against a baseline containing timestamp and stable IDs. Help text,
 eyes reactions, queue messages, and “taking a look” are nonterminal. Return one of
-`requested`, `reviewing`, `clean`, `findings`, or `pr_closed`.
+`requested`, `reviewing`, `clean`, `findings`, `failed`, or `pr_closed`.
+
+`failed` means Blocks posted its own failure notice — logged out, or out of quota —
+as a comment or as the check's summary: the review did not run, nothing more is
+coming, and it is never acceptable. It is terminal so a wait stops and says so instead
+of burning its timeout. Re-requesting does not cure it; the workspace owner reconnects
+the agent's credential in the Blocks dashboard, or the quota resets.
 
 Blocks states completion in a top-level comment as often as in a formal review. A
 post-baseline comment that names its own completion is terminal even when no review
