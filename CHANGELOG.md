@@ -5,6 +5,42 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.25.0
+
+**What.** `blocks` stops calling a review clean when no review ran, and gains a terminal state
+for that case, `failed`. `request-blocks-review` and `docs/blocks.md` say what `failed` means:
+the loop stops, and it is never a pass.
+
+**Why.** `blocks-review-cli.mjs status` printed "Acceptable: clean verdict … CI success" for
+four pull requests on crissmoldovan/agent-communications that nobody had reviewed. Blocks was
+logged out: it posted "Claude Code: Authentication failed … Not logged in" and concluded its
+`Blocks PR Review` check `success`. Across all 96 Blocks check runs on that repository, 38 are
+failure notices — 33 rate limits, 5 authentication failures — every one concluded `success`,
+and every one read as clean. Three of those pull requests merged on it. Separately, a
+re-requested review on an unchanged head reused the previous day's green check, so a fresh
+request read as clean before Blocks had replied.
+
+**How it behaves.**
+
+- A Blocks check is clean only when it concluded `success` or `neutral` **and** its own summary
+  says it found nothing. A green check that says nothing is not clean, and `skipped` no longer
+  counts as a review.
+- Only a check inside this request's window counts, and an acknowledgement newer than that
+  check keeps the review open.
+- **New state `failed`.** Blocks's own failure notice, in a comment or a check summary, matched
+  by the notice's format rather than its words. A wait stops on it at once instead of running
+  out its timeout, and acceptance refuses with "Blocks did not review this request: <reason>".
+- CI reads `pending` while any repository check is still running, the Blocks check is found by
+  its app rather than by a name containing "blocks", and check runs are read on every page.
+
+**Compatibility.** A caller that switches on `status`'s state sees one new value, `failed`,
+where it used to see `clean` (or, for a wait, a timeout). Treat it like `pr_closed`: terminal,
+and never acceptable. Nothing else in the output changed shape.
+
+**Who should update.** Anyone using `blocks` or `request-blocks-review` to decide whether a pull
+request may merge. Run `npx skills update blocks request-blocks-review` in each scope where they
+are installed (add `--global` for a global install).
+
 ## 0.24.1
 
 **What.** Three skills separate their worked specimens from their asks:
