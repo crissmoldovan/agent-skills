@@ -1,0 +1,1730 @@
+[
+  {
+    "id": "agent-communications#1@e934865@2026-09-18T21:07:16Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "e934865b757d26b8d6c25df47bdac40ac9d89326",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T21:07:16Z",
+      "completed_at": "2026-09-18T21:17:31Z",
+      "output": {
+        "summary": "Three inline comments posted. Here's a summary of what the review found:\n\n**Tests broken on Node 22 (2 findings):**\n\n1. **`packages/comms-core/package.json:37` (severity 8)** — The `test` script runs `node --test \"test/**/*.test.ts\"` without `--experimental-strip-types`, which Node 22 requires to load TypeScript. All 14 comms-core tests fail with `ERR_UNKNOWN_FILE_EXTENSION` — the suite doesn't run at all on Node 22 CI.\n\n2. **`packages/comms-core/test/cli.test.ts:13` (severity 7)** — `spawnSync` doesn't forward `process.execArgv`, so child processes never receive the TypeScript flag. Even after fixing the script, the 5 CLI tests (`--version`, `paths`, `audit tail`, etc.) would still fail because the spawned CLI binary can't load its own `.ts` source.\n\n**Security contract gap:**\n\n3. **`packages/comms-core/src/config.ts:279–302` (severity 8)** — `classifyChange` only detects `sendPolicy` loosening indirectly, via per-inbox effective policy shifts. When there are no inboxes (loop body never executes), changing `defaults.sendPolicy` from `'confirm'` to `'chat'` produces `{ loosened: [] }` and passes through `ConfigStore.update` without consent — directly violating the PR's stated contract.\n\n**Sub-threshold observations (not posted):**\n- `addresses.ts:25` and `sanitize.ts:492` — two Biome `useOptionalChain` / unused-parameter warnings; exit code 0, don't block CI.\n- `lock.ts` — an unreadable lock file (partial write) is treated as non-stale and could cause `LOCK_TIMEOUT` until manually deleted; low probability, severity 4.\n- `taint.ts` — a corrupt taint file silently resets to empty on read; requires write access to state dir, severity 5.\n\n---\n\n**Failure.** `pnpm verify` fails on Node 22 because the comms-core test script is missing `--experimental-strip-types` — all 14 test files fail to load with `ERR_UNKNOWN_FILE_EXTENSION`, meaning the entire test suite never runs on the Node 22 CI matrix leg. There is also a security contract violation in `classifyChange` where `defaults.sendPolicy` can be loosened without consent when no inboxes exist."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@83a2d36@2026-09-18T21:09:30Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "83a2d363497626c4b4d79448595ef98ad7ec4de0",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T21:09:30Z",
+      "completed_at": "2026-09-18T21:18:57Z",
+      "output": {
+        "summary": "Two inline comments posted on PR #1:\n\n1. **`packages/comms-core/package.json:37`** — The `test` script is missing `--experimental-strip-types` (or `--strip-types`). On Node 22.x, running `.ts` files directly without this flag fails with `ERR_UNKNOWN_FILE_EXTENSION`. Confirmed failing in the review environment. The CI matrix includes `node: [22, 24]`, so the Node 22 build will fail.\n\n2. **`packages/comms-core/src/sanitize.ts:136–139`** — Zero-alpha CSS colours (`rgba(0,0,0,0)`, `hsla(0,0%,0%,0)`) bypass the hidden-text detection. `normaliseColor` strips the alpha channel before comparison, so only the literal keyword `transparent` is caught. An attacker can hide injected instructions from human readers while leaving them fully visible in the model-readable output, with `hiddenElements` staying at 0.\n\n**No sub-threshold observations** worth noting separately — the rest of the code (approval CAS state machine, O_EXCL single-use claim, `withFileLock` stale detection, taint collector fail-closed writes, atomic secrets and config writes, path jail and deny-list logic) is well-constructed and matches the spec's stated contracts.\n\n---\n\n**Failure.** Two severity-7 issues block merge: the `comms-core` test suite fails on Node 22 (missing `--experimental-strip-types` in the `test` script, confirmed by running `pnpm verify` in the review environment), and the HTML sanitiser's hidden-text detection can be bypassed with zero-alpha CSS colours (`rgba(0,0,0,0)`), which pass through to model-readable output without incrementing `hiddenElements`. Both need fixes before this lands."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@100b6a2@2026-09-18T21:14:16Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "100b6a2049eb4c46c15a8f758c029d00f793a67a",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T21:14:16Z",
+      "completed_at": "2026-09-18T21:22:06Z",
+      "output": {
+        "summary": "The review is complete. I found one issue above the severity-7 bar and posted it as an inline comment:\n\n**`hidesContent` only checks negative CSS offsets** (`sanitize.ts:151–155`): the guard `offset <= -500` catches content pushed far left/up, but `position: absolute; left: 9999px` (or `top: 9999px`) passes straight through. The injection text ends up in the sanitized output with `hiddenElements === 0` — no signal to the model that it was hidden. Suggested fix is also bounding the positive direction (`offset >= 9000`), and adding the positive-offset variant to `HIDDEN_CASES` in the test suite.\n\nEverything else I examined held up well:\n- Approval engine CAS + O_EXCL claim-marker double-guard is solid; state machine transitions are correct; challenge hashing uses `timingSafeEqual`.\n- `classifyChange` covers every safety-relevant field; the consent gate is enforced before any write.\n- Taint store's fail-closed collector and cross-inbox design are correct.\n- `PlanStore.consume` deletes the file inside the lock before checking mismatch, preventing replay.\n- Lock stale-takeover (`takeOverStale`) has a theoretical TOCTOU if a critical section ran for > 30 s, but file-only critical sections make that effectively impossible, and sends are additionally protected by O_EXCL.\n\n---\n\n**Action required.** The review found one severity-7 issue — `hidesContent` in `sanitize.ts` doesn't detect large positive CSS offsets (`left: 9999px`, `top: 9999px`), allowing an attacker to inject hidden prompt text that passes through the sanitizer undetected. This should be fixed (add `|| offset >= 9000` and a corresponding test case) before merging."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@4cbd564@2026-09-18T21:20:11Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "4cbd564ffc8bc3a307bcd74ef91fb0daf026944c",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T21:20:11Z",
+      "completed_at": "2026-09-18T21:28:38Z",
+      "output": {
+        "summary": "Review complete. Here's a summary of what I found:\n\n**Test suite:** 118 passing, 0 failing on Node 24. All checks (Biome, type checks, build, skill verifier, consumer check) passed cleanly.\n\n**New severity-7+ findings:** none. The two severity-8 findings from the prior review (default-policy loosening without inboxes; Node 22 type stripping) and the Windows packaging issue are all resolved in this commit.\n\n**Still open from prior review:** the severity-7 zero-alpha color bypass in `sanitize.ts` (e.g., `rgba(0,0,0,0)` not caught by `hidesContent`) was not addressed in this push.\n\n**Sub-threshold observations** (posted as a summary comment per `.blocks/review.md`):\n- **Sev 6 · `approvals.ts:272`** — `inboxSub` check only fires when both stored and live subs are truthy; re-auth with a different account that omits `sub` bypasses the account-match guard (though `inboxId` still guards the inbox).\n- **Sev 5 · `keys.ts:11`** — TOCTOU race on first-use approval key creation under simultaneous server startup.\n- **Sev 5 · `sanitize.ts:275`** — `registrable()` uses naive TLD+1; misses PSL two-part TLD domain mismatches (informational analysis only, not a gate).\n- **Sev 4 · `fs.ts:10`** — Intermediate directories from `mkdir({ recursive: true })` may be created at default mode (0o755) rather than 0o700.\n- **Sev 3 · `sanitize.ts:491`** — `hiddenReason` refactor loses specific class/id info for stylesheet-hidden elements in outbound analysis.\n\n---\n\n**Action required.** The new commit resolves both severity-8 blockers and all tests pass, but the severity-7 zero-alpha colour bypass in `sanitize.ts:138` (raised in the prior session) remains open and unaddressed — `rgba(0,0,0,0)` passes `hidesContent` unchecked, allowing hidden-text injection to reach model output. That finding needs to be resolved before this PR is merge-ready."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@1154062@2026-09-18T21:23:41Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "1154062f91795896d7d3f2fa6fe7474668f07afb",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T21:23:41Z",
+      "completed_at": "2026-09-18T21:32:01Z",
+      "output": {
+        "summary": "Review complete. Two severity-7 findings were posted as inline comments:\n\n1. **`approvals.ts:272-274`** — `claimForSend` silently skips the account (`inboxSub`) check when the caller doesn't provide `live.inboxSub`, even when the approval was prepared for a specific OIDC sub. The fix is to void whenever `current.inboxSub` is set but `live.inboxSub` is absent or differs.\n\n2. **`config.ts:281-283`** — `classifyChange` skips new inboxes entirely (`if (!previous) continue`), so adding a new inbox with an explicit `sendPolicy` looser than the current default passes without consent. The fix is to check new inboxes against `before.defaults.sendPolicy`.\n\nThree sub-threshold observations (severity 3–4) were captured in a summary comment instead of inline: the `downloadsDir` false positive, the `background` shorthand missed by `normaliseColor`, and the case-sensitive `.git` deny check.\n\n---\n\n**Action required.** The review found two severity-7 findings — a silent bypass of the `inboxSub` account check in `claimForSend` and a gap in `classifyChange` that allows new inboxes to be added with a looser send policy than the default without consent. Both are real correctness issues in the safety-critical approval engine and config guard, and should be addressed before merging."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@2f8fc51@2026-09-18T21:29:07Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "2f8fc5166e3e281be1309af86f83bd8d0e68cfdd",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T21:29:07Z",
+      "completed_at": "2026-09-18T21:35:06Z",
+      "output": {
+        "summary": "Review of commit `2f8fc51` is complete. Summary:\n\n- **Margin fix is correct.** Switching from a raw `<= -OFF_SCREEN_BEFORE` guard to `offScreen()` covers both the start and far edges, matching the pattern used throughout `hidesContent`. The two new test cases confirm both directions.\n- **No new severity-7+ findings** from this commit's diff.\n- **Three open severity-7 inline comments remain** from prior sessions:\n  1. `sanitize.ts:139` — zero-alpha RGBA/HSLA color bypass (still unaddressed)\n  2. `approvals.ts:274` — `claimForSend` skips `inboxSub` account check when `live.inboxSub` is absent\n  3. `config.ts:283` — `classifyChange` skips new inboxes, allowing a new inbox with an explicit policy looser than the current default to be added without consent\n- **No sub-threshold observations** from this commit's diff.\n\n---\n\n**Action required.** The commit itself (`2f8fc51`) is a clean, correct fix with no new issues, but three severity-7 inline comments remain unresolved on the PR: the zero-alpha RGBA/HSLA colour bypass in `sanitize.ts:139`, the missing `inboxSub` account check in `approvals.ts:274`, and the new-inbox policy loosening gap in `config.ts:283`. The PR should not merge until those are addressed.\n\n---\n\nThere is no in-flight background work — the review is complete and the pipeline conclusion has been set to `action_required`."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@451c205@2026-09-18T21:32:22Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "451c2059e0f00792d6e0eab1c3b52fb5844396b5",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T21:32:22Z",
+      "completed_at": "2026-09-18T21:36:18Z",
+      "output": {
+        "summary": "Review of commit `451c205` is done. The fix is correct and complete — removing `live.inboxSub &&` from the guard makes the account check fail-closed when no sub is supplied at claim time, and the new test case directly covers that path.\n\nOne sub-threshold observation (severity 3): the error message \"the inbox is now connected to a different account\" now fires for both a mismatched and a missing sub; wording is slightly misleading for the absent-account case but the logic is correct. The prior-session severity-7 zero-alpha RGBA bypass in `sanitize.ts` remains open (untouched by this commit). No inline comments warranted.\n\n---\n\n**`action_required`** — the latest commit (`451c205`) is correct and introduces no new severity-7+ issues, but the PR carries one unresolved severity-7 finding from prior sessions: the zero-alpha colour bypass in `sanitize.ts` (`rgba(0,0,0,0)` not caught by `hidesContent`). In a codebase whose stated purpose is detecting hidden content in outbound email, that gap should be closed before merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@068d05a@2026-09-18T22:14:36Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "068d05a188b5bda976eca75473593febf519aefb",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T22:14:36Z",
+      "completed_at": "2026-09-18T22:18:42Z",
+      "output": {
+        "summary": "The review is complete. Here is my assessment of head commit `068d05a`:\n\n---\n\n**Zero-alpha color fix (severity-7, previously open inline comment on `sanitize.ts:140`):** Correct and complete. `colorAlpha()` handles all relevant syntaxes — `rgba()`, `hsla()`, modern slash form (`rgb(0 0 0 / 0%)`), 8-digit and 4-digit hex, the `transparent` keyword, and `-webkit-text-fill-color`. Unparseable values safely default to opaque. Seven new `HIDDEN_CASES` plus a \"readable colours stay visible\" test cover all the added paths. This closes the prior severity-7 inline comment.\n\n**Approvals wording fix (severity-3):** Correct diagnostic improvement — the new ternary correctly distinguishes a mismatched `inboxSub` from an absent one.\n\n**Config.ts:283 — still open:** The `if (!previous) continue` in `classifyChange` that skips new inboxes added with a policy looser than the current default was already posted as a severity-7 inline comment (ID 4050831505) in a prior session and remains unresolved. This commit does not touch `config.ts`. Not a new finding, so no new inline comment.\n\n**No new severity ≥ 7 issues** introduced by this commit. Nothing to post.\n\nSub-threshold observations from the new code (below severity 7):\n- **5 · `packages/comms-core/src/sanitize.ts` (`colorAlpha`)** — the functional regex `[^)]*` does not handle nested parens; `rgb(calc(0) / 0)` falls through to the safe opaque default. Not a security gap since fallthrough is fail-closed.\n- **4 · `packages/comms-core/src/sanitize.ts` (`colorAlpha`)** — CSS Level 4 `color()` syntax (`color(display-p3 0 0 0 / 0)`) is not handled; treated as opaque. Missed detection only, no safety impact.\n\n---\n\n**Action required.** Commit `068d05a` correctly resolves the zero-alpha color bypass (the last severity-7 finding raised against this head), but one prior severity-7 inline comment remains open and unaddressed: `config.ts:283` — `classifyChange` skips new inboxes with `if (!previous) continue`, so adding an inbox with an explicit `sendPolicy` looser than the current default is never flagged for consent. That finding needs to be fixed before this PR should merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@4ecc0c0@2026-09-18T22:21:25Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "4ecc0c03f7a7018baba96e43c4a42351251144b5",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-18T22:21:25Z",
+      "completed_at": "2026-09-18T22:25:26Z",
+      "output": {
+        "summary": "Both fixes in commit `4ecc0c0` are verified correct:\n\n**`config.ts` — `classifyChange` for new inboxes:** The `if (!previous) continue` skip is replaced with logic that measures a new inbox's policy against `before.defaults.sendPolicy`. The `ownDomain` exemption is sound — it prevents false positives when a new inbox declares its own domain internal. Three new test cases exercise: new inbox looser than the default (flagged), new inbox inheriting or stricter than the default (not flagged), and new inbox listing its own domain vs a third-party domain (not flagged / flagged respectively). The fix is complete.\n\n**`sanitize.ts` — `colorAlpha` for CSS Level 4:** `lastTopLevelSlash` correctly tracks parenthesis depth to find the alpha-separator slash even when a `calc(...)` expression is nested inside. The regex is extended to cover `hwb`, `lab`, `lch`, `oklab`, `oklch`, and `color`. Unparseable alpha values (like `calc(1 - 1)`) fall through to opaque — correct fail-safe behavior. Two new `HIDDEN_CASES` test the wide-gamut and oklch paths; the unit tests for `colorAlpha` cover the new syntaxes and confirm the calc fallback.\n\n**All previously raised severity-7 findings are now resolved.** No new issues at severity ≥ 7 are introduced by this commit.\n\nSub-threshold observations (new, specific to this commit):\n- **3 · `packages/comms-core/src/config.ts:290`** — `inbox.email.slice(lastIndexOf('@') + 1).toLowerCase()` lowercases the extracted domain but `internalDomains` entries are stored as-is (no normalization in the Zod schema). If a user writes `Company.TEST` in the domain list and the email also has that domain, the case-folded `ownDomain` won't match the mixed-case list entry, causing a false-positive consent demand. Pre-existing for the `previous` branch of the same check; this commit makes it symmetrically present for new inboxes.\n- **2 · `packages/comms-core/test/sanitize.test.ts`** — `-webkit-text-fill-color` with a zero-alpha functional color (e.g. `rgba(0,0,0,0)`) remains untested; only the keyword `transparent` is covered for that property. Carried from the prior session; not addressed by this commit.\n\nNothing posted to the PR.\n\n---\n\n**Success.** All previously identified severity-7 findings are resolved in commit `4ecc0c0`, the two new fixes (`classifyChange` for new inboxes and `colorAlpha` for CSS Level 4 syntax) are correct and well-tested, and no new issues at severity ≥ 7 were introduced. This PR is clear to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@3cc8091@2026-09-18T22:24:27Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "3cc8091b5aeeb5db4dcc2ba6cd612837377beb05",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-18T22:24:27Z",
+      "completed_at": "2026-09-18T22:25:59Z",
+      "output": {
+        "summary": "The latest `synchronize` commit (`3cc8091`) makes a single change: adding explicit `| undefined` to the two optional properties (`inbox?` and `id?`) in the `EnvelopeAttributes` interface in `untrusted.ts`. In TypeScript, `prop?: T` already implies `T | undefined`, so this is a purely cosmetic annotation — no logic, no runtime behaviour, no security surface changed.\n\nThe full prior review history shows every severity-7+ finding was resolved across earlier rounds. This commit introduces nothing at severity ≥ 7.\n\nNothing to post on the PR.\n\n---\n\n**Success.** The latest commit (`3cc8091`) is a trivial cosmetic type annotation — adding explicit `| undefined` to two already-optional interface properties with no behavioral change. All severity-7+ findings from prior rounds were resolved, and this commit introduces none. The PR passes review."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@34a33bb@2026-09-18T22:27:06Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "34a33bb91af50e8ece1a8d1d9c87a64360b249c2",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T22:27:06Z",
+      "completed_at": "2026-09-18T22:35:09Z",
+      "output": {
+        "summary": "**Review complete.** All 143 tests passed on Node 24.15.0.\n\n**One finding posted (severity 7):** `packages/comms-core/src/sanitize.ts:109–125` — `numeric()` doesn't handle viewport units (`vw`, `vh`, `vmin`, `vmax`), so `hidesContent()` can't catch hidden-text patterns like `position:absolute;left:-200vw` or `width:0vw;overflow:hidden`. All three use-sites in `hidesContent` are affected.\n\n**Sub-threshold observations (not posted):**\n\n- **(5) `untrusted.ts`:** `ROLE_MARKERS` covers `Human|Assistant|System` but not `User:`, which several model frameworks emit. Low practical risk since the random-boundary envelope is the primary containment.\n- **(5) `sanitize.ts`:** `normaliseColor` recognises only `white` and `black`; near-white CSS named colors (`ivory`, `snow`, `ghostwhite`, etc.) aren't detected as same-color with a white background. Same-color text is flagged but not removed, so this is a detection gap, not a removal bypass.\n- **(5) `lock.ts`:** `takeOverStale` restores a non-stale lock via `link()`, which fails silently on file systems without hard-link support (some Docker overlay setups). The original holder's lock is discarded, creating a brief window of no mutual exclusion. The O_EXCL claim marker in `approvals.ts` provides an independent safety net.\n\n---\n\n**Failure.** The review found a confirmed severity-7 issue: viewport units (`vw`, `vh`, `vmin`, `vmax`) are not handled by `numeric()` in `sanitize.ts`, creating a real bypass in the hidden-text sanitizer that lets prompt-injection content reach the model. This is a merge blocker in a safety-critical path."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@31b183e@2026-09-18T22:37:32Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "31b183eb40fac9e86382685dc4e39a05bf6fab1b",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T22:37:32Z",
+      "completed_at": "2026-09-18T22:44:50Z",
+      "output": {
+        "summary": "Review posted. Here's what I found:\n\n**Severity 8 (inline, `packages/comms-core/src/sanitize.ts:143–144`):** The `%` CSS unit case in `numeric()` returns `amount * 0.16` (font-size-relative), which is far too small for off-screen detection via layout properties. `text-indent: -200%` resolves to −32 px, `offScreen(−32)` is false, and the injection text passes through undetected. Fix: use `(amount * VIEWPORT_WIDTH_PX) / 100` — same formula as `vw` — and add `%`-based test cases to `sanitize.test.ts`. Nothing currently turns red if an attacker swaps `left: -200vw` for `left: -200%`.\n\n**Sub-threshold (summary comment):**\n- **Sev 5:** `sameList` in `sameExpectation` doesn't strip angle brackets, creating possible spurious voids if a provider returns `\"Name <addr>\"` at claim time (fails closed, not open).\n- **Sev 4:** Any `downloadsDir` change, including removing a restriction, requires terminal consent — overly conservative but safe.\n\n---\n\n**Failure.** The severity-8 finding in `sanitize.ts` is a merge blocker: the `%` CSS unit case uses a font-size-relative scale that makes all percentage-based off-screen positioning (e.g. `text-indent:-200%`, `position:absolute;left:200%`) invisible to the sanitizer, allowing hidden prompt injection text to reach the model — the exact class of attack this component exists to prevent. The fix is a one-liner and needs accompanying test cases before this can merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@2a51ffc@2026-09-18T22:47:26Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "2a51ffcf4e3a1d025453895b2d894125ef0ec9cf",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T22:47:26Z",
+      "completed_at": "2026-09-18T22:53:37Z",
+      "output": {
+        "summary": "Two findings posted. Here's the full picture:\n\n**Tests run:** `pnpm verify` on Node 24 — 158 passing, 0 failing. Build and consumer check clean.\n\n**Findings posted (≥7):**\n\n1. **`config.ts:325` (severity 8)** — `classifyChange` doesn't recognise `undefined → 'file'` as a `secrets.store` loosening. An agent can downgrade secrets from the implicit keychain to file storage without consent by issuing an update on a fresh config where `before.secrets` is `undefined`. Fix: use `before.secrets?.store ?? 'keychain'` in the comparison.\n\n2. **`sanitize.ts:179` (severity 7)** — `overflow-x: hidden` is not checked when computing `overflowHidden`, so `<div style=\"overflow-x: hidden; width: 0px\">…</div>` bypasses the hidden-text detector. The text survives `prune()` and reaches the model invisible to the human reader. Fix: split the overflow check by axis (x for width, y for height).\n\n**Sub-threshold observations (dropped from PR, noted here):**\n\n- **5, `config.ts:313–316`** — `attachRoots` and `attachDeny` comparisons use string equality with no path normalisation. `~/docs` and `/srv/user/docs` resolve to the same place but compare as different strings, which can produce spurious consent prompts or let a path rewrite look like a tightening when it isn't.\n- **4, `sanitize.ts:402`** — `registrable()` splits on `.` and keeps the last two labels, so `attacker.co.uk` and `victim.co.uk` share the same registrable domain (`co.uk`), silently suppressing a `text-domain-mismatch` flag for eTLD+1 domains.\n- **3, `taint.ts:134`** — Pruning uses `> cutoff` (exclusive), so an entry timestamped at exactly `now - TAINT_WINDOW_MS` is dropped one millisecond early. Negligible in practice.\n\n---\n\n**Failure.** Two security findings above the merge bar were posted: a severity-8 bypass in `classifyChange` that lets an agent silently downgrade secret storage from keychain to file without consent, and a severity-7 hidden-text injection bypass in the HTML sanitizer via `overflow-x: hidden`. Both must be fixed before this lands, given that every later phase builds on these safety mechanisms."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@a971a45@2026-09-18T22:49:26Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "a971a4501d189e340d26b06627d45367855593e5",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-18T22:49:26Z",
+      "completed_at": "2026-09-18T22:55:48Z",
+      "output": {
+        "summary": "All 159 tests pass, builds are clean, and the skills/package checks all pass.\n\n**Analysis summary:**\n\nThe new commit (`a971a45`) makes one focused change: `safeFilename` in `jail.ts` now strips invisible and bidi-control characters (via `isDangerous` from `chars.ts`) before any further processing. This correctly addresses the RLO spoofing attack where `invoice<U+202E>fdp.exe` would be displayed as `invoiceexe.pdf` by file managers.\n\nThe fix is correct:\n- `[...name.normalize('NFC')]` iterates by Unicode code point, so multi-byte characters are handled correctly\n- `isDangerous` is the same function used by the inbound sanitiser, keeping both systems consistent (as the spec requires)\n- Control characters (NUL, BEL, etc.) are now removed entirely instead of replaced with `_`; tab and newline survive the filter but are still replaced by `_` via `UNSAFE_FILENAME_CHARS`\n- The test covers RLO, zero-width space, and verifies ordinary accented names are untouched\n\nAll previously-raised severity ≥7 findings in earlier rounds have been fixed. The one open inline comment on `lock.ts:50–53` (the `EEXIST` trap in `takeOverStale`) was already posted in a prior round and is unchanged by this commit.\n\nNo new severity ≥7 issues were introduced. Nothing to post.\n\n---\n\n**Success.** The suite is green (159 passing, 0 failing), all builds and checks pass, and the new `jail.ts` commit is correct with no new severity ≥7 issues. The one previously-posted open finding on `lock.ts` is unchanged and already on the PR."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@0f414bd@2026-09-18T22:56:26Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "0f414bd6a1e92978ed3c45155ff1772df817aeec",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T22:56:26Z",
+      "completed_at": "2026-09-18T23:03:45Z",
+      "output": {
+        "summary": "The review is posted. One inline comment was filed:\n\n**`packages/comms-core/src/sanitize.ts` lines 329–337 (severity 7):** The CSS selector parser in `hiddenSelectorsFromStylesheets` only handles simple selectors (`tag`, `.class`, `#id`, `tag.class`). Compound selectors like `.a.b { display: none }` silently fall through the `if (!match) continue` branch, allowing hidden injection text to pass through the sanitizer to the model. A concrete bypass and a suggested fix (conservatively extract all class tokens from unrecognized selectors) were included.\n\nSub-threshold observations (not posted):\n- **4 — `config.ts` `classifyChange`:** `downloadsDir` comparison uses raw strings before calling `isInsideDirectory`, which doesn't expand `~`. A tilde-form and absolute-form of the same path would be flagged as a spurious loosening. Conservative false positive, not a security hole.\n- **4 — `lock.ts` `takeOverStale`:** On filesystems without hard-link support, if both `link` and `rename` fail when trying to restore a live lock, the original holder's lock file is silently lost. Correctness edge case on overlay mounts; not a security issue.\n\n---\n\n**Failure.** The review found a confirmed severity-7 issue: compound CSS selectors (e.g. `.a.b { display: none }`) bypass the hidden-text sanitizer in `sanitize.ts`, allowing prompt-injection content to reach the model — a direct breach of the safety contract this PR establishes. The PR should not merge until that gap is closed and a test covering compound-selector hiding is added.\n\n---\n\nThere is no background work in flight — the review and pipeline conclusion are complete."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@e819c6b@2026-09-18T23:07:29Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "e819c6b8f2f9d4c7d2d5df8ebddaaa381af20ce2",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T23:07:29Z",
+      "completed_at": "2026-09-18T23:17:09Z",
+      "output": {
+        "summary": "Two findings posted as inline review comments:\n\n1. **`sanitize.ts:347-358` (severity 7)** — `parseHidingSelector` silently drops attribute constraints like `[data-x]` instead of returning `null`, producing over-broad rules (e.g., `div[data-x]` becomes \"all divs\"). Violates the stated give-up invariant; the \"only that\" test is never exercised for attribute selectors.\n\n2. **`approvals.ts:282-305` (severity 7)** — `claimForSend` only checks `live.policy === 'never'`; it doesn't guard against `stricterPolicy(live.policy, current.requiredPolicy) === 'never'`. If an approval was prepared when the inbox policy was `'never'` and the policy is later relaxed before the claim, the send gate passes through.\n\n**Sub-threshold observations (not posted to PR):**\n\n- **`lock.ts` — stale takeover when both `link` and `rename` fail (severity 5):** If `link(aside, lockPath)` and the fallback `rename(aside, lockPath)` both fail, the original lock body is orphaned at `aside` and `lockPath` is missing. The caller then successfully grabs the lock on the next iteration. This is a very narrow race on filesystems that support neither hard links nor atomic rename, but leaves the original holder silently unprotected.\n\n- **`ledger.ts` — JSONL file grows unboundedly (severity 3):** `reserve`/`release` entries accumulate forever; only the in-memory view filters by age. On a heavily used inbox over months this file could become large. A periodic compaction pass would keep it bounded.\n\n- **`sanitize.ts` — `sameColorElements` misses `background` shorthand (severity 3):** `background: white url(…)` parses as `null` in `normaliseColor`, so white-on-white text using the shorthand is not counted in `sameColorElements`. This affects the reporting signal only, not content removal.\n\n---\n\n**Failure.** Two severity-7 issues were found in security-critical paths: a gap in `claimForSend` that allows an approval with `requiredPolicy: 'never'` to proceed if the inbox policy is later relaxed (directly undermining the stated send-gate guarantee), and a `parseHidingSelector` bug that violates its own stated invariant by over-matching on attribute selectors. Both need fixes before this merges."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@481d7b3@2026-09-18T23:08:24Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "481d7b37682467aa1dc58da2c40d6f36734ce5c0",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-18T23:08:24Z",
+      "completed_at": "2026-09-18T23:18:49Z",
+      "output": {
+        "summary": "The review comment has been posted. Per `.blocks/review.md`, here's the sub-threshold summary and test-run status:\n\n---\n\n**Test suite:** Not run — review was code-only. The environment has `pnpm verify` available; no post-clone failure was reported.\n\n**Sub-threshold observations** (severity < 7, not posted inline):\n\n- **5 — `sanitize.ts:341`** — `parseHidingSelector` silently discards the attribute portion of compound selectors like `div[data-x]`, treating them as plain tag selectors. The test at line 72 passes but for the wrong reason: `div[data-x]{display:none}` would hide all `<div>` elements from the model, not only those carrying the attribute. Over-removal only, no injection risk.\n- **5 — `sanitize.ts:192`** — `hidesContent` checks only `inset()` and `circle()` for `clip-path`; `polygon(0 0, 0 0, 0 0)` goes undetected. Unlikely in practice but not covered by the test corpus.\n- **5 — `jail.ts:191`** — `**/.git/**` deny-entry comparison is case-sensitive; `.GIT` on a Windows volume would pass. Low risk given the platform but inconsistent with the rest of the path handling.\n- **5 — `taint.ts:55`** — `ADDRESS_IN_TEXT` is ASCII-only; IDN addresses in email bodies (e.g., `user@münchen.de` in raw UTF-8) are not captured in the taint store. The tripwire-not-boundary caveat in the comment acknowledges this class of limitation.\n- **4 — `config.ts:330`** — `classifyChange` treats removing `downloadsDir` (set → `undefined`) as loosening rather than narrowing. The safety outcome is fail-closed (no path to download to), but it requires a terminal consent flow to unset a setting that was already set.\n\n---\n\nOne confirmed severity-7 finding was posted: CSS `@supports`/`@media screen` at-rule blocks silently bypass `hiddenSelectorsFromStylesheets` in `sanitize.ts`, allowing hidden-text prompt injection to reach the model undetected. The PR is otherwise well-constructed — the approval engine, lock, taint, and secret store logic all look sound — but this sanitizer gap needs to be addressed before merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@9779126@2026-09-18T23:24:28Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "97791265b3d4a21a75d7656056457a296e042612",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T23:24:28Z",
+      "completed_at": "2026-09-18T23:35:12Z",
+      "output": {
+        "summary": "Review complete. All 180 tests pass on Node 24.15.0.\n\n**One finding posted (severity 7):**\n\n`packages/comms-core/src/sanitize.ts` lines 388–405 — `eachStyleRule` doesn't handle block-less CSS at-rules (`@charset`, `@import`, `@namespace`). Because the parser takes \"everything from `index` to the next `{`\" as the prelude, a block-less at-rule and the hiding selector that follows it merge into one prelude string. The merged prelude starts with `@`, so it's classified as an at-rule and skipped entirely. A mail client ignores the bogus `@import` but applies `.inject { display: none }`, making text invisible to the human. The sanitizer includes it in the model's text with `hiddenElements = 0` — no hidden-content warning. The existing \"at-rule before the rule that hides\" test covers `@font-face{…}` (which has a block body and is consumed correctly) but not the block-less case.\n\n**Sub-threshold observations (not posted per review config, none above 4):**\n- Sev 5, `sanitize.ts` L721–722: `report.forms` counts each `input`/`button`/`select`/`textarea` individually, not just `<form>` containers — inflates the count for approver display.\n- Sev 4, `lock.ts` ~L49–55: `takeOverStale`'s fallback `rename(aside, lockPath)` can atomically overwrite a concurrently-created new holder's lock with the old (stale) holder's content; extremely unlikely race, no security impact.\n- Sev 4, `config.ts` L323: `normalisePath` doesn't normalise case, so on macOS/Windows the same directory in different cases triggers spurious loosening detections for `defaults.attachRoots`.\n\n---\n\n**Failure.** One severity-7 finding was posted: the `eachStyleRule` CSS parser in `sanitize.ts` fails to detect hiding rules that follow block-less at-rules (`@import`, `@charset`, `@namespace`), allowing CSS-class-based hidden-text injection to bypass detection with no `hiddenElements` warning. This is a real security gap in the hidden-prompt-injection defense and needs to be fixed before merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@f9f3488@2026-09-18T23:39:27Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f9f3488353c4cfe133ba66e3a5dc36a7f59433c0",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-18T23:39:27Z",
+      "completed_at": "2026-09-18T23:57:43Z",
+      "output": {
+        "summary": "The review is complete. Here's the summary:\n\n**Test suite:** 188/188 passing with Node 24.\n\n**Existing issues (29 prior inline comments):** Several have been fixed in subsequent commits (CSS at-rule block traversal, `claimForSend` account check, new-inbox policy bypass, off-screen detection, compound selectors, block-less `@import` merging). A number remain open: `@media not print` misidentification, brace-depth counter ignoring CSS string literals, `secrets.store` `undefined→file` bypass, and `claimForSend` with `requiredPolicy='never'`.\n\n**New finding posted (severity 8):** The response to a prior inline comment on `config.ts` claimed the `..`-segment bypass in `isInsideDirectory` was \"Fixed in 481d7b3. `normalisePath` now resolves `..` segments with `path.resolve()`.\" The fix was not applied — `normalisePath` still has no `path.resolve()` call in the current HEAD. The exploit path is concrete: setting `downloadsDir` to `/srv/user/downloads/../../../tmp` passes `isInsideDirectory` (string prefix match succeeds), bypasses the consent check, and redirects email attachment downloads to `/tmp` — world-readable on Linux.\n\n**No sub-threshold observations** warrant adding separately; the existing discussion already covers the relevant lower-severity patterns.\n\n---\n\n**Failure.** Multiple severity-7+ security issues remain open after this synchronize push: the `isInsideDirectory` `..`-segment bypass (a claimed fix that was never applied, allowing consent-free redirection of email downloads), plus unresolved sanitizer bypasses (`@media not print` misidentification, brace-depth counter ignoring CSS string literals) and a `claimForSend` gap when `requiredPolicy='never'`. A PR whose core purpose is enforcing safety invariants should not merge with open bypass paths against those invariants.\n\n---\n\nThere is no background work in flight — the review is complete, the inline comment was posted, and the pipeline conclusion was set to failure."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@8cc421e@2026-09-19T00:05:06Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "8cc421e765ac78741cc4d2258def3f83f3eaa267",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-19T00:05:06Z",
+      "completed_at": "2026-09-19T00:17:22Z",
+      "output": {
+        "summary": "Two inline review comments have been posted on PR #1:\n\n1. **Severity 8 — `packages/comms-core/src/sanitize.ts` lines 344–351**: `parseHidingSelector` returns `null` for any pseudo-class suffix it doesn't recognise (`:first-child`, `:nth-child()`, `:not()`, etc.), so hiding rules like `.inject:first-child{display:none}` register no rule at all. The hidden element passes through the sanitiser and injection text reaches the model. Pseudo-classes are supported in Gmail web and Outlook web (both Chromium-based), making this a practical attack path.\n\n2. **Severity 7 — `packages/comms-core/src/sanitize.ts` lines 173–174**: `opacity: 0%` is not caught because `Number('0%')` returns `NaN`, which fails the `<= 0.05` test. CSS Level 4 percentage opacity is valid in modern Chromium-based email clients. This is an unintentional gap (unlike the `calc()` treatment, which is explicitly tested as a documented design choice).\n\nSub-threshold observations (not posted to PR per skill rules):\n- **(5) `sanitize.ts`** — `calc()` expressions for alpha/opacity fall through to the \"treat as opaque\" default. Explicitly tested as intentional at line 355 of the test (\"A value this parser cannot evaluate reads as opaque\"). Design tradeoff: avoids false-positive removal of visible text, at the cost of not stripping hidden text written with `calc()`. Worth re-evaluating given the security domain.\n- **(4) `approvals.ts` line 355`** — the `list()` filter regex uses `[0-9A-Z]{26}` (full alphabet) rather than the tighter Crockford-only `APPROVAL_ID_PATTERN`; files with non-Crockford IDs are silently skipped via `.catch(() => null)`. No security impact.\n- **(4) `sanitize.ts` `hidesContent`** — `clip-path: ellipse(0 0 at 50% 50%)` (zero-radius ellipse) is not covered; only `inset`, `circle`, and all-zero `polygon` are checked.\n\n---\n\n**Action required.** Two confirmed security vulnerabilities were found in `packages/comms-core/src/sanitize.ts`: a severity-8 bypass where CSS pseudo-classes (`:first-child`, `:not()`, etc.) cause `parseHidingSelector` to silently drop hiding rules, allowing hidden-text prompt injection to reach the model; and a severity-7 bypass where `opacity: 0%` is not detected as transparent due to `Number('0%')` returning `NaN`. Both are in the HTML sanitiser that forms a critical layer of the prompt-injection defence, and neither is covered by the existing test suite."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@0e93a50@2026-09-19T00:24:51Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "0e93a5018183ead3eb70b57e99115352295366a9",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-19T00:24:51Z",
+      "completed_at": "2026-09-19T00:36:08Z",
+      "output": {
+        "summary": "Two inline review comments posted on PR #1:\n\n1. **`packages/comms-core/src/jail.ts` lines 195–200 (severity 8)** — The `**/.git/**` deny-list handler explicitly lowercases path segments before comparing, but the general `**/` handler (which covers `**/.env*`) uses a case-sensitive `startsWith`. On macOS/Windows (case-insensitive filesystems), a file stored as `~/project/.ENV` passes all deny checks and can be attached. Fix: `name.toLowerCase().startsWith(prefix)`.\n\n2. **`packages/comms-core/src/sanitize.ts` lines 226–235 (severity 7)** — CSS custom properties (`var()`) in `display`, `visibility`, and other hiding-relevant properties bypass `hidesContent`. `<style>:root{--h:none}</style><div style=\"display:var(--h)\">injection</div>` is supported in Gmail, Outlook 365, and Apple Mail, yet the sanitizer reports `hiddenElements: 0` — the model sees the injected text with no warning. Mitigation: detect `var(` in hiding-relevant property values and increment `unreadableHidingRules` rather than treating them as visible.\n\n**Sub-threshold observations** (below 7, not posted to PR per skill rules):\n- `plans.ts` line 96: plan file is deleted before the mismatch check, so a corrupt or mismatched plan is permanently burned — severity 5, fail-closed but user-hostile\n- `sanitize.ts::normaliseColor`: covers only ~17 named colors; same-color text in uncommon named colors (e.g. `cornsilk` on `cornsilk`) isn't detected — severity 4, reporting gap only\n\n---\n\nTwo confirmed findings at severity 7+ were posted as inline comments: a case-sensitivity bypass in `jail.ts` that lets `~/.ENV`-style dotenv files slip past the deny list on macOS/Windows (severity 8), and a CSS `var()` gap in `sanitize.ts` that lets hidden-text prompt injections reach the model undetected (severity 7). Both need to be addressed before this is safe to merge, so the check is marked **action required**.\n\n---\n\nThe review is complete — no background work is in flight."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@d42b067@2026-09-19T00:40:59Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "d42b0678a5fa7c0754dd80c1c856a3bd02d73cef",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-19T00:40:59Z",
+      "completed_at": "2026-09-19T00:53:40Z",
+      "output": {
+        "summary": "Review complete. The suite passed (206/206) with no failures.\n\n**One inline finding posted (severity 7):**\n\n- `sanitize.ts:135–173` — The `numeric()` function, which evaluates `font-size`, `text-indent`, `width`/`height`, positioning offsets and `transform` translate arguments, has no `calc()` handling. The same bypass (`calc(0 * 1)` hiding text invisibly) was explicitly fixed in `alphaValue()` for the `opacity` property, but the same fix was not applied to `numeric()`. Any element styled with `font-size: calc(0px)`, `text-indent: calc(-9999px)`, or `transform: translateX(calc(-9999px))` passes through `prune()` intact and the hidden text reaches the model.\n\n**Two sub-threshold observations** (severity 5–6) posted as a summary comment, as required by `.blocks/review.md`:\n\n- Severity 6 — `@import` at-rules skipped silently in `eachStyleRule` without incrementing `unreadableHidingRules`\n- Severity 5 — `colorAlpha()` treats `rgba(0,0,0,calc(0))` as opaque rather than evaluating the `calc()` alpha\n\n---\n\n**Action required.** One confirmed severity-7 finding must be addressed before merge: the `numeric()` function in `sanitize.ts` has no `calc()` handling, meaning attackers can bypass all dimension-based hidden-text detection with `font-size: calc(0px)`, `text-indent: calc(-9999px)`, etc. — the exact class of bypass that was already fixed for `opacity` via `alphaValue()`. Everything else (206 tests passing, approval engine, path jails, secrets store, taint, lock, config loosening checks) looks solid."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@8523692@2026-09-19T01:01:38Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "85236921c0c7e12f2cff8d7aadb21fb8853caffa",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-19T01:01:38Z",
+      "completed_at": "2026-09-19T01:10:00Z",
+      "output": {
+        "summary": "Review complete. One finding posted:\n\n**`sanitize.ts` lines 317–322 (severity 8)** — `overflow: clip` is not recognised as a hiding mechanism. A sender can use `height:0; overflow-y:clip` to inject hidden text that passes through the inbound HTML sanitiser and reaches the model in plain text, with no `hiddenElements` count and no `unreadableHidingRules` signal. Chromium-based Gmail and Apple Mail both support `overflow: clip` and would hide the content from the reader. The fix is a one-line change in `hiddenAcross` to match `/(hidden|clip)/` instead of `'hidden'`, plus a matching test case in `HIDDEN_CASES`.\n\nEverything else checked out: 208 tests pass, the approval engine's CAS + O_EXCL single-use guarantee is sound, `classifyChange` correctly catches every loosening path (including the `..` traversal bypass, the keychain-to-file downgrade, and same-policy-different-spelling non-changes), the untrusted-content envelope prevents tag injection and control-token injection, and the path jail properly follows symlinks in existing ancestors before the inside-root check.\n\n---\n\n**Failure.** The review found a severity-8 sanitizer bypass (`overflow: clip` not recognised as hiding content in `sanitize.ts` lines 317–322) that allows hidden-text prompt injection to reach the model undetected. This is a direct violation of the repository's primary safety contract — untrusted content must not escape the sanitiser — and should block merge until fixed."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@50c695a@2026-09-19T01:23:23Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "50c695a9961b01cbfab8997d1758333ed04df8c4",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:23:23Z",
+      "completed_at": "2026-09-19T01:32:27Z",
+      "output": {
+        "summary": "Now let me get exact line numbers for findings and run the test suite to check overall health.\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#1@aadafca@2026-09-19T01:27:41Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "aadafcab41226ef581dd3939c91a85d4895b7b89",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:27:41Z",
+      "completed_at": "2026-09-19T01:34:16Z",
+      "output": {
+        "summary": "Now let me check the PR diff and a few more areas of interest:\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#2@f22d1eb@2026-09-19T01:29:32Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f22d1eb52429b3248e3a0f2ccc54bf1c42bd02a1",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:29:32Z",
+      "completed_at": "2026-09-19T01:31:42Z",
+      "output": {
+        "summary": "Now let me run the test suite and check the operations/import-legacy.ts:\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#3@9bb0bcd@2026-09-19T01:30:00Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "9bb0bcd39fa9546983a46da08d6e715eb4d48ab7",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:30:00Z",
+      "completed_at": "2026-09-19T01:33:15Z",
+      "output": {
+        "summary": "Let me check the inbox type definition and taint exclusion to understand the sendAs issue more deeply.\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#4@f49175d@2026-09-19T01:30:03Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f49175d6251e249af6522384085b164894ef69b0",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:30:03Z",
+      "completed_at": "2026-09-19T01:31:55Z",
+      "output": {
+        "summary": "Let me check the drafts operations and MCP server to understand the full call chain, especially for the `signature.html` path.\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#5@5046e8b@2026-09-19T01:30:41Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "5046e8bcfc3dacbfa83b740174f45b24ca2a49bf",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:30:41Z",
+      "completed_at": "2026-09-19T01:32:06Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#6@437aaee@2026-09-19T01:30:35Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "437aaee46185c84f38f36d2d216764964f696153",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:30:35Z",
+      "completed_at": "2026-09-19T01:31:50Z",
+      "output": {
+        "summary": "Now let me get the full diff and examine the key areas mentioned in the review rules.\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#6@2fae562@2026-09-19T01:32:35Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "2fae5622f2c9415a9e08abf683af8066643c8b78",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:32:35Z",
+      "completed_at": "2026-09-19T01:33:03Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#6@2c09395@2026-09-19T01:57:24Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "2c09395deda5d0be047dcfe7b3d1c08451cf3d06",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T01:57:24Z",
+      "completed_at": "2026-09-19T01:58:07Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#6@9a29936@2026-09-19T02:01:10Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "9a299366233cb2d1951cc0f45382d85a94596fed",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T02:01:10Z",
+      "completed_at": "2026-09-19T02:01:44Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#7@346e317@2026-09-19T20:07:43Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "346e317b4c66279ca33a05c7b361af575fb10fa9",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T20:07:43Z",
+      "completed_at": "2026-09-19T20:08:19Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#8@c5db77e@2026-09-19T11:35:15Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "c5db77efa7dc16f24165eb8b396f150946a5d835",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T11:35:15Z",
+      "completed_at": "2026-09-19T11:36:02Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#8@506221f@2026-09-19T11:49:36Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "506221f51c32cba4fb4a815affd20461a161a216",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T11:49:36Z",
+      "completed_at": "2026-09-19T11:50:06Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#9@8c902d6@2026-09-19T13:00:38Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "8c902d69c5bbf1d1f3393c5beb1897b9932f4ac4",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T13:00:38Z",
+      "completed_at": "2026-09-19T13:01:18Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#9@d63b8b6@2026-09-19T14:45:46Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "d63b8b6800837f7b52ee31a223aec8d0b5a05f5c",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T14:45:46Z",
+      "completed_at": "2026-09-19T14:46:19Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#10@8267b52@2026-09-19T19:34:51Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "8267b527686ab2e90a0feb3d6344b53d7d0d52f0",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T19:34:51Z",
+      "completed_at": "2026-09-19T19:35:52Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#10@422f998@2026-09-19T20:04:21Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "422f99830546ba67711ff6f7f5249001ef9ef108",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T20:04:21Z",
+      "completed_at": "2026-09-19T20:05:05Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#11@6651a53@2026-09-19T21:24:33Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "6651a534f46afb31d72b3ed0bad278dfca2d1508",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T21:24:33Z",
+      "completed_at": "2026-09-19T21:25:07Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#12@4c6e195@2026-09-19T23:21:16Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "4c6e19527bed543b7f8f84f9dde8f7910446c21d",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-19T23:21:16Z",
+      "completed_at": "2026-09-19T23:22:00Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#13@1c72669@2026-09-20T01:23:24Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "1c726692e7530e62ce7d864450d7c68ea3aa935e",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T01:23:24Z",
+      "completed_at": "2026-09-20T01:23:57Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@c760411@2026-09-20T03:40:49Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "c760411a3abaa822782f5e7f85e7854cae59d82d",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T03:40:49Z",
+      "completed_at": "2026-09-20T03:41:47Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@b9ac56d@2026-09-20T03:45:51Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "b9ac56d235169e8feb01ccf84ae59b96c8abc408",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T03:45:51Z",
+      "completed_at": "2026-09-20T03:46:25Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@f010eee@2026-09-20T04:18:59Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f010eee89cbabae99954522ae57a9ffa7276f2c9",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T04:18:59Z",
+      "completed_at": "2026-09-20T04:19:37Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@e8770a9@2026-09-20T04:25:17Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "e8770a91e0ac4c3b2e9a04ccb9efdc16452e7770",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T04:25:17Z",
+      "completed_at": "2026-09-20T04:26:07Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@a31f750@2026-09-20T04:32:34Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "a31f75009b474b5d4f13d038ac39e25f1c55289f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T04:32:34Z",
+      "completed_at": "2026-09-20T04:33:11Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@3b332fb@2026-09-20T04:36:44Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "3b332fbca09da0b3cddd61e614d4fd74254b3ca0",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T04:36:44Z",
+      "completed_at": "2026-09-20T04:37:13Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@238f31f@2026-09-20T04:41:18Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "238f31f943116448d8f75961a6c3c8a8fe492d11",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T04:41:18Z",
+      "completed_at": "2026-09-20T04:41:54Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#14@4f80ac9@2026-09-20T04:45:45Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "4f80ac97a973e96948635267e7984f8c4ad5ad38",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-20T04:45:45Z",
+      "completed_at": "2026-09-20T04:46:22Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\nYou've hit your weekly limit · resets Sep 21, 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@346a6c5@2026-09-21T18:32:08Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "346a6c5236df3900ff88486ef946786974116a18",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T18:32:08Z",
+      "completed_at": "2026-09-21T18:32:39Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@1506b0d@2026-09-21T18:36:28Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "1506b0dbb9db28a334cdae40843a04adadc623d8",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T18:36:28Z",
+      "completed_at": "2026-09-21T18:37:18Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@9b25a17@2026-09-21T19:40:33Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "9b25a17678085fb1c2b66671d199a3fbd0a63c29",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T19:40:33Z",
+      "completed_at": "2026-09-21T19:41:07Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@dc166e2@2026-09-21T19:45:41Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "dc166e27b624c463b83421bb1adccfcfa1651576",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T19:45:41Z",
+      "completed_at": "2026-09-21T19:46:12Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@3761ba1@2026-09-21T20:19:26Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "3761ba1dc1b4d640a9abfbfbde1a450404609250",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-21T20:19:26Z",
+      "completed_at": "2026-09-21T20:24:58Z",
+      "output": {
+        "summary": "Review posted. One finding at severity 7:\n\n**`next`/`done` not scoped to pinned mailbox in `gmail_setup`** (`packages/gmail/src/mcp/server.ts` lines 859–860): when a server is pinned to a mailbox that isn't connected yet but another mailbox is, `setupState` computes `next` from all-machine state and returns `next: 'done'` (or `'mcp'`) while `inboxes: []` — contradicting itself and causing an agent to conclude onboarding is complete when the specific pinned mailbox was never connected. The existing test escapes this because both mailboxes are already connected in the fixture.\n\n**Sub-threshold observations (no PR comments posted):**\n- Severity 5 — `setupState` `registeredWith` detection uses a `.includes('agentcomms/gmail')` string match on the joined command + args; no test covers what turns red if the package path changes.\n- Severity 4 — `setupState` calls `findClientJson` (up to 500 `lstat`s + 40 file opens) on every invocation; the setup flow calls it five times in sequence.\n\n---\n\nOne confirmed severity-7 correctness bug: `gmail_setup` on a pinned server returns `next`/`done` from global machine state, so if the pinned mailbox isn't connected but another is, an agent sees `next: 'done'` and never completes the intended setup. The fix is straightforward (scope `next` and `done` to the pinned mailbox), and the existing test needs a case where the pinned inbox is absent to catch this going forward."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@1307607@2026-09-21T20:28:17Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "13076075eb1b57c381fc415484d1476f69d8b255",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-21T20:28:17Z",
+      "completed_at": "2026-09-21T20:32:39Z",
+      "output": {
+        "summary": "Review complete. One finding posted:\n\n**CHANGELOG.md lines 65–68 (severity 8)** — The changelog's \"Fixes\" section claims the prerelease-to-`latest` bug was resolved (\"the release workflow reads the tag and passes `--tag next` for any version with a hyphen in it\"), but `release.yml` is not in this PR's diff and has no such logic at line 111. The PR body's own \"Still open\" section lists this exact bug as unresolved, directly contradicting the changelog entry.\n\nNo sub-threshold observations — everything else in the diff (the `readSmallFile` bounded read, symlink guard via both `O_NOFOLLOW` and unconditional `lstat`, `onlyMode` restriction on `gmail_inbox_finish`, pinned-server scoping in `gmail_setup`, and the three-mode interaction model) is well-implemented and consistent with the repository's existing patterns.\n\n---\n\n**Failure.** One severity 8 finding was confirmed: the CHANGELOG's \"Fixes\" section claims the prerelease-to-`latest` bug was resolved, but `release.yml` is unchanged and contains no `--tag next` logic — and the PR body's own \"Still open\" section contradicts this entry. The underlying code changes are well-implemented, but a misleading changelog claim about a live release risk clears the severity bar."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@9ae3508@2026-09-21T21:26:05Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "9ae350870fadd109ff5b6f231b0f6fd103eee309",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T21:26:05Z",
+      "completed_at": "2026-09-21T21:33:05Z",
+      "output": {
+        "summary": "Review complete. The suite is fully green (229 + 3 tests, 0 failures). Nothing reached the severity-7 bar, so no inline comments were posted. A summary comment with three sub-threshold observations was left on the PR.\n\nThe security-critical paths from `.blocks/review.md` are clean: no new send routes, no untrusted content escaping its envelope, the file-reading changes (`small-file.ts`) are bounded and symlink-protected, and the new MCP onboarding tools (`gmail_inbox_add`/`gmail_inbox_finish`) are carefully gated — `onlyMode: 'add'` prevents finishing a CLI-started `reauth` through MCP, and pinned servers don't offer them at all.\n\n---\n\n**Success.** All 232 tests pass, no severity-7 findings were found, and the security-critical paths (send approval gate, untrusted content handling, file access bounds, secrets) are unaffected. The three sub-threshold observations are documented on the PR but none block merging."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@3a96813@2026-09-21T21:47:08Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "3a96813ecb48cf35c5918c0d6210a8dcd61fb4f9",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-21T21:47:08Z",
+      "completed_at": "2026-09-21T21:53:48Z",
+      "output": {
+        "summary": "The review is posted. One finding at severity 7:\n\n**`packages/gmail/src/operations/setup.ts:332`** — the `isOurServer` checkout path match only checks for `cli.mjs`, but `--launcher local` from a TypeScript source checkout produces `src/cli.ts` (which `localCliEntry()` returns first). Registration succeeds but is never recognized by `setupState`, so the MCP step is perpetually reported as incomplete. The fix is a one-liner: `s === 'cli.mjs' || s === 'cli.ts'` in the segment check.\n\nAll three previous sub-threshold observations from the earlier Blocks review were addressed in commit `de51968`. Nothing else in the diff crossed the bar.\n\n---\n\n**Failure.** The review found one severity-7 bug: `isOurServer` in `setup.ts` only matches `cli.mjs` for checkout paths, but `--launcher local` from a TypeScript source checkout writes `cli.ts` — causing the MCP step to be perpetually reported as incomplete after a successful registration. The fix is a one-liner on line 332."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@6d05991@2026-09-21T21:55:51Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "6d059918ebfec44b9f528fa13d65c37eb363ea84",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T21:55:51Z",
+      "completed_at": "2026-09-21T22:00:52Z",
+      "output": {
+        "summary": "All 520 tests pass (263 core, 231 gmail, 3 gmail-mcp, 23 root). No severity-7 findings. Here's the analysis:\n\n**Security (the primary review axis for this repo):**\n- **Send bypass**: Not introduced — `send.execute` is untouched.\n- **Untrusted content escaping**: `gmail_setup` returns file paths from Downloads, but never JSON content; scoped to empty on pinned servers.\n- **File jail**: `findClientJson` only reads within `~/Downloads` (or `$XDG_DOWNLOAD_DIR`); filenames from `readdir` are joined to a fixed directory, no traversal possible.\n- **Secrets leaking**: Client JSON content is never returned by any MCP tool — only paths, kind labels, and timestamps.\n\n**Key correctness checks:**\n- `gmail_inbox_finish` passes `onlyMode: 'add'`, which `finishSignIn` enforces — a `reauth` flow the CLI started cannot be completed through MCP.\n- `gmail_inbox_add`/`gmail_inbox_finish` are correctly placed inside the `!readOnly && !pinned` guard; `gmail_setup` (read-only) is correctly placed outside.\n- Invalid `tier` values from MCP callers are caught by `parseTier` in `startSignIn` and returned as a typed `USAGE` error.\n- `readSmallFile` correctly handles the FIFO case (`O_NONBLOCK`), symlinks (`lstat` + `O_NOFOLLOW`, both platforms), and enforces the size bound on the read itself, not just the stat.\n- `readBoundedStream` stream errors are caught by the `try/catch` around `for await` and returned as `{ ok: false, problem: 'unreadable' }` — callers surface a typed message, not `UNEXPECTED`.\n\nThe three sub-threshold observations from the prior review (severity 4, 4, 3) stand; nothing new crossed the bar. No inline comments posted.\n\n---\n\n**Pass.** No severity-7 findings, all 520 tests pass, and the security-critical constraints (send bypass, file jail, secrets leaking, untrusted content) are all intact. The PR's implementation matches its stated intent."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@eda176c@2026-09-21T22:02:58Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "eda176cddf8fd2177b489a8a2373b3b09b55a287",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T22:02:58Z",
+      "completed_at": "2026-09-21T22:09:58Z",
+      "output": {
+        "summary": "The `.github/workflows/release.yml` is not part of this PR's diff — it's a file that main already has the fix in (`tag=next` logic), and this branch simply doesn't touch it. On merge, main's version would be preserved. The 422 error from my comment attempt confirmed the file isn't in the PR's changeset.\n\n**Review complete.** Tests: 23 + 106 + 231 + 3 = 363 pass, 0 fail.\n\nNo findings met the severity-7 bar. The previous review's sub-threshold notes (severity 3–4) were all addressed in this synchronize:\n- `renderSetupPlan`'s mailbox section now correctly shows `agent-gmail setup --inbox work` (not the old `inbox add … --start`)\n- `readBoundedStream` stream errors are now caught and returned as `{ ok: false, problem: 'unreadable' }` — with a test\n- `gmail_setup` now reads config once via `setupState`'s `clientOf` map rather than loading twice\n\nThe core security properties all hold: send gate untouched, no new path to `drafts.send`/`messages.send`, `readSmallFile` enforces the symlink refusal cross-platform (lstat + O_NOFOLLOW), pinned server's `gmail_setup` exposes no paths or cross-mailbox data, and `gmail_inbox_finish` refuses reauth flows via `onlyMode: 'add'`.\n\n---\n\n**Pass.** All 363 tests pass with 0 failures, no severity-7+ issues were found in the PR's diff, and all three sub-threshold findings from the previous review were addressed in this synchronize. The security-critical properties (send gate, untrusted content, file jailing, secret handling) are intact."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@ac1648d@2026-09-21T22:15:44Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "ac1648df872ea31e65ce7fe51d65fcbc3ac4d649",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T22:15:44Z",
+      "completed_at": "2026-09-21T22:20:26Z",
+      "output": {
+        "summary": "Suite is clean: 231 + 3 pass, 0 fail. No severity-7 findings in the new commit.\n\n**Review complete.** No severity-7 findings. Tests: 231 + 3 pass, 0 fail.\n\nThe single new commit (`ac1648d`) adds `ENTRY_FILES` as a pre-filter in `isOurServer` — before any segment matching runs, the last component of each path argument must be one of the three files this package is actually started by (`cli.mjs`, `cli.ts`, `server.mjs`). This correctly closes the gap where `@agentcomms/gmail/dist/index.mjs` (the library, not the server) was accepted, and tightens the checkout match from \"any `cli.ts` or `cli.mjs` beneath `packages/gmail`\" to \"a file in ENTRY_FILES whose immediate parent directory is `src` or `dist`\". The test is strengthened from a hand-written shape table to one derived from `mcpInstall` itself for the `npx` and `local` launchers, with the `packageFrom` regex extracted into shared test support so the package-name extraction path matches production exactly.\n\nSub-threshold observations:\n\n- **3** `packages/gmail/src/operations/setup.ts:328` — the `@agentcomms` segment check is now only reachable when the file at the end of a path IS in `ENTRY_FILES`, meaning it fires only for file-based managed installs. For npx entries, `packageName` is always extracted by the caller and `isOurServer` returns early before this branch. Not a gap (the two code paths cover all realistic shapes), but worth knowing if someone later adds a fourth launcher type that doesn't produce a path with a known entry file.\n\n---\n\n**Pass.** No severity-7 findings in the new commit, the full suite runs green (231 + 3 pass, 0 fail), and the logic change in `isOurServer` is correct — the `ENTRY_FILES` guard closes the false-positive without introducing any false-negatives. This PR is clear to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#15@ba4473a@2026-09-21T22:25:50Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "ba4473a84fbf193c78bbe8306723cbc6c2eedc23",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T22:25:50Z",
+      "completed_at": "2026-09-21T22:31:15Z",
+      "output": {
+        "summary": "Review complete. The single new commit (`ba4473a` — \"Compare whole entry paths, not their parts\") passes all 521 tests across 9 gates. No severity-7+ findings — the change is a sound correctness fix with thorough test coverage.\n\n---\n\n**Success.** The suite passes clean (521 tests, 9 gates, exit 0), no severity-7+ findings were found in the new commit, and the change itself is a correct, well-tested improvement with no security or correctness regressions."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#16@b0bcd09@2026-09-21T18:33:30Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "b0bcd09ccf813323ac37e49cb1578b0e3ca29172",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-21T18:33:30Z",
+      "completed_at": "2026-09-21T18:33:57Z",
+      "output": {
+        "summary": "Claude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>\n\n---\n\nClaude Code: Rate limit or quota exceeded. Please wait before trying again. <details>rate_limit\nYou've hit your weekly limit · resets 8pm (UTC)\nYou've hit your weekly limit · resets 8pm (UTC)\napi_error_status: 429</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#17@5195825@2026-09-22T01:35:01Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "51958259b2fcd81546ea28ff95105e82aca7fdee",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T01:35:01Z",
+      "completed_at": "2026-09-22T01:37:56Z",
+      "output": {
+        "summary": "PR #17 reviewed. The change is clean — `pnpm verify` passed (521 tests, all nine gates, Node 22.14, exit 0), no remaining instances of the plural form anywhere in the codebase, and no findings at any severity level. Summary comment posted per the repo's `.blocks/review.md` convention.\n\n---\n\n**Success.** The PR is a correct, minimal doc fix — one word changed in one file, consistent with every other reference in the codebase, and `pnpm verify` exits 0 (521 tests, all nine gates). No findings at any severity level; this is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#18@8c504c0@2026-09-22T02:31:34Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "8c504c0ba529c9bfd60c9fc391651d4202918fd9",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T02:31:34Z",
+      "completed_at": "2026-09-22T02:34:58Z",
+      "output": {
+        "summary": "No existing reviews. My analysis is complete.\n\n**Review verdict**: No issues at severity ≥ 7. Nothing is being posted to the PR.\n\n**What the PR does** — cleanly replaces two static HTML strings in the OAuth loopback handler with functions that accept an optional `LoopbackAbout` context, then wires both call sites (`signin.ts` and `oauth-listen.ts`) to pass that context via the centralized `aboutFlow()` helper in `flows.ts`. The result is a page that identifies the mailbox, the requested address, and the access tier without asserting the granted account (which isn't known at redirect time).\n\n**Security** — the two user-controlled values (`alias` and `expectEmail`) are HTML-escaped before insertion. The state-mismatch guard correctly passes `pageError(undefined)` rather than `pageError(options.about)`, so a stray request that hasn't proven it knows the state sees no mailbox name or address.\n\n**Types** — `OAuthFlow.mode` is `'add' | 'reauth'`, matching `LoopbackAbout.mode` exactly. `OAuthFlow.tier` is `string` (non-optional), assigned to `tier?: string | undefined` — valid.\n\n**Tests** — 7 cases, each guarding a distinct invariant: identity display, no premature \"signed in as\" claim, reauth vs add labeling, XSS escaping, error page, no-`about` fallback, and state-mismatch information withholding.\n\n**Sub-threshold observations**: `escapeHtml` allocates a new object literal `{ '&': '&amp;', ... }` on every matched character substitution call (severity 2, `loopback.ts`). Not in a hot path — called once per page render — so inconsequential in practice.\n\n---\n\n**Pass.** No issues met the severity ≥ 7 threshold — the HTML escaping is correctly applied to all caller-supplied values, the state-mismatch guard withholds identifying information as intended, and the 7-case test suite validates every behavioral invariant. The code is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#19@e37d1a1@2026-09-22T02:34:00Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "e37d1a1c48900c0c077f6693afa4b673c54debf8",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-22T02:34:00Z",
+      "completed_at": "2026-09-22T02:37:43Z",
+      "output": {
+        "summary": "One finding posted. The note at step 3 in `docs/getting-started.md` (lines 92–93) claims setup \"offers step 4 as well\" — but step 4 is `doctor`, while the \"Short version\" at the top of the same file describes setup's final offer as registering the MCP server. These two descriptions contradict each other about what setup does last.\n\nNo other issues met the severity bar. The count updates (23→24 CLI commands, 29→32 MCP tools) are consistent across README and architecture doc, the spec link is valid, and the MCP onboarding bounds description is clear and internally coherent.\n\n---\n\n**Action required.** One severity-7 inaccuracy needs fixing before merge: the note at `docs/getting-started.md:92–93` tells users that `setup` \"offers step 4\" (which is `doctor`), but the \"Short version\" at the top of the same file says setup's final offer is MCP registration — a direct contradiction about what the command actually does last. Once that's resolved the PR is otherwise clean (count updates are consistent, spec link is valid, structure is sound)."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#19@56dde6d@2026-09-22T02:39:04Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "56dde6d905739a1a284b7e688dc5280df0565f52",
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-22T02:39:04Z",
+      "completed_at": "2026-09-22T02:44:38Z",
+      "output": {
+        "summary": "Review posted. One finding at severity 7:\n\n**`packages/gmail/README.md` and `packages/gmail-mcp/README.md` not updated** — both npm-facing package READMEs still show `client add` + `inbox add --start` as the primary onboarding sequence with no mention of `agent-gmail setup`, leaving the PR's stated goal incomplete for users who find the package on npm.\n\nNo other issues met the threshold. The content changes themselves are accurate: the `setup` flags (`--mcp-client`, `--no-tui`) match the CLI reference, the MCP tool count (32) and CLI command count (24) are consistent across all updated files, the three new onboarding MCP tools are correctly documented, and the step-3 callout in `getting-started.md` correctly states that `setup` does not run step 4.\n\n---\n\n**Action required.** The PR fixes the right files but leaves `packages/gmail/README.md` and `packages/gmail-mcp/README.md` — the npm-facing docs — still presenting the old `client add` + `inbox add --start` flow as the onboarding path. Since the PR's stated goal is to make `setup` the way in, those two files need the same treatment before this is complete."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#19@d1cb3a1@2026-09-22T02:46:25Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "d1cb3a116547ef2f4ddf5e7144c9bf6255b54de2",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T02:46:25Z",
+      "completed_at": "2026-09-22T02:48:33Z",
+      "output": {
+        "summary": "I've reviewed the full diff. The synchronize added the package README updates (`packages/gmail-mcp/README.md` and `packages/gmail/README.md`), which:\n\n- Remove the stale \"Status: 0.x, not published yet\" notices (correct — packages have been on the registry since 0.1.0)\n- Lead with `agent-gmail setup` and the headless form\n- Carry the same onboarding-MCP claims (`gmail_setup` changes nothing, `gmail_inbox_add` returns a link and stops, `gmail_inbox_finish` refuses non-add flows, `--read-only`/`--inbox` suppress the two writers)\n\nThe previous review session (`a1e3ce46`) already verified all those claims directly against the implementation (line counts, `readOnlyHint`, `onlyMode: 'add'`, the guard conditionals). The new package READMEs repeat the same verified statements — nothing contradicts what's in the code.\n\n**No findings at or above severity 7.** The only cosmetic observation is a double blank line left in `packages/gmail/README.md` after the status-notice deletion (severity 1) — well below the posting bar.\n\nNothing posted on the PR.\n\n---\n\n**Success.** This is a docs-only PR with no findings at or above severity 7. All documentation claims were verified against the implementation in the prior review session, and the new package README updates are accurate and consistent with those verified facts."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@e7b8260@2026-09-22T08:39:30Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "e7b8260aada589d65740bd2ff129e971dd91e218",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T08:39:30Z",
+      "completed_at": "2026-09-22T08:51:30Z",
+      "output": {
+        "summary": "After reading all key files (`flow.ts`, `listener.ts`, `refresh.ts`, `signin.ts`, `workspaces.ts`, `guard.ts`, `methods.ts`, `authorize.ts`, `bundle.ts`, `pkce.ts`, `context.ts`, `doctor.ts`, `program.ts`, and the core `config.ts` diff), and running the full test suite (168 Slack tests, 239 Gmail tests, 3 gmail-mcp tests — all green), no findings met the severity ≥ 7 threshold.\n\n**Sub-threshold observations** (not posted to PR per the review workflow rules):\n\n- **[4] `packages/slack/src/auth/flow.ts` line 258** — `pending()`'s expired-flow sweep calls `rm` on only the `.json` file, leaving `.outcome.json`, `.claim`, and `.log` on disk. A process crash between `claim()` creating the marker and `discard()` removing it means the stale `.claim` persists after `pending()` sweeps the `.json`, making future `claim()` calls on that flowId report \"already finished\" instead of \"not found\". Fix: call `this.discard(flowId)` instead of `rm(name, { force: true })` in the sweep.\n- **[3] `packages/slack/src/operations/signin.ts` line 665** — if `context.flows.discard(flowId)` throws in the `completeSignIn` `finally`, it replaces the original error (which may carry the stranded secret ref from `withdrawStaged`).\n\nBoth are below the posting threshold.\n\n---\n\n**Pass.** The full test suite is green (168 Slack, 239 Gmail, 3 gmail-mcp tests), and no findings reached the severity ≥ 7 threshold after reviewing all key source files. The two sub-threshold observations (incomplete sweep in `pending()` at severity 4, and a `finally`-swallows-error edge case at severity 3) are minor and don't block merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@3bb1986@2026-09-22T08:45:04Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "3bb198617cb504677a95298efa897866501c9e32",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T08:45:04Z",
+      "completed_at": "2026-09-22T08:56:53Z",
+      "output": {
+        "summary": "Review complete. One finding posted:\n\n**`packages/slack/test/signin.test.ts` lines 162–177 (severity 7):** The test claims `ConfigStore.update` refuses a read→send widening without consent, but the assertion only calls `classifyChange` directly. The enforcement layer itself has no test for `accounts.<alias>.mode` specifically — the `safety-extras.test.ts:132` loop covers the mechanism for `inboxes`/`defaults` paths but not this new one. A regression in `ConfigStore.update`'s handling of `accounts` entries would pass all tests. Suggested fix: add the `accounts.acme.mode` case to the `loosenings` array in `safety-extras.test.ts:145`.\n\nEverything else — the PKCE implementation, atomic `O_EXCL` claim, credential staging/rollback on reauth, agent-marker + challenge gate for widening, concurrency protection in the refresh path, scope-mismatch enforcement, and the guard's origin + method allowlist — is correct and well-tested.\n\n---\n\n**Pass.** The code itself is correct — no logic errors, no security bypasses, and all 168 tests pass. The one finding (severity 7) is a test coverage gap: the second line of defence for the read→send widening is real and enforced, just not directly exercised by `ConfigStore.update` for this specific case. That's worth fixing, but it's not a merge blocker."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@770f5c0@2026-09-22T09:07:12Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "770f5c0e6840d4293909703c8fdccaceffdea047",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T09:07:12Z",
+      "completed_at": "2026-09-22T09:12:59Z",
+      "output": {
+        "summary": "`pnpm verify` passes cleanly: 181 Slack tests, 239 Gmail tests, 3 gmail-mcp tests — all pass, zero failures.\n\nAfter reviewing the latest commit (`770f5c0`), which addresses the previous severity-7 finding and three additional state-stranding bugs, nothing reached the severity-7 bar:\n\n- The `ConfigStore.update` refusal is now directly tested end-to-end (not just `classifyChange`), both loosenings across ID rotation — the exact regression the prior finding described.\n- `classifyChange`'s alias fallback correctly catches sendPolicy loosenings when reauth rotates the account ID.\n- The `completeSignIn` spread (`{...held, ...account}`) correctly preserves all existing fields (including `sendPolicy`) on reauth, rather than overwriting wholesale.\n- The credential write is now inside the rollback boundary, and both the \"late-landing keychain write\" and \"backend switched during sign-in\" scenarios are tested.\n- `removeWorkspace`'s backend check and `migrationConflict` provide the reciprocal guards described in the commit message, each tested at the decision level.\n- `parseMode` closes the typo-equals-`send` bypass, and `doctor` now reports an unrecognised mode as a finding rather than silently assuming `read`.\n\nNo inline comments posted.\n\n---\n\n**Pass.** All 181 Slack tests (plus the full suite) pass clean, nothing in the latest commit reached the severity-7 bar, and every fix in `770f5c0` is backed by a named test that fails when reverted. The PR is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@48141fa@2026-09-22T09:25:15Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "48141fa9a9f41b56d239db11fca696ee5f816490",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T09:25:15Z",
+      "completed_at": "2026-09-22T09:36:25Z",
+      "output": {
+        "summary": "The review is complete. After a thorough analysis:\n\n- **Test suite**: All tests pass (`pnpm verify`), including 168 Slack tests and the new `safety-extras.test.ts` tests for `ConfigStore.update` directly enforcing account mode loosenings.\n- **The previously-reported severity-7 finding** (test only asserted `classifyChange`, not `ConfigStore.update`) was fixed in commit 770f5c0 and is verified at `safety-extras.test.ts:542`.\n- **CodeQL findings** on the PR: The polynomial regex in `methods.ts` was already replaced with the linear backward scan (`while` + `split`) visible at lines 196–201; the biased-modulo flag on `auth/flow.ts` is a false positive — `newFlowId` uses `randomInt(62)` which is unbiased by design (and the comment explains why).\n- **Security model**: PKCE is correctly implemented with `pkce_enabled: true` in the manifest, the O_EXCL claim ensures single-exchange, consent paths are carried on the flow and checked inside the config lock, credential staging/rollback is atomic, the guard in `guard.ts` enforces origin + method classification on every outbound request, and no token ever reaches logs or child process environment.\n\nNo findings met the severity ≥ 7 bar. Nothing to post.\n\n---\n\n**Pass.** The review found no severity ≥ 7 issues. The test suite passes cleanly, the previously-raised finding about `ConfigStore.update` not being tested directly was addressed in 770f5c0, both CodeQL alerts are either fixed or false positives, and the security-critical paths (PKCE flow, O_EXCL claim, consent gate, credential staging, write guard) are all correctly implemented."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@57590b2@2026-09-22T09:47:28Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "57590b2cf0ca87be3718628dc37c0d985fec3f90",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T09:47:28Z",
+      "completed_at": "2026-09-22T09:51:08Z",
+      "output": {
+        "summary": "I've now read all six files changed in the latest commit (`57590b2`). Let me do a final verification of one subtle scenario — whether `written` is always correctly set in the `'present'` fallthrough case.\n\n`written` is initialized to `account` (the default, new account) at line 625, and then the `config.update` callback unconditionally overwrites it at line 697. Since `config.update` commits atomically before the lock release, the callback always ran to completion when `landed === 'present'`. The default initialization also happens to be the correct value for the non-reauth path. The fallthrough is sound in both branches.\n\nFor the `migrateSecrets` `switched === true` path: `takeBack(source, from, attempted)` cleans up originals from the old backend — exactly the same call as the normal success path at line 285. The duplication is intentional (the throw-then-fallthrough skips line 285) and the two paths are identical in effect.\n\n**`waitOf`:** `!Number.isFinite(NaN)` is `true`, so `NaN` is rejected. Empty string maps to `0` via `Number('')`, which is valid (0 ≤ 0 ≤ 600) — but `flags.wait` would only be an empty string if the CLI framework produced one, which is a framework concern, not this code's. All the test cases (`-5`, `Infinity`, `soon`, `601`) are correctly rejected.\n\nNo issues reached the severity-7 bar. The fifth Codex round's two findings (rollback-on-rejected-but-committed write, unbounded `--wait`) are correctly addressed and tested. Nothing posted.\n\n---\n\n**Pass.** Five rounds of review have progressively hardened this PR, and the fifth-round fixes (re-reading config before any rollback, strict `--wait` validation) are correctly implemented and tested. Nothing in the diff reached the severity-7 bar."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@1552a00@2026-09-22T10:03:11Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "1552a00de1258b08d6f1ff8bbbeae781b97b0ad5",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T10:03:11Z",
+      "completed_at": "2026-09-22T10:11:41Z",
+      "output": {
+        "summary": "The review is complete. Here's my assessment:\n\n**Test suite**: 276 core + 187 Slack + 239 Gmail + 3 Gmail-MCP = 728 tests, all passing, on Node 24.15.0.\n\n**Sixth round change** (`withCredentialsLock` around `migrateSecrets`):\n\nThe fix is correct. The race it closes — two opposite migrations interleaving such that each one's cleanup deletes what the other just wrote, leaving the credential in neither backend — is exactly the scenario the test reproduces reliably (150ms delay on the source-store deletes forces the window open). With the lock, migration B either waits behind A or reads the backend A left, and proceeds consistently. Lock parameters are well-chosen: 5-second timeout means a concurrent migration is refused promptly, 10-minute stale window accommodates an unanswered keychain prompt.\n\n`secretRefsOf` correctly enumerates all three account types (clients, inboxes, accounts), which the PR describes was a prior gap that would have left Slack tokens on the old backend during a secrets migration.\n\nThe `LOCK_TIMEOUT` error surfaces clearly to callers with an actionable hint. The lock placement (next to config, not in the state dir) is consistent with its purpose: serializing the operations that move secrets between the backends that the config points at.\n\n**No finding reached severity 7. No inline comments posted.**\n\nNo sub-threshold observations.\n\n---\n\n**Pass.** All 728 tests pass across every package, and the sixth round's single change — wrapping `migrateSecrets` in `withCredentialsLock` to prevent opposite concurrent migrations leaving a credential in neither backend — is correct, well-reasoned, and directly tested. No finding reached the severity-7 bar."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@ef93977@2026-09-22T10:32:47Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "ef939772a1a4cb20e79755aca9d4cc4d9212c7ab",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-22T10:32:47Z",
+      "completed_at": "2026-09-22T10:48:56Z",
+      "output": {
+        "summary": "Two inline comments posted on PR #20:\n\n1. **`packages/slack/src/operations/signin.ts` lines 184–200 — severity 8.** `runSignInListener` calls `recordOutcome` with no `try/catch`. A disk write failure in the detached child crashes the process, permanently loses the single-use Slack auth code, and leaves `--finish` reporting \"nobody has finished signing in yet\" with no way to recover without restarting the whole OAuth flow.\n\n2. **`packages/slack/src/auth/refresh.ts` lines 232–247 — severity 7.** `persistWithRetry`'s three retries execute back-to-back with no delay. The documented failure mode (keychain locked or prompt dismissed) doesn't resolve in milliseconds, so all three attempts see the same state and fail instantly — making this effectively a single attempt. When all retries fail the freshly-issued Slack tokens are lost and the workspace needs a full reauth.\n\nBoth were absent from all seven prior review rounds. No other findings crossed the severity-7 bar.\n\n---\n\n**Failure.** Two findings crossed the severity-7 bar: an auth-code loss bug in `runSignInListener` (severity 8) where a failed `recordOutcome` write permanently discards a single-use Slack grant with no recovery path, and an ineffective retry loop in `persistWithRetry` (severity 7) where zero backoff makes all three attempts useless against a locked keychain, losing freshly-issued tokens. Both require fixes before merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#20@ef93977@2026-09-22T10:18:27Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "ef939772a1a4cb20e79755aca9d4cc4d9212c7ab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T10:18:27Z",
+      "completed_at": "2026-09-22T10:25:54Z",
+      "output": {
+        "summary": "The tests pass cleanly. I've completed a full review of the PR. Here's my assessment:\n\n**No findings met the severity ≥ 7 threshold.** The code is carefully constructed. The three known vulnerabilities the PR description called out (missing `pkce_enabled`, consent dropped between `confirmWidening` and `signIn`, and the single-use refresh guarantee broken by its own test) are all correctly fixed. The key security properties hold:\n\n- The O_EXCL claim mechanism correctly orders acquire-before-read in `claim()`, and `discard()` correctly removes the record before the marker.\n- `readExchange` enforces exact scopes in both directions, refuses bot tokens, and refuses grants without a refresh token — all before anything is written.\n- `validateExchange` on reauth binds to `flow.expect.accountId` (set before the browser opened, unchangeable) not the post-exchange snapshot.\n- `classifyChange` now checks `accounts.<alias>.mode` read→send by alias (not id), correctly catching every reauth that widens capabilities.\n- The `secretsStoreOf` check inside the config lock prevents a credential landing in a backend nothing reads.\n- `guardSlackRequests` now checks the full origin (not just path), closing the `https://evil.example/api/auth.test` bypass.\n- The `confirmWidening` consent correctly threads through `signIn`'s declared `consent?` parameter (the fix for the dropped-consent bug).\n\n**Sub-threshold observations (not posted to PR per workflow rules):**\n\n- Severity 4 — `flow.ts:306`: In `pending()`, a claim created on a flow that expires within the same sweep window gets its marker deleted by `discard()`. The claimer gets \"not waiting to be finished\" rather than \"expired\". No security impact.\n- Severity 3 — `flow.ts:312`: A file in the flows directory whose name doesn't match `FLOW_ID_PATTERN` will silently resist cleanup (the `flowPath` throw is swallowed by `pending()`'s catch). Benign in practice.\n- Severity 3 — `doctor.ts:325`: The `rate-limit` check stays `status: 'unknown'` even when reads have occurred with no throttling observed. The comment explicitly defends this (\"absence of evidence is not evidence of absence\"), but it means the check never turns `ok` from ordinary traffic alone.\n\n---\n\n**Pass.** No findings met the severity ≥ 7 threshold after a full review of all security-critical paths — the PKCE flow, O_EXCL claim mechanism, token validation, mode-widening consent gate, write permit enforcement, and compare-and-swap config update. The test suite passes cleanly (168 Slack tests, 0 failures). Three sub-threshold observations were noted (severity 2–4) but none affect correctness or security."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#21@cde9c91@2026-09-22T11:04:25Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "cde9c9104bb404f1b83583cd61e77646af894d4e",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T11:04:25Z",
+      "completed_at": "2026-09-22T11:06:37Z",
+      "output": {
+        "summary": "I've reviewed all the changes in PR #21. Here's my assessment:\n\n**Overview**: The PR fixes a real-world bug discovered during the first live sign-in: Slack implicitly adds the `identify` scope to every user token (reported via `auth.test`'s `x-oauth-scopes` header) without it being part of the grant. This caused `doctor` to fail every healthy install with a false \"scope drift\" finding. The fix introduces `IMPLICIT_USER_SCOPES` and filters those scopes before the drift comparison.\n\n**Analysis**:\n\n- **Correctness**: The fix is sound. The `&& identity.scopes` guard is necessary — the `IdentityProbe` type declares `scopes` as optional (`scopes?: readonly string[]`), so it can be `undefined` when `kind === 'ok'`, and calling `.filter()` on `undefined` would throw. The original code would have returned `undefined` in that case and fallen back to `workspace.grantedScopes`; the new code preserves that behavior.\n\n- **Test coverage**: Two focused tests cover both sides of the invariant — `identify` is no longer reported as drift, and any other extra scope beyond the mode's list still fails. Both tests correctly mirror what Slack actually returns.\n\n- **Docs**: All three doc files are updated accurately and consistently. The spec's phase-blocked note is correctly resolved.\n\n- **Security**: The change does not widen any permission gate. The `read` mode's required scopes are fully checked; only one Slack-implicit scope is discarded. The boundary test (`chat:write` still fails) locks this in.\n\nNo issues at severity ≥ 7 were found. Nothing will be posted as inline review comments on this PR — the changes are correct, well-tested, and clean.\n\n---\n\n**Pass.** The fix is correct, the `&& identity.scopes` guard is required by the type definition, both tests (happy path and boundary) lock in the invariant, and no issues at severity ≥ 7 were found. This PR is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#21@310b82f@2026-09-22T11:16:10Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "310b82f5a4fa3057c49d8ea66426874d9a286b70",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T11:16:10Z",
+      "completed_at": "2026-09-22T11:23:57Z",
+      "output": {
+        "summary": "The suite is fully green — 190 Slack tests, 0 failures, all packages pass.\n\n## Review summary\n\n**What the PR does:** Fixes a false-positive drift alert in `doctor` caused by Slack silently appending `identify` to every user token's `x-oauth-scopes` header, even when it was never requested. The fix introduces `IMPLICIT_USER_SCOPES`, filters those scopes before `scopeMismatch` runs, and updates the ok-detail string to accurately reflect both the filtered count and what Slack added.\n\n**Correctness:** Sound. `reported?.filter()` correctly returns `undefined` when `identity.scopes` is absent, preserving the `?? workspace.grantedScopes` fallback path unchanged. The `implicit` variable accumulates Slack-added scopes separately so the detail message can name them without counting them as drift. The `observed` truthiness check in the detail branch is safe because an empty `observed` array would have already triggered the missing-scopes fail path above.\n\n**Tests:** Both new tests are well-targeted — one verifies `identify` is not reported as drift, the other verifies the exemption doesn't widen the check for unrelated extra scopes. The second test's `doesNotMatch(/identify/)` assertion correctly confirms `identify` never surfaces in a fail message (it's filtered from `extra` before `scopeMismatch`).\n\n**Documentation:** All three doc files accurately record what the live run observed and convert the pending-checklist framing to completed-results framing.\n\n**No sub-threshold observations** — the previous wording concern (\"`exactly as Slack reports them`\" vs. filtered count) was addressed in this commit with \"`the 11 scopes it asked for, as Slack reports them (plus identify, which Slack adds to every user token)`\".\n\nNothing reached the severity ≥ 7 bar. The change is correct, complete, and ready to merge.\n\n---\n\n**Pass.** The fix is correct and complete — `pnpm verify` is green with 190 Slack tests passing, no severity ≥7 issues were found, and the two new tests accurately cover the bug and its boundaries. The PR is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#21@016af5c@2026-09-22T11:25:46Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "016af5c82f0338e48aaf7d80d31b6944c1d43333",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T11:25:46Z",
+      "completed_at": "2026-09-22T11:28:03Z",
+      "output": {
+        "summary": "The latest commit (`016af5c`) is the \"one-word doc fix\" — changing \"Three things to look at\" to \"Four things to look at\" in the runbook, which is accurate since a fourth bullet was added earlier in the same block.\n\n**Review complete.** Nothing in this PR reaches the severity ≥7 threshold:\n\n- The core fix (`IMPLICIT_USER_SCOPES` + scope filtering in `doctor.ts`) is correct — `observed ?? workspace.grantedScopes` fallback semantics are preserved, the empty-array case still flows correctly to `scopeMismatch`, and the truthiness guard on `observed ?` is still sound.\n- Both new tests are well-targeted: one verifies `identify` isn't reported as drift, the other confirms the exemption is narrow (any other extra scope still fails). The detail string assertions lock in both halves of the new wording.\n- The prior reviews already caught and fixed the sub-threshold wording issue (\"exactly as Slack reports them\" vs the filtered count) and the workspace name in the inline comment. This sync's single commit is a trivial doc accuracy fix.\n- No secrets, no new security surface, no logic gaps.\n\nNothing posted to the PR.\n\n---\n\n**Success.** The PR is correct and well-tested — the `IMPLICIT_USER_SCOPES` fix is sound, both new tests properly cover the bug and its boundaries, and all prior review findings have been addressed. No issues at or above the severity threshold were found."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#22@1eea021@2026-09-22T15:54:37Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "1eea0217d11efcda86da4aa62f788aae2c61a12a",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T15:54:37Z",
+      "completed_at": "2026-09-22T16:05:15Z",
+      "output": {
+        "summary": "`pnpm verify` passes with the exact counts from the PR description (core 332, 0 failures) and all package consumer checks pass.\n\nAfter a full review of every changed file — the two config schemas, the names helpers, the migration logic, the release gate, the architecture test, and the 930-line names test file — I found no issues at or above severity 7. Here's a summary of what I verified:\n\n**Schema correctness** — `configV1Schema` and `configV2Schema` are correctly separated; v2 enforces the `org/platform[-qualifier]` grammar, checks the platform segment against the actual account, enforces uniqueness across both maps and against former names. The `looseObject` promotion for `sendCaps`/`confirm` is correctly motivated (prevents silent key drops on mixed-version writes).\n\n**Former-name permanence** — enforced at three independent layers: (1) `configV2Schema` superRefine refuses any live name that appears as a former-name key; (2) `formerNamesDropped` in `ConfigStore.update` compares before/after and refuses any write that drops or repoints a record without a valid reauth; (3) `nameAvailable` checks the full former-name set before any new name is proposed.\n\n**Reauth id tracking** — `followsReauth` correctly requires that the old id was live before the write and gone after, the new id was absent before and present after, and they share platform+workspace+userId. `replacementOf` correctly catches the case where a reauth happened but `retargetFormerNames` was not called.\n\n**Migration gating** — `namesMigrationEnabled()` is off by default (`NEW_CONFIG_VERSION === 1`), the consumer check asserts `enableNamesMigrationForTests` is not reachable from the installed package, and `ConfigStore.migrateNames` throws if the gate is closed. The fingerprint check inside both locks prevents TOCTOU between plan preview and apply, and `onlyKeysRenamed` refuses any build function that does more than rename keys.\n\n**Architecture test** — the `NAME_LOOKUP` regex correctly catches direct indexed reads of `config.inboxes[n]` / `config.accounts?.[n]` in source outside the allowed core files, with exact-count tracking for the files not yet migrated (N2/N3). The documented gap (`Object.entries` traversals bypass it) is acknowledged and noted in the test's own comment.\n\n**`classifyChange` fallback** — the new `Object.values(before.accounts).find(sameAccount)` fallback correctly handles a rename+reauth in one write, and any ambiguity (two accounts with same workspace+userId) errs toward requiring consent rather than skipping it.\n\nAll invariants are mutation-tested (the PR description confirms removing or inverting each guard fails a named test), and the frozen `v0.1.4-version-gate.ts` fixture gives a stable pin that the migration output is refused by the previous release.\n\nNothing exceeded the severity bar — no comments posted.\n\n---\n\n**Pass.** The review found no issues at or above the severity-7 threshold. The schema design, former-name permanence invariants, migration gating, reauth tracking, and architecture enforcement are all sound — `pnpm verify` exits green with 332/0 in core and all consumer checks passing."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#23@d353930@2026-09-22T19:47:36Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "d353930f79d8a69af11462dddbf15e33c992426a",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T19:47:36Z",
+      "completed_at": "2026-09-22T19:55:48Z",
+      "output": {
+        "summary": "Review complete. No findings met the severity ≥ 7 bar, so nothing was posted on the PR.\n\nSub-threshold observations (all below 7, for your information):\n\n- **Severity 4** — `resolveInboxes` in `search.ts` throws on the first former name it encounters; if a search includes multiple renamed aliases, only the first is reported and the others require a second run to discover.\n- **Severity 5** — `createGmailMcpServer` wraps `server.registerTool` by direct property assignment (cast through `unknown`). This is correct for the current MCP library and would throw loudly at startup if the property were non-writable, but it does couple the pin-check mechanism to an undocumented implementation detail of the library.\n\nBoth are well below the posting threshold and the second is acknowledged in the code comment. The implementation is correct across the security-critical paths (send gate, untrusted content envelope, credential reconciliation, file path jailing) and the test suite is green.\n\n---\n\n**Pass.** The review found zero findings at severity ≥ 7. The test suite is fully green (gmail 306, core 332, slack 190, gmail-mcp 3), all security-critical paths (send gate, untrusted content envelope, credential reconciliation, file jailing) are correctly maintained, and the packed-package assertion confirms no v2 writer leaked through."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#24@ecf771a@2026-09-22T19:55:56Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "ecf771a55b6b95d587c2edcedefa98ed0e26b513",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T19:55:56Z",
+      "completed_at": "2026-09-22T20:01:49Z",
+      "output": {
+        "summary": "Review complete. No findings reached severity 7, so no inline comments were posted. Two sub-threshold observations were left in the [PR summary comment](https://github.com/crissmoldovan/agent-communications/pull/24#issuecomment-5783204367):\n\n- **[3]** An orphaned JSDoc block in `signin.ts` before `writeWithConsent` — the first of two consecutive doc blocks has no declaration following it (likely meant to precede `consentUnder`).\n- **[4]** The in-lock `held`-null error hint references `workspace show ${flow.alias}` (the start-time alias); after a migration rename this resolves to a \"renamed to X\" error rather than workspace details — `workspace list` would be more robust.\n\n---\n\n**Pass.** No findings reached the severity-7 merge-blocking threshold. The two sub-threshold observations (an orphaned JSDoc block and a stale alias in an error hint) are cosmetic and don't affect correctness, security, or test coverage — the PR is safe to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#24@5a456da@2026-09-22T20:04:47Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "5a456da6fc1302df1c4eed701cfa4ded9dbe62a9",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T20:04:47Z",
+      "completed_at": "2026-09-22T20:09:40Z",
+      "output": {
+        "summary": "I've now thoroughly reviewed this PR. Let me summarize my analysis:\n\n**What was verified:**\n\n- `resolveName` returns the caller's canonical alias for current names and throws (with `currentName` in details) for former names — meaning `requireWorkspace`'s `return { alias, account }` is always consistent.\n- `namesThisFlow`'s three-tier check (exact account id → same alias → workspace+user fallback) is correct: the fallback is only reached in the renamed+renewed scenario, and the in-lock `findById(current, 'account', flow.expect.accountId)` check correctly catches any mismatch the pre-lock check permits through.\n- `writeWithConsent`'s retry is safe: the mutator is only run twice when the first call was refused before the write (so config state is identical on the second run), and the comment explains this invariant.\n- `consentUnder` translates paths additively — it never adds permissions that weren't in the original approval.\n- `committed()` now uses `findById` by account id, correctly surviving a rename or a re-key between the credential write and the check.\n- `retargetFormerNames` in the mutator runs in the same write that replaces the account id, so former names never point at a stale id after reauth.\n- `checkAliasFree` correctly routes to the Slack-specific hint for already-connected names and lets `nameAvailable`'s error surface for grammar and former-name failures.\n- The architecture test's `NOT_YET_MOVED` is now empty, confirmed by the diff of `test/name-lookups.test.mjs`.\n- All sub-threshold observations from the prior review (unknown-name USAGE error, `workspace list` hint, orphaned JSDoc, retry comment) were correctly applied.\n\n**No findings at severity ≥ 7.** The implementation is correct, the security-critical send-gate and consent properties are maintained, and the test suite covers all the key scenarios including reauth-follows-rename, consent-survives-migration, removal-by-id, and the mid-write race condition.\n\n---\n\n**Pass.** No findings at severity ≥ 7. The reauth-by-account-id logic, former-name refusal, consent path translation, and removal-by-id are all correct and well-tested. All sub-threshold observations from the prior review round were correctly applied in this sync."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#25@ff69347@2026-09-22T23:46:26Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "ff693471b25c2d0b97e7d35e65a447e030a52785",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-22T23:46:26Z",
+      "completed_at": "2026-09-22T23:52:17Z",
+      "output": {
+        "summary": "I've completed a thorough review of this PR across all changed files:\n\n- **`config.ts`** — `migrateNames`, `migrationApplied`, `RenamedAccount`\n- **`cli.ts`** — the new `names migrate` command, `needsYes`, `confirm`, `renderMapping`\n- **`names.ts`** — `planNamesMigration`, `applyNamesMigration`, `migrateNames`\n- **`config-version.ts`** — the `NEW_CONFIG_VERSION` bump from 1 to 2\n- All test files (core, gmail, slack)\n- `verify-skills.mjs` — the new `codeOf` Markdown parser and flat-name checks\n- Documentation updates\n\nThe implementation is solid. The `migrationApplied` function correctly distinguishes \"this exact plan is in place\" from \"some other migration ran\" using the set of flat `formerNames` keys as a size bound — preventing a subset-of-rows false positive. The race conditions (concurrent migration, retry after lock-release failure, unrelated edit between commit and retry) are all handled and all have named tests that break on purpose. The `--yes` / terminal / agent detection logic is clean and its own unit test covers all four cases directly rather than through subprocesses.\n\nNothing rated 7 or above. No comments posted.\n\n---\n\n**Pass.** The review found no issues rating 7 or higher. The migration logic is sound — race conditions, idempotency, and the \"only this exact plan counts as its own retry\" invariant are all correctly implemented and covered by named tests that break on purpose. Documentation and example names are consistently updated."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#26@5142adc@2026-09-23T05:11:09Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "5142adc6cdef78db1e4bc782f302a1dd1628d5e7",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T05:11:09Z",
+      "completed_at": "2026-09-23T05:14:30Z",
+      "output": {
+        "summary": "**Review complete.** \n\nThe fix is correct and well-executed. Here's what I found:\n\n- **Root cause addressed accurately**: the harness was storing `accessExpiresAt: '2026-09-23T00:00:00.000Z'` — a fixed timestamp that expired at midnight UTC today. The code under test reads the real clock and skips probing already-expired tokens, so all seven `doctor` tests silently started failing from that moment forward.\n\n- **Implementation is sound**: using `Date.now()` stored in `issued` once means all three computed fields (`issuedAt`, `accessExpiresAt`, `refreshExpiresAt`) are mutually consistent. The `...options.bundle` spread at the end correctly preserves the escape hatch — tests that need a definitively expired token (e.g. `bundle: { accessExpiresAt: '2020-01-01T00:00:00.000Z' }`) still work as before.\n\n- **`doctor.test.ts` and `refresh.test.ts` are correctly untouched**: both pin their own `NOW` constant and pass it explicitly to the function under test, so their fixed dates are independent of the real clock.\n\n- **`HOUR` / `DAY` constants**: correctly defined and mirror what `bundleFrom` produces during a real sign-in.\n\nNo issues met the severity threshold for inline comments. The PR is ready to merge.\n\n---\n\n**Pass.** The fix is correct, targeted, and complete — no severity ≥ 7 issues found. The approach of computing expiries relative to `Date.now()` at harness construction time is the right fix, and the existing bundle-override escape hatch correctly covers all tests that require expired tokens."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#27@f022544@2026-09-23T05:26:45Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f022544d447bf281b3ae53711c97088084679c67",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T05:26:45Z",
+      "completed_at": "2026-09-23T05:30:14Z",
+      "output": {
+        "summary": "All 308 tests pass (131 in `core`, the rest across the full suite), verified on Node 24.\n\n**Review result:** No findings at or above severity 7.\n\nThe change is a minimal, correct close of a real hidden-text injection channel. The four additions to `DROP_TAGS` are exactly right: each element is `display: none` in the WHATWG default stylesheet, htmlparser2 exposes their text content (confirmed by the PR description noting both old and new parser versions leaked them), and the `DROP_TAGS` path in both `prune()` and `analyseOutboundHtml()` handles them cleanly without any new code paths. The tests directly verify removal and the `hiddenElements` count for all four. Nothing to post.\n\n---\n\n**Pass.** The change is correct, minimal, and well-tested — no severity 7+ findings, the full suite (308 tests) passes green, and the fix accurately closes a real hidden-text injection channel that all four added elements represent."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#28@1999271@2026-09-23T05:30:26Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "199927168680ce2da0402046bd3b9015099e6819",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T05:30:26Z",
+      "completed_at": "2026-09-23T05:34:57Z",
+      "output": {
+        "summary": "The review is complete. Here is my assessment:\n\n**`pnpm verify` passed: 308/308 tests, all other checks clean.** I ran on Node 24.15.0.\n\nThe PR is sound. A few observations:\n\n**What the diff does correctly:**\n- `parseDocument` options (`decodeEntities`, `lowerCaseTags`, `lowerCaseAttributeNames`) carry over unchanged and the tests confirm they still work.\n- The `--!>` test covers both directions: text after the comment appears, injection inside it doesn't. That's the relevant attack surface.\n- The dual-parser setup (htmlparser2@12 for `parseDocument`, htmlparser2@10 retained as a transitive dep of `html-to-text`) is safe — `html-to-text` only receives post-`prune()` HTML where all comment nodes are already removed.\n- `@types/node` held at 22 is the right call.\n\n**One sub-threshold observation (severity 5 — not posted inline):** The new test at `sanitize.test.ts:194–196` checks `doesNotMatch` for `<!-- INJECTION --!>` but does not assert `hiddenElements >= 1`. The existing test at line 199–206 explicitly asserts counting for `-->` comments. Adding the same count assertion for `--!>` comments would pin the counting behavior the same way and catch it if a future parser change stops treating `--!>` closings as comment nodes.\n\nNo findings at severity 7 or above — nothing warranted posting to the PR.\n\n---\n\n**Pass.** All 308 tests pass, no findings reached the severity-7 bar, and the security behavior of the sanitizer is fully maintained. The one sub-threshold gap (missing `hiddenElements` count assertion for `--!>` comments in the new test) is worth noting but does not block the merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#29@2d43b32@2026-09-23T05:34:11Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "2d43b328ca4d3d71d96f5a22d1d7e58aeebd783a",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T05:34:11Z",
+      "completed_at": "2026-09-23T05:37:23Z",
+      "output": {
+        "summary": "## Review complete\n\nThe diff covers two independent fixes, both correctly implemented:\n\n**`assertRegistrationShape` (server.ts):** The helper correctly validates the `(string, object, function)` shape and throws with a clear error message that names the actual types seen. The strict `args.length === 3` check is intentional and tested — any future SDK overload that moves the handler silently would be caught immediately at server start. The integration test (`a pinned server stops at a registration its pin cannot wrap`) correctly targets the patched `registerTool` on the live server, not just the helper in isolation, which is exactly the point the PR description makes.\n\n**Token dedup in `doctor.ts`:** The refactor introduces `recorded` (deduplicated string tokens) and derives `inUse`, `unreferenced`, and `unchecked` from it. The semantics of each count are now correct: a token recorded N times counts as one, and the `unchecked` path correctly sums distinct string tokens plus raw unparseable entries when the config is unreadable. The new test seeds the file with the same line twice and asserts the detail reads \"1 recorded token(s)\" — exactly the bug scenario.\n\nThe `dirname` import added to `names.test.ts` is used correctly: the new test creates the parent directory before writing the file, unlike the pre-existing test at line 572 that intentionally creates the path itself as a directory to force an append failure.\n\nNo issues at or above the severity threshold. Nothing to post.\n\n---\n\n**Pass.** Both fixes are correctly implemented, the tests verify the exact failure scenarios described in the PR, and no issues above the severity threshold were found. This PR is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#30@c7cba57@2026-09-23T05:37:17Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "c7cba5792a92771113c92559900e5ef503b14773",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T05:37:17Z",
+      "completed_at": "2026-09-23T05:40:42Z",
+      "output": {
+        "summary": "After a thorough review of the diff, the surrounding code, and the lock ordering patterns across the codebase, I found no issues at severity ≥ 7.\n\n**Summary:**\n\n- **Correctness**: The lock ordering (`withCredentialsLock` → per-account `withFileLock`) exactly matches the ordering used in `config.ts:657-658` and `cli.ts:255`, so no deadlock is possible. `openSecrets()` is called inside both locks, ensuring writes land in the store the configuration currently points to.\n- **Test**: The new test correctly gates on both invariants the PR claims (\"removing the credentials lock fails it; resolving the store before the lock fails it\") — the `locked` Promise guarantees the migration holds the lock before `accessTokenFor` is called, so the 300ms window is just event-loop advancement, not a timing race.\n- **Backward compatibility**: The optional `timeoutMs` param on `withCredentialsLock` is a no-op for existing callers (defaults to 5s).\n- **Security / secrets**: No token or secret leaks introduced; the marker-before-exchange ordering is preserved inside the per-account lock.\n\n**No sub-threshold observations** that aren't already documented in the PR description or pre-existing in the codebase.\n\n---\n\n**Pass.** The implementation is correct — lock ordering is consistent with the rest of the codebase (no deadlock risk), the store is resolved inside the credentials lock as intended, and the new test verifies both stated invariants (migration race and write-to-correct-store). No issues at or above severity 7 were found."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#31@93e20c6@2026-09-23T06:47:41Z",
+    "expected": "clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "93e20c6fa5931c758640dba59dd2f61a4d94e5c6",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T06:47:41Z",
+      "completed_at": "2026-09-23T06:54:02Z",
+      "output": {
+        "summary": "After a thorough review of all five changes in this PR — the `requirePerson` consolidation, the `--finish` mode/alias binding, the `detachListener` race fix, the `randomInt` entropy fix, and the migration audit trail with consent under lock — I found no issues meeting the severity ≥ 7 threshold.\n\nA few observations below the bar (not posted to the PR per the skill's rules):\n\n- **[5] `packages/core/src/cli.ts` — lone `'failed'` record without a `'started'` partner**: If the copy loop throws before `announced = true` but after some copies land in the target and `takeBack` can't retrieve them, a `'failed'` audit record is written with no corresponding `'started'`. The comment explicitly covers this intent (\"one that left copies behind is recorded\"), so it's a design choice, not a bug.\n- **[4] `OAuthFlow.expect.inboxId` typed as `string | undefined`**: For flows created before this PR the field could be absent, causing the `onlyAlias` reauth check to fall back to string comparison. Given the 10-minute flow TTL, this is practically inert.\n\nNo sub-threshold observations would surprise a reader, so none were raised above.\n\n---\n\n**Pass.** The review found no issues at or above the severity-7 threshold. All five fixes are correctly implemented, well-tested, and consistent with the repository's security and conventions. The PR is ready to merge."
+      }
+    }
+  },
+  {
+    "id": "agent-communications#32@9581963@2026-09-23T16:36:01Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "95819632299c3b6d18d3e308302634431adee7b0",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T16:36:01Z",
+      "completed_at": "2026-09-23T16:36:38Z",
+      "output": {
+        "summary": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n---\n\nClaude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#33@287905e@2026-09-23T17:02:43Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "287905eeef4316cb44acad3d961f79b9e3df8b6d",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T17:02:43Z",
+      "completed_at": "2026-09-23T17:03:12Z",
+      "output": {
+        "summary": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n---\n\nClaude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#34@f9f191f@2026-09-23T19:02:11Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:11Z",
+      "completed_at": "2026-09-23T19:02:39Z",
+      "output": {
+        "summary": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n---\n\nClaude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#35@196f4fa@2026-09-24T18:49:34Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "196f4fa31646753b74727d2fa3c9e77775299103",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-24T18:49:34Z",
+      "completed_at": "2026-09-24T18:50:07Z",
+      "output": {
+        "summary": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n---\n\nClaude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>"
+      }
+    }
+  },
+  {
+    "id": "agent-communications#35@a2f6e99@2026-09-24T18:54:13Z",
+    "expected": "not-clean",
+    "check": {
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "a2f6e99e83c0c02266576e0e33976832e2f6f63d",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-24T18:54:13Z",
+      "completed_at": "2026-09-24T18:54:44Z",
+      "output": {
+        "summary": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n---\n\nClaude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>"
+      }
+    }
+  }
+]

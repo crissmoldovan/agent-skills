@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { acceptVerdict, collectBlocksStatus, subThresholdCount, waitForBlocksReview } from './blocks-review.mjs';
+import { acceptVerdict, checkRunsFromPages, ciFromCheckRuns, collectBlocksStatus, isBlocksCheck, subThresholdCount, waitForBlocksReview } from './blocks-review.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,22 +24,18 @@ async function headAndCi(repo, pr) {
       const { stdout: commit } = await execFileAsync('gh', ['api', `repos/${repo}/commits/${headSha}`, '--jq', '.commit.committer.date']);
       headCommittedAt = commit.trim() || null;
     } catch { headCommittedAt = null; }
-    const { stdout: runs } = await execFileAsync('gh', ['api', `repos/${repo}/commits/${headSha}/check-runs`]);
-    const all = (JSON.parse(runs).check_runs ?? []).filter((run) => run.status === 'completed');
-    // When the review is delivered as a check rather than a comment, this is the only
-    // timestamp that dates the verdict — see how `verdictAt` is chosen below.
-    const blocksCheck = all.find((run) => /blocks/i.test(run.name ?? ''));
-    // CI means the repository's OWN checks. The Blocks review check is excluded
-    // because the review verdict is already carried by `state`, and counting it twice
-    // made the tool report "CI concluded failure" while `verify` had passed — a
-    // reason that named the wrong thing and would send someone to the wrong logs.
-    const checks = all.filter((run) => !/blocks/i.test(run.name ?? ''));
-    const dates = { headCommittedAt, blocksCheckCompletedAt: blocksCheck?.completed_at ?? null };
-    if (!checks.length) return { headSha, ciConclusion: null, ...dates };
-    // Any completed check that did not succeed decides it; `neutral` and `skipped`
-    // are not failures, and a required check that has not finished is not a pass.
-    const bad = checks.find((run) => !['success', 'neutral', 'skipped'].includes(run.conclusion));
-    return { headSha, ciConclusion: bad ? bad.conclusion : 'success', ...dates };
+    const { stdout: runs } = await execFileAsync('gh', ['api', '--method', 'GET', `repos/${repo}/commits/${headSha}/check-runs?per_page=100`, '--paginate', '--slurp'], { maxBuffer: 64 * 1024 * 1024 });
+    const all = checkRunsFromPages(JSON.parse(runs));
+    // Only a fallback now: a verdict delivered as a check is dated by the check that
+    // decided the state, which `acceptVerdict` reads from the result. This is the
+    // newest finished Blocks check on the head, for a result that carries none.
+    const blocksCheck = all
+      .filter((run) => isBlocksCheck(run) && run.status === 'completed')
+      .sort((a, b) => Date.parse(a.completed_at ?? '') - Date.parse(b.completed_at ?? ''))
+      .at(-1);
+    // CI means the repository's OWN checks, and all of them finished — see
+    // `ciFromCheckRuns` for why the Blocks check is left out and a running one is not.
+    return { headSha, ciConclusion: ciFromCheckRuns(all), headCommittedAt, blocksCheckCompletedAt: blocksCheck?.completed_at ?? null };
   } catch {
     return { headSha: null, ciConclusion: null, headCommittedAt: null, blocksCheckCompletedAt: null };
   }
@@ -87,6 +83,9 @@ if (!['status', 'wait'].includes(command) || !repo || !Number.isInteger(pr) || !
   if (json) console.log(JSON.stringify(enriched, null, 2));
   else {
     console.log(`Blocks review: ${result.state}${result.timedOut ? ' (wait timed out)' : ''}`);
+    // `failed` is Blocks saying it could not run — logged out, or out of quota. Neither
+    // is cured by asking again, so say what does cure it rather than invite a loop.
+    if (result.state === 'failed') console.log(`Blocks did not run: ${result.reason}. A logged-out agent is reconnected by the workspace owner in the Blocks dashboard; a quota waits for its reset. Re-requesting before then fails the same way.`);
     if (result.dashboardUrl) console.log(`Dashboard: ${result.dashboardUrl}`);
     for (const finding of result.findings ?? []) {
       console.log(`- severity ${finding.severity} ${finding.path ?? ''}${finding.line ? `:${finding.line}` : ''} ${finding.body}`);

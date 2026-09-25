@@ -1,0 +1,195 @@
+{
+  "_source": "crissmoldovan/agent-communications#34, read with `gh api` on 2026-09-25: issue comments (REST), each comment's edit history (GraphQL userContentEdits), and the check runs on the head. Verbatim. Blocks edits its acknowledgement in place, so each Blocks comment carries every revision in the order it was written: the acknowledgement first, then the authentication-failure notice it became.",
+  "repo": "crissmoldovan/agent-communications",
+  "pr": 34,
+  "head": {
+    "sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+    "committedAt": "2026-09-23T19:01:35Z"
+  },
+  "comments": [
+    {
+      "id": 5801080539,
+      "author": "blocksorg[bot]",
+      "createdAt": "2026-09-23T19:02:02Z",
+      "body": "Mention Blocks like a regular teammate with your question or request:\n\n@blocks review this pull request\n@blocks make the following changes ...\n@blocks create an issue from what was mentioned in the following comment ...\n@blocks explain the following code ...\n@blocks are there any security or performance concerns?\n\nRun `@blocks /help` for more information.\n\n[Workspace settings](https://blocks.team/app/00000000-0000-4000-8000-000000000001/settings/integrations/github) | [Disable this message](https://blocks.team/app/00000000-0000-4000-8000-000000000001/settings/integrations/github)\n\n"
+    },
+    {
+      "id": 5801081843,
+      "author": "crissmoldovan",
+      "createdAt": "2026-09-23T19:02:07Z",
+      "body": "@blocks please review"
+    },
+    {
+      "id": 5801082914,
+      "author": "blocksorg[bot]",
+      "createdAt": "2026-09-23T19:02:12Z",
+      "revisions": [
+        {
+          "editedAt": "2026-09-23T19:02:12Z",
+          "body": "I'm working on this request and will respond here shortly.\n\n[View on dashboard](https://blocks.team/app/00000000-0000-4000-8000-000000000001/sessions/00000000-0000-4000-8000-000000000003) | [View on desktop](https://blocks.team/desktop-auth/callback?redirect_url=%2Fapp%2F00000000-0000-4000-8000-000000000001%2Fsessions%2F00000000-0000-4000-8000-000000000003&todesktop=1)"
+        },
+        {
+          "editedAt": "2026-09-23T19:02:41Z",
+          "body": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n**[View on dashboard](https://blocks.team/app/00000000-0000-4000-8000-000000000001/sessions/00000000-0000-4000-8000-000000000003)**"
+        }
+      ]
+    },
+    {
+      "id": 5809725478,
+      "author": "crissmoldovan",
+      "createdAt": "2026-09-24T07:25:57Z",
+      "body": "@blocks please review"
+    },
+    {
+      "id": 5809726439,
+      "author": "blocksorg[bot]",
+      "createdAt": "2026-09-24T07:26:01Z",
+      "revisions": [
+        {
+          "editedAt": "2026-09-24T07:26:01Z",
+          "body": "I'm working on this request and will respond here shortly.\n\n[View on dashboard](https://blocks.team/app/00000000-0000-4000-8000-000000000001/sessions/00000000-0000-4000-8000-000000000002) | [View on desktop](https://blocks.team/desktop-auth/callback?redirect_url=%2Fapp%2F00000000-0000-4000-8000-000000000001%2Fsessions%2F00000000-0000-4000-8000-000000000002&todesktop=1)"
+        },
+        {
+          "editedAt": "2026-09-24T07:26:26Z",
+          "body": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n**[View on dashboard](https://blocks.team/app/00000000-0000-4000-8000-000000000001/sessions/00000000-0000-4000-8000-000000000002)**"
+        }
+      ]
+    },
+    {
+      "id": 5820176098,
+      "author": "crissmoldovan",
+      "createdAt": "2026-09-24T18:49:25Z",
+      "body": "Superseded by #35, which contains these commits plus S4–S7 and M3. Closing."
+    }
+  ],
+  "checkRuns": [
+    {
+      "id": 107335612705,
+      "name": "analyse",
+      "app": {
+        "slug": "github-actions"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:07Z",
+      "completed_at": "2026-09-23T19:03:47Z",
+      "output": {
+        "title": null,
+        "summary": null
+      }
+    },
+    {
+      "id": 107335613405,
+      "name": "verify (ubuntu-latest, node 24)",
+      "app": {
+        "slug": "github-actions"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:06Z",
+      "completed_at": "2026-09-23T19:03:35Z",
+      "output": {
+        "title": null,
+        "summary": null
+      }
+    },
+    {
+      "id": 107335613653,
+      "name": "verify (windows-latest, node 24)",
+      "app": {
+        "slug": "github-actions"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:06Z",
+      "completed_at": "2026-09-23T19:05:00Z",
+      "output": {
+        "title": null,
+        "summary": null
+      }
+    },
+    {
+      "id": 107335613762,
+      "name": "verify (macos-latest, node 24)",
+      "app": {
+        "slug": "github-actions"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:10Z",
+      "completed_at": "2026-09-23T19:03:54Z",
+      "output": {
+        "title": null,
+        "summary": null
+      }
+    },
+    {
+      "id": 107335613765,
+      "name": "verify (ubuntu-latest, node 22.18.0)",
+      "app": {
+        "slug": "github-actions"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:06Z",
+      "completed_at": "2026-09-23T19:03:42Z",
+      "output": {
+        "title": null,
+        "summary": null
+      }
+    },
+    {
+      "id": 107335613906,
+      "name": "verify (ubuntu-latest, node 22)",
+      "app": {
+        "slug": "github-actions"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:08Z",
+      "completed_at": "2026-09-23T19:03:41Z",
+      "output": {
+        "title": null,
+        "summary": null
+      }
+    },
+    {
+      "id": 107335664096,
+      "name": "Blocks PR Review",
+      "app": {
+        "slug": "blocksorg"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:02:11Z",
+      "completed_at": "2026-09-23T19:02:39Z",
+      "output": {
+        "title": "Blocks PR Review",
+        "summary": "Claude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>\n\n---\n\nClaude Code: Authentication failed. Please check that your API key or Subscription is valid.\n1. `If you are using an API key`, please go to the Blocks Dashboard -> Settings -> Agents -> Select the Agent you are using -> Authentication -> Select API Key in the dropdown (if applicable) and double check the API key is correct.\n2. `If you are using a Subscription`, please go to the Blocks Dashboard -> Settings -> Workspace or User Integration -> Select the Subscription Provider (Anthropic, OpenAI, etc.) and disconnect and reconnect the Subscription.\n <details>authentication_failed\nNot logged in · Please run /login\nNot logged in · Please run /login</details>"
+      }
+    },
+    {
+      "id": 107336211002,
+      "name": "CodeQL",
+      "app": {
+        "slug": "github-advanced-security"
+      },
+      "head_sha": "f9f191fe2943f362ba0b7b0c9424e7e89a91082f",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-23T19:03:37Z",
+      "completed_at": "2026-09-23T19:03:40Z",
+      "output": {
+        "title": "No new alerts in code changed by this pull request",
+        "summary": "[View all branch alerts](/crissmoldovan/agent-communications/security/code-scanning?query=pr%3A34+tool%3ACodeQL+is%3Aopen)."
+      }
+    }
+  ]
+}

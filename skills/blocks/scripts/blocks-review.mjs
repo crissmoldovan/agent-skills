@@ -172,6 +172,40 @@ function isCourtesy(body = '') {
     || /\breview (?:is )?in progress\b|\brunning analysis\b|\bqueued for review\b/i.test(text);
 }
 
+// Blocks's own notice that the agent behind it never ran the review: logged out, or
+// out of quota. It is terminal — nothing more is coming for this request — and it is
+// never a verdict. Observed verbatim on crissmoldovan/agent-communications #32–#35,
+// where "Claude Code: Authentication failed … <details>authentication_failed" was
+// posted as the comment AND as the summary of a check Blocks concluded `success`,
+// and on 33 earlier runs as "Rate limit or quota exceeded … api_error_status: 429".
+// Before this existed, that green check read as a clean review and three of those
+// pull requests merged with nobody having reviewed them.
+//
+// Matched by the notice's SHAPE, never by its words appearing anywhere: a real review
+// that discusses rate-limit handling must not become a failure. Three shapes, each
+// one Blocks's own formatting rather than prose a reviewer would write — the
+// "<Agent>: <failure>. Please …" line, a `<details>` block opening on a snake_case
+// error code, and an `api_error_status: 4xx/5xx` line. Anywhere in the body, not only
+// the first line, because a check summary can open with the half-finished run the
+// notice cut short ("Now let me get exact line numbers … --- Claude Code: Rate limit").
+const FAILURE_LINE = /^[ \t]*([A-Z][\w.+-]*(?:[ \t][A-Z][\w.+-]*){0,2}:[ \t]*(?:authentication failed|not logged in|rate limit or quota exceeded|(?:rate|usage) limit (?:reached|exceeded)|quota exceeded)\.[ \t]+please\b[^\n<]*)/im;
+const FAILURE_DETAILS = /<details>[ \t]*([a-z]+(?:_[a-z]+)*_(?:failed|error|exceeded|limit|denied|expired|unauthorized))[ \t]*\n/;
+const FAILURE_STATUS = /^[ \t]*(api_error_status:[ \t]*[45]\d\d)\b/m;
+
+/** What the notice says went wrong, in its own words — or null when it is not one. */
+export function failureReason(body = '') {
+  const text = String(body);
+  const line = text.match(FAILURE_LINE)?.[1];
+  // Without its closing period, so a caller can end the sentence it puts it in.
+  if (line) return line.trim().replace(/\.+$/u, '').slice(0, 200);
+  const code = text.match(FAILURE_DETAILS)?.[1] ?? text.match(FAILURE_STATUS)?.[1];
+  return code ? `Blocks reported \`${code}\`` : null;
+}
+
+function isFailureNotice(body = '') {
+  return failureReason(body) !== null;
+}
+
 // Clean is a verdict that finished and left nothing behind — never a phrase list of
 // its own. The old version asked whether the prose contained approving words, which
 // meant "LGTM apart from one blocker" and "looks good … the retry path is the
@@ -480,6 +514,7 @@ export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, ve
     reasons.push('the verdict names no commit and cannot be dated against this head');
   }
   if (ciConclusion === null || ciConclusion === undefined) reasons.push('no CI run for this head has completed');
+  else if (ciConclusion === 'pending') reasons.push('CI on this head is still running');
   else if (ciConclusion !== 'success') reasons.push(`CI on this head concluded \`${ciConclusion}\``);
   return { acceptable: reasons.length === 0, reasons };
 }
@@ -499,19 +534,30 @@ export function verdictAcceptance({ state, verdictSha, headSha, ciConclusion, ve
  * A verdict that names no commit is dated by its own timestamp. With no verdict
  * comment at all (a check-run or formal-review delivery) the date falls back to the
  * Blocks check, then to the newest comment — see {@link chooseVerdictAt}.
+ *
+ * When the state was decided by a check, that check is the verdict, and a check run
+ * belongs to exactly one commit — stronger than any date. It used to be dated by
+ * whichever Blocks check the CLI found first on the head, from any round, while the
+ * check that actually decided was never asked which commit it ran on.
+ *
+ * A `failed` state leads its refusal with what Blocks said went wrong, because the
+ * useful answer to "why not" is "Blocks is logged out", not "state is not clean".
  */
 export function acceptVerdict(result = {}, { headSha, ciConclusion, headCommittedAt, blocksCheckCompletedAt = null } = {}) {
   const verdict = result.verdict ?? null;
+  const check = result.check ?? null;
   const comments = result.comments ?? [];
   const latestAt = comments.length ? (comments[comments.length - 1].createdAt ?? null) : null;
-  return verdictAcceptance({
+  const accepted = verdictAcceptance({
     state: result.state,
-    verdictSha: verdict ? (coversHead(verdict.body, headSha) ? headSha : reviewedSha(verdict.body)) : null,
+    verdictSha: verdict ? (coversHead(verdict.body, headSha) ? headSha : reviewedSha(verdict.body)) : (check?.head_sha ?? null),
     headSha,
     ciConclusion,
-    verdictAt: chooseVerdictAt({ namedAt: verdict?.createdAt ?? null, blocksCheckCompletedAt, latestAt }),
+    verdictAt: chooseVerdictAt({ namedAt: verdict?.createdAt ?? null, blocksCheckCompletedAt: check ? (check.completed_at ?? null) : blocksCheckCompletedAt, latestAt }),
     headCommittedAt,
   });
+  if (result.state === 'failed') accepted.reasons.unshift(`Blocks did not review this request: ${result.reason ?? 'it posted a failure notice'}`);
+  return accepted;
 }
 
 /**
@@ -523,26 +569,78 @@ export function acceptVerdict(result = {}, { headSha, ciConclusion, headCommitte
  * comments alone made a completed, clean, zero-finding review look like `reviewing`
  * forever — the same defect this file keeps producing, one channel over.
  *
- * A completed check is evidence that the review FINISHED, not that it was clean.
- * What it found is still decided by the inline comments and summary above, which is
- * why this only ever contributes terminality.
+ * A completed check is evidence that the review FINISHED, never that it was clean,
+ * and the second half of that sentence used to be honoured only in this comment. The
+ * code counted any completed, green Blocks check as a clean review without reading a
+ * word of it — and Blocks concludes its check `success` on a run whose summary is
+ * "Authentication failed … Not logged in" (see {@link failureReason}). On
+ * crissmoldovan/agent-communications that was 38 of 96 check runs, every one of
+ * them read as clean, and `status` printed "Acceptable" for pull requests nobody had
+ * reviewed. So the check now carries its own verdict, in its own summary — see
+ * {@link checkVerdict} — and a green conclusion with nothing said is not clean.
  *
- * The conclusion is checked as well as the status, and the first version of this did
- * not — it asked only whether the check had finished. That version reached `clean`
- * with no findings for a check that completed as `failure`, which is the exact
- * false clean this file calls the only error that merges. It is not a hypothetical
- * either: the review that caught it concluded `action_required` on this very
- * repository, so a Blocks check plainly can finish without succeeding.
- *
- * A check that concluded anything other than success, neutral or skipped therefore
- * says the review finished BADLY, and inferring "nothing to report" from it would be
- * reading silence as an all-clear. The same three conclusions are treated as passing
- * in the CLI's CI gate, for the same reason.
+ * The conclusion is still checked as well. The first version of this asked only
+ * whether the check had finished, and reached `clean` for a check that completed as
+ * `failure`; the review that caught it concluded `action_required` on this very
+ * repository. Only `success` and `neutral` can carry a clean verdict. `skipped` used
+ * to as well, but a skipped review is one that did not run, and reading it as an
+ * empty one is the same all-clear-from-silence.
  */
-function blocksCheckCompleted(checks = []) {
-  return checks.some((check) => /blocks/i.test(check.name ?? '')
-    && (check.status ?? '') === 'completed'
-    && ['success', 'neutral', 'skipped'].includes(check.conclusion ?? ''));
+
+// When a check finished, or when it started while it is still running.
+const checkTime = (check) => Date.parse(check?.completed_at ?? check?.completedAt ?? check?.started_at ?? check?.startedAt ?? '');
+
+// Blocks's check, identified by the app that posted it. The old test was a name
+// containing "blocks", which also caught any repository job called, say, `lint-blocks`:
+// that job's green run became a review verdict, and it vanished from the CI gate. The
+// exact name is only a fallback for a payload that carries no app.
+export function isBlocksCheck(check = {}) {
+  const slug = check.app?.slug;
+  return slug ? /^blocks(?:org)?$/i.test(slug) : /^blocks pr review$/i.test(check.name ?? '');
+}
+
+// The newest Blocks check that belongs to THIS request. A check run is per commit, not
+// per request: re-requesting a review on an unchanged head creates no new run, so the
+// previous round's green check sat there and turned a fresh acknowledgement into
+// `clean` before Blocks had replied (agent-communications#34, requested again the next
+// morning). Comments and reviews were always filtered to the request window; checks
+// were not. A check with no timestamp cannot be placed in the window, so it is
+// dropped — `NaN >= baseline` is false.
+function windowedBlocksCheck(checks = [], baseline = 0) {
+  return checks
+    .filter((check) => isBlocksCheck(check) && checkTime(check) >= baseline)
+    .sort((a, b) => checkTime(a) - checkTime(b))
+    .at(-1) ?? null;
+}
+
+/**
+ * What a finished Blocks check says, read from its own summary: `failed` with the
+ * notice's reason, `clean` when the summary itself says the review came up empty,
+ * or null — not clean, and not terminal on its own.
+ *
+ * Clean takes two signals that agree: a `success` or `neutral` conclusion, which
+ * Blocks withholds when it posts findings (every real review with findings on
+ * agent-communications concluded `failure` or `action_required`), and a summary that
+ * states emptiness in its own words. The second is {@link statesEmptiness}, not the
+ * full {@link reportsFindings} a verdict comment must pass. A check summary is the
+ * whole review, and its prose trips that test's contrast-and-defect heuristic: 13 of
+ * the 31 real clean summaries on agent-communications read as findings under it,
+ * which would strand every check-only delivery at `requested` until the wait timed
+ * out. The one real `success` run that did report a finding — "One finding posted
+ * (severity 7)", #20@3bb1986 — states no emptiness, so it stays out either way.
+ *
+ * Everything else is null rather than `findings`: an empty or half-written summary
+ * is not a verdict either way, and the comments, or the wait's timeout, decide.
+ */
+function checkVerdict(check) {
+  if (!check || (check.status ?? '') !== 'completed') return null;
+  const summary = String(check.output?.summary ?? '');
+  // Before the conclusion, which Blocks sets to success on these.
+  const reason = failureReason(summary);
+  if (reason) return { state: 'failed', reason };
+  if (!['success', 'neutral'].includes(check.conclusion ?? '')) return null;
+  if (isCourtesy(summary) || !statesEmptiness(withoutSubThreshold(summary))) return null;
+  return { state: 'clean' };
 }
 
 const SUB_THRESHOLD_HEADING = /^#{1,6}[ \t]*sub-?threshold\b/i;
@@ -618,6 +716,45 @@ export function latestVerdict(comments = []) {
     .at(-1)?.item ?? null;
 }
 
+// The newest of some comments, ordered the same way as `latestVerdict`.
+function newest(items = []) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => (timestamp(a.item) - timestamp(b.item)) || (a.index - b.index))
+    .at(-1)?.item ?? null;
+}
+
+/**
+ * Check runs from a `gh api --paginate --slurp` of `commits/<sha>/check-runs`.
+ *
+ * The endpoint returns 30 runs per page by default, and an object per page rather
+ * than an array, so an unpaged read silently lost whatever came after the first 30
+ * — Blocks's own check included, on a head with a large CI matrix.
+ */
+export function checkRunsFromPages(pages) {
+  return (Array.isArray(pages) ? pages : [pages]).flatMap((page) => page?.check_runs ?? []);
+}
+
+/**
+ * The repository's own CI on one commit, from its check runs: `success`, the first
+ * conclusion that is not a pass, `pending` while any run has not finished, or null
+ * when there are none.
+ *
+ * Blocks's check is not CI — its verdict is already carried by the review state, and
+ * counting it twice reported "CI concluded failure" while `verify` had passed. And a
+ * run still in progress is not a pass: the CLI used to drop unfinished runs before
+ * deciding, so one finished job stood for five still running and printed
+ * "CI success". `neutral` and `skipped` are not failures here; skipped jobs are
+ * normal in a CI matrix, whatever they mean for a review.
+ */
+export function ciFromCheckRuns(runs = []) {
+  const own = runs.filter((run) => !isBlocksCheck(run));
+  if (!own.length) return null;
+  if (own.some((run) => run.status !== 'completed')) return 'pending';
+  const bad = own.find((run) => !['success', 'neutral', 'skipped'].includes(run.conclusion));
+  return bad ? bad.conclusion : 'success';
+}
+
 export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [], checks = [], prState = 'OPEN' }, { requestedAt, baselineIds = {} }) {
   const baseline = Date.parse(requestedAt ?? 0);
   const after = (kind) => (item) => isBlocks(item) && timestamp(item) >= baseline && !(baselineIds[kind] ?? []).map(String).includes(String(item.id));
@@ -643,6 +780,22 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
   if (findings.length || summaryFindingReviews.length) {
     return { state: 'findings', terminal: true, prState, findings, comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
+  const check = windowedBlocksCheck(checks, baseline);
+  const fromCheck = checkVerdict(check);
+  // A failure notice — as a comment, or as the summary of this request's check — newer
+  // than any verdict means the review just asked for did not run. That is terminal:
+  // nothing else is coming, and a wait that kept polling would burn its whole timeout
+  // and then report `requested`, never saying Blocks is logged out. A tie goes to the
+  // failure, the direction that refuses rather than merges.
+  const failureComment = newest(relevantComments.filter((item) => isFailureNotice(item.body)));
+  const failure = [
+    failureComment && { at: timestamp(failureComment), reason: failureReason(failureComment.body), dashboardUrl: dashboard(failureComment.body), check: null },
+    fromCheck?.state === 'failed' && { at: checkTime(check), reason: fromCheck.reason, dashboardUrl: null, check },
+  ].filter(Boolean).sort((a, b) => a.at - b.at).at(-1);
+  const decidedAt = Math.max(...[verdictComment, cleanReview].filter(Boolean).map(timestamp), -Infinity);
+  if (failure && !(failure.at < decidedAt)) {
+    return { state: 'failed', terminal: true, reason: failure.reason, ...(failure.check ? { check: failure.check } : {}), prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl: failure.dashboardUrl ?? dashboardUrl, verdict: null };
+  }
   // Inline comments and formal reviews above are the stronger evidence and already
   // returned. A verdict comment is the next authority: reaching here means the inline
   // sweep found nothing, so the verdict's own wording decides between the two states.
@@ -652,11 +805,14 @@ export function classifyBlocksEvidence({ comments = [], reviews = [], inline = [
   if (cleanComment || cleanReview) {
     return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
-  // No verdict in prose, but the integration may report completion as a check
-  // instead. Nothing was found above — no inline comments, no findings review — so a
-  // finished review with nothing to show is clean.
-  if (blocksCheckCompleted(checks)) {
-    return { state: 'clean', terminal: true, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
+  // No verdict in prose, but the integration may report its verdict as a check
+  // instead. Only this request's check counts, and only its own summary can make it
+  // clean — see `windowedBlocksCheck` and `checkVerdict`. An acknowledgement newer
+  // than that check means a later round has started and not finished, so it keeps
+  // the review open instead of letting the finished round speak for it.
+  const courtesy = newest(relevantComments.filter((item) => isCourtesy(item.body)));
+  if (fromCheck?.state === 'clean' && !(courtesy && timestamp(courtesy) > checkTime(check))) {
+    return { state: 'clean', terminal: true, check, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
   }
   if (relevantComments.some((item) => isCourtesy(item.body)) || relevantReviews.length) {
     return { state: 'reviewing', terminal: false, prState, findings: [], comments: relevantComments, reviews: relevantReviews, dashboardUrl, verdict: verdictComment };
@@ -678,8 +834,7 @@ export async function collectBlocksStatus({ repo, pr, requestedAt, baselineIds, 
     if (kind === 'checks') {
       const head = prData?.headRefOid;
       if (!head) return [];
-      const runs = await runGh(['api', `repos/${repo}/commits/${head}/check-runs`]);
-      return runs?.check_runs ?? [];
+      return checkRunsFromPages(await runGh(['api', '--method', 'GET', `repos/${repo}/commits/${head}/check-runs?per_page=100`, '--paginate', '--slurp']));
     }
     const pages = await runGh(['api', '--method', 'GET', `repos/${repo}/pulls/${pr}/comments?per_page=100`, '--paginate', '--slurp']);
     return Array.isArray(pages?.[0]) ? pages.flat() : pages;

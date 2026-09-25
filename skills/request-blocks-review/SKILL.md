@@ -68,7 +68,11 @@ can belong to the previous head when the new run has not registered yet, and a
 verdict for a superseded commit reads exactly like one for this commit.
 
 Stop only for a clean current-head review, explicit user cancellation, closed PR,
-or non-convergence that must be escalated to the user. Never merge implicitly.
+`failed`, or non-convergence that must be escalated to the user. Never merge implicitly.
+
+`failed` is Blocks saying it did not run — logged out, or out of quota. Stop and
+report its reason; do not re-request in a loop, and never treat it as a pass. A
+logged-out agent is reconnected only by the workspace owner in the Blocks dashboard.
 
 ## Usage Examples
 

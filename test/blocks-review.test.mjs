@@ -318,10 +318,19 @@ test('collects comments, reviews, inline comments and checks through an injected
   assert.equal(result.state, 'requested');
 });
 
-test('a completed Blocks check is terminal when nothing else reported anything', async () => {
+// A Blocks check from this request's window, as GitHub reports it. The app is how it
+// is identified and the timestamps are how it is placed in the window; a fixture
+// without them no longer reaches the code it means to test.
+const blocksCheck = (over = {}) => ({
+  name: 'Blocks PR Review', app: { slug: 'blocksorg' }, status: 'completed', conclusion: 'success',
+  started_at: '2026-08-24T23:45:00Z', completed_at: '2026-08-24T23:49:00Z',
+  output: { summary: 'No issues reaching severity 7+; no comments posted.' }, ...over,
+});
+
+test('a completed Blocks check whose own summary states emptiness is a clean verdict', async () => {
   const read = async (kind) => {
     if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
-    if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion: 'success' }];
+    if (kind === 'checks') return [blocksCheck()];
     return [];
   };
   const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
@@ -329,10 +338,26 @@ test('a completed Blocks check is terminal when nothing else reported anything',
   assert.equal(result.terminal, true);
 });
 
+test('a completed, green Blocks check that says nothing is not a clean verdict', async () => {
+  // This test used to assert the opposite — a check with no summary at all was
+  // `clean` — and that was the defect: Blocks concludes `success` on runs that never
+  // happened (crissmoldovan/agent-communications#32–#35), so the conclusion alone
+  // cannot say the review was empty. Only the summary can.
+  for (const output of [undefined, { summary: '' }, { summary: 'Blocks PR Review' }]) {
+    const read = async (kind) => {
+      if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
+      if (kind === 'checks') return [blocksCheck({ output })];
+      return [];
+    };
+    const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
+    assert.notEqual(result.state, 'clean', JSON.stringify(output));
+  }
+});
+
 test('a Blocks check still running is not terminal', async () => {
   const read = async (kind) => {
     if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
-    if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'in_progress', conclusion: null }];
+    if (kind === 'checks') return [blocksCheck({ status: 'in_progress', conclusion: null, completed_at: null, output: { summary: '' } })];
     return [];
   };
   const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
@@ -347,7 +372,9 @@ test('a check that completed without succeeding is not an all-clear', async () =
   for (const conclusion of ['failure', 'action_required', 'cancelled', 'timed_out']) {
     const read = async (kind) => {
       if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
-      if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion }];
+      // A summary that would be clean under `success`, so it is the conclusion alone
+      // that has to keep this from being an all-clear.
+      if (kind === 'checks') return [blocksCheck({ conclusion })];
       return [];
     };
     const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
@@ -356,16 +383,20 @@ test('a check that completed without succeeding is not an all-clear', async () =
   }
 });
 
-test('neutral and skipped conclusions still count as a finished, empty review', async () => {
-  for (const conclusion of ['success', 'neutral', 'skipped']) {
-    const read = async (kind) => {
+test('a neutral conclusion can carry a clean verdict, a skipped one cannot', async () => {
+  // `skipped` used to count as a finished, empty review, and this test required it.
+  // A skipped review is one that did not run; the summary below is kept clean so that
+  // the conclusion is the only thing that differs.
+  const stateFor = async (conclusion) => collectBlocksStatus({
+    repo: 'owner/repo', pr: 17, requestedAt,
+    read: async (kind) => {
       if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
-      if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion }];
+      if (kind === 'checks') return [blocksCheck({ conclusion })];
       return [];
-    };
-    const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
-    assert.equal(result.state, 'clean', conclusion);
-  }
+    },
+  });
+  for (const conclusion of ['success', 'neutral']) assert.equal((await stateFor(conclusion)).state, 'clean', conclusion);
+  assert.notEqual((await stateFor('skipped')).state, 'clean', 'skipped');
 });
 
 test('a completed check does not overrule inline findings', async () => {
@@ -373,7 +404,7 @@ test('a completed check does not overrule inline findings', async () => {
   // still decided by the findings, or a false clean would merge on a green check.
   const read = async (kind) => {
     if (kind === 'pr') return { state: 'OPEN', comments: [], reviews: [], reviewRequests: [] };
-    if (kind === 'checks') return [{ name: 'Blocks PR Review', status: 'completed', conclusion: 'success' }];
+    if (kind === 'checks') return [blocksCheck()];
     return [{ id: 9, user: { login: 'blocksorg' }, created_at: '2026-08-24T23:50:00Z', path: 'a.ts', line: 3, body: 'Severity 8/10 — unbounded retry.' }];
   };
   const result = await collectBlocksStatus({ repo: 'owner/repo', pr: 17, requestedAt, read });
