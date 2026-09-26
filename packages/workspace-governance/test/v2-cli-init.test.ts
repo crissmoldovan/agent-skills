@@ -122,7 +122,7 @@ test("M2 doctor validates the selected config, trusted roots, and both actual st
     const state = join(dirs.state, "local-state.json");
     const planPath = join(dirs.plans, "init.json");
     const skill = join(dirs.skill, "SKILL.md");
-    await writeFile(skill, "---\nname: workspace-governance\nversion: 0.2.0\n---\n# Synthetic\n");
+    await writeFile(skill, "---\nname: workspace-governance\nversion: 0.3.0\n---\n# Synthetic\n");
     const preview = run([
       "init", "--config", config, "--catalog", catalog, "--state", state,
       "--plans-dir", dirs.plans, "--trusted-root", dirs.workspaces,
@@ -158,7 +158,7 @@ test("M2 doctor validates the selected config, trusted roots, and both actual st
 test("M2/A05 help exposes setup/import, selected overviews, and bounded catalog edits", () => {
   const result = run(["--help"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^workspacectl 0\.2\.0 — Workspaces M2\/A05/m);
+  assert.match(result.stdout, /^workspacectl 0\.3\.0 — Workspaces M2\/A05/m);
   for (const command of [
     "init",
     "import-v1",

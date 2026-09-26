@@ -17,7 +17,7 @@ async function syntheticArchive(root: string): Promise<string> {
     join(source, "package.json"),
     JSON.stringify({
       name: "@crissmoldovan/workspace-governance",
-      version: "0.2.0",
+      version: "0.3.0",
       private: true,
       type: "module",
       bin: { workspacectl: "dist/cli.js" },
@@ -26,7 +26,7 @@ async function syntheticArchive(root: string): Promise<string> {
   );
   await writeFile(
     join(source, "dist", "cli.js"),
-    "#!/usr/bin/env node\nconsole.log(process.argv[2] === '--version' ? '0.2.0' : 'synthetic CLI');\n",
+    "#!/usr/bin/env node\nconsole.log(process.argv[2] === '--version' ? '0.3.0' : 'synthetic CLI');\n",
     { mode: 0o755 },
   );
   const packed = spawnSync("npm", [
@@ -50,7 +50,7 @@ test("local installer stops with an actionable error when Node is missing", asyn
       "--archive",
       join(root, "candidate.tgz"),
       "--prefix",
-      join(root, "versions", "0.2.0"),
+      join(root, "versions", "0.3.0"),
       "--launcher",
       join(root, "bin", "workspacectl"),
     ], {
@@ -77,7 +77,7 @@ test("local installer stops with an actionable error when Git is missing", async
       "--archive",
       join(root, "candidate.tgz"),
       "--prefix",
-      join(root, "versions", "0.2.0"),
+      join(root, "versions", "0.3.0"),
       "--launcher",
       join(root, "bin", "workspacectl"),
     ], {
@@ -97,7 +97,7 @@ test("local installer handles spaces and creates a versioned prefix plus stable 
   const root = await mkdtemp(join(tmpdir(), "workspacectl install with spaces-"));
   try {
     const archive = await syntheticArchive(root);
-    const prefix = join(root, "local share", "workspacectl", "versions", "0.2.0");
+    const prefix = join(root, "local share", "workspacectl", "versions", "0.3.0");
     const launcher = join(root, "local bin", "workspacectl");
     const installed = spawnSync(installer, [
       "--archive",
@@ -109,12 +109,12 @@ test("local installer handles spaces and creates a versioned prefix plus stable 
     ], { encoding: "utf8", env: process.env });
     assert.equal(installed.status, 0, installed.stderr);
     assert.equal(installed.stderr, "");
-    assert.match(installed.stdout, /Installed workspacectl 0\.2\.0/);
+    assert.match(installed.stdout, /Installed workspacectl 0\.3\.0/);
     assert.match(installed.stdout, /No config, skill, credential, provider, or Hermes settings were changed/);
     assert.equal((await stat(launcher)).isFile(), true);
     const marker = JSON.parse(await readFile(join(prefix, ".workspacectl-install.json"), "utf8"));
     assert.equal(marker.package, "@crissmoldovan/workspace-governance");
-    assert.equal(marker.version, "0.2.0");
+    assert.equal(marker.version, "0.3.0");
     assert.equal(marker.prefix, prefix);
     assert.equal(marker.launcher, launcher);
     assert.equal(marker.runtime, process.execPath);
@@ -123,7 +123,7 @@ test("local installer handles spaces and creates a versioned prefix plus stable 
       env: { HOME: root, PATH: join(root, "empty runtime path") },
     });
     assert.equal(invoked.status, 0, invoked.stderr);
-    assert.equal(invoked.stdout.trim(), "0.2.0");
+    assert.equal(invoked.stdout.trim(), "0.3.0");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -133,7 +133,7 @@ test("local installer replaces only an installer-managed regular launcher", asyn
   const root = await mkdtemp(join(tmpdir(), "workspacectl managed launcher-"));
   try {
     const archive = await syntheticArchive(root);
-    const prefix = join(root, "versions", "0.2.0");
+    const prefix = join(root, "versions", "0.3.0");
     const launcherDirectory = join(root, "bin");
     const launcher = join(launcherDirectory, "workspacectl");
     await mkdir(launcherDirectory);
@@ -155,7 +155,7 @@ test("local installer replaces only an installer-managed regular launcher", asyn
     assert.match(await readFile(launcher, "utf8"), /^#!\/bin\/sh\n# workspacectl-managed-launcher-v1\n/);
     const invoked = spawnSync(launcher, ["--version"], { encoding: "utf8", env: process.env });
     assert.equal(invoked.status, 0, invoked.stderr);
-    assert.equal(invoked.stdout.trim(), "0.2.0");
+    assert.equal(invoked.stdout.trim(), "0.3.0");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -165,7 +165,7 @@ test("local installer refuses an unrelated occupied launcher before installing",
   const root = await mkdtemp(join(tmpdir(), "workspacectl occupied launcher-"));
   try {
     const archive = await syntheticArchive(root);
-    const prefix = join(root, "versions", "0.2.0");
+    const prefix = join(root, "versions", "0.3.0");
     const launcherDirectory = join(root, "bin");
     const launcher = join(launcherDirectory, "workspacectl");
     await mkdir(launcherDirectory);

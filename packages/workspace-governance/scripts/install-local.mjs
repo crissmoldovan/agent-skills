@@ -15,7 +15,7 @@ import {
 import { basename, dirname, isAbsolute, join } from "node:path";
 
 const PACKAGE_NAME = "@crissmoldovan/workspace-governance";
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const LAUNCHER_MARKER = "# workspacectl-managed-launcher-v1";
 
 class InstallError extends Error {

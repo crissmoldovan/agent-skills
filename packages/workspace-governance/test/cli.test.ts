@@ -48,7 +48,7 @@ test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no wri
       scan,
     ];
     assert.match(run("--help").stdout, /advisory/);
-    assert.equal(run("--version").stdout.trim(), "0.2.0");
+    assert.equal(run("--version").stdout.trim(), "0.3.0");
     assert.equal(run("validate", "--manifest", manifest).status, 0);
     assert.equal(
       JSON.parse(

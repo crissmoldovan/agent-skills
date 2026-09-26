@@ -72,7 +72,7 @@ test("M2/A05 help retains the labelled M1 read-only surface", () => {
     const result = run(...args);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
-    assert.match(result.stdout, /^workspacectl 0\.2\.0 — Workspaces M2\/A05/m);
+    assert.match(result.stdout, /^workspacectl 0\.3\.0 — Workspaces M2\/A05/m);
     for (const command of ["discover --config", "list", "report", "audit"])
       assert.ok(result.stdout.includes(command), command);
     assert.match(result.stdout, /doctor \[--standalone\] \[--config FILE\] \[--skill FILE\] \[--json\]/);
@@ -90,8 +90,8 @@ test("M2/A05 help retains the labelled M1 read-only surface", () => {
     for (const premature of ["  checkout REPO"])
       assert.equal(result.stdout.includes(premature), false, premature);
   }
-  assert.equal(run("version").stdout.trim(), "0.2.0");
-  assert.equal(run("--version").stdout.trim(), "0.2.0");
+  assert.equal(run("version").stdout.trim(), "0.3.0");
+  assert.equal(run("--version").stdout.trim(), "0.3.0");
 });
 
 test("M1 package metadata and CLI report the same v0.2 release", async () => {
@@ -99,7 +99,7 @@ test("M1 package metadata and CLI report the same v0.2 release", async () => {
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
   assert.equal(metadata.name, "@crissmoldovan/workspace-governance");
-  assert.equal(metadata.version, "0.2.0");
+  assert.equal(metadata.version, "0.3.0");
   assert.equal(metadata.private, true);
   assert.equal(run("--version").stdout.trim(), metadata.version);
 });
@@ -142,7 +142,7 @@ test("doctor JSON reports the selected missing config without claiming readiness
     const diagnosis = JSON.parse(result.stdout);
     assert.equal(diagnosis.ok, false);
     assert.equal(diagnosis.command, "doctor");
-    assert.equal(diagnosis.cliVersion, "0.2.0");
+    assert.equal(diagnosis.cliVersion, "0.3.0");
     assert.equal(diagnosis.milestone, "M2/A03");
     assert.equal(diagnosis.ready, false);
     assert.deepEqual(diagnosis.selected.config, {
@@ -245,7 +245,7 @@ test("doctor rejects a malformed selected v2 config without claiming readiness",
     await writeFile(explicitConfig, "schemaVersion: 2\n", { mode: 0o600 });
     await writeFile(
       explicitSkill,
-      "---\nname: workspace-governance\nversion: 0.2.0\n---\n# Workspaces\n",
+      "---\nname: workspace-governance\nversion: 0.3.0\n---\n# Workspaces\n",
       { mode: 0o600 },
     );
     const env = {
@@ -284,7 +284,7 @@ test("doctor rejects a malformed selected v2 config without claiming readiness",
       id: "skill",
       status: "pass",
       path: explicitSkill,
-      version: "0.2.0",
+      version: "0.3.0",
     });
     assert.equal(diagnosis.ready, false);
     assert.equal(diagnosis.error.code, "INVALID_CONFIG");
@@ -475,7 +475,7 @@ test("doctor text is the default and carries the same incomplete setup facts", a
     });
     assert.equal(result.status, 2, result.stderr);
     assert.equal(result.stderr, "");
-    assert.match(result.stdout, /^Workspaces doctor — workspacectl 0\.2\.0/m);
+    assert.match(result.stdout, /^Workspaces doctor — workspacectl 0\.3\.0/m);
     assert.match(result.stdout, /Ready: no \(NOT_CONFIGURED\)/);
     assert.match(result.stdout, /\[PASS\] runtime/);
     assert.match(result.stdout, /\[PASS\] git/);
@@ -539,10 +539,10 @@ test("doctor identifies a mismatched installed skill version", async () => {
     const check = diagnosis.checks.find((entry: { id: string }) => entry.id === "skill");
     assert.equal(check.status, "mismatch");
     assert.equal(check.version, "0.1.0");
-    assert.equal(check.expectedVersion, "0.2.0");
-    assert.match(check.remedy, /v0\.2\.0/);
+    assert.equal(check.expectedVersion, "0.3.0");
+    assert.match(check.remedy, /v0\.3\.0/);
     assert.equal(diagnosis.error.code, "INCOMPLETE");
-    assert.match(diagnosis.error.details.remedies.join("\n"), /workspace-governance skill v0\.2\.0/);
+    assert.match(diagnosis.error.details.remedies.join("\n"), /workspace-governance skill v0\.3\.0/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -556,7 +556,7 @@ test("doctor ignores skill identity examples outside YAML frontmatter", async ()
     await createV2Setup(home, config);
     await writeFile(
       skill,
-      "# Synthetic documentation, not a valid skill header\n\n```yaml\nname: workspace-governance\nversion: 0.2.0\n```\n",
+      "# Synthetic documentation, not a valid skill header\n\n```yaml\nname: workspace-governance\nversion: 0.3.0\n```\n",
       { mode: 0o600 },
     );
     const result = spawnSync(process.execPath, [
@@ -576,8 +576,8 @@ test("doctor ignores skill identity examples outside YAML frontmatter", async ()
       id: "skill",
       status: "invalid",
       path: skill,
-      expectedVersion: "0.2.0",
-      remedy: "Install workspace-governance skill v0.2.0 separately at the selected path or pass --skill FILE.",
+      expectedVersion: "0.3.0",
+      remedy: "Install workspace-governance skill v0.3.0 separately at the selected path or pass --skill FILE.",
     });
   } finally {
     await rm(home, { recursive: true, force: true });

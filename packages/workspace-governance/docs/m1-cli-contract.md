@@ -6,9 +6,9 @@ workspace-operation, or workflow-execution interfaces scheduled for later milest
 ## Command shell
 
 - Package and binary remain `@crissmoldovan/workspace-governance` and
-  `workspacectl`; both report version `0.2.0` and require Node.js 24 or newer.
+  `workspacectl`; both report version `0.3.0` and require Node.js 24 or newer.
 - No arguments, `help`, and `--help` print the same text and exit 0. `version` and
-  `--version` print `0.2.0` and exit 0.
+  `--version` print `0.3.0` and exit 0.
 - Help lists `doctor` as the only v0.2 setup command. Preserved v0.1 read-only
   commands are grouped and labelled **Legacy read-only engine**. It says their
   principal is advisory and their workflow data is inert. It does not list the
@@ -69,11 +69,11 @@ Run the reviewed checkout's `scripts/install-local.sh` with three absolute paths
 
 ```sh
 scripts/install-local.sh --archive PACKAGE.tgz \
-  --prefix "$HOME/.local/share/workspacectl/versions/0.2.0" \
+  --prefix "$HOME/.local/share/workspacectl/versions/0.3.0" \
   --launcher "$HOME/.local/bin/workspacectl"
 ```
 
-The prefix basename must be `0.2.0`. The bootstrap selects an exact Node.js 24+
+The prefix basename must be `0.3.0`. The bootstrap selects an exact Node.js 24+
 runtime from `PATH`, requires trusted `git` and `npm`, and never installs them.
 It installs the packed candidate with lifecycle scripts disabled, verifies package
 name/version/CLI, records the selected runtime, and writes a stable shell launcher.

@@ -1,6 +1,6 @@
 {
   "name": "@crissmoldovan/workspace-governance",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Workspaces M2/A05–A06 through M7/A16 plus M3/A17 replaceable coherent storage.",
   "license": "MIT",

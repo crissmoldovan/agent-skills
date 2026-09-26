@@ -53,7 +53,7 @@ async function setupDiagnostics(io: SetupIo): Promise<Record<string, unknown>> {
   );
   return {
     cliReady: true,
-    cliVersion: "0.2.0",
+    cliVersion: "0.3.0",
     skillsCliVersion: SKILLS_CLI_VERSION,
     skill: { optional: true, installed: projections.some((item) => item.status === "installed"), projections },
     configuration,

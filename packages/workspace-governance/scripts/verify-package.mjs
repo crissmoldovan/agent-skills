@@ -50,7 +50,7 @@ const probe = (bin, args, cwd = root) =>
 try {
   const meta = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   assert.equal(meta.private, true);
-  assert.equal(meta.version, "0.2.0");
+  assert.equal(meta.version, "0.3.0");
   for (const key of ["preinstall", "install", "postinstall", "prepare"])
     assert.equal(meta.scripts[key], undefined);
   assert.deepEqual(meta.dependencies, {
@@ -175,7 +175,7 @@ try {
   const bin = join(consumer, "node_modules", ".bin", "workspacectl");
   const mcpBin = join(consumer, "node_modules", ".bin", "workspacectl-mcp");
   const help = run(bin, ["--help"], consumer);
-  assert.match(help, /^workspacectl 0\.2\.0 — Workspaces M2\/A05–A06/m);
+  assert.match(help, /^workspacectl 0\.3\.0 — Workspaces M2\/A05–A06/m);
   assert.match(help, /M3\/A07–A08/);
   assert.match(help, /doctor \[--standalone\] \[--config FILE\] \[--skill FILE\] \[--json\]/);
   assert.match(help, /--load knowledge:ID\|skill:ID/);
@@ -219,7 +219,7 @@ try {
   assert.match(help, /advisory/);
   assert.equal(help.includes("manifest-init-plan"), false);
   assert.equal(run(bin, [], consumer), help);
-  assert.equal(run(bin, ["--version"], consumer).trim(), "0.2.0");
+  assert.equal(run(bin, ["--version"], consumer).trim(), "0.3.0");
   const installed = join(
     consumer,
     "node_modules",
@@ -367,7 +367,7 @@ try {
   }
   await writeFile(
     selectedSkill,
-    "---\nname: workspace-governance\nversion: 0.2.0\n---\n# Workspaces\n",
+    "---\nname: workspace-governance\nversion: 0.3.0\n---\n# Workspaces\n",
   );
   const migrationDirectory = join(temp, "migration inputs");
   await mkdir(migrationDirectory);

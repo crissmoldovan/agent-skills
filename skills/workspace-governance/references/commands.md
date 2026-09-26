@@ -12,7 +12,7 @@ Removing the skill preserves the runtime, catalogs, policies, plans, repositorie
 skills. Follow reported per-agent recovery commands after a partial third-party result; no
 automatic rollback is claimed.
 
-Workspaces v0.2.0 through M7/A16 is an unpublished candidate. Install the portable skill
+Workspaces v0.3.0 through M7/A16 is an unpublished candidate. Install the portable skill
 and CLI separately. A03 setup/import and A04 read-only overviews stay intact; A05
 adds revision-checked catalog editing. Do not substitute a registry package, install globally,
 or modify an active agent profile while reviewing a candidate. A06 adds deterministic
@@ -63,13 +63,13 @@ mkdir -p "$ARTIFACT_DIR"
 npm pack --ignore-scripts --pack-destination "$ARTIFACT_DIR"
 ./scripts/install-local.sh \
   --archive "$ARTIFACT_DIR/ACTUAL_TARBALL_NAME.tgz" \
-  --prefix "$ISOLATED_ROOT/versions/0.2.0" \
+  --prefix "$ISOLATED_ROOT/versions/0.3.0" \
   --launcher "$ISOLATED_ROOT/bin/workspacectl"
 "$ISOLATED_ROOT/bin/workspacectl" --help
 ```
 
 Use the exact tarball name printed by `npm pack` and explicit absolute paths. The
-version prefix must end in `0.2.0` and be absent. The installer accepts an absent
+version prefix must end in `0.3.0` and be absent. The installer accepts an absent
 launcher or replaces only a regular launcher carrying its managed marker. It
 refuses symlinks, directories, and unrelated occupied files. It binds the exact
 Node runtime used for installation and requires Git/npm, but installs neither.

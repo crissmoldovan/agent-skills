@@ -8,7 +8,7 @@ import { createBuiltinStoreRegistry } from "./document-stores.ts";
 import { loadWorkspacesConfig } from "./registry-plans.ts";
 import { requireStablePath } from "./path-safety.ts";
 
-export const CLI_VERSION = "0.2.0";
+export const CLI_VERSION = "0.3.0";
 
 type SelectionSource = "cli" | "environment" | "xdg" | "default";
 type DoctorErrorCode =
@@ -20,7 +20,7 @@ type DoctorErrorCode =
 export interface DoctorDiagnosis {
   ok: boolean;
   command: "doctor";
-  cliVersion: "0.2.0";
+  cliVersion: "0.3.0";
   milestone: "M2/A03";
   readinessScope: "integration" | "standalone";
   ready: boolean;
@@ -177,9 +177,22 @@ async function inspectInstall(env: NodeJS.ProcessEnv, cliPath: string) {
     if ((await regularFileStatus(receiptPath)) === "present") {
       const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
       const version = receipt.activeVersion;
-      const managedCli = join(prefix, "versions", version, "lib", "node_modules", "@crissmoldovan", "workspace-governance", "dist", "cli.js");
+      const launcherName = Object.entries(receipt.launchers ?? {}).find(
+        ([, value]) => (value as { path?: unknown })?.path === launcher,
+      )?.[0];
+      const entrypoint = launcherName === "workspacectl"
+        ? "cli.js"
+        : launcherName === "workspacectl-mcp"
+          ? "mcp-cli.js"
+          : undefined;
+      const launcherRecord = entrypoint === undefined
+        ? undefined
+        : receipt.launchers[launcherName!];
+      const managedCli = entrypoint === undefined
+        ? ""
+        : join(prefix, "versions", version, "lib", "node_modules", "@crissmoldovan", "workspace-governance", "dist", entrypoint);
       const launcherBytes = await readFile(launcher);
-      if (receipt.schemaVersion !== 2 || receipt.package !== "@crissmoldovan/workspace-governance" || version !== CLI_VERSION || receipt.versions?.[version]?.root !== join(prefix, "versions", version) || receipt.launchers?.workspacectl?.path !== launcher || receipt.launchers.workspacectl.targetVersion !== version || createHash("sha256").update(launcherBytes).digest("hex") !== receipt.launchers.workspacectl.sha256 || cliPath !== managedCli || process.execPath !== runtime || (await regularFileStatus(managedCli)) !== "present" || !launcherBytes.toString("utf8").startsWith("#!/bin/sh\n# workspacectl-managed-launcher-v2\n")) return { id: "install", status: "invalid", version: CLI_VERSION, remedy };
+      if (receipt.schemaVersion !== 2 || receipt.package !== "@crissmoldovan/workspace-governance" || version !== CLI_VERSION || receipt.versions?.[version]?.root !== join(prefix, "versions", version) || launcherRecord?.targetVersion !== version || createHash("sha256").update(launcherBytes).digest("hex") !== launcherRecord?.sha256 || cliPath !== managedCli || process.execPath !== runtime || (await regularFileStatus(managedCli)) !== "present" || !launcherBytes.toString("utf8").startsWith("#!/bin/sh\n# workspacectl-managed-launcher-v2\n")) return { id: "install", status: "invalid", version: CLI_VERSION, remedy };
       return { id: "install", status: "pass", version: CLI_VERSION, prefix, launcher, runtime, cliPath };
     }
     if (
@@ -212,6 +225,36 @@ async function inspectInstall(env: NodeJS.ProcessEnv, cliPath: string) {
     launcher,
     runtime,
     cliPath,
+  };
+}
+
+async function inspectPathLauncher(env: NodeJS.ProcessEnv) {
+  const prefix = env.WORKSPACECTL_INSTALL_PREFIX;
+  if (!prefix) return { id: "path-launcher", status: "skipped", required: false, reason: "Source/direct invocation has no owned PATH launcher." };
+  let expected: string | undefined;
+  try {
+    const receipt = JSON.parse(await readFile(join(prefix, "manager-receipt.json"), "utf8"));
+    expected = receipt.launchers?.workspacectl?.path;
+  } catch {}
+  if (!expected) return { id: "path-launcher", status: "invalid", remedy: "Restore the managed receipt before selecting a workspacectl launcher on PATH." };
+  let actual: string | undefined;
+  for (const directory of (env.PATH ?? "").split(":")) {
+    if (!directory) continue;
+    const candidate = resolve(directory, "workspacectl");
+    try {
+      const metadata = await lstat(candidate);
+      if (metadata.isFile() && !metadata.isSymbolicLink() && (metadata.mode & 0o111) !== 0) { actual = candidate; break; }
+    } catch {}
+  }
+  if (actual === expected) return { id: "path-launcher", status: "pass", actual, expected };
+  return {
+    id: "path-launcher",
+    status: actual ? "shadowed" : "missing",
+    ...(actual ? { actual } : {}),
+    expected,
+    remedy: actual
+      ? `PATH resolves workspacectl to ${actual}; place the owned launcher ${expected} first or invoke it explicitly.`
+      : `Add the owned launcher directory ${resolve(expected, "..")} to PATH or invoke ${expected} explicitly.`,
   };
 }
 
@@ -395,6 +438,7 @@ export async function diagnose(
     env,
     options.cliPath ?? resolve(process.argv[1] ?? ""),
   );
+  const pathLauncherCheck = await inspectPathLauncher(env);
   const git = spawnSync("git", ["--version"], {
     encoding: "utf8",
     env,
@@ -423,6 +467,7 @@ export async function diagnose(
   const checks = [
     runtimeCheck,
     installCheck,
+    pathLauncherCheck,
     gitCheck,
     resources.config,
     skillCheck,

@@ -78,13 +78,13 @@ test("EOF on interactive setup defaults to skip without installation", async () 
 test("spawn failure returns structured sanitized JSON with exit 6", async () => {
   const f = await base();
   try {
-    const result = invoke(f.project, { ...f.env, PATH: join(f.root, "missing-bin"), PRIVATE_TOKEN: "do-not-echo" }, ["setup", "--install-skill", "--source", f.source, "--ref", f.ref, "--agent", "hermes-agent", "--scope", "project", "--yes", "--json"]);
+    const result = invoke(f.project, { ...f.env, PATH: join(f.root, "missing-bin"), PRIVATE_TOKEN: "not-a-real-secret" }, ["setup", "--install-skill", "--source", f.source, "--ref", f.ref, "--agent", "hermes-agent", "--scope", "project", "--yes", "--json"]);
     assert.equal(result.status, 6, result.stderr);
     const body = JSON.parse(result.stdout);
     assert.equal(body.ok, false);
     assert.equal(body.failureCode, "TOOL_FAILURE");
     assert.equal(body.exitStatus, 1);
     assert.match(body.installerStderr, /failed to start or complete/i);
-    assert.doesNotMatch(JSON.stringify(body), /do-not-echo/);
+    assert.doesNotMatch(JSON.stringify(body), /not-a-real-secret/);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });

@@ -1,6 +1,6 @@
 # M2/A06 checkout lookup and registry contract
 
-This private v0.2.0 candidate ships three bounded public routes:
+This private v0.3.0 candidate ships three bounded public routes:
 
 ```sh
 workspacectl where REPOSITORY --config "$CONFIG" --json

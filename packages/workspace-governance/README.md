@@ -1,4 +1,4 @@
-# Workspaces 0.2.0 — through A17
+# Workspaces 0.3.0 — through A17
 
 This private, unpublished candidate preserves the accepted M2/A03 isolated setup,
 guarded v1-plus-sidecar import, stores, catalog readback, and configured `doctor`.
@@ -137,10 +137,10 @@ The assembler refuses relative paths, repository-contained paths, and any output
 that already exists. It rebuilds the package, creates one npm archive containing the
 complete production dependency closure, and writes `runtime-manifest.json`, its detached
 SHA-256 file, and the package lock beside it. The strict manifest identifies package
-`0.2.0`, both bins, every archived regular file by SHA-256, all production package
+`0.3.0`, both bins, every archived regular file by SHA-256, all production package
 versions/integrities, the archive hash, and compatible skill ref
 `workspace-governance-v0.3.0`. It deliberately contains no final source-commit hash; the
-package remains the unpublished 0.2.0 development identity until the later release
+package remains the unpublished 0.3.0 development identity until the later release
 transition.
 
 A consumer can install the archive without a registry or populated cache:
@@ -149,7 +149,7 @@ A consumer can install the archive without a registry or populated cache:
 npm install --prefix "$DISPOSABLE_CONSUMER" \
   --offline --ignore-scripts --no-audit --no-fund \
   --cache "$EMPTY_CACHE" --registry http://127.0.0.1:9/unreachable \
-  "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.2.0.tgz"
+  "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.3.0.tgz"
 ```
 
 `test/runtime-artifact.test.ts` exercises that exact disposable route, then removes the
@@ -166,13 +166,13 @@ The retained local installer remains available for its existing development rout
 
 ```sh
 ./scripts/install-local.sh \
-  --archive "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.2.0.tgz" \
-  --prefix "$ISOLATED_ROOT/versions/0.2.0" \
+  --archive "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.3.0.tgz" \
+  --prefix "$ISOLATED_ROOT/versions/0.3.0" \
   --launcher "$ISOLATED_ROOT/bin/workspacectl"
 "$ISOLATED_ROOT/bin/workspacectl" --help
 ```
 
-Use explicit absolute paths. The prefix must end in `0.2.0` and be absent. The retained
+Use explicit absolute paths. The prefix must end in `0.3.0` and be absent. The retained
 installer verifies package name/version/CLI, installs with lifecycle scripts disabled,
 records the exact Node runtime, and creates a stable managed launcher. Paths with spaces
 are supported. An unrelated file, directory, or symlink at the launcher path is refused.

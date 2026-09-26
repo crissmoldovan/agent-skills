@@ -14,7 +14,7 @@ import { diagnose, doctorExitCode, renderDoctorText } from "./doctor.ts";
 import { runV2Cli } from "./v2-cli.ts";
 import { runSetup } from "./setup.ts";
 import { SkillLifecycleError } from "./skill-lifecycle.ts";
-const help = `workspacectl 0.2.0 — Workspaces M2/A05–A06 + M3/A07–A08 + M4/A09 + M5/A11–A12 + M6/A13–A15 + M7/A16 + M3/A17
+const help = `workspacectl 0.3.0 — Workspaces M2/A05–A06 + M3/A07–A08 + M4/A09 + M5/A11–A12 + M6/A13–A15 + M7/A16 + M3/A17
 
 Usage:
   workspacectl [help|--help]
@@ -191,7 +191,7 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   if (args.length === 1 && ["version", "--version"].includes(args[0])) {
-    console.log("0.2.0");
+    console.log("0.3.0");
     return;
   }
   const command = args[0];

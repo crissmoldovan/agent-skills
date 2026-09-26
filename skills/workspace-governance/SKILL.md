@@ -1,15 +1,17 @@
 ---
 name: workspace-governance
 description: Use when finding, registering, organizing, or observing Workspaces repositories.
-version: 0.2.0
+version: 0.3.0
 author: Cristian Moldovan (crissmoldovan), Hermes Agent
 license: MIT
 platforms: [linux, darwin]
+compatibility: "workspacectl 0.3.0; catalog 0.26.0; skill tag workspace-governance-v0.3.0"
+metadata: "runtime-manifest-sha256=b0060938c279a74b249e67ab8c26a8fa83848b0e25f406e0747bcde3ca72a246; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
 ---
 
 # Workspace Governance
 
-Workspaces v0.2.0 implements **M2/A06 through M7/A16 plus M3/A17** while retaining M2/A05.
+Workspaces v0.3.0 implements **M2/A06 through M7/A16 plus M3/A17** while retaining M2/A05.
 Legacy catalog, policy, discovery, report, and placement previews remain read-only.
 
 This skill owns workspace catalog, policy, guarded checkout/worktree guidance, and bounded workflow
@@ -40,11 +42,36 @@ Do not move real portfolio repositories, sweep knowledge, embed providers, perfo
 
 ## Prerequisites
 
-Install `workspacectl` **separately** from a reviewed v0.2.0 archive, or use the carried
-`scripts/install-runtime.mjs` helper with an exact approved runtime-manifest SHA-256, absolute
-managed root and bin directory. The helper previews by default; installation/removal requires
-`--yes`, and runtime removal never removes this skill or governed data. Follow the
-[command reference](references/commands.md).
+This skill loads without `workspacectl`. First run `command -v workspacectl` and
+`workspacectl --version`; do not guess a launcher or execute `latest`. The matching runtime is
+package `@crissmoldovan/workspace-governance` 0.3.0 from immutable tag
+`workspace-governance-v0.3.0`, catalog compatibility 0.26.0, and the anchored manifest named in
+this file's metadata.
+
+With explicit consent, run the copied `scripts/install-runtime.mjs` using Node.js >=24, an
+absolute user-writable managed root and bin directory. It previews unless `--yes` is present.
+Without `--bundle` it downloads only the pinned public GitHub Release manifest/archive, needing
+no GitHub, Hermes, npm-registry, or AI credentials. For offline/manual installation pass
+`--bundle /absolute/release-assets`; the directory must contain the anchored
+`runtime-manifest.json` and its named archive. The helper verifies package/version/bins, complete
+content hashes, lifecycle-script absence and both managed launchers before activation.
+
+Declining is safe: keep using the skill as guidance and make no runtime, profile, or governed-data
+change. Manual preview:
+
+```sh
+node scripts/install-runtime.mjs plan \
+  --root "$HOME/.local/share/workspacectl" \
+  --bin-dir "$HOME/.local/bin" --json
+```
+
+Node.js >=24 (with npm) and POSIX `tar` are bootstrap prerequisites. Install them separately using
+your OS/vendor instructions; this helper never uses sudo or installs prerequisites. Git is needed
+only for governed Git operations, not release download. `npx` is needed only to install/remove the
+skill with pinned `skills@1.7.0 --copy`, not to run the runtime helper. Missing/old Node, npm, tar,
+Git or npx, unsupported Linux/macOS platform, network failure, unwritable destinations, occupied
+or symlinked paths, and modified/unmanaged receipts are blockers to fix explicitly—never reasons
+to overwrite, follow `latest`, access credentials, or mutate an agent profile.
 
 Node.js 24 and trusted Git are required. For GitHub, use existing authorized `gh`; never change credentials.
 Default `doctor` validates **CLI + agent skill integration**; `--skill` may select the

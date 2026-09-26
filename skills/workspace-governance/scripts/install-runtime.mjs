@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { access, chmod, copyFile, lstat, link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 const PACKAGE = "@crissmoldovan/workspace-governance";
 const RECEIPT = "manager-receipt.json";
@@ -12,6 +13,9 @@ const REPOSITORY = "https://github.com/crissmoldovan/agent-skills";
 const RELEASE_TAG = "workspace-governance-v0.3.0";
 const MANIFEST_ASSET = "runtime-manifest.json";
 const CATALOG_VERSION = "0.26.0";
+// Replaced only after the stable 0.3.0 runtime is assembled. The runtime archive
+// does not contain this helper, so embedding its digest cannot create a cycle.
+const CARRIED_MANIFEST_SHA256 = "b0060938c279a74b249e67ab8c26a8fa83848b0e25f406e0747bcde3ca72a246";
 const BINS = ["workspacectl", "workspacectl-mcp"];
 const BIN_ENTRIES = { workspacectl: "dist/cli.js", "workspacectl-mcp": "dist/mcp-cli.js" };
 const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "preprepare", "postprepare", "prepublish", "prepublishOnly", "prepack", "postpack", "dependencies"];
@@ -29,8 +33,63 @@ function parse(argv) {
   const o = { action, yes: false, json: false };
   while (argv.length) { const flag = argv.shift(); if (flag === "--yes") o.yes = true; else if (flag === "--json") o.json = true; else { const value = argv.shift(); if (!value || !["--bundle", "--manifest-sha256", "--root", "--bin-dir", "--version", "--preserve-version"].includes(flag)) fail("INVALID_ARGUMENT", `invalid argument ${flag}`); if (o[flag.slice(2).replaceAll("-", "_")] !== undefined) fail("INVALID_ARGUMENT", `duplicate ${flag}`); o[flag.slice(2).replaceAll("-", "_")] = value; } }
   for (const key of ["root", "bin_dir"]) if (!o[key] || !isAbsolute(o[key])) fail("INVALID_ARGUMENT", `--${key.replaceAll("_", "-")} must be an absolute path`);
-  if (["plan", "install", "update"].includes(action)) { if (!o.bundle || !isAbsolute(o.bundle)) fail("INVALID_ARGUMENT", "--bundle must be an absolute path"); if (!/^[0-9a-f]{64}$/.test(o.manifest_sha256 ?? "")) fail("INVALID_ARGUMENT", "--manifest-sha256 must be the approved lowercase SHA-256 anchor"); }
+  if (["plan", "install", "update"].includes(action)) { if (o.bundle && !isAbsolute(o.bundle)) fail("INVALID_ARGUMENT", "--bundle must be an absolute path"); if (!o.bundle && o.manifest_sha256 !== undefined && o.manifest_sha256 !== CARRIED_MANIFEST_SHA256) fail("INVALID_ARGUMENT", "the pinned public release must use the carried manifest anchor; --manifest-sha256 override is only for an explicit local --bundle"); o.manifest_sha256 ??= CARRIED_MANIFEST_SHA256; if (!/^[0-9a-f]{64}$/.test(o.manifest_sha256 ?? "")) fail("INVALID_ARGUMENT", "--manifest-sha256 must be the approved lowercase SHA-256 anchor"); }
   return o;
+}
+
+export async function fetchReleaseAsset(url, maximumBytes) {
+  const allowed = new Set(["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
+  let current = new URL(url);
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (current.protocol !== "https:" || !allowed.has(current.hostname)) fail("NETWORK_UNAVAILABLE", `release redirect left the approved HTTPS hosts: ${current.hostname}`);
+    let response;
+    try { response = await fetch(current, { redirect: "manual", signal: AbortSignal.timeout(20_000), headers: { "user-agent": "workspacectl-bootstrap/0.3.0" } }); }
+    catch (error) { fail("NETWORK_UNAVAILABLE", `pinned release download failed; use --bundle ABSOLUTE_DIRECTORY for offline installation (${error instanceof Error ? error.message : String(error)})`); }
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location || redirects === 3) fail("NETWORK_UNAVAILABLE", "pinned release download exceeded the bounded redirect policy");
+      current = new URL(location, current);
+      continue;
+    }
+    if (!response.ok) fail("NETWORK_UNAVAILABLE", `pinned release download failed with HTTP ${response.status}; use --bundle ABSOLUTE_DIRECTORY for offline installation`);
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > maximumBytes) fail("INVALID_ARTIFACT", "release asset exceeds the bootstrap size limit");
+    if (!response.body) fail("NETWORK_UNAVAILABLE", "release asset response has no body");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximumBytes) {
+        await reader.cancel();
+        fail("INVALID_ARTIFACT", "release asset exceeds the bootstrap size limit");
+      }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks, size);
+  }
+  fail("NETWORK_UNAVAILABLE", "pinned release download exceeded the bounded redirect policy");
+}
+
+async function downloadPinnedBundle(anchor) {
+  const bundle = await mkdtemp(join(tmpdir(), "workspacectl-pinned-release-"));
+  const base = `${REPOSITORY}/releases/download/${RELEASE_TAG}`;
+  try {
+    const manifestBytes = await fetchReleaseAsset(`${base}/${MANIFEST_ASSET}`, 2 * 1024 * 1024);
+    if (sha(manifestBytes) !== anchor) fail("ANCHOR_MISMATCH", "downloaded release manifest does not match the carried approved anchor");
+    let manifest; try { manifest = JSON.parse(manifestBytes.toString("utf8")); } catch { fail("INVALID_ARTIFACT", "downloaded release manifest is invalid JSON"); }
+    const archiveName = manifest?.archive?.file;
+    if (typeof archiveName !== "string" || basename(archiveName) !== archiveName || !archiveName.endsWith(".tgz")) fail("INVALID_ARTIFACT", "downloaded release manifest archive path is invalid");
+    await writeFile(join(bundle, MANIFEST_ASSET), manifestBytes, { mode: 0o600 });
+    await writeFile(join(bundle, archiveName), await fetchReleaseAsset(`${base}/${archiveName}`, 128 * 1024 * 1024), { mode: 0o600 });
+    return bundle;
+  } catch (error) {
+    if (!(error instanceof Refusal)) await rm(bundle, { recursive: true, force: true });
+    if (error instanceof Refusal) { await rm(bundle, { recursive: true, force: true }); throw error; }
+    fail("NETWORK_UNAVAILABLE", `pinned release download failed; use --bundle ABSOLUTE_DIRECTORY for offline installation (${error instanceof Error ? error.message : String(error)})`);
+  }
 }
 async function inventory(root, prefix = "") {
   const out = [];
@@ -255,7 +314,7 @@ async function rollbackInstall(o) {
 }
 async function main() { const o = parse(process.argv.slice(2)); await refuseSymlinkAncestors(o.root); await refuseSymlinkAncestors(o.bin_dir); let result;
   if (["status", "remove", "rollback"].includes(o.action)) { if (o.action === "status") { try { const r = await loadReceipt(o.root, o.bin_dir); await verifyVersion(o.root, r.versions[r.activeVersion]); await verifyLaunchers(r); result = { action: "status", managed: true, activeVersion: r.activeVersion, compatibility: r.compatibility }; } catch (e) { if (e instanceof Refusal && e.code === "UNMANAGED") result = { action: "status", managed: false }; else throw e; } } else if (o.action === "rollback") { const r = await loadReceipt(o.root, o.bin_dir); const target = o.version ?? [...(r.retainedVersions ?? [])].reverse().find(v => v !== r.activeVersion); if (!o.yes) result = { action: "rollback", applied: false, requiresYes: true, activeVersion: r.activeVersion, targetVersion: target ?? null }; else result = await rollbackInstall(o); } else if (!o.yes) { const r = await loadReceipt(o.root, o.bin_dir); if (o.preserve_version && !r.versions[o.preserve_version]) fail("INVALID_ARGUMENT", "--preserve-version must name an exactly owned version"); result = { action: "remove", applied: false, requiresYes: true, activeVersion: r.activeVersion, launchers: BINS.map(n => r.launchers[n].path), versionRoots: Object.values(r.versions).map(v => v.root), preserveVersion: o.preserve_version ?? null }; } else result = await removeInstall(o);
-  } else { const v = await validateBundle(o); try { if (!o.yes) result = { action: o.action === "plan" ? "install" : o.action, applied: false, requiresYes: true, package: v.manifest.package, compatibility: v.manifest.compatibility, destination: { root: o.root, binDir: o.bin_dir } }; else result = await install(o, v); } finally { await rm(v.privateBundle, { recursive: true, force: true }); } }
+  } else { const downloadedBundle = o.bundle ? null : await downloadPinnedBundle(o.manifest_sha256); if (downloadedBundle) o.bundle = downloadedBundle; try { const v = await validateBundle(o); try { if (!o.yes) result = { action: o.action === "plan" ? "install" : o.action, applied: false, requiresYes: true, source: downloadedBundle ? { type: "github-release", repository: REPOSITORY, tag: RELEASE_TAG } : { type: "offline-bundle", path: o.bundle }, package: v.manifest.package, compatibility: v.manifest.compatibility, destination: { root: o.root, binDir: o.bin_dir } }; else result = await install(o, v); } finally { await rm(v.privateBundle, { recursive: true, force: true }); } } finally { if (downloadedBundle) await rm(downloadedBundle, { recursive: true, force: true }); } }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
-main().catch(e => { const code = e instanceof Refusal ? e.code : "INTERNAL"; process.stderr.write(`${JSON.stringify({ error: { code, message: e instanceof Error ? e.message : String(e) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });
+if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main().catch(e => { const code = e instanceof Refusal ? e.code : "INTERNAL"; process.stderr.write(`${JSON.stringify({ error: { code, message: e instanceof Error ? e.message : String(e) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });
