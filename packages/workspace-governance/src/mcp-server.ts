@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { GovernanceError } from "./core.ts";
+import { CLI_VERSION } from "./doctor.ts";
 import { createGovernanceService, EFFECT_TOOL_NAMES, PLAN_TOOL_NAMES, type GovernanceService, type GovernanceToolName } from "./mcp-service.ts";
 
 const value = z.string().min(1).max(4096).regex(/^(?!--)/);
@@ -84,7 +85,7 @@ const descriptions: Record<GovernanceToolName, string> = {
 const readTools = ["workspace_doctor", "workspace_list", "workspace_where", "workspace_context", "workspace_explain", "workspace_open", "workspace_workflow", "workspace_operation"] as const;
 
 export function createMcpServer(service: GovernanceService): McpServer {
-  const server = new McpServer({ name: "workspace-governance", version: "0.3.0-dev" });
+  const server = new McpServer({ name: "workspace-governance", version: CLI_VERSION });
   const names: GovernanceToolName[] = [...readTools];
   if (service.capabilities.plans) names.push(...PLAN_TOOL_NAMES);
   if (service.capabilities.apply) names.push(...EFFECT_TOOL_NAMES);

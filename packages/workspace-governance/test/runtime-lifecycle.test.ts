@@ -6,6 +6,9 @@ import { chmod, copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, rm
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { createMcpFixture } from "./mcp-fixture.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const installer = join(root, "scripts", "install-runtime.mjs");
@@ -89,6 +92,47 @@ async function repackBundle(
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   await rm(extracted, { recursive: true, force: true });
   return { anchor: sha(await readFile(manifestPath)), manifest, archive };
+}
+
+async function makeVersionBundle(source: string, destination: string, version: "0.2.1") {
+  return repackBundle(source, destination, async (packageRoot, manifest) => {
+    for (const relativePath of ["dist/cli.js", "dist/doctor.js"]) {
+      const path = join(packageRoot, relativePath);
+      const original = await readFile(path, "utf8");
+      assert.match(original, /0\.2\.0/);
+      await writeFile(path, original.replaceAll("0.2.0", version));
+      const bytes = await readFile(path);
+      const metadata = await stat(path);
+      const record = manifest.content.find((entry: any) => entry.path === `package/${relativePath}`);
+      record.size = bytes.length;
+      record.mode = metadata.mode & 0o777;
+      record.sha256 = sha(bytes);
+    }
+  });
+}
+
+async function consumeManagedLaunchers(bins: string, configPath: string, expectedVersion: string) {
+  const cli = join(bins, "workspacectl");
+  const mcp = join(bins, "workspacectl-mcp");
+  const version = spawnSync(cli, ["--version"], { encoding: "utf8" });
+  assert.equal(version.status, 0, version.stderr);
+  assert.equal(version.stdout.trim(), expectedVersion);
+  const transport = new StdioClientTransport({ command: mcp, args: ["--config", configPath], stderr: "pipe" });
+  let stderr = "";
+  transport.stderr?.on("data", chunk => { stderr += chunk.toString(); });
+  const client = new Client({ name: "managed-version-consumer", version: "1.0.0" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+  try {
+    await client.connect(transport);
+    assert.equal(client.getServerVersion()?.version, expectedVersion);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.some(tool => tool.name === "workspace_list"));
+    const listed = await client.callTool({ name: "workspace_list", arguments: { view: "catalog" } });
+    assert.notEqual(listed.isError, true);
+    assert.equal((listed.structuredContent as any).counts.total, 1);
+  } finally {
+    await client.close();
+  }
+  assert.equal(stderr, "");
 }
 
 test("canonical bootstrap is carried byte-for-byte and preview is inert", async () => {
@@ -370,5 +414,157 @@ test("P24 integrity matrix refuses anchored metadata and content mismatches whil
       assert.deepEqual({ root: await treeSnapshot(f.root), bins: await treeSnapshot(f.bins) }, before, `${entry.name} changed the prior install`);
       await assert.rejects(lstat(marker), /ENOENT/, `${entry.name} executed a lifecycle script`);
     }
+  } finally { await rm(f.scratch, { recursive: true, force: true }); }
+});
+
+test("P26 updates and rolls back real different-version CLI and MCP consumers with coherent release identity", async () => {
+  const f = await fixture();
+  try {
+    const governed = await createMcpFixture(join(f.scratch, "governed fixture"));
+    const governedBefore = await governed.snapshot();
+    const v2Bundle = join(f.scratch, "bundle-0.2.1");
+    const v2 = await makeVersionBundle(f.bundle, v2Bundle, "0.2.1");
+    assert.equal(run(["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+    await consumeManagedLaunchers(f.bins, governed.configPath, "0.2.0");
+
+    const updated = run(["update", "--bundle", v2Bundle, "--manifest-sha256", v2.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]);
+    assert.equal(updated.status, 0, updated.stderr);
+    await consumeManagedLaunchers(f.bins, governed.configPath, "0.2.1");
+    let receipt = JSON.parse(await readFile(join(f.root, "manager-receipt.json"), "utf8"));
+    assert.deepEqual(Object.keys(receipt.versions).sort(), ["0.2.0", "0.2.1"]);
+    assert.equal(receipt.compatibility.packageVersion, "0.2.1");
+    assert.equal(receipt.manifestSha256, v2.anchor);
+    assert.equal(receipt.versions["0.2.1"].manifestSha256, v2.anchor);
+    assert.equal(receipt.versions["0.2.0"].manifestSha256, f.anchor);
+
+    // Synthetic identity only: this fixture tag is deliberately unpublished and does not claim release availability.
+    receipt.versions["0.2.0"].release.tag = "workspace-governance-v0.2.0-fixture-unpublished";
+    receipt.versions["0.2.0"].compatibility.skillRef = receipt.versions["0.2.0"].release.tag;
+    receipt.versions["0.2.0"].compatibility.catalogVersion = "0.25.0";
+    await writeFile(join(f.root, "manager-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+
+    const rolledBack = run(["rollback", "--version", "0.2.0", "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]);
+    assert.equal(rolledBack.status, 0, rolledBack.stderr);
+    const status = run(["status", "--root", f.root, "--bin-dir", f.bins, "--json"]);
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(JSON.parse(status.stdout).activeVersion, "0.2.0");
+    await consumeManagedLaunchers(f.bins, governed.configPath, "0.2.0");
+    receipt = JSON.parse(await readFile(join(f.root, "manager-receipt.json"), "utf8"));
+    assert.equal(receipt.compatibility.packageVersion, "0.2.0");
+    assert.equal(receipt.compatibility.skillRef, "workspace-governance-v0.2.0-fixture-unpublished");
+    assert.equal(receipt.compatibility.catalogVersion, "0.25.0");
+    assert.equal(receipt.release.tag, "workspace-governance-v0.2.0-fixture-unpublished");
+    assert.equal(receipt.manifestSha256, f.anchor);
+    assert.equal(receipt.archiveSha256, receipt.versions["0.2.0"].archiveSha256);
+    assert.equal(await governed.snapshot(), governedBefore);
+  } finally { await rm(f.scratch, { recursive: true, force: true }); }
+});
+
+test("P26 second-launcher switch failure restores the usable old version and removes private staging", async () => {
+  const f = await fixture();
+  try {
+    const governed = await createMcpFixture(join(f.scratch, "governed"));
+    const governedBefore = await governed.snapshot();
+    const v2Bundle = join(f.scratch, "bundle-0.2.1");
+    const v2 = await makeVersionBundle(f.bundle, v2Bundle, "0.2.1");
+    assert.equal(run(["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+    const receiptBefore = await readFile(join(f.root, "manager-receipt.json"));
+    const failed = run(["update", "--bundle", v2Bundle, "--manifest-sha256", v2.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"], {
+      WORKSPACECTL_TEST_FAIL_SWITCH: join(f.bins, "workspacectl-mcp"),
+    });
+    assert.equal(failed.status, 5, failed.stderr);
+    assert.match(failed.stderr, /CONFLICT/);
+    assert.deepEqual(await readFile(join(f.root, "manager-receipt.json")), receiptBefore);
+    await assert.rejects(lstat(join(f.root, "versions", "0.2.1")), /ENOENT/);
+    await consumeManagedLaunchers(f.bins, governed.configPath, "0.2.0");
+
+    const receiptSwitchFailed = run(["update", "--bundle", v2Bundle, "--manifest-sha256", v2.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"], {
+      WORKSPACECTL_TEST_FAIL_SWITCH: join(f.root, "manager-receipt.json"),
+    });
+    assert.equal(receiptSwitchFailed.status, 5, receiptSwitchFailed.stderr);
+    assert.match(receiptSwitchFailed.stderr, /CONFLICT/);
+    assert.deepEqual(await readFile(join(f.root, "manager-receipt.json")), receiptBefore);
+    await assert.rejects(lstat(join(f.root, "versions", "0.2.1")), /ENOENT/);
+    await consumeManagedLaunchers(f.bins, governed.configPath, "0.2.0");
+    assert.equal(await governed.snapshot(), governedBefore);
+    assert.deepEqual((await readdir(f.bins)).sort(), ["workspacectl", "workspacectl-mcp"]);
+  } finally { await rm(f.scratch, { recursive: true, force: true }); }
+});
+
+test("P26 update refuses missing or corrupt receipts, modified versions, and concurrent launcher winners", async () => {
+  const f = await fixture();
+  try {
+    const v2Bundle = join(f.scratch, "bundle-0.2.1");
+    const v2 = await makeVersionBundle(f.bundle, v2Bundle, "0.2.1");
+    const updateArgs = ["update", "--bundle", v2Bundle, "--manifest-sha256", v2.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"];
+    assert.equal(run(["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+    const receiptPath = join(f.root, "manager-receipt.json");
+    const originalReceipt = await readFile(receiptPath);
+    await rm(receiptPath);
+    assert.equal(run(updateArgs).status, 5);
+    assert.equal((await lstat(join(f.root, "versions", "0.2.0"))).isDirectory(), true);
+    await writeFile(receiptPath, "not json\n", { mode: 0o600 });
+    assert.equal(run(updateArgs).status, 5);
+    await writeFile(receiptPath, originalReceipt, { mode: 0o600 });
+
+    const receipt = JSON.parse(originalReceipt.toString("utf8"));
+    const managedFile = join(receipt.versions["0.2.0"].root, receipt.versions["0.2.0"].files[0].relativePath);
+    const managedBytes = await readFile(managedFile);
+    await writeFile(managedFile, "modified\n");
+    assert.equal(run(updateArgs).status, 5);
+    assert.equal(await readFile(managedFile, "utf8"), "modified\n");
+    await writeFile(managedFile, managedBytes);
+
+    const racedPath = join(f.bins, "workspacectl-mcp");
+    const cliBefore = await readFile(join(f.bins, "workspacectl"));
+    const raced = run(updateArgs, { WORKSPACECTL_TEST_REPLACE_AFTER_UNLINK: racedPath });
+    assert.equal(raced.status, 5);
+    assert.equal(await readFile(racedPath, "utf8"), "concurrent replacement\n");
+    assert.deepEqual(await readFile(join(f.bins, "workspacectl")), cliBefore);
+    assert.deepEqual(await readFile(receiptPath), originalReceipt);
+    await assert.rejects(lstat(join(f.root, "versions", "0.2.1")), /ENOENT/);
+  } finally { await rm(f.scratch, { recursive: true, force: true }); }
+});
+
+test("P26 rechecks receipt and managed payload ownership after staging and preserves rollback receipt winners", async () => {
+  for (const boundary of ["receipt", "payload"] as const) {
+    const f = await fixture();
+    try {
+      const v2Bundle = join(f.scratch, "bundle-0.2.1");
+      const v2 = await makeVersionBundle(f.bundle, v2Bundle, "0.2.1");
+      assert.equal(run(["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+      const receiptPath = join(f.root, "manager-receipt.json");
+      const receiptBefore = await readFile(receiptPath);
+      const receipt = JSON.parse(receiptBefore.toString("utf8"));
+      const managedPath = join(receipt.versions["0.2.0"].root, receipt.versions["0.2.0"].files[0].relativePath);
+      const launchersBefore = await Promise.all(["workspacectl", "workspacectl-mcp"].map(name => readFile(join(f.bins, name))));
+      const env: Record<string, string> = boundary === "receipt"
+        ? { WORKSPACECTL_TEST_REPLACE_RECEIPT_AFTER_STAGE: receiptPath }
+        : { WORKSPACECTL_TEST_MODIFY_MANAGED_AFTER_STAGE: managedPath };
+      const refused = run(["update", "--bundle", v2Bundle, "--manifest-sha256", v2.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"], env);
+      assert.equal(refused.status, 5, refused.stderr);
+      assert.deepEqual(await Promise.all(["workspacectl", "workspacectl-mcp"].map(name => readFile(join(f.bins, name)))), launchersBefore);
+      await assert.rejects(lstat(join(f.root, "versions", "0.2.1")), /ENOENT/);
+      if (boundary === "receipt") assert.equal(await readFile(receiptPath, "utf8"), "concurrent receipt replacement\n");
+      else { assert.deepEqual(await readFile(receiptPath), receiptBefore); assert.equal(await readFile(managedPath, "utf8"), "concurrent managed replacement\n"); }
+      const cli = spawnSync(join(f.bins, "workspacectl"), ["--version"], { encoding: "utf8" });
+      assert.equal(cli.stdout.trim(), "0.2.0");
+    } finally { await rm(f.scratch, { recursive: true, force: true }); }
+  }
+
+  const f = await fixture();
+  try {
+    const v2Bundle = join(f.scratch, "bundle-0.2.1");
+    const v2 = await makeVersionBundle(f.bundle, v2Bundle, "0.2.1");
+    assert.equal(run(["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+    assert.equal(run(["update", "--bundle", v2Bundle, "--manifest-sha256", v2.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+    const receiptPath = join(f.root, "manager-receipt.json");
+    const refused = run(["rollback", "--version", "0.2.0", "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"], { WORKSPACECTL_TEST_REPLACE_BEFORE_UNLINK: receiptPath });
+    assert.equal(refused.status, 5, refused.stderr);
+    assert.equal(await readFile(receiptPath, "utf8"), "concurrent replacement\n");
+    const cli = spawnSync(join(f.bins, "workspacectl"), ["--version"], { encoding: "utf8" });
+    assert.equal(cli.stdout.trim(), "0.2.1");
+    assert.equal((await lstat(join(f.root, "versions", "0.2.0"))).isDirectory(), true);
+    assert.equal((await lstat(join(f.root, "versions", "0.2.1"))).isDirectory(), true);
   } finally { await rm(f.scratch, { recursive: true, force: true }); }
 });
