@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, chmod, copyFile, lstat, link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
 
 const PACKAGE = "@crissmoldovan/workspace-governance";
 const RECEIPT = "manager-receipt.json";
@@ -13,6 +14,7 @@ const MANIFEST_ASSET = "runtime-manifest.json";
 const CATALOG_VERSION = "0.26.0";
 const BINS = ["workspacectl", "workspacectl-mcp"];
 const BIN_ENTRIES = { workspacectl: "dist/cli.js", "workspacectl-mcp": "dist/mcp-cli.js" };
+const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "preprepare", "postprepare", "prepublish", "prepublishOnly", "prepack", "postpack", "dependencies"];
 class Refusal extends Error { constructor(code, message) { super(message); this.code = code; } }
 const fail = (code, message) => { throw new Refusal(code, message); };
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -56,19 +58,66 @@ async function loadReceipt(root, binDir) {
 }
 async function verifyVersion(root, record) { const vr = join(root, "versions", record.version); if (await kind(vr) !== "directory") fail("MODIFIED", `managed version ${record.version} is missing`); const got = await inventory(vr); if (treeDigest(got) !== record.treeSha256 || JSON.stringify(got) !== JSON.stringify(record.files)) fail("MODIFIED", `managed version ${record.version} was modified`); }
 async function verifyLaunchers(receipt) { for (const name of BINS) { const r = receipt.launchers[name]; if (!r || await kind(r.path) !== "file" || sha(await readFile(r.path)) !== r.sha256) fail("CONFLICT", `owned launcher ${name} is missing, linked, or modified`); } }
-function safeMember(name) { return name === "package" || (name.startsWith("package/") && !name.startsWith("/") && !name.split("/").includes("..") && !name.includes("\\")); }
+function safeMember(name) { const candidate = name.endsWith("/") ? name.slice(0, -1) : name; return candidate === "package" || (candidate.startsWith("package/") && !candidate.startsWith("/") && !candidate.split("/").some(part => part === "" || part === "." || part === "..") && !candidate.includes("\\")); }
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+  return value;
+}
+function same(value, expected) { return JSON.stringify(canonical(value)) === JSON.stringify(canonical(expected)); }
+function validatePackageMetadata(meta, expected) {
+  const bins = meta?.bin && typeof meta.bin === "object" && !Array.isArray(meta.bin)
+    ? Object.fromEntries(Object.entries(meta.bin).sort().map(([name, path]) => [name, typeof path === "string" ? path.replace(/^\.\//, "") : path]))
+    : null;
+  const lifecycleScripts = meta?.scripts && typeof meta.scripts === "object" && !Array.isArray(meta.scripts)
+    ? LIFECYCLE_SCRIPTS.filter(name => Object.prototype.hasOwnProperty.call(meta.scripts, name))
+    : [];
+  if (meta?.name !== expected.name || meta?.version !== expected.version || meta?.engines?.node !== expected.engines.node || !same(bins, expected.bins) || !same(lifecycleScripts, expected.lifecycleScripts)) {
+    fail("INVALID_ARTIFACT", "archive package metadata differs from the anchored manifest");
+  }
+}
+function validateManifest(m) {
+  const bins = m?.package?.bins;
+  if (m?.schemaVersion !== 1 || m?.artifactType !== "workspace-governance-offline-runtime" || m.package?.name !== PACKAGE || !/^\d+\.\d+\.\d+$/.test(m.package?.version ?? "") || m.package?.engines?.node !== ">=24.0.0" || !same(bins, BIN_ENTRIES) || !Array.isArray(m.package?.lifecycleScripts) || m.package.lifecycleScripts.length !== 0) fail("INVALID_ARTIFACT", "release manifest package identity or lifecycle contract is invalid");
+  if (!m.archive || typeof m.archive.file !== "string" || !/^.+\.tgz$/.test(m.archive.file) || !Number.isSafeInteger(m.archive.size) || m.archive.size < 1 || !/^[0-9a-f]{64}$/.test(m.archive.sha256 ?? "")) fail("INVALID_ARTIFACT", "release manifest archive identity is invalid");
+  if (!Array.isArray(m.content) || m.content.length === 0) fail("INVALID_ARTIFACT", "release manifest content inventory is invalid");
+  const seen = new Set();
+  for (const entry of m.content) {
+    if (!entry || Object.keys(entry).sort().join("\0") !== "mode\0path\0sha256\0size" || typeof entry.path !== "string" || entry.path === "package" || !safeMember(entry.path) || seen.has(entry.path) || !Number.isSafeInteger(entry.mode) || entry.mode < 0 || entry.mode > 0o777 || !Number.isSafeInteger(entry.size) || entry.size < 0 || !/^[0-9a-f]{64}$/.test(entry.sha256 ?? "")) fail("INVALID_ARTIFACT", "release manifest content inventory is invalid");
+    seen.add(entry.path);
+  }
+  if (!seen.has("package/package.json")) fail("INVALID_ARTIFACT", "release manifest omits package metadata");
+}
+async function inspectArchive(archive, manifest, tar) {
+  const inspection = await mkdtemp(join(tmpdir(), "workspacectl-archive-inspection-"));
+  try {
+    const extracted = spawnSync(tar, ["-xzf", archive, "-C", inspection], { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
+    if (extracted.error || extracted.status !== 0) fail("INVALID_ARTIFACT", "archive extraction failed after inventory validation");
+    const actual = await inventory(inspection);
+    const byPath = (a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+    const expected = [...manifest.content].sort(byPath);
+    const normalized = actual.map(entry => ({ path: entry.relativePath, mode: entry.mode, size: entry.size, sha256: entry.sha256 })).sort(byPath);
+    if (!same(normalized, expected)) fail("INVALID_ARTIFACT", "archive content bytes, sizes, or modes differ from the anchored manifest");
+    let metadata; try { metadata = JSON.parse(await readFile(join(inspection, "package", "package.json"), "utf8")); } catch { fail("INVALID_ARTIFACT", "archive package metadata is missing or invalid"); }
+    validatePackageMetadata(metadata, manifest.package);
+  } finally { await rm(inspection, { recursive: true, force: true }); }
+}
 async function validateBundle(o) {
   if (process.platform !== "linux" && process.platform !== "darwin") fail("UNSUPPORTED", `unsupported platform ${process.platform}; use manual installation guidance`);
   const manifestPath = join(o.bundle, MANIFEST_ASSET); if (await kind(manifestPath) !== "file") fail("INVALID_ARTIFACT", "release manifest is missing"); const mb = await readFile(manifestPath); if (sha(mb) !== o.manifest_sha256) fail("ANCHOR_MISMATCH", "release manifest does not match the carried approved anchor");
   let m; try { m = JSON.parse(mb); } catch { fail("INVALID_ARTIFACT", "release manifest is invalid JSON"); }
-  if (m.schemaVersion !== 1 || m.artifactType !== "workspace-governance-offline-runtime" || m.package?.name !== PACKAGE || !/^\d+\.\d+\.\d+$/.test(m.package?.version ?? "") || m.package?.engines?.node !== ">=24.0.0" || (m.package?.lifecycleScripts ?? []).length !== 0) fail("INVALID_ARTIFACT", "release manifest package identity or lifecycle contract is invalid");
+  validateManifest(m);
   const c = m.compatibility; if (c?.packageVersion !== m.package.version || c?.skillRef !== RELEASE_TAG || c?.catalogVersion !== CATALOG_VERSION) fail("INCOMPATIBLE", "package, skill, or catalog compatibility identity differs");
   if (m.release?.repository !== REPOSITORY || m.release?.tag !== RELEASE_TAG || m.release?.manifestAsset !== MANIFEST_ASSET) fail("INVALID_ARTIFACT", "release repository/tag/asset identity differs");
   const archive = join(o.bundle, m.archive?.file ?? ""); if (!inside(o.bundle, archive) || await kind(archive) !== "file") fail("INVALID_ARTIFACT", "archive path is invalid"); const ab = await readFile(archive); if (ab.length !== m.archive.size || sha(ab) !== m.archive.sha256) fail("INVALID_ARTIFACT", "archive digest or size differs");
+  const privateBundle = await mkdtemp(join(tmpdir(), "workspacectl-anchored-bundle-")); const anchoredArchive = join(privateBundle, basename(archive)); await writeFile(anchoredArchive, ab, { mode: 0o600 });
   const npm = process.env.WORKSPACECTL_INSTALL_NPM || "npm"; const tar = process.env.WORKSPACECTL_INSTALL_TAR || "tar";
-  const names = run(tar, ["-tzf", archive]).split("\n").filter(Boolean); const verbose = run(tar, ["-tvzf", archive]).split("\n").filter(Boolean); if (!names.length || names.length !== verbose.length) fail("INVALID_ARTIFACT", "archive inventory is invalid"); for (let i=0;i<names.length;i++) if (!safeMember(names[i]) || !["-", "d"].includes(verbose[i][0])) fail("INVALID_ARTIFACT", `archive contains an unsafe path or link: ${names[i]}`);
-  const expected = new Set(m.content.map(x => x.path)); const regular = names.filter((_, i) => verbose[i][0] === "-"); if (regular.length !== expected.size || regular.some(x => !expected.has(x))) fail("INVALID_ARTIFACT", "archive regular-file inventory differs from manifest");
-  return { manifest: m, archive, npm, tar };
+  try {
+    const names = run(tar, ["-tzf", anchoredArchive]).split("\n").filter(Boolean); const verbose = run(tar, ["-tvzf", anchoredArchive]).split("\n").filter(Boolean); if (!names.length || names.length !== verbose.length) fail("INVALID_ARTIFACT", "archive inventory is invalid"); for (let i=0;i<names.length;i++) if (!safeMember(names[i]) || !["-", "d"].includes(verbose[i][0])) fail("INVALID_ARTIFACT", `archive contains an unsafe path or link: ${names[i]}`);
+    const expected = new Set(m.content.map(x => x.path)); const regular = names.filter((_, i) => verbose[i][0] === "-"); if (regular.length !== expected.size || regular.some(x => !expected.has(x))) fail("INVALID_ARTIFACT", "archive regular-file inventory differs from manifest");
+    await inspectArchive(anchoredArchive, m, tar);
+    return { manifest: m, archive: anchoredArchive, privateBundle, npm, tar };
+  } catch (error) { await rm(privateBundle, { recursive: true, force: true }); throw error; }
 }
 function shQuote(value) { return `'${value.replaceAll("'", `'\\''`)}'`; }
 function launcherText(node, cli, root, path) { return `#!/bin/sh\n# workspacectl-managed-launcher-v2\nset -eu\nexport WORKSPACECTL_INSTALL_PREFIX=${shQuote(root)}\nexport WORKSPACECTL_LAUNCHER=${shQuote(path)}\nexport WORKSPACECTL_RUNTIME_PATH=${shQuote(node)}\nexec ${shQuote(node)} ${shQuote(cli)} "$@"\n`; }
@@ -108,7 +157,7 @@ async function rollbackQuarantined(transaction) {
   try { const current = await stat(transaction.path); if (current.dev === transaction.movedStat.dev && current.ino === transaction.movedStat.ino) await rm(transaction.privateDir, { recursive: true, force: true }); } catch {}
 }
 async function replaceOwned(path, oldDigest, bytes) { const guard = `${path}.workspacectl-guard-${process.pid}`; if (await kind(path) !== "file" || sha(await readFile(path)) !== oldDigest) fail("CONFLICT", `owned launcher changed: ${path}`); await link(path, guard); try { const a = await stat(path), b = await stat(guard); if (a.dev !== b.dev || a.ino !== b.ino) fail("CONFLICT", `owned launcher changed concurrently: ${path}`); await unlink(path); if (process.env.WORKSPACECTL_TEST_REPLACE_AFTER_UNLINK === path) await writeFile(path, "concurrent replacement\n", { mode: 0o755 }); try { await exclusiveFile(path, bytes, 0o755); } catch (e) { if (await kind(path) === "absent") await link(guard, path); throw e; } } finally { await rm(guard, { force: true }); } }
-async function stageVersion(o, validated, versionRoot) { const version = validated.manifest.package.version; const staging = await mkdtemp(join(o.root, `.staging-${version}-`)); try { const cache = join(staging, ".npm-cache"); const outcome = spawnSync(validated.npm, ["install", "--global", "--prefix", staging, "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cache, validated.archive], { encoding: "utf8", env: process.env, timeout: 120000 }); if (outcome.error || outcome.status !== 0) fail("INSTALL_FAILED", "offline scripts-disabled npm installation failed"); await rm(cache, { recursive: true, force: true }); const pkg = join(staging, "lib", "node_modules", "@crissmoldovan", "workspace-governance"); const meta = JSON.parse(await readFile(join(pkg, "package.json"), "utf8")); if (meta.name !== PACKAGE || meta.version !== version) fail("INVALID_ARTIFACT", "installed package identity differs"); for (const n of BINS) if (await kind(join(pkg, validated.manifest.package.bins[n])) !== "file") fail("INVALID_ARTIFACT", `installed package lacks ${n}`); await rm(join(staging, "bin"), { recursive: true, force: true }); await rm(join(pkg, "node_modules", ".bin"), { recursive: true, force: true }); await rename(staging, versionRoot); } catch (e) { await rm(staging, { recursive: true, force: true }); throw e; } const files = await inventory(versionRoot); return { version, root: versionRoot, files, treeSha256: treeDigest(files) }; }
+async function stageVersion(o, validated, versionRoot) { const version = validated.manifest.package.version; const staging = await mkdtemp(join(o.root, `.staging-${version}-`)); try { const cache = join(staging, ".npm-cache"); const outcome = spawnSync(validated.npm, ["install", "--global", "--prefix", staging, "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cache, validated.archive], { encoding: "utf8", env: process.env, timeout: 120000 }); if (outcome.error || outcome.status !== 0) fail("INSTALL_FAILED", "offline scripts-disabled npm installation failed"); await rm(cache, { recursive: true, force: true }); const pkg = join(staging, "lib", "node_modules", "@crissmoldovan", "workspace-governance"); let meta; try { meta = JSON.parse(await readFile(join(pkg, "package.json"), "utf8")); } catch { fail("INVALID_ARTIFACT", "installed package metadata is missing or invalid"); } validatePackageMetadata(meta, validated.manifest.package); for (const n of BINS) if (await kind(join(pkg, validated.manifest.package.bins[n])) !== "file") fail("INVALID_ARTIFACT", `installed package lacks ${n}`); await rm(join(staging, "bin"), { recursive: true, force: true }); await rm(join(pkg, "node_modules", ".bin"), { recursive: true, force: true }); await rename(staging, versionRoot); } catch (e) { await rm(staging, { recursive: true, force: true }); throw e; } const files = await inventory(versionRoot); return { version, root: versionRoot, files, treeSha256: treeDigest(files) }; }
 async function install(o, validated) {
   let release = await acquire(o.root); try {
     if (await kind(join(o.root, RECEIPT)) === "file") { const current = await loadReceipt(o.root, o.bin_dir); for (const v of Object.values(current.versions)) await verifyVersion(o.root, v); await verifyLaunchers(current); if (current.activeVersion === validated.manifest.package.version && current.manifestSha256 === o.manifest_sha256) return { action: o.action, applied: false, noOp: true, activeVersion: current.activeVersion }; if (o.action !== "update") fail("CONFLICT", "a managed runtime already exists; use update with a different anchored version"); const version = validated.manifest.package.version, versionRoot = join(o.root, "versions", version); if (current.versions[version] || await kind(versionRoot) !== "absent") fail("CONFLICT", "update version root is already occupied"); const record = await stageVersion(o, validated, versionRoot); const next = {}; try { for (const name of BINS) { const p = current.launchers[name].path, cli = join(versionRoot, "lib", "node_modules", "@crissmoldovan", "workspace-governance", validated.manifest.package.bins[name]); const bytes = launcherText(process.execPath, cli, o.root, p); await replaceOwned(p, current.launchers[name].sha256, bytes); next[name] = { path: p, sha256: sha(bytes), targetVersion: version, bytes }; } } catch (e) { await rm(versionRoot, { recursive: true, force: true }); throw e; } current.retainedVersions = [...new Set([...(current.retainedVersions ?? []), current.activeVersion])]; current.versions[version] = record; current.activeVersion = version; current.launchers = next; current.manifestSha256 = o.manifest_sha256; current.archiveSha256 = validated.manifest.archive.sha256; current.compatibility = { ...validated.manifest.compatibility, runtimeManifestSha256: o.manifest_sha256 }; await writeFile(join(o.root, RECEIPT), jsonBytes(current), { mode: 0o600 }); return { action: "update", applied: true, activeVersion: version, retainedVersions: current.retainedVersions }; }
@@ -123,7 +172,7 @@ async function removeInstall(o) { const release = await acquire(o.root); try { c
 async function rollbackInstall(o) { const release = await acquire(o.root); try { const r = await loadReceipt(o.root, o.bin_dir); for (const v of Object.values(r.versions)) await verifyVersion(o.root, v); await verifyLaunchers(r); const target = o.version ?? [...(r.retainedVersions ?? [])].reverse().find(v => v !== r.activeVersion); if (!target || !r.versions[target] || target === r.activeVersion) fail("INVALID_ARGUMENT", "rollback target must name a retained verified version"); const paths = { workspacectl: "dist/cli.js", "workspacectl-mcp": "dist/mcp-cli.js" }; const next = {}; for (const name of BINS) { const old = r.launchers[name], cli = join(r.versions[target].root, "lib", "node_modules", "@crissmoldovan", "workspace-governance", paths[name]); if (await kind(cli) !== "file") fail("MODIFIED", `rollback target lacks ${name}`); const bytes = launcherText(r.runtime, cli, o.root, old.path); await replaceOwned(old.path, old.sha256, bytes); next[name] = { path: old.path, sha256: sha(bytes), targetVersion: target, bytes }; } const previous = r.activeVersion; r.activeVersion = target; r.launchers = next; r.retainedVersions = [...new Set([...(r.retainedVersions ?? []).filter(v => v !== target), previous])]; await writeFile(join(o.root, RECEIPT), jsonBytes(r), { mode: 0o600 }); return { action: "rollback", applied: true, activeVersion: target, retainedVersions: r.retainedVersions }; } finally { await release(); } }
 async function main() { const o = parse(process.argv.slice(2)); await refuseSymlinkAncestors(o.root); await refuseSymlinkAncestors(o.bin_dir); let result;
   if (["status", "remove", "rollback"].includes(o.action)) { if (o.action === "status") { try { const r = await loadReceipt(o.root, o.bin_dir); await verifyVersion(o.root, r.versions[r.activeVersion]); await verifyLaunchers(r); result = { action: "status", managed: true, activeVersion: r.activeVersion, compatibility: r.compatibility }; } catch (e) { if (e instanceof Refusal && e.code === "UNMANAGED") result = { action: "status", managed: false }; else throw e; } } else if (o.action === "rollback") { const r = await loadReceipt(o.root, o.bin_dir); const target = o.version ?? [...(r.retainedVersions ?? [])].reverse().find(v => v !== r.activeVersion); if (!o.yes) result = { action: "rollback", applied: false, requiresYes: true, activeVersion: r.activeVersion, targetVersion: target ?? null }; else result = await rollbackInstall(o); } else if (!o.yes) { const r = await loadReceipt(o.root, o.bin_dir); if (o.preserve_version && !r.versions[o.preserve_version]) fail("INVALID_ARGUMENT", "--preserve-version must name an exactly owned version"); result = { action: "remove", applied: false, requiresYes: true, activeVersion: r.activeVersion, launchers: BINS.map(n => r.launchers[n].path), versionRoots: Object.values(r.versions).map(v => v.root), preserveVersion: o.preserve_version ?? null }; } else result = await removeInstall(o);
-  } else { const v = await validateBundle(o); if (!o.yes) result = { action: o.action === "plan" ? "install" : o.action, applied: false, requiresYes: true, package: v.manifest.package, compatibility: v.manifest.compatibility, destination: { root: o.root, binDir: o.bin_dir } }; else result = await install(o, v); }
+  } else { const v = await validateBundle(o); try { if (!o.yes) result = { action: o.action === "plan" ? "install" : o.action, applied: false, requiresYes: true, package: v.manifest.package, compatibility: v.manifest.compatibility, destination: { root: o.root, binDir: o.bin_dir } }; else result = await install(o, v); } finally { await rm(v.privateBundle, { recursive: true, force: true }); } }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 main().catch(e => { const code = e instanceof Refusal ? e.code : "INTERNAL"; process.stderr.write(`${JSON.stringify({ error: { code, message: e instanceof Error ? e.message : String(e) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });

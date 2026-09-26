@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,71 @@ async function fixture() {
   assert.equal(assembled.status, 0, assembled.stderr);
   const manifest = await readFile(join(bundle, "runtime-manifest.json"));
   return { scratch, bundle, anchor: sha(manifest), root: join(scratch, "managed"), bins: join(scratch, "bin") };
+}
+
+async function treeSnapshot(path: string, prefix = ""): Promise<unknown[]> {
+  try {
+    const entries: unknown[] = [];
+    for (const name of (await readdir(path)).sort()) {
+      const full = join(path, name);
+      const relativePath = prefix ? `${prefix}/${name}` : name;
+      const metadata = await lstat(full);
+      if (metadata.isDirectory()) entries.push({ path: relativePath, type: "directory", mode: metadata.mode & 0o777 }, ...await treeSnapshot(full, relativePath));
+      else if (metadata.isSymbolicLink()) entries.push({ path: relativePath, type: "symlink" });
+      else entries.push({ path: relativePath, type: "file", mode: metadata.mode & 0o777, size: metadata.size, sha256: sha(await readFile(full)) });
+    }
+    return entries;
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function repackBundle(
+  source: string,
+  destination: string,
+  mutate: (packageRoot: string, manifest: any) => Promise<void>,
+  options: { refreshPackageJson?: boolean, tarTransform?: string } = {},
+) {
+  await cp(source, destination, { recursive: true });
+  const manifestPath = join(destination, "runtime-manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const archive = join(destination, manifest.archive.file);
+  const extracted = join(destination, "extracted");
+  await mkdir(extracted);
+  const unpacked = spawnSync("tar", ["-xzf", archive, "-C", extracted], { encoding: "utf8" });
+  assert.equal(unpacked.status, 0, unpacked.stderr);
+  const packageRoot = join(extracted, "package");
+  const metadataPath = join(packageRoot, "package.json");
+
+  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  metadata.version = "0.2.1";
+  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+  manifest.package.version = "0.2.1";
+  manifest.compatibility.packageVersion = "0.2.1";
+  await mutate(packageRoot, manifest);
+
+  if (options.refreshPackageJson !== false) {
+    const bytes = await readFile(metadataPath);
+    const metadataStat = await stat(metadataPath);
+    const record = manifest.content.find((entry: any) => entry.path === "package/package.json");
+    record.size = bytes.length;
+    record.mode = metadataStat.mode & 0o777;
+    record.sha256 = sha(bytes);
+  }
+  await rm(archive);
+  const tarArgs = ["-czf", archive];
+  if (options.tarTransform) tarArgs.push("--transform", options.tarTransform);
+  const archiveEntries = (await treeSnapshot(extracted) as any[]).filter(entry => entry.type !== "directory").map(entry => entry.path);
+  tarArgs.push("-C", extracted, ...archiveEntries);
+  const packed = spawnSync("tar", tarArgs, { encoding: "utf8" });
+  assert.equal(packed.status, 0, packed.stderr);
+  const archiveBytes = await readFile(archive);
+  manifest.archive.size = archiveBytes.length;
+  manifest.archive.sha256 = sha(archiveBytes);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await rm(extracted, { recursive: true, force: true });
+  return { anchor: sha(await readFile(manifestPath)), manifest, archive };
 }
 
 test("canonical bootstrap is carried byte-for-byte and preview is inert", async () => {
@@ -214,5 +279,96 @@ test("between-check launcher replacement and injected receipt paths refuse safel
     assert.notEqual(missingReceipt.status, 0);
     assert.match(missingReceipt.stderr, /occupied without a valid receipt/);
     assert.equal(await readFile(launcher, "utf8"), "concurrent replacement\n");
+  } finally { await rm(f.scratch, { recursive: true, force: true }); }
+});
+
+test("P24 integrity matrix refuses anchored metadata and content mismatches while preserving the prior install", async () => {
+  const f = await fixture();
+  try {
+    const installArgs = ["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"];
+    assert.equal(run(installArgs).status, 0);
+    const before = { root: await treeSnapshot(f.root), bins: await treeSnapshot(f.bins) };
+    const marker = join(f.scratch, "lifecycle-script-ran");
+    const cases: Array<{ name: string, bundle: string, anchor: string, expected: RegExp }> = [];
+
+    async function variant(name: string, expected: RegExp, mutate: (packageRoot: string, manifest: any) => Promise<void>, options = {}) {
+      const bundle = join(f.scratch, `variant-${name}`);
+      const result = await repackBundle(f.bundle, bundle, mutate, options);
+      cases.push({ name, bundle, anchor: result.anchor, expected });
+      return result;
+    }
+
+    await variant("unexpected-script", /archive package metadata differs/, async packageRoot => {
+      const path = join(packageRoot, "package.json");
+      const metadata = JSON.parse(await readFile(path, "utf8"));
+      metadata.scripts = { ...(metadata.scripts ?? {}), postinstall: `node -e \"require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')\"` };
+      await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`);
+    });
+    await variant("wrong-name", /archive package metadata differs/, async packageRoot => {
+      const path = join(packageRoot, "package.json");
+      const metadata = JSON.parse(await readFile(path, "utf8"));
+      metadata.name = "@attacker/replacement";
+      await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`);
+    });
+    await variant("wrong-version", /archive package metadata differs/, async packageRoot => {
+      const path = join(packageRoot, "package.json");
+      const metadata = JSON.parse(await readFile(path, "utf8"));
+      metadata.version = "9.9.9";
+      await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`);
+    });
+    await variant("wrong-bin", /archive package metadata differs/, async packageRoot => {
+      const path = join(packageRoot, "package.json");
+      const metadata = JSON.parse(await readFile(path, "utf8"));
+      metadata.bin.workspacectl = "dist/mcp-cli.js";
+      await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`);
+    });
+    await variant("content-digest", /archive content bytes, sizes, or modes differ/, async packageRoot => {
+      const path = join(packageRoot, "dist", "cli.js");
+      await writeFile(path, `${await readFile(path, "utf8")}\n// unmanifested replacement\n`);
+    });
+    await variant("content-mode", /archive content bytes, sizes, or modes differ/, async packageRoot => {
+      await chmod(join(packageRoot, "dist", "cli.js"), 0o755);
+    });
+    await variant("symlink", /unsafe path or link/, async packageRoot => {
+      await symlink("/tmp", join(packageRoot, "escape-link"));
+    });
+    await variant("hardlink", /unsafe path or link/, async packageRoot => {
+      await link(join(packageRoot, "package.json"), join(packageRoot, "escape-hardlink"));
+    });
+    await variant("traversal", /unsafe path or link/, async () => {}, { tarTransform: "s#^package/package.json$#package/../../escape#" });
+    await variant("invalid-content-manifest", /content inventory is invalid/, async (_packageRoot, manifest) => {
+      manifest.content.push({ ...manifest.content[0] });
+    });
+
+    await variant("partial-manifest", /manifest is invalid JSON/, async () => {});
+    await writeFile(join(f.scratch, "variant-partial-manifest", "runtime-manifest.json"), "{\"schemaVersion\":1");
+    cases.find(entry => entry.name === "partial-manifest")!.anchor = sha("{\"schemaVersion\":1");
+
+    const missingManifest = await variant("missing-manifest", /manifest is missing/, async () => {});
+    await rm(join(f.scratch, "variant-missing-manifest", "runtime-manifest.json"));
+    cases.find(entry => entry.name === "missing-manifest")!.anchor = missingManifest.anchor;
+
+    const missingArchive = await variant("missing-archive", /archive path is invalid/, async () => {});
+    await rm(missingArchive.archive);
+    const truncatedArchive = await variant("partial-archive", /archive digest or size differs/, async () => {});
+    const archiveBytes = await readFile(truncatedArchive.archive);
+    await writeFile(truncatedArchive.archive, archiveBytes.subarray(0, Math.floor(archiveBytes.length / 2)));
+    const unanchored = await variant("unanchored-pair", /carried approved anchor/, async packageRoot => {
+      await writeFile(join(packageRoot, "README.md"), "internally consistent alternate bytes\n");
+    });
+    const readme = unanchored.manifest.content.find((entry: any) => entry.path === "package/README.md");
+    const alternateReadme = Buffer.from("internally consistent alternate bytes\n");
+    readme.size = alternateReadme.length;
+    readme.sha256 = sha(alternateReadme);
+    await writeFile(join(f.scratch, "variant-unanchored-pair", "runtime-manifest.json"), `${JSON.stringify(unanchored.manifest, null, 2)}\n`);
+    cases.find(entry => entry.name === "unanchored-pair")!.anchor = f.anchor;
+
+    for (const entry of cases) {
+      const refused = run(["update", "--bundle", entry.bundle, "--manifest-sha256", entry.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]);
+      assert.notEqual(refused.status, 0, `${entry.name} unexpectedly installed: ${refused.stdout}`);
+      assert.match(refused.stderr, entry.expected, `${entry.name} refused for the wrong boundary`);
+      assert.deepEqual({ root: await treeSnapshot(f.root), bins: await treeSnapshot(f.bins) }, before, `${entry.name} changed the prior install`);
+      await assert.rejects(lstat(marker), /ENOENT/, `${entry.name} executed a lifecycle script`);
+    }
   } finally { await rm(f.scratch, { recursive: true, force: true }); }
 });
