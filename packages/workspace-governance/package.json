@@ -32,6 +32,7 @@
     "test": "node scripts/test.mjs",
     "check:types": "tsc --noEmit",
     "build": "node scripts/build.mjs",
+    "assemble:runtime": "node scripts/assemble-runtime-artifact.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify": "npm run check:types && npm test && npm run build && npm run verify:package"
   },
@@ -41,6 +42,12 @@
     "ajv": "^8.17.1",
     "typescript": "^5.9.0"
   },
+  "bundleDependencies": [
+    "@modelcontextprotocol/core",
+    "@modelcontextprotocol/server",
+    "yaml",
+    "zod"
+  ],
   "dependencies": {
     "@modelcontextprotocol/core": "2.1.0",
     "@modelcontextprotocol/server": "2.1.0",

@@ -83,33 +83,67 @@ the explicit configured owner. The installer never installs prerequisites or cha
 credentials, provider configuration, Hermes settings, Workspaces configuration, or
 the separately installed skill.
 
-## Verify, pack, and install
+## Verify, assemble, and install
 
-Run from this directory in the reviewed source checkout:
+Run focused verification from this directory in the reviewed source checkout. Runtime
+assembly requires Node.js >=24, its npm, and POSIX `tar`:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
-npm run verify
-mkdir -p "$ARTIFACT_DIR"
-npm pack --ignore-scripts --pack-destination "$ARTIFACT_DIR"
+npm run check:types
+npm run build
+npm run assemble:runtime -- --output "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY"
+```
+
+The assembler refuses relative paths, repository-contained paths, and any output path
+that already exists. It rebuilds the package, creates one npm archive containing the
+complete production dependency closure, and writes `runtime-manifest.json`, its detached
+SHA-256 file, and the package lock beside it. The strict manifest identifies package
+`0.2.0`, both bins, every archived regular file by SHA-256, all production package
+versions/integrities, the archive hash, and compatible skill ref
+`workspace-governance-v0.3.0`. It deliberately contains no final source-commit hash; the
+package remains the unpublished 0.2.0 development identity until the later release
+transition.
+
+A consumer can install the archive without a registry or populated cache:
+
+```sh
+npm install --prefix "$DISPOSABLE_CONSUMER" \
+  --offline --ignore-scripts --no-audit --no-fund \
+  --cache "$EMPTY_CACHE" --registry http://127.0.0.1:9/unreachable \
+  "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.2.0.tgz"
+```
+
+`test/runtime-artifact.test.ts` exercises that exact disposable route, then removes the
+assembled source artifact before running version/help and a real official MCP client
+initialize/list/`workspace_doctor` call against synthetic configuration. This proves a
+same-host empty-cache install with an unreachable registry; it is not a network-namespace
+or second-host result. Assembly consumes the trusted package manager's own freshly generated
+archive. It is not the future untrusted bootstrap: that installer must reject archive
+symlinks and hardlinks before extraction rather than relying on this assembler's post-extract
+inventory. This is only the first M3 executable artifact slice: it is not a permanent
+installer, lifecycle manager, publication, or accepted M3 release.
+
+The retained local installer remains available for its existing development route:
+
+```sh
 ./scripts/install-local.sh \
-  --archive "$ARTIFACT_DIR/ACTUAL_TARBALL_NAME.tgz" \
+  --archive "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.2.0.tgz" \
   --prefix "$ISOLATED_ROOT/versions/0.2.0" \
   --launcher "$ISOLATED_ROOT/bin/workspacectl"
 "$ISOLATED_ROOT/bin/workspacectl" --help
 ```
 
-Use the actual archive name from `npm pack` and explicit absolute paths. The prefix
-must end in `0.2.0` and be absent. The installer verifies package name/version/CLI,
-installs with lifecycle scripts disabled, records the exact Node runtime, and creates
-a stable managed launcher. Paths with spaces are supported. An unrelated file,
-directory, or symlink at the launcher path is refused.
+Use explicit absolute paths. The prefix must end in `0.2.0` and be absent. The retained
+installer verifies package name/version/CLI, installs with lifecycle scripts disabled,
+records the exact Node runtime, and creates a stable managed launcher. Paths with spaces
+are supported. An unrelated file, directory, or symlink at the launcher path is refused.
 
-The archive installs the locked runtime closure, including `yaml@2.9.1`, the official MCP
-server SDK `2.1.0`, and Zod `4.2.1`. It does not install
-the skill. Install the reviewed `skills/workspace-governance` directory separately
-through the target host's normal mechanism. Candidate verification can pass its
-exact `SKILL.md` path to doctor without changing an active profile.
+The assembled archive contains the locked runtime closure, including `yaml@2.9.1`, the
+official MCP server SDK `2.1.0`, and Zod `4.2.1`. It does not install the skill. Install
+the reviewed `skills/workspace-governance` directory separately through the target host's
+normal mechanism. Candidate verification can pass its exact `SKILL.md` path to doctor
+without changing an active profile.
 
 `doctor` defaults to **CLI + agent skill integration** readiness. An explicit
 `--skill FILE` may select the reviewed matching skill for any supported agent

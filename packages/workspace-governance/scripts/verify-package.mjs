@@ -229,7 +229,7 @@ try {
   assert.equal((await stat(installed)).isSymbolicLink(), false);
   const installedApi = await import(pathToFileURL(join(installed, "dist", "index.js")).href);
   const installedYaml = JSON.parse(
-    await readFile(join(consumer, "node_modules", "yaml", "package.json"), "utf8"),
+    await readFile(join(installed, "node_modules", "yaml", "package.json"), "utf8"),
   );
   assert.equal(installedYaml.version, "2.9.1");
   const selectedConfig = join(temp, "selected config.yaml");

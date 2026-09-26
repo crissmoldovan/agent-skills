@@ -40,8 +40,11 @@ Do not move real portfolio repositories, sweep knowledge, embed providers, perfo
 
 ## Prerequisites
 
-Install `workspacectl` **separately** from a reviewed v0.2.0 archive; this skill does not
-install it. Follow the [command reference](references/commands.md).
+Install `workspacectl` **separately** from a reviewed v0.2.0 archive, or use the carried
+`scripts/install-runtime.mjs` helper with an exact approved runtime-manifest SHA-256, absolute
+managed root and bin directory. The helper previews by default; installation/removal requires
+`--yes`, and runtime removal never removes this skill or governed data. Follow the
+[command reference](references/commands.md).
 
 Node.js 24 and trusted Git are required. For GitHub, use existing authorized `gh`; never change credentials.
 Default `doctor` validates **CLI + agent skill integration**; `--skill` may select the

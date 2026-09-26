@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { lstat, open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -172,6 +173,15 @@ async function inspectInstall(env: NodeJS.ProcessEnv, cliPath: string) {
   );
   const markerPath = join(prefix, ".workspacectl-install.json");
   try {
+    const receiptPath = join(prefix, "manager-receipt.json");
+    if ((await regularFileStatus(receiptPath)) === "present") {
+      const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+      const version = receipt.activeVersion;
+      const managedCli = join(prefix, "versions", version, "lib", "node_modules", "@crissmoldovan", "workspace-governance", "dist", "cli.js");
+      const launcherBytes = await readFile(launcher);
+      if (receipt.schemaVersion !== 2 || receipt.package !== "@crissmoldovan/workspace-governance" || version !== CLI_VERSION || receipt.versions?.[version]?.root !== join(prefix, "versions", version) || receipt.launchers?.workspacectl?.path !== launcher || receipt.launchers.workspacectl.targetVersion !== version || createHash("sha256").update(launcherBytes).digest("hex") !== receipt.launchers.workspacectl.sha256 || cliPath !== managedCli || process.execPath !== runtime || (await regularFileStatus(managedCli)) !== "present" || !launcherBytes.toString("utf8").startsWith("#!/bin/sh\n# workspacectl-managed-launcher-v2\n")) return { id: "install", status: "invalid", version: CLI_VERSION, remedy };
+      return { id: "install", status: "pass", version: CLI_VERSION, prefix, launcher, runtime, cliPath };
+    }
     if (
       cliPath !== expectedCli ||
       process.execPath !== runtime ||
