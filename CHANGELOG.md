@@ -5,7 +5,7 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
-## 0.26.0 (staged; not yet published)
+## 0.26.0
 
 **What.** Workspace Governance 0.3.0 adds a local stdio MCP server, portable logical
 catalog transfer, and consent-based installation in both directions: start with the
