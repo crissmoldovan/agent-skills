@@ -83,6 +83,44 @@ the explicit configured owner. The installer never installs prerequisites or cha
 credentials, provider configuration, Hermes settings, Workspaces configuration, or
 the separately installed skill.
 
+## Optional agent skill lifecycle
+
+`workspacectl setup` is the explicit CLI-first entry point. Interactive terminals offer
+install, exact manual instructions, or skip; EOF, cancellation, a declined final preview,
+bare help, and ordinary commands never install. The skill is optional: CLI readiness,
+configuration status, skill projections, and MCP registration are reported separately.
+
+Automation is preview-only unless every effect input is explicit:
+
+```sh
+workspacectl setup --json
+workspacectl setup --source crissmoldovan/agent-skills \
+  --ref workspace-governance-v0.3.0 --agent hermes-agent --agent claude-code \
+  --scope project --json
+workspacectl setup --install-skill --source crissmoldovan/agent-skills \
+  --ref workspace-governance-v0.3.0 --agent hermes-agent --agent claude-code \
+  --scope project --yes --json
+workspacectl setup --remove-skill --source crissmoldovan/agent-skills \
+  --ref workspace-governance-v0.3.0 --agent hermes-agent \
+  --scope project --yes --json
+```
+
+Project scope is the command's current directory; there is no invented `--project` flag.
+Global scope remains inside the selected synthetic/user `HOME`, including `HERMES_HOME` and
+`CLAUDE_CONFIG_DIR`. The implementation pins `skills@1.7.0`, accepts only the real
+`hermes-agent` and `claude-code` IDs in this release slice, resolves remote refs before an
+effect, and verifies installed content/version after the third-party command. A local candidate
+may use an exact 40-character Git commit whose skill bytes match, or
+`local-sha256:<content-digest>` for an immutable unpublished fixture. Mutable refs refuse.
+
+Managed ownership is a private receipt under the selected scope's `.agents/skill-receipts`.
+Removal requires that receipt plus matching source/ref/content and exact projection readback;
+byte-identical unmanaged directories, modified files, unexpected symlinks, and symlinked path
+components refuse. Partial third-party failures report changed and unchanged projections plus
+exact per-agent scoped recovery commands; they are never described as rolled back. Skill
+removal does not remove the runtime, Workspaces configuration/data, repositories, or unrelated
+skills.
+
 ## Verify, assemble, and install
 
 Run focused verification from this directory in the reviewed source checkout. Runtime

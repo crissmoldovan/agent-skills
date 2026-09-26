@@ -12,11 +12,14 @@ import { createReport } from "./report.ts";
 import { renderReportHtml } from "./report-html.ts";
 import { diagnose, doctorExitCode, renderDoctorText } from "./doctor.ts";
 import { runV2Cli } from "./v2-cli.ts";
+import { runSetup } from "./setup.ts";
+import { SkillLifecycleError } from "./skill-lifecycle.ts";
 const help = `workspacectl 0.2.0 — Workspaces M2/A05–A06 + M3/A07–A08 + M4/A09 + M5/A11–A12 + M6/A13–A15 + M7/A16 + M3/A17
 
 Usage:
   workspacectl [help|--help]
   workspacectl [version|--version]
+  workspacectl setup [--install-skill|--remove-skill] [--source SOURCE --ref IMMUTABLE_REF --agent ID]... [--scope project|global] [--yes] [--json]
   workspacectl doctor [--standalone] [--config FILE] [--skill FILE] [--json]
   workspacectl init [--config FILE] --catalog FILE --state FILE --plans-dir DIR --trusted-root DIR --plan FILE [--json]
   workspacectl import-v1 [--config FILE] --manifest FILE --unclassified FILE --plan FILE [--json]
@@ -92,6 +95,7 @@ M2/A06 checkout lookup/registration, catalog editing, and preserved read-only di
   host acknowledge  Verify an exact native Hermes Project plus effective tool cwd readback for the exact action ID/digest.
   coordination  Preview/create a non-Git coordination directory by approved plan or reopen its binding with member drift checks.
   doctor  Validate the integrated setup, or explicit standalone CLI readiness, without changing it.
+  setup   Diagnose or explicitly install/remove the optional matching agent skill. Project scope is the current directory.
 
 Legacy read-only engine:
   validate --manifest FILE
@@ -191,6 +195,19 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   const command = args[0];
+  if (command === "setup") {
+    publicErrorJson = args.includes("--json");
+    const execution = await runSetup(args.slice(1), {
+      input: process.stdin,
+      output: process.stdout,
+      env: process.env,
+      cwd: process.cwd(),
+      interactive: process.stdin.isTTY === true || process.env.WORKSPACECTL_FORCE_INTERACTIVE === "1",
+    });
+    if (execution.exitCode !== 0) process.exitCode = execution.exitCode;
+    process.stdout.write(execution.json ? JSON.stringify(execution.body) + "\n" : execution.text);
+    return;
+  }
   const useV2 =
     ["init", "import-v1", "portable", "apply", "list", "where", "workspace", "adopt", "checkout", "move", "worktree", "operation", "workflow", "config", "group", "repo", "context", "open", "host", "coordination"].includes(command) ||
     (command === "explain" && !args.includes("--manifest")) ||
@@ -368,7 +385,11 @@ async function main(args: string[]): Promise<void> {
 try {
   await main(process.argv.slice(2));
 } catch (error) {
-  if (error instanceof CliError) {
+  if (error instanceof SkillLifecycleError) {
+    const body = { ok: false, error: { code: error.code, message: error.message, ...(error.details === undefined ? {} : { details: error.details }) } };
+    console.error(publicErrorJson ? JSON.stringify(body) : `Error [${error.code}]: ${error.message}`);
+    process.exitCode = 2;
+  } else if (error instanceof CliError) {
     const body = { ok: false, error: { code: error.code, message: error.message } };
     console.error(
       publicErrorJson

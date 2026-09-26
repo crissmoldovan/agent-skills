@@ -1,5 +1,17 @@
 # Install and invoke
 
+## Install or remove this optional skill from the CLI
+
+Run `workspacectl setup` in a real terminal for the install/instructions/skip flow. Project
+scope uses the current directory. In automation, diagnose with `workspacectl setup --json`;
+an effect additionally requires `--install-skill` or `--remove-skill`, exact `--source` and
+immutable `--ref`, one or more real `--agent hermes-agent|claude-code` selections, explicit
+`--scope project|global`, and `--yes`. The CLI invokes pinned `skills@1.7.0`, verifies exact
+bytes/version/provenance, and refuses unmanaged, modified, or symlink-conflicted targets.
+Removing the skill preserves the runtime, catalogs, policies, plans, repositories, and unrelated
+skills. Follow reported per-agent recovery commands after a partial third-party result; no
+automatic rollback is claimed.
+
 Workspaces v0.2.0 through M7/A16 is an unpublished candidate. Install the portable skill
 and CLI separately. A03 setup/import and A04 read-only overviews stay intact; A05
 adds revision-checked catalog editing. Do not substitute a registry package, install globally,
