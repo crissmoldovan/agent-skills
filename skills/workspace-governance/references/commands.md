@@ -81,11 +81,9 @@ host's normal skill mechanism as a separate explicit action. For candidate check
 pass its source or isolated installed `SKILL.md` to doctor; do not change the default
 profile.
 
-Default doctor is a **CLI + agent skill integration** check. `--skill FILE` may
-point to the matching reviewed skill for Codex or another supported agent; it is not
-Hermes-only. The unchanged fallback lookup remains the Hermes profile path. Use
-`doctor --standalone` for an explicit CLI-only check without selecting or reading a
-skill.
+Default doctor is a **standalone CLI** check and does not select or read a skill.
+Use `--integration --skill FILE` to check the matching reviewed skill for Codex or
+another supported agent; it is not Hermes-only.
 
 ## Create a new isolated setup
 
@@ -115,7 +113,7 @@ workspacectl apply \
   --plan "$PLANS/init.json" \
   --approve PLAN_ID_FROM_PREVIEW \
   --json
-workspacectl doctor --config "$CONFIG" --skill "$SKILL" --json
+workspacectl doctor --integration --config "$CONFIG" --skill "$SKILL" --json
 ```
 
 Apply checks the exact approval, re-derives the plan against current paths and
@@ -412,20 +410,16 @@ is exposed; never recursively delete a coordination directory.
 
 ```sh
 workspacectl doctor
-workspacectl doctor --standalone --config "$CONFIG" --json
-workspacectl doctor --config "$CONFIG" --skill "$SKILL" --json
+workspacectl doctor --config "$CONFIG" --json
+workspacectl doctor --integration --config "$CONFIG" --skill "$SKILL" --json
 ```
 
 Config selection is `--config`, `WORKSPACECTL_CONFIG`,
 `$XDG_CONFIG_HOME/workspacectl/config.yaml`, then
-`$HOME/.config/workspacectl/config.yaml`. Skill selection is `--skill`,
-`WORKSPACECTL_SKILL`, then
-`$HOME/.hermes/skills/workspace-governance/SKILL.md`. No unrelated directories are
-searched. That selection applies to the default CLI + agent skill integration scope;
-an explicit skill may be the matching Codex integration. `--standalone` cannot be
-combined with `--skill`, ignores `WORKSPACECTL_SKILL`, performs no default skill
-lookup, returns `selected.skill:null`, and reports the skill check skipped/not
-required. Doctor is read-only in either scope and checks Node, Git, versioned
+`$HOME/.config/workspacectl/config.yaml`. Default standalone scope ignores
+`WORKSPACECTL_SKILL`, performs no skill lookup, returns `selected.skill:null`, and
+reports the skill check skipped/not required. Explicit integration requires
+`--integration --skill FILE`; no unrelated directories are searched. Doctor is read-only in either scope and checks Node, Git, versioned
 installation, config schema, trusted roots, selected stores, and current readable
 catalog/local state. Integrated scope also requires matching skill frontmatter. A
 missing setup is not ready; a valid selected setup can be standalone-ready without

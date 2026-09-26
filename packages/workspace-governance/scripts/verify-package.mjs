@@ -177,7 +177,7 @@ try {
   const help = run(bin, ["--help"], consumer);
   assert.match(help, /^workspacectl 0\.3\.0 — Workspaces M2\/A05–A06/m);
   assert.match(help, /M3\/A07–A08/);
-  assert.match(help, /doctor \[--standalone\] \[--config FILE\] \[--skill FILE\] \[--json\]/);
+  assert.match(help, /doctor \[--integration --skill FILE\] \[--config FILE\] \[--json\]/);
   assert.match(help, /--load knowledge:ID\|skill:ID/);
   assert.match(help, /--approve-content TARGET=sha256:DIGEST/);
   for (const command of [
@@ -695,14 +695,14 @@ try {
 
   const configuredDoctor = probe(
     bin,
-    ["doctor", "--config", selectedConfig, "--skill", selectedSkill, "--json"],
+    ["doctor", "--integration", "--config", selectedConfig, "--skill", selectedSkill, "--json"],
     consumer,
   );
   assert.equal(configuredDoctor.status, 0, configuredDoctor.stderr);
   assert.equal(configuredDoctor.stderr, "");
   const configuredDiagnosis = JSON.parse(configuredDoctor.stdout);
   assert.equal(configuredDiagnosis.ready, true);
-  assert.equal(configuredDiagnosis.checks.find((check) => check.id === "install").status, "source");
+  assert.equal(configuredDiagnosis.checks.find((check) => check.id === "install").status, "direct");
   assert.equal(configuredDiagnosis.checks.find((check) => check.id === "skill").status, "pass");
   assert.equal(configuredDiagnosis.checks.find((check) => check.id === "catalog").status, "pass");
   assert.equal(configuredDiagnosis.checks.find((check) => check.id === "local-state").status, "pass");
@@ -710,7 +710,7 @@ try {
   const doctorBefore = await Promise.all(doctorInputs.map((path) => readFile(path)));
   const standaloneDoctor = probe(
     bin,
-    ["doctor", "--standalone", "--config", selectedConfig, "--json"],
+    ["doctor", "--config", selectedConfig, "--json"],
     consumer,
   );
   assert.equal(standaloneDoctor.status, 0, standaloneDoctor.stderr);
@@ -728,7 +728,7 @@ try {
   assert.deepEqual(await Promise.all(doctorInputs.map((path) => readFile(path))), doctorBefore);
   const unconfiguredDoctor = probe(
     bin,
-    ["doctor", "--config", join(temp, "missing.yaml"), "--skill", selectedSkill, "--json"],
+    ["doctor", "--integration", "--config", join(temp, "missing.yaml"), "--skill", selectedSkill, "--json"],
     consumer,
   );
   assert.equal(unconfiguredDoctor.status, 2, unconfiguredDoctor.stderr);

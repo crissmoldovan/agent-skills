@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, open, readFile } from "node:fs/promises";
+import { access, lstat, open, readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { GovernanceError } from "./core.ts";
 import { createBuiltinStoreRegistry } from "./document-stores.ts";
 import { loadWorkspacesConfig } from "./registry-plans.ts";
@@ -40,7 +41,9 @@ interface DiagnoseOptions {
   configPath?: string;
   skillPath?: string;
   standalone?: boolean;
+  integration?: boolean;
   cliPath?: string;
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -152,7 +155,15 @@ async function inspectInstall(env: NodeJS.ProcessEnv, cliPath: string) {
   const remedy =
     "Run the reviewed local installer to verify a packed, versioned installation.";
   if (prefix === undefined && launcher === undefined && runtime === undefined)
-    return { id: "install", status: "source", version: CLI_VERSION, remedy };
+    return {
+      id: "install",
+      status: cliPath.split(sep).includes("node_modules") ? "direct" : "source",
+      version: CLI_VERSION,
+      cliPath,
+      remedy: cliPath.split(sep).includes("node_modules")
+        ? "Direct packaged invocation is ready; use the reviewed managed installer for a permanent owned launcher."
+        : remedy,
+    };
   if (
     !prefix ||
     !launcher ||
@@ -228,7 +239,7 @@ async function inspectInstall(env: NodeJS.ProcessEnv, cliPath: string) {
   };
 }
 
-async function inspectPathLauncher(env: NodeJS.ProcessEnv) {
+async function inspectPathLauncher(env: NodeJS.ProcessEnv, cwd: string) {
   const prefix = env.WORKSPACECTL_INSTALL_PREFIX;
   if (!prefix) return { id: "path-launcher", status: "skipped", required: false, reason: "Source/direct invocation has no owned PATH launcher." };
   let expected: string | undefined;
@@ -238,22 +249,39 @@ async function inspectPathLauncher(env: NodeJS.ProcessEnv) {
   } catch {}
   if (!expected) return { id: "path-launcher", status: "invalid", remedy: "Restore the managed receipt before selecting a workspacectl launcher on PATH." };
   let actual: string | undefined;
+  let unsafeActual: string | undefined;
+  const ignoredCandidates: string[] = [];
   for (const directory of (env.PATH ?? "").split(":")) {
-    if (!directory) continue;
-    const candidate = resolve(directory, "workspacectl");
+    const selectedDirectory = directory === "" ? cwd : isAbsolute(directory) ? directory : resolve(cwd, directory);
+    const candidate = resolve(selectedDirectory, "workspacectl");
     try {
       const metadata = await lstat(candidate);
-      if (metadata.isFile() && !metadata.isSymbolicLink() && (metadata.mode & 0o111) !== 0) { actual = candidate; break; }
+      if (metadata.isSymbolicLink()) {
+        try {
+          const target = await stat(candidate);
+          await access(candidate, constants.X_OK);
+          if (target.isFile()) { unsafeActual = candidate; break; }
+        } catch {}
+        ignoredCandidates.push(candidate);
+        continue;
+      }
+      if (metadata.isFile() && (metadata.mode & 0o111) !== 0) { actual = candidate; break; }
+      ignoredCandidates.push(candidate);
     } catch {}
   }
   if (actual === expected) return { id: "path-launcher", status: "pass", actual, expected };
   return {
     id: "path-launcher",
-    status: actual ? "shadowed" : "missing",
-    ...(actual ? { actual } : {}),
+    status: unsafeActual ? "unsafe-shadow" : actual ? "shadowed" : "missing",
+    ...(unsafeActual || actual ? { actual: unsafeActual ?? actual } : {}),
     expected,
-    remedy: actual
-      ? `PATH resolves workspacectl to ${actual}; place the owned launcher ${expected} first or invoke it explicitly.`
+    expectedVersion: CLI_VERSION,
+    candidateExecuted: false,
+    ...(ignoredCandidates.length ? { ignoredCandidates } : {}),
+    remedy: unsafeActual
+      ? `PATH first encounters an unsafe linked or non-executable workspacectl at ${unsafeActual}; remove it from PATH precedence, place the owned launcher ${expected} first, or invoke the owned launcher explicitly. The candidate was not executed.`
+      : actual
+      ? `PATH resolves workspacectl to ${actual}; place the owned launcher ${expected} first or invoke it explicitly. The shadowing candidate was not executed.`
       : `Add the owned launcher directory ${resolve(expected, "..")} to PATH or invoke ${expected} explicitly.`,
   };
 }
@@ -431,14 +459,14 @@ export async function diagnose(
 ): Promise<DoctorDiagnosis> {
   const env = options.env ?? process.env;
   const config = selectConfigPath(options.configPath, env);
-  const readinessScope = options.standalone === true ? "standalone" : "integration";
+  const readinessScope = options.integration === true ? "integration" : "standalone";
   const skill = readinessScope === "standalone" ? null : selectedSkill(options.skillPath, env);
   const runtimeCheck = checkNodeVersion(process.versions.node);
   const installCheck = await inspectInstall(
     env,
     options.cliPath ?? resolve(process.argv[1] ?? ""),
   );
-  const pathLauncherCheck = await inspectPathLauncher(env);
+  const pathLauncherCheck = await inspectPathLauncher(env, options.cwd ?? process.cwd());
   const git = spawnSync("git", ["--version"], {
     encoding: "utf8",
     env,
@@ -507,11 +535,15 @@ export async function diagnose(
       message: "The selected Workspaces setup is invalid or incomplete.",
       details: { remedies },
     };
-  else if ((readinessScope === "integration" && skillCheck.status !== "pass") || installCheck.status === "invalid")
+  else if (
+    (readinessScope === "integration" && skillCheck.status !== "pass") ||
+    installCheck.status === "invalid" ||
+    !["pass", "skipped"].includes(pathLauncherCheck.status)
+  )
     error = {
       code: "INCOMPLETE",
       message: readinessScope === "standalone"
-        ? "The CLI installation does not match the selected setup."
+        ? "The CLI installation or PATH launcher does not match the selected setup."
         : "The CLI installation or agent skill does not match the selected setup.",
       details: { remedies },
     };

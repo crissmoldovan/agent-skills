@@ -20,7 +20,7 @@ Usage:
   workspacectl [help|--help]
   workspacectl [version|--version]
   workspacectl setup [--install-skill|--remove-skill] [--source SOURCE --ref IMMUTABLE_REF --agent ID]... [--scope project|global] [--yes] [--json]
-  workspacectl doctor [--standalone] [--config FILE] [--skill FILE] [--json]
+  workspacectl doctor [--integration --skill FILE] [--config FILE] [--json]
   workspacectl init [--config FILE] --catalog FILE --state FILE --plans-dir DIR --trusted-root DIR --plan FILE [--json]
   workspacectl import-v1 [--config FILE] --manifest FILE --unclassified FILE --plan FILE [--json]
   workspacectl portable export [--config FILE] --output FILE [--json]
@@ -94,7 +94,7 @@ M2/A06 checkout lookup/registration, catalog editing, and preserved read-only di
   open    Resolve a selected repository/group and A08 context read-only; explicit activation emits only an inert typed host action.
   host acknowledge  Verify an exact native Hermes Project plus effective tool cwd readback for the exact action ID/digest.
   coordination  Preview/create a non-Git coordination directory by approved plan or reopen its binding with member drift checks.
-  doctor  Validate the integrated setup, or explicit standalone CLI readiness, without changing it.
+  doctor  Validate standalone CLI readiness by default, or explicit agent-skill integration, without changing it.
   setup   Diagnose or explicitly install/remove the optional matching agent skill. Project scope is the current directory.
 
 Legacy read-only engine:
@@ -230,6 +230,7 @@ async function main(args: string[]): Promise<void> {
     let configPath: string | undefined;
     let skillPath: string | undefined;
     let standalone = false;
+    let integration = false;
     let json = false;
     for (let index = 1; index < args.length; index += 1) {
       const flag = args[index];
@@ -239,6 +240,10 @@ async function main(args: string[]): Promise<void> {
       }
       if (flag === "--standalone" && !standalone) {
         standalone = true;
+        continue;
+      }
+      if (flag === "--integration" && !integration) {
+        integration = true;
         continue;
       }
       if (
@@ -261,9 +266,9 @@ async function main(args: string[]): Promise<void> {
       }
       throw new CliError("INVALID_CONFIG", "Invalid doctor invocation.", 2);
     }
-    if (standalone && skillPath !== undefined)
+    if ((standalone && integration) || (skillPath !== undefined && !integration))
       throw new CliError("INVALID_CONFIG", "Invalid doctor invocation.", 2);
-    const diagnosis = await diagnose({ configPath, skillPath, standalone });
+    const diagnosis = await diagnose({ configPath, skillPath, standalone, integration });
     process.stdout.write(json ? JSON.stringify(diagnosis) + "\n" : renderDoctorText(diagnosis));
     process.exitCode = doctorExitCode(diagnosis);
     return;

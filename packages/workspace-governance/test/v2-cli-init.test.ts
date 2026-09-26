@@ -135,7 +135,7 @@ test("M2 doctor validates the selected config, trusted roots, and both actual st
     ]);
     assert.equal(apply.status, 0, apply.stderr);
 
-    const doctor = run(["doctor", "--config", config, "--skill", skill, "--json"]);
+    const doctor = run(["doctor", "--integration", "--config", config, "--skill", skill, "--json"]);
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.equal(doctor.stderr, "");
     const diagnosis = JSON.parse(doctor.stdout);

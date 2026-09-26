@@ -15,7 +15,7 @@ const MANIFEST_ASSET = "runtime-manifest.json";
 const CATALOG_VERSION = "0.26.0";
 // Replaced only after the stable 0.3.0 runtime is assembled. The runtime archive
 // does not contain this helper, so embedding its digest cannot create a cycle.
-const CARRIED_MANIFEST_SHA256 = "b0060938c279a74b249e67ab8c26a8fa83848b0e25f406e0747bcde3ca72a246";
+const CARRIED_MANIFEST_SHA256 = "1105093d4b0dcae0c2690beab594b95f0663faa5cc8f7a5b0c8093d0ca80ff0f";
 const BINS = ["workspacectl", "workspacectl-mcp"];
 const BIN_ENTRIES = { workspacectl: "dist/cli.js", "workspacectl-mcp": "dist/mcp-cli.js" };
 const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "preprepare", "postprepare", "prepublish", "prepublishOnly", "prepack", "postpack", "dependencies"];
@@ -27,12 +27,53 @@ function inside(parent, target) { const r = relative(parent, target); return r =
 async function kind(path) { try { const s = await lstat(path); return s.isSymbolicLink() ? "symlink" : s.isFile() ? "file" : s.isDirectory() ? "directory" : "other"; } catch (e) { if (e?.code === "ENOENT") return "absent"; throw e; } }
 async function refuseSymlinkAncestors(path) { let cursor = resolve(path), parts = []; while (cursor !== dirname(cursor)) { parts.push(cursor); cursor = dirname(cursor); } for (const candidate of parts.reverse()) if (await kind(candidate) === "symlink") fail("CONFLICT", `selected path has a symlinked ancestor: ${candidate}`); }
 function run(command, args, options = {}) { const r = spawnSync(command, args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, ...options }); if (r.error || r.status !== 0) fail("UNAVAILABLE", `${basename(command)} failed: ${r.error?.message ?? r.stderr ?? r.stdout}`.trim()); return r.stdout; }
+async function findTrustedExecutable(name, env = process.env) {
+  const override = name === "npm" ? env.WORKSPACECTL_INSTALL_NPM : name === "tar" ? env.WORKSPACECTL_INSTALL_TAR : undefined;
+  const candidates = override
+    ? [override]
+    : (env.PATH ?? "").split(":").filter(Boolean).map(directory => join(directory, name));
+  for (const candidate of candidates) {
+    if (!isAbsolute(candidate)) continue;
+    try {
+      const resolvedCandidate = await realpath(candidate);
+      const metadata = await lstat(resolvedCandidate);
+      if (!metadata.isFile()) continue;
+      await access(resolvedCandidate, constants.X_OK);
+      return candidate;
+    } catch {}
+  }
+  return null;
+}
+export async function assessBootstrapPrerequisites(options = {}) {
+  const platform = options.platform ?? process.platform;
+  const nodeVersion = options.nodeVersion ?? process.versions.node;
+  const finder = options.findExecutable ?? (name => findTrustedExecutable(name, options.env ?? process.env));
+  const checks = [];
+  const supportedPlatform = platform === "linux" || platform === "darwin";
+  checks.push({ id: "platform", status: supportedPlatform ? "pass" : "unsupported", actual: platform, required: true,
+    ...(supportedPlatform ? {} : { remedy: "Use a supported Linux or macOS environment; native Windows installation is not supported." }) });
+  const nodeMajor = Number(nodeVersion.split(".")[0]);
+  const nodeReady = Number.isInteger(nodeMajor) && nodeMajor >= 24;
+  checks.push({ id: "node", status: nodeReady ? "pass" : "old", actual: nodeVersion, required: true,
+    ...(nodeReady ? {} : { remedy: "Install Node.js 24 or newer separately using your OS/vendor instructions; the helper never uses sudo." }) });
+  for (const [id, required, remedy] of [
+    ["npm", true, "Install npm with the supported Node.js distribution separately; offline runtime installation requires npm."],
+    ["tar", true, "Install POSIX tar separately using your OS/vendor instructions; the helper never uses sudo."],
+    ["git", false, "Git is required only for governed Git operations, not runtime archive installation."],
+    ["npx", false, "npx is required only for optional skill installation/removal, not runtime archive installation."],
+  ]) {
+    const path = await finder(id);
+    checks.push({ id, status: path ? "pass" : "missing", required, ...(path ? { path } : { remedy }) });
+  }
+  const remedies = checks.filter(check => check.status !== "pass" && typeof check.remedy === "string").map(check => check.remedy);
+  return { ready: checks.every(check => check.required !== true || check.status === "pass"), checks, remedies };
+}
 function parse(argv) {
   const action = argv.shift();
-  if (!["status", "plan", "install", "update", "rollback", "remove"].includes(action)) fail("INVALID_ARGUMENT", "action must be status, plan, install, update, rollback, or remove");
+  if (!["prerequisites", "status", "plan", "install", "update", "rollback", "remove"].includes(action)) fail("INVALID_ARGUMENT", "action must be prerequisites, status, plan, install, update, rollback, or remove");
   const o = { action, yes: false, json: false };
   while (argv.length) { const flag = argv.shift(); if (flag === "--yes") o.yes = true; else if (flag === "--json") o.json = true; else { const value = argv.shift(); if (!value || !["--bundle", "--manifest-sha256", "--root", "--bin-dir", "--version", "--preserve-version"].includes(flag)) fail("INVALID_ARGUMENT", `invalid argument ${flag}`); if (o[flag.slice(2).replaceAll("-", "_")] !== undefined) fail("INVALID_ARGUMENT", `duplicate ${flag}`); o[flag.slice(2).replaceAll("-", "_")] = value; } }
-  for (const key of ["root", "bin_dir"]) if (!o[key] || !isAbsolute(o[key])) fail("INVALID_ARGUMENT", `--${key.replaceAll("_", "-")} must be an absolute path`);
+  if (action !== "prerequisites") for (const key of ["root", "bin_dir"]) if (!o[key] || !isAbsolute(o[key])) fail("INVALID_ARGUMENT", `--${key.replaceAll("_", "-")} must be an absolute path`);
   if (["plan", "install", "update"].includes(action)) { if (o.bundle && !isAbsolute(o.bundle)) fail("INVALID_ARGUMENT", "--bundle must be an absolute path"); if (!o.bundle && o.manifest_sha256 !== undefined && o.manifest_sha256 !== CARRIED_MANIFEST_SHA256) fail("INVALID_ARGUMENT", "the pinned public release must use the carried manifest anchor; --manifest-sha256 override is only for an explicit local --bundle"); o.manifest_sha256 ??= CARRIED_MANIFEST_SHA256; if (!/^[0-9a-f]{64}$/.test(o.manifest_sha256 ?? "")) fail("INVALID_ARGUMENT", "--manifest-sha256 must be the approved lowercase SHA-256 anchor"); }
   return o;
 }
@@ -312,7 +353,14 @@ async function rollbackInstall(o) {
     return { action: "rollback", applied: true, activeVersion: target, retainedVersions: next.retainedVersions };
   } finally { await release(); }
 }
-async function main() { const o = parse(process.argv.slice(2)); await refuseSymlinkAncestors(o.root); await refuseSymlinkAncestors(o.bin_dir); let result;
+async function main() { const o = parse(process.argv.slice(2));
+  if (o.action === "prerequisites") { const prerequisites = await assessBootstrapPrerequisites(); process.stdout.write(`${JSON.stringify({ action: "prerequisites", ...prerequisites }, null, 2)}\n`); return; }
+  await refuseSymlinkAncestors(o.root); await refuseSymlinkAncestors(o.bin_dir);
+  if (["plan", "install", "update"].includes(o.action)) {
+    const prerequisites = await assessBootstrapPrerequisites();
+    if (!prerequisites.ready) fail("MISSING_PREREQUISITE", prerequisites.checks.filter(check => check.required === true && check.status !== "pass").map(check => check.remedy).join(" "));
+  }
+  let result;
   if (["status", "remove", "rollback"].includes(o.action)) { if (o.action === "status") { try { const r = await loadReceipt(o.root, o.bin_dir); await verifyVersion(o.root, r.versions[r.activeVersion]); await verifyLaunchers(r); result = { action: "status", managed: true, activeVersion: r.activeVersion, compatibility: r.compatibility }; } catch (e) { if (e instanceof Refusal && e.code === "UNMANAGED") result = { action: "status", managed: false }; else throw e; } } else if (o.action === "rollback") { const r = await loadReceipt(o.root, o.bin_dir); const target = o.version ?? [...(r.retainedVersions ?? [])].reverse().find(v => v !== r.activeVersion); if (!o.yes) result = { action: "rollback", applied: false, requiresYes: true, activeVersion: r.activeVersion, targetVersion: target ?? null }; else result = await rollbackInstall(o); } else if (!o.yes) { const r = await loadReceipt(o.root, o.bin_dir); if (o.preserve_version && !r.versions[o.preserve_version]) fail("INVALID_ARGUMENT", "--preserve-version must name an exactly owned version"); result = { action: "remove", applied: false, requiresYes: true, activeVersion: r.activeVersion, launchers: BINS.map(n => r.launchers[n].path), versionRoots: Object.values(r.versions).map(v => v.root), preserveVersion: o.preserve_version ?? null }; } else result = await removeInstall(o);
   } else { const downloadedBundle = o.bundle ? null : await downloadPinnedBundle(o.manifest_sha256); if (downloadedBundle) o.bundle = downloadedBundle; try { const v = await validateBundle(o); try { if (!o.yes) result = { action: o.action === "plan" ? "install" : o.action, applied: false, requiresYes: true, source: downloadedBundle ? { type: "github-release", repository: REPOSITORY, tag: RELEASE_TAG } : { type: "offline-bundle", path: o.bundle }, package: v.manifest.package, compatibility: v.manifest.compatibility, destination: { root: o.root, binDir: o.bin_dir } }; else result = await install(o, v); } finally { await rm(v.privateBundle, { recursive: true, force: true }); } } finally { if (downloadedBundle) await rm(downloadedBundle, { recursive: true, force: true }); } }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -322,4 +370,4 @@ function isEntrypoint(moduleUrl) {
   try { return realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(moduleUrl)); }
   catch { return false; }
 }
-if (isEntrypoint(import.meta.url)) main().catch(e => { const code = e instanceof Refusal ? e.code : "INTERNAL"; process.stderr.write(`${JSON.stringify({ error: { code, message: e instanceof Error ? e.message : String(e) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });
+if (isEntrypoint(import.meta.url)) main().catch(e => { const permission = !(e instanceof Refusal) && ["EACCES", "EPERM", "EROFS"].includes(e?.code); const code = permission ? "PERMISSION_DENIED" : e instanceof Refusal ? e.code : "INTERNAL"; const message = permission ? `permission denied for the selected user-writable destination; choose paths you own or correct permissions separately without sudo (${e.message})` : e instanceof Error ? e.message : String(e); process.stderr.write(`${JSON.stringify({ error: { code, message } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });

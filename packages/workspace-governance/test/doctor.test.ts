@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkNodeVersion, diagnose, renderDoctorText } from "../src/doctor.ts";
@@ -19,6 +19,33 @@ test("doctor runtime check enforces the Node 24 major-version floor", () => {
   assert.equal(old.actual, "23.11.1");
   assert.equal(old.required, ">=24.0.0");
   assert.match(String(old.remedy), /Node\.js 24 or newer/);
+});
+
+test("doctor library defaults to standalone and requires integration explicitly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "workspacectl-doctor-default-"));
+  try {
+    const result = await diagnose({
+      configPath: join(root, "missing-config.json"),
+      env: { ...process.env, HOME: root, WORKSPACECTL_SKILL: join(root, "must-not-read.md") },
+    });
+    assert.equal(result.readinessScope, "standalone");
+    assert.equal(result.selected.skill, null);
+    assert.equal(result.checks.find(check => check.id === "skill")?.status, "skipped");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("doctor distinguishes direct package invocation from source invocation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "workspacectl-doctor-direct-"));
+  try {
+    const direct = await diagnose({
+      configPath: join(root, "missing.json"),
+      cliPath: join(root, "consumer", "node_modules", "@crissmoldovan", "workspace-governance", "dist", "cli.js"),
+      env: { ...process.env, HOME: root },
+    });
+    const install = direct.checks.find(check => check.id === "install");
+    assert.equal(install?.status, "direct");
+    assert.match(String(install?.remedy), /managed installer/);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("doctor verifies a launcher installation against its recorded paths", async () => {
@@ -150,6 +177,55 @@ test("doctor recognizes the managed MCP launcher and entrypoint", async () => {
     assert.equal(pathCheck?.status, "shadowed");
     assert.equal(pathCheck?.actual, shadow);
     assert.match(String(pathCheck?.remedy), /PATH/);
+    assert.equal(pathCheck?.expectedVersion, "0.3.0");
+    assert.equal(pathCheck?.candidateExecuted, false);
+
+    await rm(shadow);
+    await symlink(cliLauncher, shadow);
+    const linked = await diagnose({
+      cliPath,
+      standalone: true,
+      configPath: join(root, "missing-config.json"),
+      env: {
+        ...process.env,
+        PATH: `${shadowDir}:${process.env.PATH ?? ""}`,
+        WORKSPACECTL_INSTALL_PREFIX: prefix,
+        WORKSPACECTL_LAUNCHER: launcher,
+        WORKSPACECTL_RUNTIME_PATH: process.execPath,
+      },
+    });
+    const linkedPath = linked.checks.find(check => check.id === "path-launcher");
+    assert.equal(linkedPath?.status, "unsafe-shadow");
+    assert.equal(linkedPath?.actual, shadow);
+    assert.equal(linkedPath?.candidateExecuted, false);
+
+    await rm(shadow);
+    await writeFile(shadow, "not executable\n", { mode: 0o600 });
+    const skipped = await diagnose({
+      cliPath, standalone: true, configPath: join(root, "missing-config.json"), cwd: root,
+      env: { ...process.env, PATH: `${shadowDir}:${binDir}`, WORKSPACECTL_INSTALL_PREFIX: prefix, WORKSPACECTL_LAUNCHER: launcher, WORKSPACECTL_RUNTIME_PATH: process.execPath },
+    });
+    assert.equal(skipped.checks.find(check => check.id === "path-launcher")?.status, "pass");
+
+    await rm(shadow);
+    await symlink(join(root, "missing-target"), shadow);
+    const broken = await diagnose({
+      cliPath, standalone: true, configPath: join(root, "missing-config.json"), cwd: root,
+      env: { ...process.env, PATH: `${shadowDir}:${binDir}`, WORKSPACECTL_INSTALL_PREFIX: prefix, WORKSPACECTL_LAUNCHER: launcher, WORKSPACECTL_RUNTIME_PATH: process.execPath },
+    });
+    assert.equal(broken.checks.find(check => check.id === "path-launcher")?.status, "pass");
+
+    const cwdLauncher = join(root, "workspacectl");
+    await writeFile(cwdLauncher, "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+    await chmod(cwdLauncher, 0o755);
+    const emptyComponent = await diagnose({
+      cliPath, standalone: true, configPath: join(root, "missing-config.json"), cwd: root,
+      env: { ...process.env, PATH: `:${binDir}`, WORKSPACECTL_INSTALL_PREFIX: prefix, WORKSPACECTL_LAUNCHER: launcher, WORKSPACECTL_RUNTIME_PATH: process.execPath },
+    });
+    const cwdPath = emptyComponent.checks.find(check => check.id === "path-launcher");
+    assert.equal(cwdPath?.status, "shadowed");
+    assert.equal(cwdPath?.actual, cwdLauncher);
+    assert.equal(cwdPath?.candidateExecuted, false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

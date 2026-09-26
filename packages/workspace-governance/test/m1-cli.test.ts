@@ -75,7 +75,7 @@ test("M2/A05 help retains the labelled M1 read-only surface", () => {
     assert.match(result.stdout, /^workspacectl 0\.3\.0 — Workspaces M2\/A05/m);
     for (const command of ["discover --config", "list", "report", "audit"])
       assert.ok(result.stdout.includes(command), command);
-    assert.match(result.stdout, /doctor \[--standalone\] \[--config FILE\] \[--skill FILE\] \[--json\]/);
+    assert.match(result.stdout, /doctor \[--integration --skill FILE\] \[--config FILE\] \[--json\]/);
     assert.match(result.stdout, /Legacy read-only engine:/);
     assert.match(result.stdout, /advisory, not authentication/i);
     assert.match(result.stdout, /inert/i);
@@ -149,10 +149,7 @@ test("doctor JSON reports the selected missing config without claiming readiness
       path: join(xdg, "workspacectl", "config.yaml"),
       source: "xdg",
     });
-    assert.deepEqual(diagnosis.selected.skill, {
-      path: join(home, ".hermes", "skills", "workspace-governance", "SKILL.md"),
-      source: "default",
-    });
+    assert.equal(diagnosis.selected.skill, null);
     const checks = Object.fromEntries(
       diagnosis.checks.map((check: { id: string }) => [check.id, check]),
     );
@@ -161,7 +158,7 @@ test("doctor JSON reports the selected missing config without claiming readiness
     assert.equal(checks.git.status, "pass");
     assert.equal(checks.config.status, "missing");
     assert.equal(checks.config.validated, false);
-    assert.equal(checks.skill.status, "missing");
+    assert.equal(checks.skill.status, "skipped");
     assert.equal(checks["trusted-roots"].status, "blocked");
     assert.equal(checks.store.status, "blocked");
     assert.deepEqual(diagnosis.error.code, "NOT_CONFIGURED");
@@ -199,7 +196,7 @@ test("invalid doctor input is rejected before any prerequisite probe", async () 
   }
 });
 
-test("doctor rejects invalid standalone flag combinations before any prerequisite probe", async () => {
+test("doctor rejects invalid integration flag combinations before any prerequisite probe", async () => {
   const root = await mkdtemp(join(tmpdir(), "workspacectl conflicting doctor-"));
   try {
     const bin = join(root, "bin");
@@ -211,10 +208,9 @@ test("doctor rejects invalid standalone flag combinations before any prerequisit
       { mode: 0o755 },
     );
     for (const args of [
-      ["--standalone", "--skill", join(root, "SKILL.md")],
-      ["--skill", join(root, "SKILL.md"), "--standalone"],
-      ["--standalone", "--standalone"],
-      ["--standalone", "--unknown"],
+      ["--skill", join(root, "SKILL.md")],
+      ["--integration", "--integration"],
+      ["--integration", "--unknown"],
     ]) {
       await rm(sentinel, { force: true });
       const result = spawnSync(
@@ -259,6 +255,7 @@ test("doctor rejects a malformed selected v2 config without claiming readiness",
       "doctor",
       "--config",
       explicitConfig,
+      "--integration",
       "--skill",
       explicitSkill,
       "--json",
@@ -294,7 +291,7 @@ test("doctor rejects a malformed selected v2 config without claiming readiness",
   }
 });
 
-test("doctor standalone reports CLI-only readiness without selecting or reading an agent skill", async () => {
+test("doctor defaults to standalone readiness and integration is explicit", async () => {
   const root = await mkdtemp(join(tmpdir(), "workspacectl standalone doctor-"));
   try {
     const home = join(root, "fresh-home");
@@ -314,18 +311,10 @@ test("doctor standalone reports CLI-only readiness without selecting or reading 
     const before = await snapshotPath(root);
     const help = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8", env: baseEnv });
     assert.equal(help.status, 0, help.stderr);
-    assert.match(help.stdout, /doctor \[--standalone\] \[--config FILE\] \[--skill FILE\] \[--json\]/);
-
-    const integrated = spawnSync(process.execPath, [cli, "doctor", "--json"], { encoding: "utf8", env: baseEnv });
-    assert.equal(integrated.status, 3, integrated.stderr);
-    const integratedBody = JSON.parse(integrated.stdout);
-    assert.equal(integratedBody.ready, false);
-    assert.equal(integratedBody.readinessScope, "integration");
-    assert.equal(integratedBody.error.code, "INCOMPLETE");
-    assert.equal(integratedBody.checks.find((check: any) => check.id === "skill").status, "missing");
+    assert.match(help.stdout, /doctor \[--integration --skill FILE\] \[--config FILE\] \[--json\]/);
 
     const standaloneEnv = { ...baseEnv, WORKSPACECTL_SKILL: mismatchedSkill };
-    const standalone = spawnSync(process.execPath, [cli, "doctor", "--standalone", "--json"], { encoding: "utf8", env: standaloneEnv });
+    const standalone = spawnSync(process.execPath, [cli, "doctor", "--json"], { encoding: "utf8", env: standaloneEnv });
     assert.equal(standalone.status, 0, standalone.stderr);
     assert.equal(standalone.stderr, "");
     const standaloneBody = JSON.parse(standalone.stdout);
@@ -343,13 +332,13 @@ test("doctor standalone reports CLI-only readiness without selecting or reading 
       assert.equal(standaloneBody.checks.find((check: any) => check.id === id).status, "pass", id);
     assert.equal(standaloneBody.checks.find((check: any) => check.id === "install").status, "source");
 
-    const text = spawnSync(process.execPath, [cli, "doctor", "--standalone"], { encoding: "utf8", env: standaloneEnv });
+    const text = spawnSync(process.execPath, [cli, "doctor"], { encoding: "utf8", env: standaloneEnv });
     assert.equal(text.status, 0, text.stderr);
     assert.match(text.stdout, /Readiness scope: standalone CLI/);
     assert.match(text.stdout, /Selected skill: not required/);
     assert.match(text.stdout, /\[SKIPPED\] skill — not required/);
 
-    const invalidInstall = spawnSync(process.execPath, [cli, "doctor", "--standalone", "--json"], {
+    const invalidInstall = spawnSync(process.execPath, [cli, "doctor", "--json"], {
       encoding: "utf8",
       env: { ...standaloneEnv, WORKSPACECTL_INSTALL_PREFIX: join(root, "invalid-install") },
     });
@@ -357,17 +346,17 @@ test("doctor standalone reports CLI-only readiness without selecting or reading 
     const invalidInstallBody = JSON.parse(invalidInstall.stdout);
     assert.equal(invalidInstallBody.ready, false);
     assert.equal(invalidInstallBody.error.code, "INCOMPLETE");
-    assert.equal(invalidInstallBody.error.message, "The CLI installation does not match the selected setup.");
+    assert.equal(invalidInstallBody.error.message, "The CLI installation or PATH launcher does not match the selected setup.");
     assert.equal(invalidInstallBody.checks.find((check: any) => check.id === "install").status, "invalid");
     assert.equal(invalidInstallBody.checks.find((check: any) => check.id === "skill").status, "skipped");
 
-    const explicitIntegration = spawnSync(process.execPath, [cli, "doctor", "--skill", mismatchedSkill, "--json"], { encoding: "utf8", env: baseEnv });
+    const explicitIntegration = spawnSync(process.execPath, [cli, "doctor", "--integration", "--skill", mismatchedSkill, "--json"], { encoding: "utf8", env: baseEnv });
     assert.equal(explicitIntegration.status, 3, explicitIntegration.stderr);
     const explicitBody = JSON.parse(explicitIntegration.stdout);
     assert.equal(explicitBody.ready, false);
     assert.equal(explicitBody.error.code, "INCOMPLETE");
     assert.equal(explicitBody.checks.find((check: any) => check.id === "skill").status, "mismatch");
-    const integrationText = spawnSync(process.execPath, [cli, "doctor", "--skill", mismatchedSkill], { encoding: "utf8", env: baseEnv });
+    const integrationText = spawnSync(process.execPath, [cli, "doctor", "--integration", "--skill", mismatchedSkill], { encoding: "utf8", env: baseEnv });
     assert.equal(integrationText.status, 3, integrationText.stderr);
     assert.match(integrationText.stdout, /Readiness scope: CLI \+ agent skill integration/);
     assert.deepEqual(await snapshotPath(root), before);
@@ -528,6 +517,7 @@ test("doctor identifies a mismatched installed skill version", async () => {
     const result = spawnSync(process.execPath, [
       cli,
       "doctor",
+      "--integration",
       "--config",
       config,
       "--skill",
@@ -562,6 +552,7 @@ test("doctor ignores skill identity examples outside YAML frontmatter", async ()
     const result = spawnSync(process.execPath, [
       cli,
       "doctor",
+      "--integration",
       "--config",
       config,
       "--skill",

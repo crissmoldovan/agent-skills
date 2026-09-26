@@ -6,7 +6,7 @@ author: Cristian Moldovan (crissmoldovan), Hermes Agent
 license: MIT
 platforms: [linux, darwin]
 compatibility: "workspacectl 0.3.0; catalog 0.26.0; skill tag workspace-governance-v0.3.0"
-metadata: "runtime-manifest-sha256=b0060938c279a74b249e67ab8c26a8fa83848b0e25f406e0747bcde3ca72a246; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
+metadata: "runtime-manifest-sha256=1105093d4b0dcae0c2690beab594b95f0663faa5cc8f7a5b0c8093d0ca80ff0f; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
 ---
 
 # Workspace Governance
@@ -74,9 +74,8 @@ or symlinked paths, and modified/unmanaged receipts are blockers to fix explicit
 to overwrite, follow `latest`, access credentials, or mutate an agent profile.
 
 Node.js 24 and trusted Git are required. For GitHub, use existing authorized `gh`; never change credentials.
-Default `doctor` validates **CLI + agent skill integration**; `--skill` may select the
-matching Codex skill while default lookup stays unchanged. `doctor --standalone` is
-CLI-only and reads no skill.
+Default `doctor` validates **standalone CLI readiness** and reads no skill. Use
+`doctor --integration --skill FILE` to validate a selected matching agent skill explicitly.
 
 ## Procedure
 
@@ -85,9 +84,9 @@ CLI-only and reads no skill.
 2. **Preview initialization.** Run `init` with an absent plan path in the plans directory.
    It writes only that plan. Review paths, revisions, actions, outputs, and approval.
 3. **Approve, then diagnose.** Apply the reviewed plan ID. The CLI re-derives inputs,
-   checks locks/revisions, CAS-writes, and reads back. Default `doctor` checks integrated
-   readiness. For CLI-only readiness use `--standalone`: all non-skill checks remain,
-   `selected.skill:null`, and a skipped optional skill prove no agent integration.
+   checks locks/revisions, CAS-writes, and reads back. Default `doctor` checks standalone
+   CLI readiness: all non-skill checks remain, `selected.skill:null`, and a skipped optional
+   skill prove no agent integration. Add `--integration --skill FILE` for explicit integration.
 4. **Import exactly.** Require `workspace-governance/v1` and
    `workspace-governance/unclassified-repositories-v1`; malformed, duplicate, or unsupported
    records refuse. Preview `import-v1` into the empty catalog, approve its explicit plan ID,
@@ -164,8 +163,8 @@ CLI-only and reads no skill.
 Default output is readable text. Add `--json` for the complete machine result.
 
 ```sh
-workspacectl doctor --standalone --config "$CONFIG" --json
-workspacectl doctor --config "$CONFIG" --skill "$SKILL" --json
+workspacectl doctor --config "$CONFIG" --json
+workspacectl doctor --integration --config "$CONFIG" --skill "$SKILL" --json
 workspacectl list --config "$CONFIG" --json
 workspacectl config export --target catalog --config "$CONFIG"
 workspacectl config validate "$DRAFT" --config "$CONFIG" --json

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 // Runtime helper is intentionally shipped as a standalone JavaScript module.
 // @ts-expect-error no declaration file is published for the carried helper
-import { fetchReleaseAsset } from "../scripts/install-runtime.mjs";
+import { assessBootstrapPrerequisites, fetchReleaseAsset } from "../scripts/install-runtime.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const carried = fileURLToPath(new URL("../../../skills/workspace-governance/scripts/install-runtime.mjs", import.meta.url));
@@ -32,9 +32,31 @@ test("carried bootstrap is self-contained and anchored to the 0.3 compatibility 
   assert.match(text, /version: 0\.3\.0/);
   assert.match(text, /workspace-governance-v0\.3\.0/);
   assert.match(text, /catalog 0\.26\.0/);
-  assert.match(text, /runtime-manifest-sha256=b0060938c279a74b249e67ab8c26a8fa83848b0e25f406e0747bcde3ca72a246/);
+  assert.match(text, /runtime-manifest-sha256=1105093d4b0dcae0c2690beab594b95f0663faa5cc8f7a5b0c8093d0ca80ff0f/);
   assert.match(text, /--bundle \/absolute\/release-assets/);
   assert.match(text, /never uses sudo/);
+});
+
+test("bootstrap prerequisite matrix is truthful and distinguishes required from optional tools", async () => {
+  const none = async () => null;
+  const oldNode = await assessBootstrapPrerequisites({ platform: "linux", nodeVersion: "23.11.1", findExecutable: none });
+  assert.equal(oldNode.ready, false);
+  assert.equal(oldNode.checks.find((entry: any) => entry.id === "node")?.status, "old");
+  assert.match(oldNode.remedies.join("\n"), /Node\.js 24 or newer.*separately/);
+
+  const missingTools = await assessBootstrapPrerequisites({ platform: "darwin", nodeVersion: "24.20.0", findExecutable: none });
+  assert.equal(missingTools.ready, false);
+  assert.equal(missingTools.checks.find((entry: any) => entry.id === "npm")?.required, true);
+  assert.equal(missingTools.checks.find((entry: any) => entry.id === "tar")?.required, true);
+  assert.equal(missingTools.checks.find((entry: any) => entry.id === "git")?.required, false);
+  assert.equal(missingTools.checks.find((entry: any) => entry.id === "npx")?.required, false);
+  assert.match(missingTools.remedies.join("\n"), /Git is required only for governed Git operations/);
+  assert.match(missingTools.remedies.join("\n"), /npx is required only for optional skill installation/);
+
+  const unsupported = await assessBootstrapPrerequisites({ platform: "win32", nodeVersion: "24.20.0", findExecutable: async (name: string) => `/safe/${name}` });
+  assert.equal(unsupported.ready, false);
+  assert.equal(unsupported.checks.find((entry: any) => entry.id === "platform")?.status, "unsupported");
+  assert.match(unsupported.remedies.join("\n"), /Linux or macOS/);
 });
 
 test("release downloader follows only bounded allowlisted HTTPS redirects", async () => {
