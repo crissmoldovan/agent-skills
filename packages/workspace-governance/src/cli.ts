@@ -20,6 +20,8 @@ Usage:
   workspacectl doctor [--standalone] [--config FILE] [--skill FILE] [--json]
   workspacectl init [--config FILE] --catalog FILE --state FILE --plans-dir DIR --trusted-root DIR --plan FILE [--json]
   workspacectl import-v1 [--config FILE] --manifest FILE --unclassified FILE --plan FILE [--json]
+  workspacectl portable export [--config FILE] --output FILE [--json]
+  workspacectl portable import [--config FILE] --input FILE --plan FILE [--json]
   workspacectl apply [--config FILE] --plan FILE --approve PLAN_ID [--json]
   workspacectl discover --config FILE [--source ID]... [--root PATH]... [--depth N] [--max-pages N] [--json]
   workspacectl list [--config FILE] [--source ID]... [--root PATH]... [--depth N] [--max-pages N] [--json]
@@ -67,6 +69,7 @@ Usage:
 M2/A06 checkout lookup/registration, catalog editing, and preserved read-only discovery:
   init    Save an inert preview for a new isolated config, catalog, and local-state store.
   import-v1  Preview a lossless v1 catalog plus unclassified sidecar import.
+  portable export/import  Transfer logical identity through trust-separated, digest-verified data and a reviewed replacement plan.
   apply   Re-derive, CAS-write, and read back the exact explicitly approved registry plan.
   discover  Observe explicit configured source IDs and trusted local roots without persisting selections.
   list    With selectors, show the shared overview; without them, preserve A03 catalog readback.
@@ -189,7 +192,7 @@ async function main(args: string[]): Promise<void> {
   }
   const command = args[0];
   const useV2 =
-    ["init", "import-v1", "apply", "list", "where", "workspace", "adopt", "checkout", "move", "worktree", "operation", "workflow", "config", "group", "repo", "context", "open", "host", "coordination"].includes(command) ||
+    ["init", "import-v1", "portable", "apply", "list", "where", "workspace", "adopt", "checkout", "move", "worktree", "operation", "workflow", "config", "group", "repo", "context", "open", "host", "coordination"].includes(command) ||
     (command === "explain" && !args.includes("--manifest")) ||
     (command === "discover" && args.includes("--config")) ||
     (["report", "audit"].includes(command) && !args.includes("--manifest"));

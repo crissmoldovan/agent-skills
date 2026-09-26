@@ -115,8 +115,8 @@ export function createGovernanceService(options: { configPath: string; env?: Nod
   }
   async function createPlan(raw: unknown): Promise<ReadServiceResult> {
     requireThat(plans, "UNSUPPORTED");
-    const input = object(raw, ["operation", "repository", "workspace", "path", "destination", "ref", "base", "branch", "coordination", "group", "draft", "id", "kind", "name", "slug", "parent", "project", "action", "decision", "confirmInactive"]);
-    const operation = exact(input.operation, ["adopt", "checkout", "select-primary", "move", "worktree-create", "worktree-remove", "coordination-create", "catalog-draft", "group-create", "group-update", "group-reparent", "repo-membership", "repo-classify", "operation-reconcile"]);
+    const input = object(raw, ["operation", "repository", "workspace", "path", "destination", "ref", "base", "branch", "coordination", "group", "draft", "portable", "id", "kind", "name", "slug", "parent", "project", "action", "decision", "confirmInactive"]);
+    const operation = exact(input.operation, ["adopt", "checkout", "select-primary", "move", "worktree-create", "worktree-remove", "coordination-create", "catalog-draft", "portable-import", "group-create", "group-update", "group-reparent", "repo-membership", "repo-classify", "operation-reconcile"]);
     const operationKeys: Record<string, readonly string[]> = {
       adopt: ["operation", "repository", "path"],
       checkout: ["operation", "repository", "destination", "ref"],
@@ -126,6 +126,7 @@ export function createGovernanceService(options: { configPath: string; env?: Nod
       "worktree-remove": ["operation", "workspace", "confirmInactive"],
       "coordination-create": ["operation", "group", "path"],
       "catalog-draft": ["operation", "draft"],
+      "portable-import": ["operation", "portable"],
       "group-create": ["operation", "id", "kind", "name", "slug", "parent"],
       "group-update": ["operation", "id", "name", "slug"],
       "group-reparent": ["operation", "id", "parent"],
@@ -146,6 +147,7 @@ export function createGovernanceService(options: { configPath: string; env?: Nod
     else if (operation === "worktree-remove") { requireThat(input.confirmInactive === true, "APPROVAL_REQUIRED"); args.push("worktree", "remove", "--confirm-inactive"); flag(args, "workspace", string(input.workspace)); }
     else if (operation === "coordination-create") { args.push("coordination", "create"); flag(args, "group", string(input.group)); flag(args, "path", string(input.path)); }
     else if (operation === "catalog-draft") { args.push("config", "plan", await trustedFile(string(input.draft)!)); }
+    else if (operation === "portable-import") { args.push("portable", "import"); flag(args, "input", await trustedFile(string(input.portable)!)); }
     else if (operation === "operation-reconcile") args.push("operation", "reconcile", string(input.id)!);
     else if (operation.startsWith("group-")) {
       const action = operation.slice(6); args.push("group", action); flag(args, "id", string(input.id));

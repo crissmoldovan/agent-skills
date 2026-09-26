@@ -129,7 +129,7 @@ test("official client sees immutable opt-in planning and effect capabilities", a
         const planBranches = (plan.inputSchema as any).oneOf ?? (plan.inputSchema as any).anyOf;
         assert.deepEqual(planBranches.map((branch: any) => branch.properties.operation.const).sort(), [
           "adopt", "catalog-draft", "checkout", "coordination-create", "group-create",
-          "group-reparent", "group-update", "move", "operation-reconcile", "repo-classify",
+          "group-reparent", "group-update", "move", "operation-reconcile", "portable-import", "repo-classify",
           "repo-membership", "select-primary", "worktree-create", "worktree-remove",
         ]);
         assert.equal(plan.annotations?.readOnlyHint, false);

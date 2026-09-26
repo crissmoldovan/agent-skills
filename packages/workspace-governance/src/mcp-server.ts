@@ -36,6 +36,7 @@ const schemas = {
     z.strictObject({ operation: z.literal("worktree-remove"), workspace: value, confirmInactive: z.literal(true) }),
     z.strictObject({ operation: z.literal("coordination-create"), group: value, path: value }),
     z.strictObject({ operation: z.literal("catalog-draft"), draft: value }),
+    z.strictObject({ operation: z.literal("portable-import"), portable: value }),
     z.strictObject({ operation: z.literal("group-create"), id: value, kind: z.enum(["organization", "area", "project"]), name: value, slug: value, parent: value.optional() }),
     z.strictObject({ operation: z.literal("group-update"), id: value, name: value.optional(), slug: value.optional() })
       .refine(input => input.name !== undefined || input.slug !== undefined)

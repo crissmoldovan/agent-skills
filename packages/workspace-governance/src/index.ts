@@ -88,6 +88,17 @@ export type {
   WorkspacesConfig,
 } from "./v2-model.ts";
 export {
+  createPortableDocument,
+  parsePortableText,
+  portableCatalog,
+  rfc8785Canonicalize,
+  validatePortableDocument,
+  MAX_PORTABLE_BYTES,
+  PORTABLE_FORMAT,
+  PORTABLE_NOT_CARRIED,
+} from "./portable.ts";
+export type { PortableDependant, PortableDocument, PortableUnresolvedBinding } from "./portable.ts";
+export {
   acknowledgeHostAction,
   createOpenHostAction,
   openTarget,
@@ -179,6 +190,7 @@ export {
   createWorkspaceChangePlan,
   createImportPlan,
   createInitPlan,
+  createPortableImportPlan,
   createPrimarySelectionPlan,
   loadWorkspacePlan,
   loadWorkspacesConfig,
@@ -193,6 +205,7 @@ export type {
   CatalogEditOperation,
   CoordinationCreateRequest,
   ImportRequest,
+  PortableImportRequest,
   InitRequest,
   PrimarySelectionRequest,
 } from "./registry-plans.ts";

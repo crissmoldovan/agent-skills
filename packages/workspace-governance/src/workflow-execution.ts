@@ -78,6 +78,8 @@ function validateStepTarget(c: Record<string, any>, optional = true): void {
   if (present) { boundedText(c.repositoryId); boundedText(c.workspaceId); }
 }
 function validateExecutableWorkflow(workflow: ResolvedWorkflow): void {
+  const unresolved = JSON.stringify(workflow).match(/needs-binding:binding-[a-f0-9]{24}/g) ?? [];
+  if (unresolved.length > 0) throw new GovernanceError("NEEDS_BINDING", [...new Set(unresolved)]);
   requireThat(workflow.steps.length > 0, "INVALID_CONFIG");
   for (const step of workflow.steps) {
     requireThat(allowedActions.has(step.type), "UNSUPPORTED"); const c = step.configuration;

@@ -577,16 +577,23 @@ function validateCatalogChangeRequest(input: unknown): void {
   requireThat(plain(input));
   const value = input as Record<string, any>;
   const draftBacked = Object.hasOwn(value, "draftPath");
+  const portableBacked = Object.hasOwn(value, "portablePath");
+  requireThat(!(draftBacked && portableBacked), "INVALID_CONFIG");
   objectKeys(
     value,
     draftBacked
       ? ["configPath", "draftPath", "plansDirectory", "catalogChange"]
-      : ["configPath", "plansDirectory", "operation", "catalogChange"],
+      : portableBacked
+        ? ["configPath", "portablePath", "portableDigest", "plansDirectory", "catalogChange"]
+        : ["configPath", "plansDirectory", "operation", "catalogChange"],
   );
   absolutePath(value.configPath);
   absolutePath(value.plansDirectory);
   if (draftBacked) absolutePath(value.draftPath);
-  else validateCatalogOperation(value.operation);
+  else if (portableBacked) {
+    absolutePath(value.portablePath);
+    requireThat(typeof value.portableDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(value.portableDigest), "INVALID_CONFIG");
+  } else validateCatalogOperation(value.operation);
   objectKeys(value.catalogChange, ["currentRevision", "nextRevision", "changedRecords"]);
   revision(value.catalogChange.currentRevision);
   revision(value.catalogChange.nextRevision, false);

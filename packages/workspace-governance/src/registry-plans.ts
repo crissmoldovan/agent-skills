@@ -51,6 +51,7 @@ import { assertCatalogRulesResolvable, assertWorkspaceRulesResolvable } from "./
 import { applyCheckoutPlan, applyCheckoutReconcilePlan } from "./checkout-operations.ts";
 import { applyMovePlan, applyMoveReconcilePlan } from "./move-operations.ts";
 import { applyWorktreePlan, saveWorktreePlanAuthority } from "./worktree-operations.ts";
+import { portableCatalog, validatePortableDocument } from "./portable.ts";
 
 export interface InitRequest {
   configPath: string;
@@ -64,6 +65,11 @@ export interface ImportRequest {
   configPath: string;
   manifestPath: string;
   unclassifiedPath: string;
+}
+
+export interface PortableImportRequest {
+  configPath: string;
+  portablePath: string;
 }
 
 export interface CatalogChangeRequest {
@@ -638,6 +644,45 @@ export async function createCatalogChangePlan(
     nextCatalog: source.draft.document,
     sourceRevisions: { draft: source.sha256 },
     sourceRequest: { draftPath: input.draftPath },
+    createdAt,
+  });
+}
+
+export async function createPortableImportPlan(
+  input: PortableImportRequest,
+  createdAt = new Date().toISOString(),
+  storeRegistry: StoreAdapterRegistry = createBuiltinStoreRegistry(),
+): Promise<WorkspacePlan> {
+  exactKeys(input, ["configPath", "portablePath"]);
+  requireThat(input.configPath === resolve(input.configPath) && input.portablePath === resolve(input.portablePath), "INVALID_CONFIG");
+  const loadedConfig = await loadWorkspacesConfig(input.configPath);
+  const config = loadedConfig.document;
+  requireThat(![input.configPath, config.catalog.path, config.localState.path].includes(input.portablePath), "INVALID_CONFIG");
+  const [catalog, localState, source] = await Promise.all([
+    storeRegistry.createCatalog(config.catalog.adapter, config.catalog.path).read(),
+    storeRegistry.createLocalState(config.localState.adapter, config.localState.path).read(),
+    readImportSource(input.portablePath),
+  ]);
+  requireMutationAuthority(catalog);
+  requireThat(
+    catalog.document !== null && catalog.freshness === "current" &&
+      localState.document !== null && localState.freshness === "current" &&
+      localState.document.selectedConfig.path === input.configPath &&
+      localState.document.selectedConfig.revision === loadedConfig.revision,
+    "UNTRUSTED_INPUT",
+  );
+  const portable = validatePortableDocument(source.value);
+  return catalogChangePlanCore({
+    configPath: input.configPath,
+    plansDirectory: config.plans.directory,
+    catalogPath: config.catalog.path,
+    configRevision: loadedConfig.revision,
+    catalogRevision: catalog.revision,
+    localStateRevision: localState.revision,
+    currentCatalog: catalog.document,
+    nextCatalog: portableCatalog(portable),
+    sourceRevisions: { portable: source.sha256 },
+    sourceRequest: { portablePath: input.portablePath, portableDigest: portable.digest },
     createdAt,
   });
 }
@@ -1423,16 +1468,19 @@ async function applyCatalogChangePlan(
 ): Promise<AppliedRegistryPlan> {
   const request = plan.request;
   const draftBacked = Object.hasOwn(request, "draftPath");
+  const portableBacked = Object.hasOwn(request, "portablePath");
   exactKeys(
     request,
     draftBacked
       ? ["configPath", "draftPath", "plansDirectory", "catalogChange"]
-      : ["configPath", "plansDirectory", "operation", "catalogChange"],
+      : portableBacked
+        ? ["configPath", "portablePath", "portableDigest", "plansDirectory", "catalogChange"]
+        : ["configPath", "plansDirectory", "operation", "catalogChange"],
   );
   const configPath = request.configPath;
   requireThat(typeof configPath === "string", "INVALID_CONFIG");
   requireThat(options.selectedConfigPath === configPath, "STALE_PLAN");
-  const savedOperation = draftBacked
+  const savedOperation = draftBacked || portableBacked
     ? undefined
     : catalogEditOperation(request.operation);
   let derived: WorkspacePlan;
@@ -1443,7 +1491,13 @@ async function applyCatalogChangePlan(
           plan.createdAt,
           options.storeRegistry,
         )
-      : await createCatalogOperationPlan(
+      : portableBacked
+        ? await createPortableImportPlan(
+            { configPath, portablePath: request.portablePath as string },
+            plan.createdAt,
+            options.storeRegistry,
+          )
+        : await createCatalogOperationPlan(
           configPath,
           savedOperation as CatalogEditOperation,
           plan.createdAt,
@@ -1487,10 +1541,11 @@ async function applyCatalogChangePlan(
     loadedConfig.document.localState.adapter,
     loadedConfig.document.localState.path,
   );
-  const [currentCatalog, localState, finalDraft] = await Promise.all([
+  const [currentCatalog, localState, finalDraft, finalPortable] = await Promise.all([
     catalogStore.read(),
     localStateStore.read(),
     draftBacked ? readCatalogDraft(request.draftPath as string) : Promise.resolve(undefined),
+    portableBacked ? readImportSource(request.portablePath as string) : Promise.resolve(undefined),
   ]);
   requireThat(
     currentCatalog.document !== null &&
@@ -1509,12 +1564,15 @@ async function applyCatalogChangePlan(
       "STALE_PLAN",
     );
   }
+  if (portableBacked) {
+    requireThat(finalPortable?.sha256 === plan.inputRevisions.sources.portable, "STALE_PLAN");
+    requireThat(validatePortableDocument(finalPortable.value).digest === request.portableDigest, "STALE_PLAN");
+  }
   const nextCatalog = draftBacked
     ? finalDraft!.draft.document
-    : applyCatalogOperation(
-        currentCatalog.document,
-        savedOperation as CatalogEditOperation,
-      );
+    : portableBacked
+      ? portableCatalog(validatePortableDocument(finalPortable!.value))
+      : applyCatalogOperation(currentCatalog.document, savedOperation as CatalogEditOperation);
   const approvedNextRevision = (request.catalogChange as Record<string, Json>).nextRevision;
   requireThat(
     documentRevision(nextCatalog) === action.nextRevision &&

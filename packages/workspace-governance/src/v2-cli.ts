@@ -1,4 +1,4 @@
-import { lstat, readFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { GovernanceError, requireThat } from "./core.ts";
 import { exportCatalogDraft, exportLocalStateDraft, listCatalog, lookupRepository, readSelectedRegistry } from "./catalog-readback.ts";
@@ -12,6 +12,7 @@ import { renderWorkspaceOverview } from "./overview.ts";
 import { acknowledgeHostAction, openTarget } from "./open.ts";
 import { reopenCoordinationWorkspace } from "./coordination.ts";
 import { parseDataText } from "./v2-model.ts";
+import { createPortableDocument } from "./portable.ts";
 import { createCheckoutPlan, createCheckoutReconcilePlan, showCheckoutOperation } from "./checkout-operations.ts";
 import { createMovePlan, createMoveReconcilePlan, showMoveOperation } from "./move-operations.ts";
 import { createWorktreePlan, createWorktreeRemovePlan, listWorktrees, showWorktreeOperation } from "./worktree-operations.ts";
@@ -26,6 +27,7 @@ import {
   createImportPlan,
   createInitPlan,
   createPrimarySelectionPlan,
+  createPortableImportPlan,
   loadWorkspacePlan,
   saveWorkspacePlan,
   validateConfigDraftFile,
@@ -162,6 +164,23 @@ export async function runV2Cli(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<V2CliExecution> {
   const command = args[0];
+  if (command === "portable") {
+    requireThat(["export", "import"].includes(args[1]), "UNSUPPORTED");
+    if (args[1] === "export") {
+      const flags = parseFlags(args.slice(2), ["config", "output"]); requireFlags(flags, ["output"]);
+      const selected = selectConfigPath(flags.values.config, env);
+      requireThat(flags.values.output === resolve(flags.values.output), "INVALID_CONFIG");
+      const registry = await readSelectedRegistry(selected.path);
+      const portable = createPortableDocument(registry.catalog);
+      await writeFile(flags.values.output, JSON.stringify(portable, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+      return { handled: true, json: flags.json, body: { ok: true, command: "portable export", selectedConfig: selected, outputPath: flags.values.output, portable }, text: `Portable export ${portable.digest} saved to ${flags.values.output}.\n` };
+    }
+    const flags = parseFlags(args.slice(2), ["config", "input", "plan"]); requireFlags(flags, ["input", "plan"]);
+    const selected = selectConfigPath(flags.values.config, env);
+    const plan = await createPortableImportPlan({ configPath: selected.path, portablePath: flags.values.input });
+    await saveWorkspacePlan(flags.values.plan, plan);
+    return { handled: true, json: flags.json, body: { ok: true, command: "portable import", applied: false, selectedConfig: selected, planPath: flags.values.plan, plan }, text: `Portable import preview ${plan.id} saved to ${flags.values.plan}.\nNothing was applied. Review it, then run apply with --approve and this exact plan ID.\n` };
+  }
   if (command === "workflow") {
     const subcommand = args[1];
     requireThat(["list", "show", "run", "status", "submit", "approve", "interrupt", "resume"].includes(subcommand), "UNSUPPORTED");

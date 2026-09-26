@@ -76,6 +76,7 @@ export class GovernanceError extends Error {
           TOOL_FAILURE: "Observation tool failed.",
           CONSTRAINT: "Policy constraint failed.",
           POLICY_CONFLICT: "Policy or workflow rules conflict.",
+          NEEDS_BINDING: "Portable dependency needs an explicit destination-local binding.",
         } as Record<string, string>
       )[code] ?? "Invalid input.",
     );
