@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 // Runtime helper is intentionally shipped as a standalone JavaScript module.
 // @ts-expect-error no declaration file is published for the carried helper
@@ -9,6 +12,19 @@ import { fetchReleaseAsset } from "../scripts/install-runtime.mjs";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const carried = fileURLToPath(new URL("../../../skills/workspace-governance/scripts/install-runtime.mjs", import.meta.url));
 const skill = fileURLToPath(new URL("../../../skills/workspace-governance/SKILL.md", import.meta.url));
+
+test("carried bootstrap runs through a symlink rather than silently exiting", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bootstrap-symlink-"));
+  try {
+    const link = join(directory, "helper.mjs");
+    await symlink(carried, link);
+    for (const flags of [[], ["--preserve-symlinks-main"]]) {
+      const result = spawnSync(process.execPath, [...flags, link, "status", "--root", join(directory, "managed"), "--bin-dir", join(directory, "bin"), "--json"], { encoding: "utf8", timeout: 10000 });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { action: "status", managed: false });
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test("carried bootstrap is self-contained and anchored to the 0.3 compatibility tuple", async () => {
   assert.deepEqual(await readFile(carried), await readFile(`${root}/scripts/install-runtime.mjs`));

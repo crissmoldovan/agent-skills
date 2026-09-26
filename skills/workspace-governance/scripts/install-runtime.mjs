@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import { access, chmod, copyFile, lstat, link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -317,4 +317,9 @@ async function main() { const o = parse(process.argv.slice(2)); await refuseSyml
   } else { const downloadedBundle = o.bundle ? null : await downloadPinnedBundle(o.manifest_sha256); if (downloadedBundle) o.bundle = downloadedBundle; try { const v = await validateBundle(o); try { if (!o.yes) result = { action: o.action === "plan" ? "install" : o.action, applied: false, requiresYes: true, source: downloadedBundle ? { type: "github-release", repository: REPOSITORY, tag: RELEASE_TAG } : { type: "offline-bundle", path: o.bundle }, package: v.manifest.package, compatibility: v.manifest.compatibility, destination: { root: o.root, binDir: o.bin_dir } }; else result = await install(o, v); } finally { await rm(v.privateBundle, { recursive: true, force: true }); } } finally { if (downloadedBundle) await rm(downloadedBundle, { recursive: true, force: true }); } }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
-if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main().catch(e => { const code = e instanceof Refusal ? e.code : "INTERNAL"; process.stderr.write(`${JSON.stringify({ error: { code, message: e instanceof Error ? e.message : String(e) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });
+function isEntrypoint(moduleUrl) {
+  if (!process.argv[1]) return false;
+  try { return realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(moduleUrl)); }
+  catch { return false; }
+}
+if (isEntrypoint(import.meta.url)) main().catch(e => { const code = e instanceof Refusal ? e.code : "INTERNAL"; process.stderr.write(`${JSON.stringify({ error: { code, message: e instanceof Error ? e.message : String(e) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });
