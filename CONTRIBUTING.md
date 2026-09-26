@@ -110,11 +110,14 @@ npm run verify
 The command installs locked development dependencies for the independent lifecycle
 and workspace-governance packages, then runs their type checks, tests, builds and
 isolated tarball consumers. It must pass before opening a pull request; CI runs
-the same command. The workspace-governance runtime has no runtime dependencies.
+the same command. Workspace governance keeps a locked runtime dependency closure;
+its local stdio MCP uses the pinned official MCP server SDK and Zod, while YAML
+remains the catalog parser.
 
-Workspace governance owns declared catalog/policy, read-only discovery and
-non-executable placement previews, not routing, lifecycle or repository mutation.
-Its library, CLI and schemas live in `packages/workspace-governance`; its skill
+Workspace governance owns declared catalog/policy, read-only discovery, its local
+stdio MCP adapter, and guarded repository operations, not routing or agent lifecycle.
+The MCP server starts read-only and accepts one immutable configuration path; tool
+callers cannot supply argv, environment, executables, or alternate configs. Its library, CLI and schemas live in `packages/workspace-governance`; its skill
 carries only portable instructions and internal relative references. Do not put
 machine inventories in the public tree. See its
 [architecture and acceptance map](docs/workspace-governance/index.md). The package

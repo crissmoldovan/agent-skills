@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   mkdtemp,
   mkdir,
@@ -15,6 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 const root = fileURLToPath(new URL("..", import.meta.url));
 // Resolved: the consumer scan root is handed to discoverLocal, which refuses a
 // root with symlink ancestors, and macOS `tmpdir()` sits under /var -> /private/var.
@@ -51,7 +53,12 @@ try {
   assert.equal(meta.version, "0.2.0");
   for (const key of ["preinstall", "install", "postinstall", "prepare"])
     assert.equal(meta.scripts[key], undefined);
-  assert.deepEqual(meta.dependencies, { yaml: "2.9.1" });
+  assert.deepEqual(meta.dependencies, {
+    "@modelcontextprotocol/core": "2.1.0",
+    "@modelcontextprotocol/server": "2.1.0",
+    yaml: "2.9.1",
+    zod: "4.2.1",
+  });
   const lock = JSON.parse(await readFile(join(root, "package-lock.json"), "utf8"));
   assert.equal(lock.packages[""].dependencies.yaml, "2.9.1");
   assert.equal(lock.packages["node_modules/yaml"].version, "2.9.1");
@@ -70,6 +77,11 @@ try {
     "dist/index.js",
     "dist/index.d.ts",
     "dist/cli.js",
+    "dist/mcp-cli.js",
+    "dist/mcp-server.js",
+    "dist/mcp-service.js",
+    "dist/mcp-transport.js",
+    "dist/read-service.js",
     "dist/doctor.js",
     "dist/doctor.d.ts",
     "dist/report.js",
@@ -161,6 +173,7 @@ try {
     consumer,
   );
   const bin = join(consumer, "node_modules", ".bin", "workspacectl");
+  const mcpBin = join(consumer, "node_modules", ".bin", "workspacectl-mcp");
   const help = run(bin, ["--help"], consumer);
   assert.match(help, /^workspacectl 0\.2\.0 — Workspaces M2\/A05–A06/m);
   assert.match(help, /M3\/A07–A08/);
@@ -273,6 +286,85 @@ try {
     ).applied,
     true,
   );
+  const mcpTransport = new StdioClientTransport({
+    command: mcpBin,
+    args: ["--config", selectedConfig],
+    cwd: consumer,
+    env,
+    stderr: "pipe",
+  });
+  let mcpStderr = "";
+  mcpTransport.stderr?.on("data", chunk => { mcpStderr += chunk.toString(); });
+  const mcpClient = new Client(
+    { name: "packed-workspace-governance-verifier", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  try {
+    await mcpClient.connect(mcpTransport);
+    assert.equal(mcpClient.getNegotiatedProtocolVersion(), "2026-07-28");
+    const tools = await mcpClient.listTools();
+    assert.deepEqual(tools.tools.map(tool => tool.name).sort(), [
+      "workspace_context", "workspace_doctor", "workspace_explain", "workspace_list",
+      "workspace_open", "workspace_operation", "workspace_where", "workspace_workflow",
+    ]);
+    const listedOverMcp = await mcpClient.callTool({
+      name: "workspace_list", arguments: { view: "catalog" },
+    });
+    assert.notEqual(listedOverMcp.isError, true);
+    assert.equal(listedOverMcp.structuredContent.counts.total, 0);
+  } finally {
+    await mcpClient.close();
+  }
+  assert.equal(mcpStderr, "");
+  const rawMcp = spawn(mcpBin, ["--config", selectedConfig], {
+    cwd: consumer,
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let rawBuffer = Buffer.alloc(0);
+  const rawQueue = [];
+  const rawWaiters = [];
+  rawMcp.stdout.on("data", chunk => {
+    rawBuffer = Buffer.concat([rawBuffer, chunk]);
+    for (;;) {
+      const newline = rawBuffer.indexOf(0x0a);
+      if (newline < 0) break;
+      const line = rawBuffer.subarray(0, newline);
+      rawBuffer = rawBuffer.subarray(newline + 1);
+      const record = { message: JSON.parse(line.toString("utf8")), bytes: line.length + 1 };
+      const waiter = rawWaiters.shift();
+      if (waiter) waiter(record); else rawQueue.push(record);
+    }
+  });
+  const rawReceive = () => new Promise((resolve, reject) => {
+    const ready = rawQueue.shift();
+    if (ready) { resolve(ready); return; }
+    const timer = setTimeout(() => reject(new Error("packed MCP bounds probe timed out")), 5000);
+    rawWaiters.push(value => { clearTimeout(timer); resolve(value); });
+  });
+  const rawSend = message => rawMcp.stdin.write(JSON.stringify(message) + "\n");
+  try {
+    rawSend({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "packed-bounds", version: "1" } } });
+    assert.equal((await rawReceive()).message.id, 1);
+    rawSend({ jsonrpc: "2.0", method: "notifications/initialized" });
+    rawMcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "workspace_doctor", arguments: { ["x".repeat(1024 * 1024 + 1024)]: true } } }) + "\n");
+    const boundedError = await rawReceive();
+    assert.equal(boundedError.message.id, null);
+    assert.equal(boundedError.message.error.code, -32600);
+    assert.ok(boundedError.bytes <= 1024 * 1024);
+    rawSend({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} });
+    const followUp = await rawReceive();
+    assert.equal(followUp.message.id, 3);
+    assert.ok(Array.isArray(followUp.message.result.tools));
+  } finally {
+    const exited = new Promise(resolveExit => rawMcp.once("exit", resolveExit));
+    rawMcp.kill("SIGTERM");
+    await Promise.race([exited, new Promise(resolveTimeout => setTimeout(resolveTimeout, 1000))]);
+    if (rawMcp.exitCode === null && rawMcp.signalCode === null) {
+      rawMcp.kill("SIGKILL");
+      await exited;
+    }
+  }
   await writeFile(
     selectedSkill,
     "---\nname: workspace-governance\nversion: 0.2.0\n---\n# Workspaces\n",

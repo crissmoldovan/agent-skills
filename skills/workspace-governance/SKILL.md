@@ -140,6 +140,7 @@ workspacectl list --config "$CONFIG" --json
 workspacectl config export --target catalog --config "$CONFIG"
 workspacectl config validate "$DRAFT" --config "$CONFIG" --json
 workspacectl config plan "$DRAFT" --config "$CONFIG" --plan "$PLANS/catalog.json" --json
+workspacectl-mcp --config "$CONFIG"
 ```
 
 Config selection remains `--config`, `WORKSPACECTL_CONFIG`,
@@ -151,7 +152,24 @@ Preview does not change active documents. `STALE_PLAN` requires a new preview;
 Exit 0 is success; selected partial/unknown coverage and audit decision findings use
 exit 3 while retaining the overview on stdout. Exit 2 is invalid/config/unsupported;
 exit 3 also covers stale plans; exit 4 approval/trust required; exit 5 conflict or
-busy; exit 6 action failure. Errors use the stable JSON envelope with `--json`.
+busy; exit 6 action failure. Unreachable required dependencies report `UNAVAILABLE`.
+Errors use the stable JSON envelope with `--json`.
 
 For document, import, store, and retained legacy safeguards, read the
 [policy and safety contract](references/policy.md).
+
+## Usage Examples
+
+```text
+Connect the local stdio MCP in read-only mode to this exact Workspaces config. List
+catalog coverage, resolve repository `service`, and show its bounded context. Do not
+enable plans or effects, and do not let tool arguments replace the server config.
+Treat caller config, argv, and environment fields as unbound input and reject them.
+```
+
+```text
+Use `workspace_workflow` only to list/show definitions or read an existing run status.
+If I ask to run, approve, resume, interrupt, reconcile, or apply through MCP, report that
+the current read-only server does not advertise that capability instead of improvising a
+CLI or shell call.
+```

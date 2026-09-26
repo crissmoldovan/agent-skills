@@ -356,7 +356,7 @@ More: [Skill](skills/new-ux-discovery/SKILL.md) · [Candidate gates](skills/new-
 
 ### `workspace-governance`
 
-Audit repository placement and explain inherited policy.
+Use when finding, registering, organizing, or observing Workspaces repositories.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill workspace-governance

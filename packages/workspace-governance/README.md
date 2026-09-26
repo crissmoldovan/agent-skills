@@ -56,6 +56,21 @@ only as a labelled local test adapter for installed-route testing; it is not a p
 or authenticated backend. Read-only, stale, partial, offline, and unknown authority cannot
 preview or apply a mutation, and a losing CAS preserves the winner without a file fallback.
 
+The 0.3 development candidate contains a bounded MCP stdio server using the pinned official
+TypeScript SDK. `workspacectl-mcp --config ABSOLUTE_FILE` is read-only by default and serves
+doctor, catalog/group/repository/coverage listing, where, context/explain, read-only open,
+workflow list/show/status, and operation show/worktree listing. Immutable startup flag
+`--allow-plans` additionally advertises one strict finite planning union. Plans are stored as
+private `0600` files under the selected plans directory and returned through opaque identities;
+callers cannot select plan paths. `--allow-apply` implies plans and additionally advertises exact
+plan apply plus workflow run/submit/approve/resume/interrupt transitions. Effect operations are
+serialized per server/config and remain counted until their handler settles even if the protocol
+request is cancelled. Workflow approval is only a domain transition, not proof of human identity
+or MCP-host authorization. Effect mode is therefore for trusted, approval-mediating clients.
+No tool accepts arbitrary argv, config, environment, executable, shell text, or capability change.
+All modes emit protocol messages only on stdout and return bounded structured content plus textual
+JSON. Generated client configuration must omit both effect flags by default.
+
 ## Requirements
 
 - Linux or macOS
@@ -90,7 +105,8 @@ installs with lifecycle scripts disabled, records the exact Node runtime, and cr
 a stable managed launcher. Paths with spaces are supported. An unrelated file,
 directory, or symlink at the launcher path is refused.
 
-The archive installs the exact `yaml@2.9.1` runtime dependency. It does not install
+The archive installs the locked runtime closure, including `yaml@2.9.1`, the official MCP
+server SDK `2.1.0`, and Zod `4.2.1`. It does not install
 the skill. Install the reviewed `skills/workspace-governance` directory separately
 through the target host's normal mechanism. Candidate verification can pass its
 exact `SKILL.md` path to doctor without changing an active profile.
