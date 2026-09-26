@@ -48,11 +48,11 @@ test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no wri
       scan,
     ];
     assert.match(run("--help").stdout, /advisory/);
-    assert.equal(run("--version").stdout.trim(), "0.1.0");
+    assert.equal(run("--version").stdout.trim(), "0.2.0");
     assert.equal(run("validate", "--manifest", manifest).status, 0);
     assert.equal(
       JSON.parse(
-        run("catalog", "--manifest", manifest, "--principal", "reader").stdout,
+        run("catalog", "--json", "--manifest", manifest, "--principal", "reader").stdout,
       ).nodes.length,
       3,
     );
@@ -60,6 +60,7 @@ test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no wri
       JSON.parse(
         run(
           "explain",
+          "--json",
           "--manifest",
           manifest,
           "--node",
@@ -70,25 +71,26 @@ test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no wri
       ).authorization,
       "advisory",
     );
-    const planned = run("plan", ...common);
+    const planned = run("plan", "--json", ...common);
     assert.equal(planned.status, 0, planned.stderr);
     const plan = JSON.parse(planned.stdout);
     assert.equal(plan.entries[0].status, "missing-checkout");
-    const audit = run("audit", ...common);
+    const audit = run("audit", "--json", ...common);
     assert.equal(audit.status, 3);
     assert.equal(JSON.parse(audit.stdout).drift, true);
     const planFile = join(root, "plan.json");
     await writeFile(planFile, planned.stdout);
-    assert.equal(run("verify-plan", ...common, "--plan", planFile).status, 0);
+    assert.equal(run("verify-plan", "--json", ...common, "--plan", planFile).status, 0);
     plan.extra = true;
     await writeFile(planFile, JSON.stringify(plan));
-    assert.equal(run("verify-plan", ...common, "--plan", planFile).status, 3);
+    assert.equal(run("verify-plan", "--json", ...common, "--plan", planFile).status, 3);
     for (const args of [
-      ["apply"],
-      ["plan", ...common, "--human"],
-      ["validate", "--manifest", manifest, "--manifest", manifest],
+      ["apply", "--json"],
+      ["plan", "--json", ...common, "--human"],
+      ["validate", "--json", "--manifest", manifest, "--manifest", manifest],
       [
         "explain",
+        "--json",
         "--manifest",
         manifest,
         "--node",
@@ -98,6 +100,7 @@ test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no wri
       ],
       [
         "workflow",
+        "--json",
         "--manifest",
         manifest,
         "--node",
@@ -111,12 +114,13 @@ test("A8 CLI JSON outputs, strict flags, exit codes, reobserve verify and no wri
       const result = run(...args);
       assert.equal(result.status, 2);
       assert.equal(result.stdout, "");
-      assert.deepEqual(Object.keys(JSON.parse(result.stderr)), ["error"]);
+      assert.deepEqual(Object.keys(JSON.parse(result.stderr)), ["ok", "error"]);
+      assert.equal(JSON.parse(result.stderr).ok, false);
       assert.equal(result.stderr.includes(root), false);
     }
     await mkdir(join(scan, "child"));
-    const incomplete = run("plan", ...common, "--depth", "0");
-    assert.equal(incomplete.status, 3);
+    const incomplete = run("plan", "--json", ...common, "--depth", "0");
+    assert.equal(incomplete.status, 3, incomplete.stderr);
     assert.equal(incomplete.stdout, "");
     assert.equal(JSON.parse(incomplete.stderr).error.code, "INCOMPLETE");
     assert.deepEqual(await readdir(scan), ["child"]);

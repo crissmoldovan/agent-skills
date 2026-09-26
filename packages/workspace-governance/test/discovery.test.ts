@@ -128,7 +128,10 @@ for (const source of ["local", "include", "worktree"] as const) {
           const inv = await discovery.discoverLocal(root);
           await assert.rejects(() => access(sentinel), { code: "ENOENT" });
           assert.equal(inv.complete, false);
-          assert.deepEqual(inv.errors, [{ code: "GIT_METADATA_OR_STATUS" }]);
+          assert.deepEqual(inv.errors, [{
+            code: "GIT_METADATA_OR_STATUS",
+            target: checkout,
+          }]);
           assert.equal(inv.repositories.some((r) => r.path === checkout), false);
           assert.deepEqual(await readFile(indexPath), index);
         } finally {

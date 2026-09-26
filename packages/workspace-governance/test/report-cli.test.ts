@@ -44,6 +44,7 @@ test("report command emits one combined JSON view for a user scope", async () =>
   await withFixture((manifestPath, scan) => {
     const result = run(
       "report",
+      "--json",
       "--manifest", manifestPath,
       "--node", "person",
       "--principal", "cristian",
@@ -164,6 +165,7 @@ test("invalid report format is rejected before local discovery", {
     const result = spawnSync(process.execPath, [
       cli,
       "report",
+      "--json",
       "--manifest", manifestPath,
       "--node", "person",
       "--principal", "cristian",
@@ -181,6 +183,7 @@ test("invalid report format is rejected before local discovery", {
     assert.equal(result.status, 2);
     assert.equal(result.stdout, "");
     assert.deepEqual(JSON.parse(result.stderr), {
+      ok: false,
       error: { code: "INVALID", message: "Invalid input." },
     });
     await assert.rejects(access(sentinel), { code: "ENOENT" });

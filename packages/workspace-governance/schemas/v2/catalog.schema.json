@@ -1,0 +1,728 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/catalog.schema.json",
+  "title": "workspacectl v2 catalog",
+  "$comment": "Runtime validation additionally enforces identifier-key uniqueness, hierarchy/cycle and membership legality, dotted-key prefix/type rules, required removals, mandatory constraints, and workflow dependency/cycle compatibility because draft-07 cannot express those cross-record invariants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "documentType",
+    "groups",
+    "repositories",
+    "sources",
+    "policies",
+    "workflows",
+    "metadata"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "documentType": {
+      "const": "workspacectl/catalog"
+    },
+    "groups": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/definitions/group"
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/definitions/repository"
+      }
+    },
+    "sources": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/definitions/source"
+      }
+    },
+    "policies": {
+      "type": "array",
+      "maxItems": 20000,
+      "items": {
+        "$ref": "#/definitions/policy"
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "maxItems": 20000,
+      "items": {
+        "$ref": "#/definitions/workflow"
+      }
+    },
+    "metadata": {
+      "$ref": "#/definitions/metadata"
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\\\\\u0000-\\u001f]+$",
+      "not": {
+        "enum": [
+          "__proto__",
+          "prototype",
+          "constructor"
+        ]
+      }
+    },
+    "field": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/id"
+        },
+        {
+          "type": "string",
+          "pattern": "^[^.]+(?:\\.[^.]+)*$"
+        }
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+    },
+    "nullableId": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "base",
+            "user",
+            "organization",
+            "area",
+            "project",
+            "repository",
+            "workspace"
+          ]
+        },
+        "id": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRepository",
+        "sourcePath",
+        "sourceRevision",
+        "contentDigest",
+        "declaredScope"
+      ],
+      "properties": {
+        "sourceRepository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sourcePath": {
+          "$ref": "#/definitions/text"
+        },
+        "sourceRevision": {
+          "$ref": "#/definitions/text"
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "declaredScope": {
+          "$ref": "#/definitions/scope"
+        }
+      }
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "merge"
+          ],
+          "properties": {
+            "key": {
+              "$ref": "#/definitions/field"
+            },
+            "merge": {
+              "const": "remove"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "merge",
+            "value"
+          ],
+          "properties": {
+            "key": {
+              "$ref": "#/definitions/field"
+            },
+            "merge": {
+              "enum": [
+                "append",
+                "set-union",
+                "keyed-merge"
+              ]
+            },
+            "value": {
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "key",
+        "operator",
+        "value"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "key": {
+          "$ref": "#/definitions/field"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "forbidden-values",
+            "required-members"
+          ]
+        },
+        "value": {}
+      }
+    },
+    "instruction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "remove"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "remove": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "text",
+            "required"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "text": {
+              "$ref": "#/definitions/text"
+            },
+            "required": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "remove"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "remove": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "reference",
+            "required"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "reference": {
+              "$ref": "#/definitions/text"
+            },
+            "required": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "settings",
+        "operations",
+        "constraints",
+        "instructions",
+        "knowledge",
+        "skills"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/scope"
+        },
+        "settings": {
+          "type": "object",
+          "maxProperties": 20000,
+          "propertyNames": {
+            "$ref": "#/definitions/field"
+          }
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/operation"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/constraint"
+          }
+        },
+        "instructions": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/definitions/instruction"
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/definitions/reference"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/definitions/reference"
+          }
+        },
+        "provenance": {
+          "$ref": "#/definitions/provenance"
+        }
+      }
+    },
+    "io": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "required"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "remove"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "remove": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "needs",
+            "configuration",
+            "sideEffect",
+            "approval",
+            "retry",
+            "required"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "type": {
+              "$ref": "#/definitions/id"
+            },
+            "needs": {
+              "type": "array",
+              "maxItems": 1000,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/definitions/id"
+              }
+            },
+            "configuration": {
+              "type": "object"
+            },
+            "sideEffect": {
+              "enum": [
+                "none",
+                "workspace",
+                "external",
+                "destructive"
+              ]
+            },
+            "approval": {
+              "enum": [
+                "none",
+                "explicit"
+              ]
+            },
+            "retry": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "maxAttempts"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "never"
+                    },
+                    "maxAttempts": {
+                      "const": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "maxAttempts"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "safe"
+                    },
+                    "maxAttempts": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    }
+                  }
+                }
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "inputs",
+        "outputs",
+        "settings",
+        "operations",
+        "constraints",
+        "steps"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "scope": {
+          "$ref": "#/definitions/scope"
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/io"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/io"
+          }
+        },
+        "settings": {
+          "type": "object",
+          "maxProperties": 20000,
+          "propertyNames": {
+            "$ref": "#/definitions/field"
+          }
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/operation"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/constraint"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/step"
+          }
+        },
+        "provenance": {
+          "$ref": "#/definitions/provenance"
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "slug",
+        "parentId",
+        "metadata"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "kind": {
+          "enum": [
+            "organization",
+            "area",
+            "project"
+          ]
+        },
+        "name": {
+          "$ref": "#/definitions/name"
+        },
+        "slug": {
+          "$ref": "#/definitions/slug"
+        },
+        "parentId": {
+          "$ref": "#/definitions/nullableId"
+        },
+        "metadata": {
+          "$ref": "#/definitions/metadata"
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "remote",
+        "sourceId",
+        "primaryGroupId",
+        "memberOf",
+        "aliases",
+        "classification",
+        "metadata"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "remote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sourceId": {
+          "$ref": "#/definitions/nullableId"
+        },
+        "primaryGroupId": {
+          "$ref": "#/definitions/nullableId"
+        },
+        "memberOf": {
+          "type": "array",
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/id"
+          }
+        },
+        "aliases": {
+          "type": "array",
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/name"
+          }
+        },
+        "classification": {
+          "enum": [
+            "confirmed",
+            "suggested",
+            "unclassified"
+          ]
+        },
+        "metadata": {
+          "$ref": "#/definitions/metadata"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "provider",
+        "owner",
+        "ownerType",
+        "include",
+        "exclude",
+        "proposedDefaultGroupId",
+        "metadata"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "provider": {
+          "const": "github"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 39,
+          "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+        },
+        "ownerType": {
+          "enum": [
+            "organization",
+            "user"
+          ]
+        },
+        "include": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/name"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/name"
+          }
+        },
+        "proposedDefaultGroupId": {
+          "$ref": "#/definitions/nullableId"
+        },
+        "metadata": {
+          "$ref": "#/definitions/metadata"
+        }
+      }
+    }
+  }
+}

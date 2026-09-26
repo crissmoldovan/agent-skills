@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/host-result.schema.json",
+  "title": "workspacectl verified Hermes host result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "actionId", "actionDigest", "host", "logicalTarget", "project", "effectiveToolCwd", "contextReference", "readbackStatus"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "actionId": { "type": "string", "pattern": "^host-action-[a-f0-9]{24}$" },
+    "actionDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "host": { "const": "hermes" },
+    "logicalTarget": { "type": "object", "additionalProperties": false, "required": ["kind", "id", "label"], "properties": { "kind": { "enum": ["repository", "group"] }, "id": { "$ref": "#/definitions/id" }, "label": { "type": "string", "minLength": 1 } } },
+    "project": { "type": "object", "additionalProperties": false, "required": ["id", "name", "path"], "properties": { "id": { "$ref": "#/definitions/id" }, "name": { "type": "string", "minLength": 1 }, "path": { "$ref": "#/definitions/absolutePath" } } },
+    "effectiveToolCwd": { "$ref": "#/definitions/absolutePath" },
+    "contextReference": { "type": "object", "additionalProperties": false, "required": ["repositoryId", "workspaceId", "selectedProjectId", "revisions"], "properties": { "repositoryId": { "$ref": "#/definitions/nullableId" }, "workspaceId": { "$ref": "#/definitions/nullableId" }, "selectedProjectId": { "$ref": "#/definitions/nullableId" }, "revisions": { "type": "object", "additionalProperties": false, "required": ["catalog", "localState"], "properties": { "catalog": { "$ref": "#/definitions/revision" }, "localState": { "$ref": "#/definitions/revision" } } } } },
+    "readbackStatus": { "const": "exact" }
+  },
+  "definitions": {
+    "absolutePath": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^/[^\\u0000\\r\\n]*$" },
+    "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^/\\\\\\u0000-\\u001f]+$" },
+    "nullableId": { "anyOf": [{ "$ref": "#/definitions/id" }, { "type": "null" }] },
+    "revision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

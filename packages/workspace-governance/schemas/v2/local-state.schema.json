@@ -1,0 +1,717 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/local-state.schema.json",
+  "title": "workspacectl v2 local state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "documentType",
+    "selectedConfig",
+    "repositoryWorkspaces",
+    "coordinationWorkspaces",
+    "workspacePolicyOverlays",
+    "trustedInputApprovals",
+    "planReferences",
+    "runReferences",
+    "metadata"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "documentType": {
+      "const": "workspacectl/local-state"
+    },
+    "selectedConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "revision"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^/[^\\u0000\\r\\n]*$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "repositoryWorkspaces": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "$comment": "uniqueItems rejects exact duplicate records. Standard JSON Schema cannot require uniqueness by selected object properties; runtime validation additionally rejects duplicate repositoryWorkspace id or path values.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "repositoryId",
+          "path",
+          "branch",
+          "primarySelected",
+          "hostLinks"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/definitions/id"
+          },
+          "kind": {
+            "enum": [
+              "primary",
+              "worktree"
+            ]
+          },
+          "repositoryId": {
+            "$ref": "#/definitions/id"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "pattern": "^/[^\\u0000\\r\\n]*$"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^[^\\u0000-\\u001f]+$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primarySelected": {
+            "type": "boolean"
+          },
+          "hostLinks": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "hermesProjectId": { "$ref": "#/definitions/id" }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "worktree"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "primarySelected": {
+                  "const": false
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "coordinationWorkspaces": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "scope", "path", "memberRepositoryIds", "memberWorkspaceIds", "hostProjectId", "generatedFiles", "revision"],
+        "properties": {
+          "id": { "$ref": "#/definitions/id" },
+          "kind": { "const": "coordination" },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "enum": ["organization", "area", "project"] },
+              "id": { "$ref": "#/definitions/id" }
+            }
+          },
+          "path": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^/[^\\u0000\\r\\n]*$" },
+          "memberRepositoryIds": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/definitions/id" } },
+          "memberWorkspaceIds": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/definitions/id" } },
+          "hostProjectId": { "anyOf": [{ "$ref": "#/definitions/id" }, { "type": "null" }] },
+          "generatedFiles": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" } },
+          "revision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "hostActionReceipts": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actionId", "actionDigest", "configRevision", "catalogRevision", "contextLocalStateRevision", "status"],
+        "properties": {
+          "actionId": { "type": "string", "pattern": "^host-action-[a-f0-9]{24}$" },
+          "actionDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "configRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "catalogRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "contextLocalStateRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "status": { "enum": ["pending", "consumed"] },
+          "resultDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        },
+        "allOf": [
+          { "if": { "properties": { "status": { "const": "pending" } } }, "then": { "properties": { "resultDigest": false } } },
+          { "if": { "properties": { "status": { "const": "consumed" } } }, "then": { "properties": { "resultDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "required": ["resultDigest"] } }
+        ]
+      }
+    },
+    "workspacePolicyOverlays": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/definitions/workspacePolicy"
+      }
+    },
+    "trustedInputApprovals": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "planReferences": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "runReferences": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "workspaceWorkflowOverlays": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/definitions/workspaceWorkflow"
+      }
+    }
+  },
+  "definitions": {
+    "workspacePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "settings",
+        "operations",
+        "constraints",
+        "instructions",
+        "knowledge",
+        "skills"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/workspaceScope"
+        },
+        "settings": {
+          "type": "object",
+          "maxProperties": 20000,
+          "propertyNames": {
+            "$ref": "#/definitions/field"
+          }
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/operation"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/constraint"
+          }
+        },
+        "instructions": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/definitions/instruction"
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/definitions/reference"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/definitions/reference"
+          }
+        },
+        "provenance": {
+          "$ref": "#/definitions/provenance"
+        }
+      }
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\\\\\u0000-\\u001f]+$",
+      "not": {
+        "enum": [
+          "__proto__",
+          "prototype",
+          "constructor"
+        ]
+      }
+    },
+    "field": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/id"
+        },
+        {
+          "type": "string",
+          "pattern": "^[^.]+(?:\\.[^.]+)*$"
+        }
+      ]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRepository",
+        "sourcePath",
+        "sourceRevision",
+        "contentDigest",
+        "declaredScope"
+      ],
+      "properties": {
+        "sourceRepository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sourcePath": {
+          "$ref": "#/definitions/text"
+        },
+        "sourceRevision": {
+          "$ref": "#/definitions/text"
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "declaredScope": {
+          "$ref": "#/definitions/scope"
+        }
+      }
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "merge"
+          ],
+          "properties": {
+            "key": {
+              "$ref": "#/definitions/field"
+            },
+            "merge": {
+              "const": "remove"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "merge",
+            "value"
+          ],
+          "properties": {
+            "key": {
+              "$ref": "#/definitions/field"
+            },
+            "merge": {
+              "enum": [
+                "append",
+                "set-union",
+                "keyed-merge"
+              ]
+            },
+            "value": {
+              "type": "array"
+            }
+          }
+        }
+      ]
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "key",
+        "operator",
+        "value"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "key": {
+          "$ref": "#/definitions/field"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "forbidden-values",
+            "required-members"
+          ]
+        },
+        "value": {}
+      }
+    },
+    "instruction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "remove"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "remove": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "text",
+            "required"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "text": {
+              "$ref": "#/definitions/text"
+            },
+            "required": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "remove"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "remove": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "reference",
+            "required"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "reference": {
+              "$ref": "#/definitions/text"
+            },
+            "required": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "io": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "required"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "remove"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "remove": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "needs",
+            "configuration",
+            "sideEffect",
+            "approval",
+            "retry",
+            "required"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "type": {
+              "$ref": "#/definitions/id"
+            },
+            "needs": {
+              "type": "array",
+              "maxItems": 1000,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/definitions/id"
+              }
+            },
+            "configuration": {
+              "type": "object"
+            },
+            "sideEffect": {
+              "enum": [
+                "none",
+                "workspace",
+                "external",
+                "destructive"
+              ]
+            },
+            "approval": {
+              "enum": [
+                "none",
+                "explicit"
+              ]
+            },
+            "retry": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "maxAttempts"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "never"
+                    },
+                    "maxAttempts": {
+                      "const": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "maxAttempts"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "const": "safe"
+                    },
+                    "maxAttempts": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    }
+                  }
+                }
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "base",
+            "user",
+            "organization",
+            "area",
+            "project",
+            "repository",
+            "workspace"
+          ]
+        },
+        "id": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "workspaceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "workspace"
+        },
+        "id": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "workspaceWorkflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "inputs",
+        "outputs",
+        "settings",
+        "operations",
+        "constraints",
+        "steps"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "scope": {
+          "$ref": "#/definitions/workspaceScope"
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/io"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/io"
+          }
+        },
+        "settings": {
+          "type": "object",
+          "maxProperties": 20000,
+          "propertyNames": {
+            "$ref": "#/definitions/field"
+          }
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/operation"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/definitions/constraint"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/definitions/step"
+          }
+        },
+        "provenance": {
+          "$ref": "#/definitions/provenance"
+        }
+      }
+    }
+  }
+}

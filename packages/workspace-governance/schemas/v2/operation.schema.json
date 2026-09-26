@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/operation.schema.json",
+  "title": "workspacectl operation journal entry",
+  "oneOf": [
+    { "$ref": "#/definitions/checkoutOperation" },
+    { "$ref": "#/definitions/moveOperation" },
+    { "$ref": "#/definitions/worktreeOperation" }
+  ],
+  "definitions": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^/\\\\\\u0000-\\u001f]+$" },
+    "absolutePath": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^/[^\\u0000\\r\\n]*$" },
+    "planId": { "type": "string", "pattern": "^plan-[a-f0-9]{32}$" },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "branch": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!-)(?!.*(?:^|/)\\.)(?!.*\\.lock(?:/|$))(?!.*\\.\\.)(?!.*@\\{)(?!.*//)(?!.*\\.$)[^\\u0000-\\u0020\\u007f~^:?*\\[\\\\/]+(?:/[^\\u0000-\\u0020\\u007f~^:?*\\[\\\\/]+)*(?![\\s\\S])" },
+    "status": { "enum": ["planned", "running", "completed", "failed", "needs-attention"] },
+    "outcome": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 16384 }, { "type": "null" }] },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$" },
+    "checkoutOperation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "id", "kind", "planId", "planDigest", "configPath", "repositoryId", "remote", "requestedRef", "resolved", "destination", "stagingPath", "workspaceId", "status", "outcome", "updatedAt"],
+      "properties": {
+        "format": { "const": "workspacectl-operation/1" }, "id": { "type": "string", "pattern": "^operation-[a-f0-9]{24}$" },
+        "kind": { "const": "checkout" }, "planId": { "$ref": "#/definitions/planId" }, "planDigest": { "$ref": "#/definitions/digest" },
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "repositoryId": { "$ref": "#/definitions/id" },
+        "remote": { "type": "string", "pattern": "^https://github\\.com/[a-z0-9-]+/[a-z0-9_.-]+$" },
+        "requestedRef": { "type": "string", "minLength": 1, "maxLength": 1100, "pattern": "^[^\\u0000-\\u001f]+$" },
+        "resolved": { "$ref": "#/definitions/resolved" }, "destination": { "$ref": "#/definitions/absolutePath" },
+        "stagingPath": { "$ref": "#/definitions/absolutePath" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "status": { "$ref": "#/definitions/status" }, "outcome": { "$ref": "#/definitions/outcome" }, "updatedAt": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "moveOperation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "id", "kind", "planId", "planDigest", "configPath", "repositoryId", "workspaceId", "source", "destination", "identity", "status", "outcome", "updatedAt"],
+      "properties": {
+        "format": { "const": "workspacectl-operation/1" }, "id": { "type": "string", "pattern": "^operation-[a-f0-9]{24}$" }, "kind": { "const": "checkout-move" },
+        "planId": { "$ref": "#/definitions/planId" }, "planDigest": { "$ref": "#/definitions/digest" }, "configPath": { "$ref": "#/definitions/absolutePath" },
+        "repositoryId": { "$ref": "#/definitions/id" }, "workspaceId": { "$ref": "#/definitions/id" }, "source": { "$ref": "#/definitions/absolutePath" }, "destination": { "$ref": "#/definitions/absolutePath" },
+        "identity": { "type": "object", "additionalProperties": false, "required": ["remote", "head", "branch", "statusDigest", "device"], "properties": { "remote": { "type": "string", "pattern": "^https://github\\.com/[a-z0-9-]+/[a-z0-9_.-]+$" }, "head": { "$ref": "#/definitions/commit" }, "branch": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 1024 }, { "type": "null" }] }, "statusDigest": { "$ref": "#/definitions/digest" }, "device": { "type": "string", "pattern": "^\\d+$" } } },
+        "status": { "$ref": "#/definitions/status" }, "outcome": { "$ref": "#/definitions/outcome" }, "updatedAt": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "worktreeOperation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "id", "kind", "planId", "planDigest", "configPath", "repositoryId", "workspaceId", "primaryPath", "path", "branch", "baseCommit", "status", "outcome", "updatedAt"],
+      "properties": {
+        "format": { "const": "workspacectl-operation/1" }, "id": { "type": "string", "pattern": "^operation-[a-f0-9]{24}$" },
+        "kind": { "enum": ["worktree-create", "worktree-remove"] }, "planId": { "$ref": "#/definitions/planId" }, "planDigest": { "$ref": "#/definitions/digest" },
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "repositoryId": { "$ref": "#/definitions/id" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "primaryPath": { "$ref": "#/definitions/absolutePath" }, "path": { "$ref": "#/definitions/absolutePath" },
+        "branch": { "$ref": "#/definitions/branch" }, "baseCommit": { "$ref": "#/definitions/commit" },
+        "status": { "$ref": "#/definitions/status" }, "outcome": { "$ref": "#/definitions/outcome" }, "updatedAt": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "resolved": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "name", "commit"],
+      "properties": { "kind": { "enum": ["branch", "tag", "commit"] }, "name": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 1024 }, { "type": "null" }] }, "commit": { "$ref": "#/definitions/commit" } },
+      "oneOf": [
+        { "properties": { "kind": { "const": "branch" }, "name": { "type": "string", "minLength": 1, "maxLength": 1024 } } },
+        { "properties": { "kind": { "const": "tag" }, "name": { "type": "string", "minLength": 1, "maxLength": 1024 } } },
+        { "properties": { "kind": { "const": "commit" }, "name": { "type": "null" } } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "documentType": "workspacectl/config",
+  "catalog": {
+    "adapter": "file",
+    "path": "relative/catalog.json"
+  },
+  "localState": {
+    "adapter": "file",
+    "path": "/tmp/workspacectl-synthetic/local-state.json"
+  },
+  "plans": {
+    "directory": "/tmp/workspacectl-synthetic/plans"
+  },
+  "trustedRoots": []
+}

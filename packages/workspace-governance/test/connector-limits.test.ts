@@ -13,45 +13,47 @@ import { join, delimiter } from "node:path";
 import { execFileSync } from "node:child_process";
 import { discoverGithub, discoverLocal } from "../src/discovery.ts";
 import { scratchRoot } from "./fixtures.ts";
-test("A7 one hundred full unique pages refuse truncation and late failure never returns partial", async () => {
+test("A04 GitHub page bounds and late failure retain honest partial coverage", async () => {
   let pages = 0;
-  await assert.rejects(
-    () =>
-      discoverGithub("example", {
-        runner: async () => {
-          const offset = pages++ * 100;
-          return JSON.stringify(
-            Array.from({ length: 100 }, (_, i) => ({
-              id: offset + i + 1,
-              html_url: `https://github.com/example/repo-${offset + i}`,
-              archived: false,
-              private: false,
-            })),
-          );
-        },
-      }),
-    { code: "TOOL_FAILURE" },
-  );
-  assert.equal(pages, 100);
-  pages = 0;
-  await assert.rejects(
-    () =>
-      discoverGithub("example", {
-        runner: async () => {
-          if (pages++) throw new Error("private stderr");
-          return JSON.stringify(
-            Array.from({ length: 100 }, (_, i) => ({
-              id: i + 1,
-              html_url: `https://github.com/example/repo-${i}`,
-              archived: false,
-              private: false,
-            })),
-          );
-        },
-      }),
-    { code: "TOOL_FAILURE" },
-  );
+  const limited = await discoverGithub("example", {
+    maxPages: 2,
+    runner: async () => {
+      const offset = pages++ * 100;
+      return JSON.stringify(
+        Array.from({ length: 100 }, (_, i) => ({
+          id: offset + i + 1,
+          html_url: `https://github.com/example/repo-${offset + i}`,
+          archived: false,
+          private: false,
+        })),
+      );
+    },
+  });
   assert.equal(pages, 2);
+  assert.equal(limited.repositories.length, 200);
+  assert.equal(limited.coverage.status, "partial");
+  assert.equal(limited.coverage.pages.truncated, true);
+  assert.equal(limited.coverage.errors[0].code, "PAGE_LIMIT");
+
+  pages = 0;
+  const interrupted = await discoverGithub("example", {
+    runner: async () => {
+      if (pages++) throw Object.assign(new Error("private stderr"), { code: "FIXTURE_LATE" });
+      return JSON.stringify(
+        Array.from({ length: 100 }, (_, i) => ({
+          id: i + 1,
+          html_url: `https://github.com/example/repo-${i}`,
+          archived: false,
+          private: false,
+        })),
+      );
+    },
+  });
+  assert.equal(pages, 2);
+  assert.equal(interrupted.repositories.length, 100);
+  assert.equal(interrupted.coverage.status, "partial");
+  assert.equal(interrupted.coverage.errors[0].code, "PAGE_FAILED");
+  assert.equal(JSON.stringify(interrupted).includes("private stderr"), false);
 });
 test("A6 trusted Git shim proves fixed argv and sanitized environment", async () => {
   const root = await scratchRoot("governance-shim-");
@@ -91,7 +93,7 @@ const fs=require('node:fs');const cp=require('node:child_process');fs.appendFile
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l));
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 5);
     const fixed = [
       "-c",
       "core.fsmonitor=false",
@@ -122,6 +124,7 @@ const fs=require('node:fs');const cp=require('node:child_process');fs.appendFile
       [
         ["config", "--local", "--no-includes", "--get", "remote.origin.url"],
         ["rev-parse", "--verify", "HEAD"],
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
         ["config", "--includes", "--null", "--name-only", "--list"],
         [
           "status",

@@ -19,9 +19,45 @@ import {
   parseJson,
   digest,
 } from "./core.ts";
+export type GithubOwnerType = "organization" | "user";
+export type CoverageStatus = "complete" | "partial" | "unknown";
+
+export interface GithubObservationError {
+  code: "ACCESS_DENIED" | "PAGE_FAILED" | "INVALID_RESPONSE" | "REPEATED_RESPONSE" | "PAGE_LIMIT";
+  page: number;
+  causeCode: string | null;
+  httpStatus: number | null;
+}
+
+export interface GithubCoverage {
+  status: CoverageStatus;
+  scope: "credential-visible";
+  absenceAuthoritative: false;
+  privateVisibility: "observed" | "unknown" | "unavailable";
+  endpoint: GithubOwnerType;
+  pages: {
+    requested: number;
+    completed: number;
+    max: number;
+    nextPage: number | null;
+    truncated: boolean;
+  };
+  limitations: string[];
+  errors: GithubObservationError[];
+}
+
 export interface RemoteInventory {
+  provider: "github";
   owner: string;
-  complete: true;
+  ownerType: GithubOwnerType;
+  observedAt: string;
+  complete: boolean;
+  coverage: GithubCoverage;
+  counts: {
+    received: number;
+    private: number;
+    archived: number;
+  };
   repositories: {
     remote: string;
     id: number;
@@ -34,71 +70,196 @@ export type GithubRunner = (
   args: string[],
   options: { env: NodeJS.ProcessEnv; timeout: number; maxBuffer: number },
 ) => Promise<string>;
+
+export interface GithubDiscoveryOptions {
+  ownerType?: GithubOwnerType;
+  maxPages?: number;
+  runner?: GithubRunner;
+  now?: () => Date;
+}
+
 export async function discoverGithub(
   owner: string,
-  options: { runner?: GithubRunner } = {},
+  options: GithubDiscoveryOptions = {},
 ): Promise<RemoteInventory> {
   requireThat(validOwner(owner));
+  requireThat(
+    Object.keys(options).every((key) =>
+      ["ownerType", "maxPages", "runner", "now"].includes(key)
+    ),
+  );
+  const ownerType = options.ownerType ?? "organization";
+  requireThat(ownerType === "organization" || ownerType === "user");
+  const maxPages = options.maxPages ?? 100;
+  requireThat(Number.isInteger(maxPages) && maxPages >= 1 && maxPages <= 100);
+  const observedAt = (options.now ?? (() => new Date()))().toISOString();
   const env = { ...process.env };
   delete env.GH_HOST;
   const run =
     options.runner ??
     (async (bin, args, opts) =>
       (await exec(bin, args, { ...opts, encoding: "utf8" })).stdout);
-  const result: RemoteInventory = { owner, complete: true, repositories: [] };
+  const repositories: RemoteInventory["repositories"] = [];
   const seen = new Set<string>();
   const ids = new Set<number>();
-  try {
-    for (let page = 1; page <= 100; page++) {
-      const raw = await run(
+  let requested = 0;
+  let completed = 0;
+
+  const finish = (
+    status: CoverageStatus,
+    nextPage: number | null,
+    truncated: boolean,
+    errors: GithubObservationError[] = [],
+  ): RemoteInventory => {
+    repositories.sort((a, b) =>
+      a.remote < b.remote ? -1 : a.remote > b.remote ? 1 : 0
+    );
+    const privateCount = repositories.filter((repository) => repository.private).length;
+    const userVisibilityLimited = ownerType === "user";
+    const effectiveStatus = status === "complete" && userVisibilityLimited
+      ? "partial"
+      : status;
+    return {
+      provider: "github",
+      owner,
+      ownerType,
+      observedAt,
+      complete: effectiveStatus === "complete",
+      coverage: {
+        status: effectiveStatus,
+        scope: "credential-visible",
+        absenceAuthoritative: false,
+        privateVisibility: userVisibilityLimited
+          ? "unavailable"
+          : privateCount > 0
+            ? "observed"
+            : "unknown",
+        endpoint: ownerType,
+        pages: {
+          requested,
+          completed,
+          max: maxPages,
+          nextPage,
+          truncated,
+        },
+        limitations: userVisibilityLimited
+          ? ["PRIVATE_VISIBILITY_UNAVAILABLE_FOR_USER_ENDPOINT"]
+          : ["PRIVATE_REPOSITORY_ABSENCE_NOT_AUTHORITATIVE"],
+        errors,
+      },
+      counts: {
+        received: repositories.length,
+        private: privateCount,
+        archived: repositories.filter((repository) => repository.archived).length,
+      },
+      repositories,
+    };
+  };
+
+  const runnerError = (error: unknown, page: number): GithubObservationError => {
+    const record = error !== null && typeof error === "object"
+      ? error as Record<string, unknown>
+      : {};
+    const stderr = typeof record.stderr === "string" ? record.stderr : "";
+    const stderrStatus = /(?:^|[\s(])HTTP\s+([1-5]\d{2})(?:[\s)]|$)/i.exec(stderr);
+    const rawStatus = record.status ?? record.statusCode ??
+      (stderrStatus === null ? undefined : Number(stderrStatus[1]));
+    const httpStatus = Number.isInteger(rawStatus) && Number(rawStatus) >= 100 && Number(rawStatus) <= 599
+      ? Number(rawStatus)
+      : null;
+    const rawCause = record.code;
+    const cause = typeof rawCause === "string" || typeof rawCause === "number"
+      ? String(rawCause)
+      : "";
+    const causeCode = /^[A-Za-z0-9_.:-]{1,64}$/.test(cause) ? cause : null;
+    return {
+      code: httpStatus === 401 || httpStatus === 403 ? "ACCESS_DENIED" : "PAGE_FAILED",
+      page,
+      causeCode,
+      httpStatus,
+    };
+  };
+
+  for (let page = 1; page <= maxPages; page++) {
+    requested += 1;
+    const endpoint = ownerType === "organization"
+      ? `/orgs/${owner}/repos?per_page=100&page=${page}&type=all&sort=full_name&direction=asc`
+      : `/users/${owner}/repos?per_page=100&page=${page}&type=owner&sort=full_name&direction=asc`;
+    let raw: string;
+    try {
+      raw = await run(
         "gh",
-        [
-          "api",
-          "--hostname",
-          "github.com",
-          `/orgs/${owner}/repos?per_page=100&page=${page}&type=all`,
-        ],
+        ["api", "--hostname", "github.com", endpoint],
         { env, timeout: 30000, maxBuffer: limit },
       );
-      const data = parseJson(raw);
+    } catch (error) {
+      return finish(
+        completed === 0 ? "unknown" : "partial",
+        page,
+        false,
+        [runnerError(error, page)],
+      );
+    }
+    let data: unknown;
+    try {
+      data = parseJson(raw);
       requireThat(Array.isArray(data) && data.length <= 100, "TOOL_FAILURE");
-      for (const r of data) {
+      const pageRepositories: RemoteInventory["repositories"] = [];
+      for (const repository of data) {
         requireThat(
-          r &&
-            typeof r === "object" &&
-            Number.isSafeInteger(r.id) &&
-            r.id > 0 &&
-            typeof r.archived === "boolean" &&
-            typeof r.private === "boolean",
+          repository &&
+            typeof repository === "object" &&
+            Number.isSafeInteger(repository.id) &&
+            repository.id > 0 &&
+            typeof repository.html_url === "string" &&
+            typeof repository.archived === "boolean" &&
+            typeof repository.private === "boolean",
           "TOOL_FAILURE",
         );
-        const remote = canonicalRemote(r.html_url);
-        requireThat(!seen.has(remote) && !ids.has(r.id), "TOOL_FAILURE");
+        const remote = canonicalRemote(repository.html_url);
+        if (seen.has(remote) || ids.has(repository.id))
+          throw new GovernanceError("REPEATED_RESPONSE");
+        requireThat(
+          remote.startsWith(`https://github.com/${owner.toLowerCase()}/`),
+          "TOOL_FAILURE",
+        );
         seen.add(remote);
-        ids.add(r.id);
-        result.repositories.push({
+        ids.add(repository.id);
+        pageRepositories.push({
           remote,
-          id: r.id,
-          archived: r.archived,
-          private: r.private,
+          id: repository.id,
+          archived: repository.archived,
+          private: repository.private,
         });
       }
-      if (data.length < 100) {
-        result.repositories.sort((a, b) =>
-          a.remote < b.remote ? -1 : a.remote > b.remote ? 1 : 0,
-        );
-        return result;
-      }
+      repositories.push(...pageRepositories);
+    } catch (error) {
+      const code = error instanceof GovernanceError && error.code === "REPEATED_RESPONSE"
+        ? "REPEATED_RESPONSE"
+        : "INVALID_RESPONSE";
+      return finish(
+        completed === 0 ? "unknown" : "partial",
+        page,
+        false,
+        [{ code, page, causeCode: null, httpStatus: null }],
+      );
     }
-    throw new GovernanceError("TOOL_FAILURE");
-  } catch {
-    throw new GovernanceError("TOOL_FAILURE");
+    completed += 1;
+    if ((data as unknown[]).length < 100)
+      return finish("complete", null, false);
   }
+  return finish(
+    "partial",
+    maxPages + 1,
+    true,
+    [{ code: "PAGE_LIMIT", page: maxPages + 1, causeCode: null, httpStatus: null }],
+  );
 }
 export interface RepositoryObservation {
   path: string;
   remote: string | null;
   head: string | null;
+  branch?: string | null;
   dirty: boolean;
   worktree: boolean;
   status: string;
@@ -106,7 +267,7 @@ export interface RepositoryObservation {
 export interface Inventory {
   root: string;
   complete: boolean;
-  errors: { code: string }[];
+  errors: { code: string; target: string }[];
   repositories: RepositoryObservation[];
   occupiedPaths: string[];
   /** Non-directory obstructions (including files and symlinks). */
@@ -137,12 +298,12 @@ async function noSymlinks(path: string): Promise<void> {
     requireThat(!(await lstat(cursor)).isSymbolicLink(), "INCOMPLETE");
   }
 }
-async function metadataPath(root: string, path: string): Promise<string> {
+async function metadataPath(roots: readonly string[], path: string): Promise<string> {
   const full = resolve(path);
-  requireThat(contained(root, full), "INCOMPLETE");
+  requireThat(roots.some((root) => contained(root, full)), "INCOMPLETE");
   await noSymlinks(full);
   const real = await realpath(full);
-  requireThat(contained(root, real), "INCOMPLETE");
+  requireThat(roots.some((root) => contained(root, real)), "INCOMPLETE");
   return real;
 }
 async function smallText(path: string): Promise<string> {
@@ -200,7 +361,7 @@ async function exists(path: string): Promise<boolean> {
 }
 export async function discoverLocal(
   root: string,
-  options: { depth?: number } = {},
+  options: { depth?: number; trustedMetadataRoots?: string[] } = {},
 ): Promise<Inventory> {
   requireThat(typeof root === "string" && root.length > 0);
   const depth = options.depth ?? 8;
@@ -208,9 +369,23 @@ export async function discoverLocal(
     Number.isInteger(depth) &&
       depth >= 0 &&
       depth <= 32 &&
-      Object.keys(options).every((k) => k === "depth"),
+      Object.keys(options).every((k) => k === "depth" || k === "trustedMetadataRoots") &&
+      (options.trustedMetadataRoots === undefined ||
+        (Array.isArray(options.trustedMetadataRoots) &&
+          options.trustedMetadataRoots.length <= 64 &&
+          options.trustedMetadataRoots.every((candidate) =>
+            typeof candidate === "string" &&
+            candidate.length > 0 &&
+            candidate.length <= 16_384 &&
+            isAbsolute(candidate) &&
+            !/[\x00\r\n]/.test(candidate)
+          ))),
   );
   const absolute = resolve(root);
+  const metadataRoots = [...new Set([
+    absolute,
+    ...(options.trustedMetadataRoots ?? []).map((candidate) => resolve(candidate)),
+  ])];
   try {
     await noSymlinks(absolute);
     requireThat((await lstat(absolute)).isDirectory());
@@ -227,10 +402,10 @@ export async function discoverLocal(
     unsafePaths: [],
   };
   let count = 0;
-  const fail = (code = "SCAN_FAILURE") => {
+  const fail = (code = "SCAN_FAILURE", target = absolute) => {
     inventory.complete = false;
-    if (!inventory.errors.some((e) => e.code === code))
-      inventory.errors.push({ code });
+    if (!inventory.errors.some((error) => error.code === code && error.target === target))
+      inventory.errors.push({ code, target });
   };
   const observe = async (path: string) => {
     try {
@@ -245,7 +420,7 @@ export async function discoverLocal(
         requireThat(match, "INCOMPLETE");
         meta = resolve(path, match[1]);
       } else requireThat(stat.isDirectory(), "INCOMPLETE");
-      meta = await metadataPath(absolute, meta);
+      meta = await metadataPath(metadataRoots, meta);
       requireThat((await lstat(meta)).isDirectory(), "INCOMPLETE");
       let common = meta;
       const cp = join(meta, "commondir");
@@ -254,7 +429,7 @@ export async function discoverLocal(
         const text = await smallText(cp);
         requireThat(/^[^\r\n]+\r?\n?$/.test(text), "INCOMPLETE");
         common = await metadataPath(
-          absolute,
+          metadataRoots,
           resolve(meta, text.replace(/\r?\n$/, "")),
         );
         requireThat((await lstat(common)).isDirectory(), "INCOMPLETE");
@@ -273,7 +448,7 @@ export async function discoverLocal(
           ).replace(/\n$/, ""),
         );
       } catch {
-        fail("REMOTE_UNAVAILABLE");
+        fail("REMOTE_UNAVAILABLE", path);
       }
       let head: string | null = null;
       try {
@@ -296,6 +471,13 @@ export async function discoverLocal(
           );
         }
         head = null;
+      }
+      let branch: string | null = null;
+      try {
+        branch = (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
+        requireThat(branch.length > 0 && branch.length <= 1024 && !/[\x00-\x1f]/.test(branch), "INCOMPLETE");
+      } catch {
+        branch = null;
       }
       // Status may execute clean/process drivers while comparing tracked bytes.
       // Query effective names (including conditional includes and worktree config)
@@ -328,12 +510,13 @@ export async function discoverLocal(
         path,
         remote,
         head,
+        branch,
         dirty: status.length > 0,
         worktree,
         status,
       });
     } catch {
-      fail("GIT_METADATA_OR_STATUS");
+      fail("GIT_METADATA_OR_STATUS", path);
     }
   };
   const walk = async (path: string, level: number): Promise<void> => {
@@ -341,18 +524,18 @@ export async function discoverLocal(
     try {
       entries = await readdir(path, { withFileTypes: true });
     } catch {
-      fail();
+      fail("SCAN_FAILURE", path);
       return;
     }
     if (entries.some((e) => e.name === ".git")) await observe(path);
     for (const entry of entries.sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
     )) {
+      const target = join(path, entry.name);
       if (++count > 50000) {
-        fail("ENTRY_LIMIT");
+        fail("ENTRY_LIMIT", target);
         return;
       }
-      const target = join(path, entry.name);
       inventory.occupiedPaths.push(target);
       // Every non-directory obstructs a target at or below this path.
       // Keep ordinary directories usable as ancestors; do not follow symlinks.
@@ -361,11 +544,11 @@ export async function discoverLocal(
       if (skipped.has(entry.name)) continue;
       if (entry.isDirectory()) {
         if (level >= depth) {
-          fail("DEPTH_LIMIT");
+          fail("DEPTH_LIMIT", target);
           continue;
         }
         await walk(target, level + 1);
-      } else if (!entry.isFile()) fail("UNSUPPORTED_ENTRY");
+      } else if (!entry.isFile()) fail("UNSUPPORTED_ENTRY", target);
     }
   };
   await walk(absolute, 0);
@@ -373,7 +556,15 @@ export async function discoverLocal(
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
   );
   inventory.errors.sort((a, b) =>
-    a.code < b.code ? -1 : a.code > b.code ? 1 : 0,
+    a.code < b.code
+      ? -1
+      : a.code > b.code
+        ? 1
+        : a.target < b.target
+          ? -1
+          : a.target > b.target
+            ? 1
+            : 0,
   );
   inventory.occupiedPaths.sort();
   inventory.unsafePaths.sort();
