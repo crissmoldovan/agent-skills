@@ -15,7 +15,7 @@ const MANIFEST_ASSET = "runtime-manifest.json";
 const CATALOG_VERSION = "0.26.0";
 // Replaced only after the stable 0.3.0 runtime is assembled. The runtime archive
 // does not contain this helper, so embedding its digest cannot create a cycle.
-const CARRIED_MANIFEST_SHA256 = "1105093d4b0dcae0c2690beab594b95f0663faa5cc8f7a5b0c8093d0ca80ff0f";
+const CARRIED_MANIFEST_SHA256 = "2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379";
 const BINS = ["workspacectl", "workspacectl-mcp"];
 const BIN_ENTRIES = { workspacectl: "dist/cli.js", "workspacectl-mcp": "dist/mcp-cli.js" };
 const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "preprepare", "postprepare", "prepublish", "prepublishOnly", "prepack", "postpack", "dependencies"];

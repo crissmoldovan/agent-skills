@@ -1,6 +1,7 @@
 # Workspaces 0.3.0 — through A17
 
-This private, unpublished candidate preserves the accepted M2/A03 isolated setup,
+This `private:true` package is not published to the npm registry. Versioned GitHub
+Release bundles are the intended runtime distribution channel. The 0.3.0 candidate preserves the accepted M2/A03 isolated setup,
 guarded v1-plus-sidecar import, stores, catalog readback, and configured `doctor`.
 A04 added read-only observation of explicitly selected configured GitHub sources and
 trusted local roots, plus one honest overview shared by `discover`, selected `list`,
@@ -71,12 +72,64 @@ No tool accepts arbitrary argv, config, environment, executable, shell text, or 
 All modes emit protocol messages only on stdout and return bounded structured content plus textual
 JSON. Generated client configuration must omit both effect flags by default.
 
+## Generate MCP client registration
+
+`workspacectl mcp config` is a pure registration renderer. It selects the same
+absolute Workspaces config as other commands. Managed installations use the owned
+sibling `workspacectl-mcp` launcher; direct package installations use the current
+package's absolute `dist/mcp-cli.js` bin entry without searching or guessing `PATH`.
+It does not write a profile, start the server or
+client, initialize MCP, list tools, call a tool, or establish a connection.
+
+```sh
+workspacectl mcp config --client generic \
+  --destination "$PWD/mcp-registration.json" --config "$CONFIG" --json
+workspacectl mcp config --client claude-code --scope local --config "$CONFIG" --json
+workspacectl mcp config --client codex --scope user --config "$CONFIG" --json
+HERMES_HOME="$HOME/.hermes/profiles/example" \
+  workspacectl mcp config --client hermes --config "$CONFIG" --json
+```
+
+Generic and Claude Code render `mcpServers` JSON; Codex renders
+`[mcp_servers.workspace-governance]` TOML; Hermes renders `mcp_servers` YAML at
+the selected `$HERMES_HOME/config.yaml` (or `$HOME/.hermes/config.yaml`). Every
+format retains the absolute executable as one `command` scalar and
+`["--config", ABSOLUTE_CONFIG]` as separate arguments, including paths with
+spaces. Claude local scope renders the exact current-project entry under `projects`
+in `~/.claude.json`; project and user scopes render their documented top-level
+shape. Generic output requires an explicit destination because it is portable
+registration data, not a universal profile location. Claude Code scopes are
+`local`, `project`, and `user`; Codex scopes are `project` and `user`.
+
+The optional Claude registration command and user-scoped Codex command are returned
+as unexecuted argv arrays. Codex project scope emits only the project TOML because
+`codex mcp add` targets user configuration. No permission rules, plan/apply flags, approval policy, sandbox
+setting, or Hermes tool visibility setting is generated. Read-only server
+capability, exact domain/action binding, and host-mediated human authorization
+are separate gates. Claude `allow`/`bypassPermissions` grants trusted model
+authority. Codex host policy selects `auto`, `prompt`, or `approve`; `approve`
+skips per-call prompting and `auto_review` is automated review, not human consent.
+No Codex approval setting is generated. Hermes tool inclusion controls visibility and does not
+establish a per-call human-consent prompt.
+
+Registration generation, MCP initialization, `tools/list`, and a successful
+`tools/call` are four different claims. The generic route has protocol-consumer
+coverage; Claude Code, Codex, and Hermes formats are documented and parsed in
+tests but are not live client tests in this release candidate.
+
 ## Requirements
 
 - Linux or macOS
 - Node.js 24 or newer
 - trusted Git on `PATH`
 - npm associated with the selected Node runtime
+
+WSL follows the Linux contract but is not a native-Windows support claim.
+Native Windows remains unsupported by the POSIX filesystem safety contract.
+A container result applies only to that container. SSH registration must name
+the remote host and absolute remote paths, use existing user-controlled
+authentication, disable TTY and banners, and preserve clean stdin/stdout; it
+operates on the remote host rather than the client's local files.
 
 Selected GitHub observation needs trusted `gh` credentials already authorized for
 the explicit configured owner. The installer never installs prerequisites or changes
@@ -140,8 +193,7 @@ SHA-256 file, and the package lock beside it. The strict manifest identifies pac
 `0.3.0`, both bins, every archived regular file by SHA-256, all production package
 versions/integrities, the archive hash, and compatible skill ref
 `workspace-governance-v0.3.0`. It deliberately contains no final source-commit hash; the
-package remains the unpublished 0.3.0 development identity until the later release
-transition.
+package remains the 0.3.0 release-candidate identity until reviewed publication.
 
 A consumer can install the archive without a registry or populated cache:
 
@@ -183,13 +235,12 @@ the reviewed `skills/workspace-governance` directory separately through the targ
 normal mechanism. Candidate verification can pass its exact `SKILL.md` path to doctor
 without changing an active profile.
 
-`doctor` defaults to **CLI + agent skill integration** readiness. An explicit
-`--skill FILE` may select the reviewed matching skill for any supported agent
-integration, including Codex; without it, the existing environment and Hermes-path
-fallback remain unchanged. Use `doctor --standalone` only for explicit CLI-only
-readiness. Standalone mode does not select or read a skill, ignores
+`doctor` defaults to **standalone CLI** readiness. Use explicit
+`--integration --skill FILE` to check a reviewed matching skill for any supported
+agent integration, including Codex. Standalone mode does not select or read a skill, ignores
 `WORKSPACECTL_SKILL`, reports `selected.skill:null` and a skipped/not-required skill
-check, and cannot be combined with `--skill`. Runtime, Git, installation receipt,
+check. `--standalone` remains an explicit synonym and cannot be combined with
+`--integration` or `--skill`. Runtime, Git, installation receipt,
 configuration, trusted-root, selected-store, catalog, and local-state checks still run.
 
 ## Initialize an isolated v2 setup

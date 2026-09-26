@@ -1,6 +1,10 @@
-# Workspace Governance v0.1 specification
+# Workspace Governance v0.1 historical specification
 
-Read-only release candidate; unpublished. The normative S1–S9 contract below supersedes earlier drafts.
+This document is the retained historical read-only v0.1 S1–S9 contract. It is not
+the complete Workspace Governance 0.3 product or release specification; use the
+[current guide](index.md), runtime documentation, carried skill references and
+executable package contracts for the later guarded operation, MCP, portability and
+lifecycle surfaces. The v0.1 contract below superseded its earlier drafts.
 
 ## S1 hierarchy/workspace (implementability B1)
 Exactly one root, kind user OR legacy organization; explicit visibility required on root. Legal parents: user:none, domain:user, namespace:domain, organization:user or none, area:namespace|organization|area, project:namespace|organization|area, repository:namespace|area|project, workspace:repository. No session nodes. A domain is a stable logical grouping; a namespace is a provider-neutral source-host account or owner. Area and project are optional below a namespace. Depth <=32. Workspace nodes stable catalog identities with optional policy but no portable absolute path. Inventory never creates node IDs or ancestry. 0.1 plans support user/domain/namespace/organization/area/project/repository scope and reject workspace scope with UNSUPPORTED; workspace policy is still resolvable by explicit node ID. Workspace checkout binding/execution deferred, documented as unbound; local worktrees observed separately. This avoids inventing binding identity from path. One authority snapshot may have user root only for personal ownership; organization-root remains supported for sharing and compatibility. Caller-supplied library defaults/invocation settings explicitly resolved before/after scope policies; no auto user config discovery and no organization roster embedded in base skill.

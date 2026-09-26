@@ -32,7 +32,7 @@ test("carried bootstrap is self-contained and anchored to the 0.3 compatibility 
   assert.match(text, /version: 0\.3\.0/);
   assert.match(text, /workspace-governance-v0\.3\.0/);
   assert.match(text, /catalog 0\.26\.0/);
-  assert.match(text, /runtime-manifest-sha256=1105093d4b0dcae0c2690beab594b95f0663faa5cc8f7a5b0c8093d0ca80ff0f/);
+  assert.match(text, /runtime-manifest-sha256=2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379/);
   assert.match(text, /--bundle \/absolute\/release-assets/);
   assert.match(text, /never uses sudo/);
 });

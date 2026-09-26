@@ -55,3 +55,67 @@ jobs:
           node "$cli" show --workspace ci | grep -q '"kind": "decision"'
           node "$cli" digest --workspace ci --level team | grep -q '# Decision digest'
           node "$cli" coverage --workspace ci
+
+  # Produce once from reviewed source, then hand only the closed bundle and
+  # standalone carried consumers to checkout-free OS jobs.
+  workspace-governance-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: assemble self-contained consumer payload
+        run: |
+          set -eu
+          npm ci --prefix packages/workspace-governance --ignore-scripts --no-audit --no-fund
+          payload="${RUNNER_TEMP}/p31-payload"
+          mkdir -p "$payload"
+          npm --prefix packages/workspace-governance run assemble:runtime -- --output "$payload/bundle"
+          cp skills/workspace-governance/scripts/install-runtime.mjs "$payload/install-runtime.mjs"
+          cp packages/workspace-governance/scripts/m4-consumer.mjs "$payload/m4-consumer.mjs"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: workspace-governance-clean-consumer
+          path: ${{ runner.temp }}/p31-payload
+          if-no-files-found: error
+          retention-days: 7
+
+  clean-bundled-consumer:
+    needs: workspace-governance-bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v7
+        with:
+          name: workspace-governance-clean-consumer
+          path: ${{ runner.temp }}/p31-payload
+      - name: install, call CLI and MCP, and remove from a clean consumer
+        env:
+          HOME: ${{ runner.temp }}/p31-home
+          NODE_PATH: ""
+          npm_config_cache: ${{ runner.temp }}/p31-empty-cache
+          npm_config_registry: http://127.0.0.1:9/unreachable
+        run: |
+          set -eu
+          payload="${RUNNER_TEMP}/p31-payload"
+          node "$payload/m4-consumer.mjs" \
+            --bundle "$payload/bundle" \
+            --helper "$payload/install-runtime.mjs" \
+            --output "${RUNNER_TEMP}/p31-result.json" \
+            --npm "$(command -v npm)" \
+            --tar "$(command -v tar)" \
+            --git "$(command -v git)"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: p31-${{ matrix.os }}-result
+          path: ${{ runner.temp }}/p31-result.json
+          if-no-files-found: error
+          retention-days: 30

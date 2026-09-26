@@ -14,6 +14,7 @@ import { diagnose, doctorExitCode, renderDoctorText } from "./doctor.ts";
 import { runV2Cli } from "./v2-cli.ts";
 import { runSetup } from "./setup.ts";
 import { SkillLifecycleError } from "./skill-lifecycle.ts";
+import { fileURLToPath } from "node:url";
 const help = `workspacectl 0.3.0 — Workspaces M2/A05–A06 + M3/A07–A08 + M4/A09 + M5/A11–A12 + M6/A13–A15 + M7/A16 + M3/A17
 
 Usage:
@@ -25,6 +26,7 @@ Usage:
   workspacectl import-v1 [--config FILE] --manifest FILE --unclassified FILE --plan FILE [--json]
   workspacectl portable export [--config FILE] --output FILE [--json]
   workspacectl portable import [--config FILE] --input FILE --plan FILE [--json]
+  workspacectl mcp config --client generic|claude-code|codex|hermes [--scope SCOPE] [--destination FILE] [--config ABSOLUTE_FILE] [--json]
   workspacectl apply [--config FILE] --plan FILE --approve PLAN_ID [--json]
   workspacectl discover --config FILE [--source ID]... [--root PATH]... [--depth N] [--max-pages N] [--json]
   workspacectl list [--config FILE] [--source ID]... [--root PATH]... [--depth N] [--max-pages N] [--json]
@@ -209,13 +211,13 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   const useV2 =
-    ["init", "import-v1", "portable", "apply", "list", "where", "workspace", "adopt", "checkout", "move", "worktree", "operation", "workflow", "config", "group", "repo", "context", "open", "host", "coordination"].includes(command) ||
+    ["init", "import-v1", "portable", "mcp", "apply", "list", "where", "workspace", "adopt", "checkout", "move", "worktree", "operation", "workflow", "config", "group", "repo", "context", "open", "host", "coordination"].includes(command) ||
     (command === "explain" && !args.includes("--manifest")) ||
     (command === "discover" && args.includes("--config")) ||
     (["report", "audit"].includes(command) && !args.includes("--manifest"));
   if (useV2) {
     publicErrorJson = args.includes("--json");
-    const execution = await runV2Cli(args);
+    const execution = await runV2Cli(args, process.env, { cliEntryPath: fileURLToPath(import.meta.url) });
     requireThat(execution.handled && execution.body && execution.text);
     if (execution.exitCode !== undefined) process.exitCode = execution.exitCode;
     process.stdout.write(

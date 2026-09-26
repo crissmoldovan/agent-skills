@@ -5,6 +5,52 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.26.0 (staged; not yet published)
+
+**What.** Workspace Governance 0.3.0 adds a local stdio MCP server, portable logical
+catalog transfer, and consent-based installation in both directions: start with the
+skill and install the CLI, or start with the CLI and install the matching skill. The
+catalog version is 0.26.0; the independent runtime and skill versions are 0.3.0.
+
+**Why.** Repository identity and policies should survive a change of computer without
+copying local paths or execution authority. Terminal users and MCP clients use the
+same engine, and either discovery route has a verified path to the other component.
+
+**Impact.** This is an opt-in runtime and catalog update. Existing installations are
+not changed automatically, and installation/removal does not migrate governed
+repositories, catalogs, policies, local state or agent profiles. MCP starts read-only;
+plans and effects need separate server capabilities, exact action binding and the
+host's distinct human-permission policy. Generated registration adds no effect or
+auto-approval setting and does not claim a connection. Portable exports omit local
+paths, credentials, journals and trust grants; imported executable/reference
+dependencies require destination-local rebinding and trust.
+
+`doctor` now checks standalone CLI readiness by default; use `doctor --integration`
+for matching-skill checks. Runtime and skill have independent verified install,
+update, rollback and removal lifecycles, preserving unrelated components and governed
+data. Distribution is a versioned GitHub Release bundle, not npm registry publication.
+It requires Node.js 24+, npm and POSIX tar; governed Git operations also require Git.
+Linux and macOS are supported, WSL follows Linux requirements, and native Windows is
+outside this POSIX contract. No HTTP service, cloud sync or automatic migration ships.
+
+**Who should update.** Users who want local MCP, portable logical configuration or
+either onboarding direction. In the intended project directory, install the exact
+skill tag with:
+
+```sh
+npx --yes skills@1.7.0 add 'https://github.com/crissmoldovan/agent-skills#workspace-governance-v0.3.0' --skill workspace-governance --agent hermes-agent --yes
+```
+
+Add `--global` only for global scope and select a supported agent explicitly. This
+installs the skill, not the runtime. Remove only that project skill with:
+
+```sh
+npx --yes skills@1.7.0 remove workspace-governance --agent hermes-agent --yes
+```
+
+Disconnect MCP clients before previewing and explicitly confirming runtime removal
+through the carried helper. Configuration, catalogs and local state remain.
+
 ## 0.25.0
 
 **What.** `blocks` stops calling a review clean when no review ran, and gains a terminal state

@@ -6,7 +6,7 @@ author: Cristian Moldovan (crissmoldovan), Hermes Agent
 license: MIT
 platforms: [linux, darwin]
 compatibility: "workspacectl 0.3.0; catalog 0.26.0; skill tag workspace-governance-v0.3.0"
-metadata: "runtime-manifest-sha256=1105093d4b0dcae0c2690beab594b95f0663faa5cc8f7a5b0c8093d0ca80ff0f; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
+metadata: "runtime-manifest-sha256=2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
 ---
 
 # Workspace Governance
@@ -166,11 +166,21 @@ Default output is readable text. Add `--json` for the complete machine result.
 workspacectl doctor --config "$CONFIG" --json
 workspacectl doctor --integration --config "$CONFIG" --skill "$SKILL" --json
 workspacectl list --config "$CONFIG" --json
+workspacectl mcp config --client hermes --config "$CONFIG" --json
 workspacectl config export --target catalog --config "$CONFIG"
 workspacectl config validate "$DRAFT" --config "$CONFIG" --json
 workspacectl config plan "$DRAFT" --config "$CONFIG" --plan "$PLANS/catalog.json" --json
 workspacectl-mcp --config "$CONFIG"
 ```
+
+`mcp config` only renders registration. It never edits an agent profile or proves
+a connection. Generated launch arguments are read-only by default and omit
+`--allow-plans`, `--allow-apply`, and host auto-approval settings. Apply the
+snippet separately through the client's supported configuration route, then
+restart/reload that client and verify initialization, tool discovery, and calls
+as distinct steps. Host-mediated human permission is separate from server
+capability and exact action binding; automatic allow grants the model authority
+and is not human consent.
 
 Config selection remains `--config`, `WORKSPACECTL_CONFIG`,
 `XDG_CONFIG_HOME/workspacectl/config.yaml`, then the conventional home path. Plan

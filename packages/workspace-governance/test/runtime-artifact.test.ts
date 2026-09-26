@@ -182,6 +182,14 @@ test("offline empty-cache consumer runs both bins and an official MCP doctor cal
     const version = execute(cli, ["--version"]);
     assert.equal(version.status, 0, version.stderr);
     assert.equal(version.stdout.trim(), packageMetadata.version);
+    const directRegistrationRun = execute(cli, [
+      "mcp", "config", "--client", "generic", "--destination", join(scratch, "generic registration.json"),
+      "--config", join(scratch, "future config.json"), "--json",
+    ]);
+    assert.equal(directRegistrationRun.status, 0, directRegistrationRun.stderr);
+    const directRegistration = JSON.parse(directRegistrationRun.stdout);
+    assert.equal(directRegistration.command, join(packagePath, "dist", "mcp-cli.js"));
+    assert.deepEqual(directRegistration.args, ["--config", join(scratch, "future config.json")]);
     const help = execute(cli, ["--help"]);
     assert.equal(help.status, 0, help.stderr);
     const escapedVersion = packageMetadata.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

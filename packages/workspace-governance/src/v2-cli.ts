@@ -13,6 +13,7 @@ import { acknowledgeHostAction, openTarget } from "./open.ts";
 import { reopenCoordinationWorkspace } from "./coordination.ts";
 import { parseDataText } from "./v2-model.ts";
 import { createPortableDocument } from "./portable.ts";
+import { generateClientConfig, installedMcpExecutable, type McpClient } from "./client-config.ts";
 import { createCheckoutPlan, createCheckoutReconcilePlan, showCheckoutOperation } from "./checkout-operations.ts";
 import { createMovePlan, createMoveReconcilePlan, showMoveOperation } from "./move-operations.ts";
 import { createWorktreePlan, createWorktreeRemovePlan, listWorktrees, showWorktreeOperation } from "./worktree-operations.ts";
@@ -162,8 +163,34 @@ async function runOverviewCommand(
 export async function runV2Cli(
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
+  runtime: { cliEntryPath?: string } = {},
 ): Promise<V2CliExecution> {
   const command = args[0];
+  if (command === "mcp") {
+    requireThat(args[1] === "config", "UNSUPPORTED");
+    const flags = parseFlags(args.slice(2), ["client", "config", "destination", "scope"]);
+    requireFlags(flags, ["client"]);
+    requireThat(["generic", "claude-code", "codex", "hermes"].includes(flags.values.client), "INVALID_CONFIG");
+    const selected = selectConfigPath(flags.values.config, env);
+    if (flags.values.config !== undefined)
+      requireThat(flags.values.config === resolve(flags.values.config), "INVALID_CONFIG");
+    const generated = generateClientConfig({
+      client: flags.values.client as McpClient,
+      serverPath: installedMcpExecutable(env, runtime.cliEntryPath ?? process.argv[1]),
+      configPath: selected.path,
+      ...(flags.values.destination === undefined ? {} : { destination: flags.values.destination }),
+      ...(flags.values.scope === undefined ? {} : { scope: flags.values.scope }),
+      home: env.HOME,
+      hermesHome: env.HERMES_HOME,
+      cwd: process.cwd(),
+    });
+    return {
+      handled: true,
+      json: flags.json,
+      body: { ok: true, selectedConfig: selected, ...generated },
+      text: `${generated.rendered.content}\n${generated.guidance.registration}\nDestination: ${generated.destination}\n`,
+    };
+  }
   if (command === "portable") {
     requireThat(["export", "import"].includes(args[1]), "UNSUPPORTED");
     if (args[1] === "export") {

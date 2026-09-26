@@ -121,8 +121,9 @@ callers cannot supply argv, environment, executables, or alternate configs. Its 
 carries only portable instructions and internal relative references. Do not put
 machine inventories in the public tree. See its
 [architecture and acceptance map](docs/workspace-governance/index.md). The package
-is private/unpublished; packaging tests do not authorize a release, global install
-or live agent update.
+is `private:true` and is not published to the npm registry; reviewed GitHub Release
+bundles are its distribution channel. Packaging tests alone do not authorize a
+release, global install or live agent update.
 
 ## The three checks on a pull request, and why each is kept
 
