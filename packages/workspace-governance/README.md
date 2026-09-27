@@ -1,341 +1,673 @@
-# Workspace Governance 0.1.0
+# Workspaces 0.3.0 — through A17
 
-## Working workspace report
+This `private:true` package is not published to the npm registry. Versioned GitHub
+Release bundles are the intended runtime distribution channel. The 0.3.0 candidate preserves the accepted M2/A03 isolated setup,
+guarded v1-plus-sidecar import, stores, catalog readback, and configured `doctor`.
+A04 added read-only observation of explicitly selected configured GitHub sources and
+trusted local roots, plus one honest overview shared by `discover`, selected `list`,
+`report`, and `audit`. The preserved v1 catalog/policy/discovery/report engine remains
+available as a clearly labelled legacy read-only surface. A05 adds revision-checked,
+explicitly approved catalog drafts plus group, membership, and classification convenience
+commands over the same single-catalog CAS plan route. A06 adds deterministic
+repository lookup, explicit primary selection, and guarded registry-only adoption
+of existing standalone or linked-worktree checkouts. A07 adds typed catalog policies,
+instructions, knowledge/skill references, inert workflow definitions/overrides, deterministic
+inheritance, complete provenance, and read-only external-copy drift reporting. A08 loads
+bounded relevant context and trusted selected references without executing them. M4/A09 adds
+read-only `open`, typed inert Hermes/terminal host actions with exact native Project plus
+effective tool cwd acknowledgement, and approved non-Git coordination workspaces.
 
-The first useful path is one command that combines the declared hierarchy,
-observed local checkouts, placement drift, inherited policy provenance and the
-selected inert workflow:
+M5/A11 adds exact approved ordinary checkout creation and interrupted-operation inspection/
+reconciliation. M5/A12 adds registered Git worktree listing plus exact approved create/remove
+plans. It creates only a new branch from an explicit verified commit at an absent safe path,
+and removes only the exact known clean inactive owned worktree after proving no unpushed commit;
+the branch remains. It never uses force removal or global prune.
+
+M6/A13 executes bounded inherited workflows through typed context/workspace checks, agent and
+external handoffs, approved argv commands, and independent output readback. It does not move
+checkouts or mutate a primary branch/index. A shell `cd` is never reported as activation.
+
+M6/A14 persists real command failures with bounded output, revalidates changed output fingerprints
+before safe retry, and issues a fresh approval-bound attempt. Completed effects are never replayed.
+The public `workflow interrupt` seam records an approved in-flight effect as ambiguous; bound
+inspection evidence may resolve it as completed, not completed, or still unknown. Definition,
+policy/trust, workspace identity, and executable drift make status stale and invalidate old approval.
+
+M6/A15 runs an exact persisted two-repository coordination binding. Every agent, command,
+verification, and output is bound to one named repository/workspace/path and receives shared
+project context plus only that repository's local context. A typed `rules.distribute` step emits
+one digest-bound, repository-local review proposal per carrying copy and explicit `not-carrying`
+rows, but never rewrites, merges, applies, or sends a remote proposal.
+
+M7/A16 adds an exact approved same-filesystem rename for one clean inactive standalone
+registered primary checkout that owns no linked-worktree registrations. It preserves stable
+repository/workspace identity, rechecks every bound input before mutation, and reads back source
+absence, destination Git identity, and the updated binding. Unsupported dirty, busy, colliding,
+nested, linked, submodule, symlinked, identity-mismatched, stale, or cross-filesystem cases refuse
+without a copy fallback. A main checkout with any linked, locked, stale/prunable, malformed,
+symlinked, or unreadable worktree registration also refuses; the CLI never prunes or repairs those
+records. Public operation show/reconcile can repair only an unambiguous
+rename-success/binding-save-failure.
+
+M3/A17 exposes coherent async catalog and local-state store contracts and routes public
+catalog and workspace/local-state export, validation, preview, apply, CAS, and exact-readback
+operations through trusted named adapters. File, memory, and an independently implemented async
+adapter have semantic parity in conformance tests. The packaged CLI includes `test-async-file`
+only as a labelled local test adapter for installed-route testing; it is not a production remote
+or authenticated backend. Read-only, stale, partial, offline, and unknown authority cannot
+preview or apply a mutation, and a losing CAS preserves the winner without a file fallback.
+
+The 0.3 development candidate contains a bounded MCP stdio server using the pinned official
+TypeScript SDK. `workspacectl-mcp --config ABSOLUTE_FILE` is read-only by default and serves
+doctor, catalog/group/repository/coverage listing, where, context/explain, read-only open,
+workflow list/show/status, and operation show/worktree listing. Immutable startup flag
+`--allow-plans` additionally advertises one strict finite planning union. Plans are stored as
+private `0600` files under the selected plans directory and returned through opaque identities;
+callers cannot select plan paths. `--allow-apply` implies plans and additionally advertises exact
+plan apply plus workflow run/submit/approve/resume/interrupt transitions. Effect operations are
+serialized per server/config and remain counted until their handler settles even if the protocol
+request is cancelled. Workflow approval is only a domain transition, not proof of human identity
+or MCP-host authorization. Effect mode is therefore for trusted, approval-mediating clients.
+No tool accepts arbitrary argv, config, environment, executable, shell text, or capability change.
+All modes emit protocol messages only on stdout and return bounded structured content plus textual
+JSON. Generated client configuration must omit both effect flags by default.
+
+## Generate MCP client registration
+
+`workspacectl mcp config` is a pure registration renderer. It selects the same
+absolute Workspaces config as other commands. Managed installations use the owned
+sibling `workspacectl-mcp` launcher; direct package installations use the current
+package's absolute `dist/mcp-cli.js` bin entry without searching or guessing `PATH`.
+It does not write a profile, start the server or
+client, initialize MCP, list tools, call a tool, or establish a connection.
 
 ```sh
-workspacectl report --manifest example.json --node org --principal reader \
-  --root "$SCAN_ROOT" --workflow feature
-
-# Optional self-contained visual report; write it outside the scan root.
-workspacectl report --manifest example.json --node org --principal reader \
-  --root "$SCAN_ROOT" --workflow feature --format html > workspace-report.html
+workspacectl mcp config --client generic \
+  --destination "$PWD/mcp-registration.json" --config "$CONFIG" --json
+workspacectl mcp config --client claude-code --scope local --config "$CONFIG" --json
+workspacectl mcp config --client codex --scope user --config "$CONFIG" --json
+HERMES_HOME="$HOME/.hermes/profiles/example" \
+  workspacectl mcp config --client hermes --config "$CONFIG" --json
 ```
 
-JSON is the default (`--format json` is equivalent). The report accepts a user,
-domain, source namespace, organization, area, project or repository scope. The
-selected node and its complete descendant subtree must be readable or the whole
-report refuses with `UNAVAILABLE`;
-ancestors included in the report are readable. HTML is a self-contained visual
-rendering of key report fields, not a lossless JSON serialization. Report output is
-deterministic and read-only: it does not classify unknown repositories, clone or
-move checkouts, enforce policy, or execute workflow action strings.
+Generic and Claude Code render `mcpServers` JSON; Codex renders
+`[mcp_servers.workspace-governance]` TOML; Hermes renders `mcp_servers` YAML at
+the selected `$HERMES_HOME/config.yaml` (or `$HOME/.hermes/config.yaml`). Every
+format retains the absolute executable as one `command` scalar and
+`["--config", ABSOLUTE_CONFIG]` as separate arguments, including paths with
+spaces. Claude local scope renders the exact current-project entry under `projects`
+in `~/.claude.json`; project and user scopes render their documented top-level
+shape. Generic output requires an explicit destination because it is portable
+registration data, not a universal profile location. Claude Code scopes are
+`local`, `project`, and `user`; Codex scopes are `project` and `user`.
 
-## Observational strict-trial status
+The optional Claude registration command and user-scoped Codex command are returned
+as unexecuted argv arrays. Codex project scope emits only the project TOML because
+`codex mcp add` targets user configuration. No permission rules, plan/apply flags, approval policy, sandbox
+setting, or Hermes tool visibility setting is generated. Read-only server
+capability, exact domain/action binding, and host-mediated human authorization
+are separate gates. Claude `allow`/`bypassPermissions` grants trusted model
+authority. Codex host policy selects `auto`, `prompt`, or `approve`; `approve`
+skips per-call prompting and `auto_review` is automated review, not human consent.
+No Codex approval setting is generated. Hermes tool inclusion controls visibility and does not
+establish a per-call human-consent prompt.
+
+Registration generation, MCP initialization, `tools/list`, and a successful
+`tools/call` are four different claims. The generic route has protocol-consumer
+coverage; Claude Code, Codex, and Hermes formats are documented and parsed in
+tests but are not live client tests in this release candidate.
+
+## Requirements
+
+- Linux or macOS
+- Node.js 24 or newer
+- trusted Git on `PATH`
+- npm associated with the selected Node runtime
+
+WSL follows the Linux contract but is not a native-Windows support claim.
+Native Windows remains unsupported by the POSIX filesystem safety contract.
+A container result applies only to that container. SSH registration must name
+the remote host and absolute remote paths, use existing user-controlled
+authentication, disable TTY and banners, and preserve clean stdin/stdout; it
+operates on the remote host rather than the client's local files.
+
+Selected GitHub observation needs trusted `gh` credentials already authorized for
+the explicit configured owner. The installer never installs prerequisites or changes
+credentials, provider configuration, Hermes settings, Workspaces configuration, or
+the separately installed skill.
+
+## Optional agent skill lifecycle
+
+`workspacectl setup` is the explicit CLI-first entry point. Interactive terminals offer
+install, exact manual instructions, or skip; EOF, cancellation, a declined final preview,
+bare help, and ordinary commands never install. The skill is optional: CLI readiness,
+configuration status, skill projections, and MCP registration are reported separately.
+
+Automation is preview-only unless every effect input is explicit:
 
 ```sh
-workspacectl mutation-status --state-dir /private/fixture/state --operation-id init-example
+workspacectl setup --json
+workspacectl setup --source crissmoldovan/agent-skills \
+  --ref workspace-governance-v0.3.0 --agent hermes-agent --agent claude-code \
+  --scope project --json
+workspacectl setup --install-skill --source crissmoldovan/agent-skills \
+  --ref workspace-governance-v0.3.0 --agent hermes-agent --agent claude-code \
+  --scope project --yes --json
+workspacectl setup --remove-skill --source crissmoldovan/agent-skills \
+  --ref workspace-governance-v0.3.0 --agent hermes-agent \
+  --scope project --yes --json
 ```
 
-`readMutationStatus(stateDir, operationId)` and the installed command read only
-strict **initial trial** ledgers. A `workspace-governance/init-trial-setup-result-v1`
-response with `state: "verified"` means a bounded consistent observation found
-complete event/evidence/result linkage and matching safe current final files.
-It does **not** attest that an earlier fsync succeeded, grant execution, or qualify
-a deployment. Visible complete records may verify after writer death or fsync
-failure. An immutable `result.json` alone is only a candidate: status remains
-`interrupted`, possibly while the writer is alive. Corruption, ambiguous ownership
-or final drift returns `needs-attention` with only validated prefix action facts.
-Unknown operation IDs return `UNAVAILABLE`; insufficient saved intent or a snapshot
-that changes across the one permitted retry returns `RECOVERY_REQUIRED` (exit 3).
-Other status errors use the existing static error envelope; no paths are disclosed.
-A successfully observed result uses exit 0, including interrupted/needs-attention.
+Project scope is the command's current directory; there is no invented `--project` flag.
+Global scope remains inside the selected synthetic/user `HOME`, including `HERMES_HOME` and
+`CLAUDE_CONFIG_DIR`. The implementation pins `skills@1.7.0`, accepts only the real
+`hermes-agent` and `claude-code` IDs in this release slice, resolves remote refs before an
+effect, and verifies installed content/version after the third-party command. A local candidate
+may use an exact 40-character Git commit whose skill bytes match, or
+`local-sha256:<content-digest>` for an immutable unpublished fixture. Mutable refs refuse.
 
-No helper/controller launch, lock, fsync, registry read/reservation, current issuer,
-current trial lifetime, external request, credentials, Git, or network is needed.
-All authority captures are historical data, never renewed authority. Ordinary/full
-and development ledgers are not promoted into trial history. Recovery is not
-implemented by this command and no records, temporaries or locks are repaired.
+Managed ownership is a private receipt under the selected scope's `.agents/skill-receipts`.
+Removal requires that receipt plus matching source/ref/content and exact projection readback;
+byte-identical unmanaged directories, modified files, unexpected symlinks, and symlinked path
+components refuse. Partial third-party failures report changed and unchanged projections plus
+exact per-agent scoped recovery commands; they are never described as rolled back. Skill
+removal does not remove the runtime, Workspaces configuration/data, repositories, or unrelated
+skills.
 
-The Linux reader holds no-follow read-only descriptors through snapshot validation,
-requires safe owner-controlled ancestry/private bookkeeping and final file modes,
-and checks current original final-parent identities and supported mount topology.
-It rejects unsafe types/links, foreign members, contradictory publication slots,
-noncanonical records, semantic proposal forgeries and incomplete chain linkage.
-Bounds remain 256 events, 2 MiB per plan/record, 64 KiB context, 262144 decoded bytes
-per ordinary capture (2 MiB only for the saved approved plan), 2 MiB aggregate
-capture/payload records and 16 MiB operation reads. Inventory is bounded; no
-truncation establishes completeness. Historical engine trees not reconstructible
-from saved file resources (for example unrepresented empty directories) refuse
-conservatively. These checks retain the trusted single-user/quiescent-host model,
-not protection from a hostile same-UID writer or a storage durability qualification.
+## Verify, assemble, and install
 
-## Full read-only candidate-trial planning
-
-```sh
-workspacectl manifest-init-trial-plan --install-root /private/helper-install --candidate /private/candidate.json --intent /private/intent.json
-```
-
-This emits the complete `workspace-governance/init-trial-setup-plan-v1` JSON
-(`executable:false`), not a relabeled preview. A separately provisioned and pinned
-native controller independently reads the candidate, immutable intent, request,
-real resources and environment, derives policy/actions/bookkeeping and the digest,
-and repeats capture before returning. No locks, registry writes or candidate
-launch occur while planning. The existing `manifest-init-plan` preview is unchanged.
-
-The fixed operator sidecar selects the native controller; no executable override,
-ambient PATH lookup, qualification fabrication or install hook is provided. See
-`native/setup-helper/TRIAL-CONTROLLER.md` in source for the closed candidate/intent
-encoding and operator provisioning. After reviewing and approving the exact digest,
-the operator can separately issue/reserve using that controller. Reservation remains
-unconditionally fail-closed with `UNSUPPORTED_LAUNCH`; this command does not enable
-apply/recover, N-API startup authority, helper admission or deployment qualification.
-
-
-Unpublished, private release candidate: a read-only TypeScript ESM library and
-`workspacectl` CLI. No runtime dependencies. Linux with Node.js 24+ and Git is the
-verified platform; macOS POSIX paths are expected but untested. Windows support
-is not claimed. GitHub discovery additionally needs a trusted `gh` executable and
-credentials authorized to read the explicitly chosen organization.
-
-## Build and install the CLI separately
-
-From this package directory in a source checkout:
+Run focused verification from this directory in the reviewed source checkout. Runtime
+assembly requires Node.js >=24, its npm, and POSIX `tar`:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
-npm run verify
-npm pack --ignore-scripts --pack-destination "$ARTIFACT_DIR"
-npm install --prefix "$CONSUMER_DIR" --ignore-scripts --no-audit --no-fund "$TARBALL"
-"$CONSUMER_DIR/node_modules/.bin/workspacectl" --help
+npm run check:types
+npm run build
+npm run assemble:runtime -- --output "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY"
 ```
 
-Set the three variables to explicit, user-approved local locations. `TARBALL` is
-the actual file printed by `npm pack`. Do not substitute a registry package:
-this candidate is **not published**. The portable skill installer does not install
-this CLI. No global install, lifecycle install scripts, or automatic configuration.
+The assembler refuses relative paths, repository-contained paths, and any output path
+that already exists. It rebuilds the package, creates one npm archive containing the
+complete production dependency closure, and writes `runtime-manifest.json`, its detached
+SHA-256 file, and the package lock beside it. The strict manifest identifies package
+`0.3.0`, both bins, every archived regular file by SHA-256, all production package
+versions/integrities, the archive hash, and compatible skill ref
+`workspace-governance-v0.3.0`. It deliberately contains no final source-commit hash; the
+package remains the 0.3.0 release-candidate identity until reviewed publication.
 
-## Commands
-
-All successful data is JSON on stdout, except help/version and
-`report --format html`. Errors are static
-`{"error":{"code":"INVALID","message":"Invalid input."}}`-shaped JSON on
-stderr; no input excerpts or tool stderr. Unknown/duplicate flags are rejected.
+A consumer can install the archive without a registry or populated cache:
 
 ```sh
-workspacectl --help
-workspacectl --version
-workspacectl validate --manifest example.json
-workspacectl catalog --manifest example.json --principal reader
-workspacectl explain --manifest example.json --node repo --principal reader
-workspacectl workflow --manifest example.json --node repo --principal reader --workflow feature
-workspacectl discover --root "$SCAN_ROOT" --depth 8
-workspacectl discover-github --owner example
-workspacectl report --manifest example.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature
-workspacectl plan --manifest example.json --node org --principal reader --root "$SCAN_ROOT"
-workspacectl audit --manifest example.json --node org --principal reader --root "$SCAN_ROOT"
-workspacectl verify-plan --manifest example.json --node org --principal reader --root "$SCAN_ROOT" --plan preview.json
+npm install --prefix "$DISPOSABLE_CONSUMER" \
+  --offline --ignore-scripts --no-audit --no-fund \
+  --cache "$EMPTY_CACHE" --registry http://127.0.0.1:9/unreachable \
+  "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.3.0.tgz"
 ```
 
-The packaged [example](examples/example.json) is synthetic. Do not issue its remote
-discovery command unless you deliberately choose that public organization.
-`--workflow ID` is supported by explain, workflow, report, plan, audit and verify-plan; only
-workflow requires it. Plan/audit/verify-plan also accept `--depth N` (default 8,
-range 0–32); report accepts the same bound. They perform fresh **local** discovery
-internally, never GitHub calls.
-Save a plan using explicit shell redirection outside the scan root, then verify it
-with the **same explicit** scope/principal/root/workflow. The saved plan cannot
-choose these resources. No `--human`, apply, execution, clone, move or override CLI.
+`test/runtime-artifact.test.ts` exercises that exact disposable route, then removes the
+assembled source artifact before running version/help and a real official MCP client
+initialize/list/`workspace_doctor` call against synthetic configuration. This proves a
+same-host empty-cache install with an unreachable registry; it is not a network-namespace
+or second-host result. Assembly consumes the trusted package manager's own freshly generated
+archive. It is not the future untrusted bootstrap: that installer must reject archive
+symlinks and hardlinks before extraction rather than relying on this assembler's post-extract
+inventory. This is only the first M3 executable artifact slice: it is not a permanent
+installer, lifecycle manager, publication, or accepted M3 release.
 
-Exit 0: success (including a valid plan with drift). Exit 2: invalid, unavailable,
-unsupported or tool failure. Exit 3: incomplete discovery, audit drift or stale
-preview. Audit returns the plan fields plus `drift`; incomplete plans print no
-partial stdout. Administrative raw discover may return an incomplete inventory
-with exit 3. Validate and raw discovery are operator-local administrative commands,
-not principal-filtered views.
-
-## Native-verified init preview (read-only milestone)
+The retained local installer remains available for its existing development route:
 
 ```sh
-workspacectl manifest-init-plan --manifest "$MANIFEST_PATH" --request "$REQUEST_PATH" \
-  --state-dir "$STATE_DIR" --executor-profile "$PREVIEW_PROFILE"
+./scripts/install-local.sh \
+  --archive "$ABSENT_DIRECTORY_OUTSIDE_THE_REPOSITORY/crissmoldovan-workspace-governance-0.3.0.tgz" \
+  --prefix "$ISOLATED_ROOT/versions/0.3.0" \
+  --launcher "$ISOLATED_ROOT/bin/workspacectl"
+"$ISOLATED_ROOT/bin/workspacectl" --help
 ```
 
-All four paths are explicit absolute paths, without traversal or symlinks; parents
-must already exist with non-group/world-writable ancestry. Input regular files
-must be owned by the caller, single-link and not group/world writable. Nothing
-creates the manifest, state, locks or journal. Do not repair existing permissions.
-Linux x86-64 only for this command. Other legacy commands are unchanged.
+Use explicit absolute paths. The prefix must end in `0.3.0` and be absent. The retained
+installer verifies package name/version/CLI, installs with lifecycle scripts disabled,
+records the exact Node runtime, and creates a stable managed launcher. Paths with spaces
+are supported. An unrelated file, directory, or symlink at the launcher path is refused.
 
-Provision the separate `workspacectl-init-helper` binary explicitly. The npm
-package does not bundle, build, download or auto-select it. The **planning-only**
-profile has exactly this shape (replace the illustrative path and hash):
+The assembled archive contains the locked runtime closure, including `yaml@2.9.1`, the
+official MCP server SDK `2.1.0`, and Zod `4.2.1`. It does not install the skill. Install
+the reviewed `skills/workspace-governance` directory separately through the target host's
+normal mechanism. Candidate verification can pass its exact `SKILL.md` path to doctor
+without changing an active profile.
 
-```json
-{"apiVersion":"workspace-governance/init-preview-profile-v1","helper":{"path":"/approved-install/bin/workspacectl-init-helper","sha256":"<64 lowercase hexadecimal characters>"}}
+`doctor` defaults to **standalone CLI** readiness. Use explicit
+`--integration --skill FILE` to check a reviewed matching skill for any supported
+agent integration, including Codex. Standalone mode does not select or read a skill, ignores
+`WORKSPACECTL_SKILL`, reports `selected.skill:null` and a skipped/not-required skill
+check. `--standalone` remains an explicit synonym and cannot be combined with
+`--integration` or `--skill`. Runtime, Git, installation receipt,
+configuration, trusted-root, selected-store, catalog, and local-state checks still run.
+
+## Initialize an isolated v2 setup
+
+Create the parent/config/data/state/plans/trusted-root directories first. The config,
+catalog, local-state and plan files below must be absent; all paths are absolute.
+
+```sh
+workspacectl init \
+  --config "$CONFIG" \
+  --catalog "$CATALOG" \
+  --state "$STATE" \
+  --plans-dir "$PLANS" \
+  --trusted-root "$TRUSTED_ROOT" \
+  --plan "$PLANS/init.json" \
+  --json
 ```
 
-The request is the existing `workspace-governance/init-request-v1` object with
-`authorityId` and one explicit `rootNode` including visibility. A restricted root
-needs declared readers, but this command does not choose or authenticate a reader.
-The output is `{nativeVerified:true,plan:...}`. Its plan is deliberately tagged
-`workspace-governance/init-preview-plan-v1`, `executable:false`, and
-`policyStatus:"proposed-not-authority"`. The proposed init policy fingerprints the
-validated manifest revision and complete empty settings/constraints/provenance;
-its `allowed:true` is **not** operator approval or permission to mutate.
+The command creates only a private, exclusive `workspacectl-plan/1` file and returns
+`applied:false`. **Nothing was applied.** Review the exact paths, absent revisions,
+actions, expected outputs, digest, and required approval, then apply the exact ID:
 
-The installed CLI captures bounded input bytes, hashes the explicitly pinned
-helper and rederives the preview in TypeScript. It invokes that helper over a
-private fd3 Unix-stream socketpair using Node's child-process transport, empty
-helper environment, cwd `/` and null standard IO. Native independently derives
-and compares every preview field using the existing Rust authoring engine and
-its own executable hash. Frames are bounded to 2 MiB, with one request followed
-by write-side EOF, duplicate/extra-key defenses, ancillary-FD refusal and bounded
-read/write deadlines. No helper child execution or filesystem writer is exposed.
-Byte-identical existing manifests yield a null action; different occupied bytes
-refuse unchanged. A preview is observational, not a resource reservation.
-
-This is an executable **planning interface**, not the frozen qualified
-`init-setup-plan-v1`, N-API authority launcher, deployment qualification or
-candidate-trial authority. In particular this precursor runs native pure
-verification during planning; the eventual qualified data-only planning surface
-is not implemented by this transport. Full native filesystem recapture,
-under-lock checks, profile/runtime/issuer validation, approval, journal,
-cancellation/recovery and status integration remain required before apply.
-Native preview `apply`/`recover` requests always return `UNSUPPORTED`; other
-production/trial families are not admitted. No policy amendment is activated.
-
-## Model and trust boundary
-
-- One authority has one user or legacy organization root with explicit visibility.
-  A user may parent domains or legacy organizations. Domain → source namespace;
-  namespace/organization/area → area/project; namespace/area/project → repository;
-  repository → workspace. Area and project are optional below a source namespace.
-  No session nodes.
-- A domain is a stable logical grouping such as `personal`, `cue` or `rgc`. A source
-  namespace is the provider-neutral hosting account or owner, such as a GitHub user
-  or organization. Keep repository remotes as canonical source identities; do not
-  infer a domain from a repository name.
-- Each node has a path-safe `slug` and may have a human-facing `label`. For example,
-  label `CUE++` uses slug `cue`, and label `Brand Assets` uses slug `brand-assets`.
-  Reports preserve both; filesystem targets use only slugs.
-- Node IDs are stable; slugs and remotes are mutable declarations. `$defaults` and
-  `$invocation` are reserved synthetic provenance sources. Workspace identities
-  are **unbound** catalog nodes: policy resolution works, workspace-scope plans
-  are unsupported. Observed Git worktrees do not create catalog identities.
-- Manifest, observed inventory and local runtime bindings are separate. Only
-  manifests belong in version control; never commit real inventories or secrets.
-  A [JSON Schema](schemas/manifest.schema.json) describes structural validation.
-  Runtime additionally enforces duplicate JSON keys, byte/depth/aggregate bounds,
-  graph parent legality/cycles, uniqueness, canonical identity and merge semantics.
-- File and memory snapshots are **advisory**. Local `--principal` is visibility
-  simulation, not authentication. File access already gives access to all bytes.
-  Effective readership intersects ancestor restrictions; descendants cannot widen it.
-  Catalog emits only id/kind/slug/parentId. Report nodes additionally emit a
-  validated label, defaulting to the slug. Metadata is opaque and not projected.
-  Readable policy/workflow text is intentionally shared; authors must not embed
-  hidden names/secrets. No arbitrary string redaction or hidden-change guarantee.
-- Trusted hosts may inject a `SnapshotStore` with complete enforced authority
-  snapshots and an authenticated bound `subject`. Only the trusted host core may
-  receive those complete snapshots; do not deliver them to untrusted clients.
-  Enforced snapshots reject a different requested principal. Subject-filtered
-  remote projections and dependency-closure protocols are **unsupported**.
-  Adapter failures never fall back. Authorization labels cannot authenticate a
-  malicious manifest or untrusted adapter.
-
-## Library
-
-```js
-import {
-  FileSnapshotStore, loadSnapshot, resolvePolicy, discoverLocal,
-  createPlan, verifyPlan, createReport,
-} from '@crissmoldovan/workspace-governance';
-const snapshot = await loadSnapshot(new FileSnapshotStore(manifestPath));
-const options = { workflowId: 'feature' };
-const resolution = resolvePolicy(snapshot, 'repo', 'reader', options);
-const inventory = await discoverLocal(scanRoot, { depth: 8 });
-const plan = createPlan(snapshot, inventory, 'org', 'reader', options);
-verifyPlan(plan, snapshot, inventory, 'org', 'reader', options);
-const report = createReport(snapshot, inventory, 'org', 'reader', options);
+```sh
+workspacectl apply \
+  --config "$CONFIG" \
+  --plan "$PLANS/init.json" \
+  --approve PLAN_ID_FROM_PREVIEW \
+  --json
+workspacectl doctor --config "$CONFIG" --skill "$SKILL" --json
 ```
 
-Public declarations ship with the package. `validateManifest(unknown)` returns a
-defensive manifest; `parseJson(text)` is the bounded duplicate-safe parser.
-`validateSnapshot(unknown)` validates and copies the full envelope.
-`MemorySnapshotStore(manifest)` and `FileSnapshotStore(path)` implement
-`SnapshotStore.readSnapshot(): Promise<unknown>`; `loadSnapshot(store)` validates
-its output. Envelope keys: manifest, revision, complete:true, stale:false,
-authorization:advisory|enforced, coverage:authority, subject:null|string.
-Memory revisions hash canonical manifests; file revisions hash exact captured UTF-8
-bytes. Revisions are opaque change signals, not authentication or upstream Git
-freshness. Each file call captures the current local file, not a Git sync.
+Apply re-derives the plan from current inputs, checks all target locks before the
+first write, performs per-document CAS, and reads back config, empty catalog, and
+empty local state. Init inventories nothing and creates no checkout or host binding.
+A valid selected A03 setup can produce `ready:true` from doctor.
 
-`ancestors(manifest,nodeId)`, `canRead(manifest,nodeId,principal)` and
-`visibleNodes(snapshot,principal)` provide hierarchy and fixed visibility views.
-`resolvePolicy(snapshot,nodeId,principal,options?)` accepts `workflowId`, `defaults`
-and `invocation` (setting arrays). Defaults precede ancestry; invocation follows it.
-At each scope selected workflow settings precede ordinary settings. All inherited
-constraints evaluate the final values and cannot be removed or bypassed.
+Config precedence is `--config`, `WORKSPACECTL_CONFIG`,
+`$XDG_CONFIG_HOME/workspacectl/config.yaml`, then
+`$HOME/.config/workspacectl/config.yaml`. Integrated skill precedence remains
+`--skill`, `WORKSPACECTL_SKILL`, then
+`$HOME/.hermes/skills/workspace-governance/SKILL.md`. Doctor searches no unrelated
+directories. Standalone mode performs no skill lookup.
 
-Settings are flat dotted fields, with no participating prefix overlap. Merge modes:
-replace (any JSON), deep-merge (objects; same-type leaves, arrays replace), append,
-set-union (canonical equality, first appearance), keyed-merge (array of objects,
-unique stable id, recursive map merge), remove (existing whole field, no value).
-Constraints: equals; forbidden-values (missing passes); required-members (final
-array contains each member). Constraint identity includes scope and workflow.
-Provenance retains every field-level operation, including removals and synthetic
-sources; it does not invent per-leaf traces. Workflow steps replace fully by stable
-id or use `{id,remove:true}` tombstones; missing removals fail. Arbitrary action
-strings are inert, with `executable:false`; nothing evaluates shell or prompts.
+## Import the retained v1 inventory
 
-`canonicalRemote(input)` accepts only the documented GitHub HTTPS, SCP-style SSH
-and ssh:// forms; validates before normalizing to lowercase HTTPS. Manifest remotes
-must already equal canonical form. `canonicalJson(value)` sorts object keys by
-Unicode codepoint; `digest(value)` is its SHA256. No numeric provider-ID identity
-or rename reconciliation is promised.
+The destination must be the still-empty catalog created above. Both sources are
+separate regular JSON files and remain read-only:
 
-## Discovery and preview limitations
+- manifest API: `workspace-governance/v1`
+- sidecar API: `workspace-governance/unclassified-repositories-v1`
 
-Local discovery requires an explicit existing real root with no symlink ancestors.
-It skips `.git`, `node_modules`, `dist`, `coverage`, `.cache`, `.next`, `.turbo` from
-walk coverage. It scans nested repos and internal linked worktrees, never follows
-symlinks, and checks gitdir/commondir containment before invoking Git. Traversal is
-bounded to 50,000 entries; all subprocess output to 2 MiB, with 30-second timeouts.
-Unsafe metadata, missing origin, malformed Git state and depth exhaustion fail
-completeness rather than proving absence. Inherited GIT_* variables are removed;
-optional locks, fsmonitor, hooks, maintenance, excludes and global config are
-suppressed for fixed read-only Git argv. After removing inherited GIT_* variables,
-GIT_WORK_TREE is explicitly rebound to the inspected checkout so local core.worktree
-cannot redirect status outside it. Before status, effective config names are read
-with includes (including conditional includes and enabled worktree config). Any
-`filter.<name>.clean` or `.process` key, even unused or empty, fails completeness
-with generic `GIT_METADATA_OR_STATUS`; filters are never run or silently disabled.
-`unsafePaths` records all non-directory entries, including regular files and
-symlinks, so obstructed target ancestors block without blocking valid directories.
-Trusted PATH is a prerequisite. This is
-best-effort containment, **not an OS sandbox** against concurrent adversaries.
+```sh
+workspacectl import-v1 \
+  --config "$CONFIG" \
+  --manifest "$V1_MANIFEST" \
+  --unclassified "$V1_UNCLASSIFIED" \
+  --plan "$PLANS/import.json" \
+  --json
+```
 
-GitHub uses bounded fixed-host organization GET pagination (100 pages maximum).
-Malformed, repeated, truncated or failed responses never return partial success.
-Unmapped remotes remain unmanaged; no ownership guesses from names. Remote
-inventory is an administrative adoption aid, not an authoritative plan input.
+Preview writes only the new plan. It records exact source SHA-256 digests, selected
+document revisions, complete repository IDs/counts, and one catalog CAS action.
+Review it, then provide its exact plan ID:
 
-Plans and reports require the selected node and its complete descendant subtree to
-be readable. An unreadable selected node or descendant refuses the whole scope
-generically; ancestors shown in a report are readable. Targets are root plus
-ancestry slugs (excluding user/workspace), never collapsed by repeated basename. Statuses: present,
-missing-checkout, misplaced, duplicate, blocked. Dirty singleton sources, occupied
-wrong targets, unsafe ancestors and case-fold collisions block; duplicates retain
-the dirty flag. No remote removal is inferred. Occupied targets report no other
-repository identity; status filenames never appear in plans.
+```sh
+workspacectl apply \
+  --config "$CONFIG" \
+  --plan "$PLANS/import.json" \
+  --approve PLAN_ID_FROM_PREVIEW \
+  --json
+workspacectl list --config "$CONFIG" --json
+workspacectl config export --target catalog --config "$CONFIG"
+```
 
-`verifyPlan` rederives and compares the entire canonical preview, not just its
-hash. Inventory digest is order-independent and includes root, head, status,
-remote, dirty/worktree flags and occupancy. Porcelain bytes are first SHA256-hashed
-inside the canonical inventory envelope to keep long status blobs distinct from
-bounded manifest text fields. The digest reveals a local administrative
-change signal without listing unrelated paths. **Observation-level freshness
-only:** changed bytes with unchanged HEAD/status may still verify. No approval
-authenticity or post-check race safety is implied; future apply must recheck all
-state and authorization.
+Apply re-reads and hashes both sources, re-derives the conversion, checks current
+config/catalog/local-state revisions, CAS-writes only the catalog, and returns exact
+readback. `list` includes classified and first-class unclassified repositories;
+workspace state is `unknown` because A03 creates no checkout binding. Text-mode
+`config export` emits a `workspacectl-edit/1` draft on stdout without changing the
+active catalog. A05 validates and plans that complete draft as described below.
 
-## Deferred
+The importer preserves classified IDs, literal valid remotes, labels/slugs, reasons,
+evidence, and source/top-level records as migration provenance. Domains become
+organizations; namespaces leave business ancestry and descendants reconnect to the
+nearest retained group. Namespace labels do not prove GitHub owner type, so imported
+`sourceId` values remain null. Unclassified IDs are deterministic hashes of canonical
+identity. Old activation or approval fields are provenance, never new consent.
 
-No mutation/executor stubs ship. Apply/CAS/fencing/idempotency/journal recovery,
-checkout/adopt/move, workspace bindings, allowlisted executable actions and gates,
-remote scoped storage/auth/cache/revocation, multi-store dependency vectors, typed
-cross-project ACL references, YAML, Hermes/MCP adapters, and a Windows matrix are
-future work. The CLI does not enforce policy on other tools or filesystem access.
+Malformed literal remotes, duplicate/conflicting identities, workspace nodes,
+non-default access semantics, and nonempty policies/workflows refuse rather than
+being repaired or dropped. A changed plan/source/config/revision is stale; a missing
+approval cannot write; a pre-existing lock returns busy and is preserved.
+
+## Edit the catalog through one revision-checked route
+
+`config export --target catalog` is the only command that emits a complete editable draft.
+Save stdout to a separate absolute, regular, non-symlink path outside the active config,
+catalog, and local-state files. Validation writes nothing; planning writes only a new plan
+inside the configured plan directory:
+
+```sh
+workspacectl config export --target catalog --config "$CONFIG" > "$DRAFT"
+workspacectl config validate FILE --config "$CONFIG" --json
+workspacectl config plan FILE --config FILE --plan FILE --json
+workspacectl apply --config "$CONFIG" --plan "$PLAN" --approve PLAN_ID --json
+```
+
+The literal `FILE` operands above are positional paths. Apply re-reads the draft, re-derives
+the exact plan, checks the selected config and expected catalog revision, performs one catalog
+CAS write, and reads back the persisted catalog. Changed drafts/plans/configs or stale catalog
+revisions refuse. Wrong or absent approval, symlinked paths, and existing locks do not write.
+
+Convenience commands produce the same `catalog-edit` plan and never write until that plan is
+applied with its exact ID:
+
+```sh
+workspacectl group create --kind organization --id ORG --name NAME --slug SLUG --config "$CONFIG" --plan "$PLAN" --json
+workspacectl group update --id PROJECT --name NAME --slug SLUG --config "$CONFIG" --plan "$PLAN" --json
+workspacectl group reparent --id PROJECT --parent AREA --config "$CONFIG" --plan "$PLAN" --json
+workspacectl group show --id PROJECT --config "$CONFIG" --json
+workspacectl repo membership --id REPO --project PROJECT --action add --config "$CONFIG" --plan "$PLAN" --json
+workspacectl repo classify --id REPO --decision accept --group PROJECT --config "$CONFIG" --plan "$PLAN" --json
+workspacectl repo classify --id REPO --decision reject --config "$CONFIG" --plan "$PLAN" --json
+workspacectl repo show --id REPO --config "$CONFIG" --json
+```
+
+Organizations are roots; areas nest only under organizations or areas; projects parent only
+to organizations or areas. Duplicate sibling slugs, missing/invalid parents, and cycles refuse.
+Repository business grouping is independent of GitHub source owner. Rejecting a suggestion
+retains the repository and remote identity as an unclassified row. These operations never read,
+move, or write a checkout.
+
+## Find and register existing checkouts
+
+```sh
+workspacectl where REPOSITORY --config "$CONFIG" --json
+workspacectl adopt --repo ID --path PATH --config "$CONFIG" --plan "$PLANS/adopt.json" --json
+workspacectl apply --config "$CONFIG" --plan "$PLANS/adopt.json" --approve PLAN_ID --json
+workspacectl workspace select-primary --repo ID --workspace WORKSPACE_ID \
+  --config "$CONFIG" --plan "$PLANS/primary.json" --json
+```
+
+`where` resolves an exact stable ID, canonical GitHub remote, or unique
+case-insensitive approved alias. Ambiguous aliases and duplicate selected primaries
+refuse with deterministic candidates. The result keeps standalone primary bindings
+and intentional linked worktrees distinct. Primary selection is an explicit
+`workspace-primary` plan; it is never inferred from array or discovery order.
+
+`adopt` verifies one existing checkout inside a configured trusted root, including
+origin, HEAD, branch, dirty status and worktree kind. Dirty checkouts are accepted.
+Preview writes only an inert plan; approved apply re-observes the checkout,
+re-derives the semantic plan, checks config/catalog/local-state revisions, performs
+one local-state CAS, and reads it back. It does not clone, fetch, clean, checkout,
+stage, change Git config, modify worktree metadata, or write checkout files. Remote
+mismatch, unsafe/symlink paths, absent repositories, stale revisions and wrong
+approval refuse without changing active registry or checkout bytes. See
+`docs/m2-a06-contract.md` for the exact boundary.
+
+## Create an ordinary checkout
+
+```sh
+workspacectl checkout --repo ID --path "$ABSENT_DEST" --ref branch:main \
+  --config "$CONFIG" --plan "$PLANS/checkout.json" --json
+workspacectl apply --config "$CONFIG" --plan "$PLANS/checkout.json" --approve PLAN_ID --json
+workspacectl operation show OPERATION_ID --config "$CONFIG" --json
+workspacectl operation reconcile OPERATION_ID --config "$CONFIG" \
+  --plan "$PLANS/reconcile.json" --json
+```
+
+Omit `--ref` for the advertised default branch; explicit `branch:NAME` stays attached,
+while `tag:NAME` and `commit:SHA` detach. Preview resolves and binds the exact remote
+commit but does not clone. Approved apply uses existing Git HTTPS/SSH authentication,
+an exclusive sibling staging directory, no submodule recursion, and no hooks/setup/install
+scripts. It verifies canonical origin, HEAD, attachment, files, and materialized LFS content
+before publishing to the still-free destination and CAS-registering/read-backing the binding.
+Credentials are never serialized. Failed/interrupted staging data is preserved.
+
+`operation show` re-inspects only recorded exact targets. `operation reconcile` refuses
+ambiguous partial effects and creates only an inert separately approved local-state binding
+repair when an existing destination already proves the complete recorded outcome. See
+[the A11 contract](docs/m5-a11-contract.md).
+
+## Move one supported checkout
+
+```sh
+workspacectl move WORKSPACE_ID --to "$ABSENT_DEST" --confirm-inactive \
+  --config "$CONFIG" --plan "$PLANS/move.json" --json
+workspacectl apply --config "$CONFIG" --plan "$PLANS/move.json" --approve PLAN_ID --json
+workspacectl operation show OPERATION_ID --config "$CONFIG" --json
+workspacectl operation reconcile OPERATION_ID --config "$CONFIG" \
+  --plan "$PLANS/move-reconcile.json" --json
+```
+
+Only a clean inactive standalone registered primary with no linked-worktree registrations may
+move, by same-filesystem rename to an absent symlink-free trusted path. Preview and apply bind and
+recheck stable IDs, both paths, Git identity, filesystem device, revisions, digest, exact approval.
+Apply preserves the workspace ID while updating only its path and independently reads back both
+filesystem and registry state. There is no copy/delete/force fallback. Dirty, busy, collision,
+nested, linked, submodule, symlink, wrong-identity, stale, and cross-filesystem cases refuse before
+rename. Linked, locked, stale/prunable, malformed, symlinked, and unreadable registrations in the
+main checkout's shared Git metadata are all unsafe; neither preview nor apply prunes or repairs them.
+If rename succeeds but binding save fails, public show exposes both actual paths and binding;
+reconcile can emit only a separately approved single-CAS binding repair for the unchanged exact
+checkout. See [the A16 contract](docs/m7-a16-contract.md).
+
+## Manage isolated worktrees
+
+```sh
+workspacectl worktree list --repo ID --config "$CONFIG" --json
+workspacectl worktree create --repo ID --base COMMIT --branch NEW_BRANCH \
+  --path "$ABSENT_PATH" --config "$CONFIG" --plan "$PLANS/worktree-create.json" --json
+workspacectl apply --config "$CONFIG" --plan "$PLANS/worktree-create.json" --approve PLAN_ID --json
+workspacectl worktree remove --workspace WORKSPACE_ID --confirm-inactive \
+  --config "$CONFIG" --plan "$PLANS/worktree-remove.json" --json
+workspacectl apply --config "$CONFIG" --plan "$PLANS/worktree-remove.json" --approve PLAN_ID --json
+```
+
+Listing is read-only and distinguishes persisted owned bindings from foreign Git worktrees.
+Creation requires one unambiguous registered primary, an exact locally verified base commit,
+a new valid branch, and an absent path below a trusted root but outside the primary. Apply
+re-derives every bound input, disables hooks, creates the worktree, verifies Git common metadata,
+HEAD/branch/path, CAS-persists the binding, and reads both back without changing primary branch,
+index, or files.
+
+Removal addresses only a persisted worktree ID and requires `--confirm-inactive`. Preview and
+apply both recheck origin/common-metadata identity, exact registration, branch attachment,
+clean complete tracked/untracked content, no Git lock/prunable state or observed active process,
+and that HEAD is reachable from a current remote ref. Dirty, unpushed, busy, foreign, stale,
+unsafe, colliding, or identity-mismatched targets refuse. Apply invokes ordinary non-force
+`git worktree remove`, verifies the path/binding are gone and the branch remains, and never runs
+`git worktree prune`. See [the A12 contract](docs/m5-a12-contract.md).
+
+## Execute an inherited workflow
+
+```sh
+workspacectl workflow list --repo REPO --workspace WORKSPACE --config "$CONFIG" --json
+workspacectl workflow show --repo REPO --workspace WORKSPACE --workflow FEATURE --config "$CONFIG" --json
+workspacectl workflow run --repo REPO --workspace WORKSPACE --workflow FEATURE \
+  --input task=DESCRIPTION --config "$CONFIG" --json
+workspacectl workflow show --coordination COORDINATION --workflow FEATURE --config "$CONFIG" --json
+workspacectl workflow run --coordination COORDINATION --workflow FEATURE \
+  --input task=DESCRIPTION --config "$CONFIG" --json
+workspacectl workflow submit --run RUN --step STEP --attempt ATTEMPT --digest DIGEST \
+  --outcome completed --evidence "$EVIDENCE" --config "$CONFIG" --json
+workspacectl workflow approve --run RUN --step STEP --attempt ATTEMPT --digest DIGEST \
+  --config "$CONFIG" --json
+workspacectl workflow resume --run RUN --config "$CONFIG" --json
+workspacectl workflow status --run RUN --config "$CONFIG" --json
+```
+
+The runner accepts only its typed action registry. Agent and external steps return a bound
+handoff; submit records a claim, while resume independently reads declared outputs. Commands
+use one absolute executable plus argv, exact workspace cwd, named environment variables,
+timeout and expected exit, never a shell. In a command definition, use optional
+`inputFiles: [{"argvIndex": 0}]` entries only for immutable script/input arguments whose regular-file
+bytes must remain unchanged; leave new output paths and directory arguments undeclared. Commands
+and external effects require the exact pending approval. Changed config/catalog/local-state,
+resolved workflow, workspace binding, executable, or declared `inputFiles` bytes make an existing
+run stale. Waiting is not completion.
+External publication/deployment is a host handoff only; the package performs no remote action.
+See [the A13 contract](docs/m6-a13-contract.md).
+For exact two-member context and rule-proposal semantics, see [the A15 contract](docs/m6-a15-contract.md).
+
+## Selected-source discovery and shared overview
+
+Source selection is by existing validated catalog ID, never an owner guessed from a
+repository name. Root selection is by explicit absolute path at or below a configured
+trusted root. `--source` and `--root` repeat; selections are transient and read-only.
+
+```sh
+workspacectl discover --config "$CONFIG" \
+  --source SOURCE_ID --root "$ROOT" --depth 8 --max-pages 100 --json
+workspacectl list --config "$CONFIG" \
+  --source SOURCE_ID --root "$ROOT" --json
+workspacectl report --config "$CONFIG" \
+  --source SOURCE_ID --root "$ROOT"
+workspacectl audit --config "$CONFIG" \
+  --source SOURCE_ID --root "$ROOT" --json
+```
+
+`discover` requires explicit `--config` and at least one selector. `--depth` is 0..32
+and requires a root; `--max-pages` is 1..100 and requires a source. Duplicate or
+relative selections, unknown source IDs, and unused controls refuse before
+observation. An absolute untrusted or unsafe root remains visible as unknown coverage
+and does not block an independently selected safe target.
+
+GitHub organizations use `/orgs/OWNER/repos` with `type=all`; users use
+`/users/OWNER/repos` with `type=owner`. Pages contain at most 100 records and continue
+until a short page. A full final allowed page is partial, not complete. A first-page
+denial/failure is unknown; interruption or invalid/repeated data after complete pages
+is partial and retains those pages. Coverage is credential-visible, raw runner text is
+not returned, and absence of an inaccessible private repository is never authoritative.
+The user endpoint cannot observe private repositories and is therefore partial for
+all-repository coverage even after a short page.
+
+Local Git observation stays bounded and sanitized: no symlink traversal, metadata outside
+configured trusted roots, optional locks, executable clean/process filters, home-wide
+fallback, or index write. A narrowly selected linked worktree may use its external
+per-worktree/common Git metadata only when each exact resolved metadata path remains
+inside a configured trusted root. Rows distinguish standalone duplicates from
+intentional worktrees and show HEAD, dirty state and remote availability. The overview keeps archived/private,
+registered/observed-only, confirmed/suggested/unclassified, approved group and
+source-default suggestion fields separate; source ownership never assigns a business
+group. `checkout.selected` remains null.
+
+For identical selectors, all four commands expose identical `selection`, `revisions`,
+`coverage`, `groups`, `repositories`, `findings`, and `summary` under
+`workspacectl-overview/1`; only command/presentation and observation timestamps may
+differ. Text is default and `--json` emits the complete machine result. Selected
+partial or unknown coverage is returned on stdout with exit 3. `audit` also exits 3
+for decision findings; complete `discover`/selected `list`/`report` exit 0. Selector-free
+`list` preserves A03 readback, while selector-free `report`/`audit` are catalog-only
+with checkout state unknown. No selection, classification, primary, or observation is
+persisted; no repository lifecycle action follows.
+
+## Resolve inherited rules and workflow overrides
+
+Author complete policy and workflow records through `config export --target catalog`, `--target
+user`, or `--target workspace --workspace ID`, followed by validate, plan, exact approval, and
+readback. Settings are flat dotted keys; plain settings replace and explicit operations append,
+set-union, keyed-merge, or remove. Named instructions, knowledge references, skills, and workflow
+steps merge by stable ID. Required removals, mandatory conflicts, type/prefix conflicts, unknown
+step removals, missing dependencies, and cycles return `POLICY_CONFLICT` before an approved draft
+can write.
+
+```sh
+workspacectl context REPOSITORY --project PROJECT --workspace WORKSPACE \
+  --workflow WORKFLOW --config "$CONFIG" --json
+workspacectl explain REPOSITORY commands.test --workflow WORKFLOW \
+  --config "$CONFIG" --json
+workspacectl context REPOSITORY --config "$CONFIG" --source "$SOURCE_BYTES" --json
+workspacectl context REPOSITORY --config "$CONFIG" \
+  --load knowledge:ARCHITECTURE \
+  --approve-content knowledge:ARCHITECTURE=sha256:DIGEST --json
+```
+
+Precedence is base, user, organization, ancestor areas outer-to-inner, selected legal project,
+repository, workspace, invocation. At each scope selected-workflow settings apply before ordinary
+settings. Hosting owner never selects a business project. JSON includes every setting operation,
+constraint, named record, step add/replacement/removal, scope, and external provenance. `--source`
+parses bounded source JSON and compares its canonical SHA-256 with both declared provenance and the
+canonical carried payload; matching/drift is reported without rewriting either source or catalog.
+Commands, URLs, skills, and steps remain data and are
+never activated. A08 keeps references linked unless individually selected with `--load`; relative
+paths resolve from the declaring source/catalog document, and only symlink-free files below configured
+trusted roots may be read. Selected content requires `--approve-content` for its exact current SHA-256
+revision and still remains inactive. Required and optional textual targets are validated while linked;
+invalid optional targets stay inactive with warnings. Reads use bounded descriptors and reject path
+drift. The deterministic default display budget is 16,000 UTF-8 bytes (the documented 4,000-token
+equivalent) over the larger complete JSON/default-text rendering; required output refuses with
+`INCOMPLETE` instead of being truncated, while optional content stays linked with a warning. Natural-language instructions are
+`loaded`, never enforced. Cross-repository callers use `resolveProjectContexts` for one shared project
+context and distinct repository contexts without local-rule mixing. The executable output schema is
+`schemas/v2/resolved-context.schema.json`; see [the A08 contract](docs/m3-a08-contract.md).
+Draft-07 schemas describe individual A07 records; runtime validation owns the
+document-wide uniqueness, ancestry, required-removal, constraint, and graph invariants listed in
+the schema comments. See [the A07 contract](docs/m3-a07-contract.md).
+
+## Open targets and coordinate projects
+
+```sh
+workspacectl open TARGET --config "$CONFIG" --json
+workspacectl open TARGET --host hermes --activate --config "$CONFIG" --json
+workspacectl host acknowledge --action "$ACTION" --readback "$READBACK" --config "$CONFIG" --json
+workspacectl coordination create --group PROJECT --path "$FREE_DIR" \
+  --plan "$PLANS/coordination.json" --config "$CONFIG" --json
+workspacectl apply --plan "$PLANS/coordination.json" --approve PLAN_ID --config "$CONFIG" --json
+workspacectl coordination open --id COORDINATION_ID --config "$CONFIG" --json
+```
+
+Plain `open` verifies the selected checkout and loads A08 context without a host action.
+Hermes activation output is inert: the portable skill must execute `desktop_project list`,
+`create` only if needed, and `switch`, then obtain active Project identity/path and effective
+tool cwd from a real tool. Acknowledgement binds both to the exact action ID/digest; shell
+`cd`, wrong Project/path, stale action, or cwd mismatch refuses. Coordination creation is a
+revision-bound approved plan into an absent trusted non-Git directory. It generates only
+`WORKSPACE.md` and `members.json`, persists the binding by CAS/readback, copies no source,
+and reopen reports every missing, changed, ambiguous, or foreign member without mutation.
+
+## Preserved legacy read-only engine
+
+```sh
+workspacectl validate --manifest examples/example.json --json
+workspacectl catalog --manifest examples/example.json --principal reader --json
+workspacectl explain --manifest examples/example.json --node repo --principal reader --json
+workspacectl workflow --manifest examples/example.json --node repo --principal reader --workflow feature --json
+workspacectl discover --root "$SCAN_ROOT" --depth 8 --json
+workspacectl discover-github --owner example --json
+workspacectl report --manifest examples/example.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature --json
+workspacectl report --manifest examples/example.json --node org --principal reader --root "$SCAN_ROOT" --format html > workspace-report.html
+workspacectl plan --manifest examples/example.json --node org --principal reader --root "$SCAN_ROOT" --json > legacy-preview.json
+workspacectl audit --manifest examples/example.json --node org --principal reader --root "$SCAN_ROOT" --json
+workspacectl verify-plan --manifest examples/example.json --node org --principal reader --root "$SCAN_ROOT" --plan legacy-preview.json --json
+```
+
+Choose an approved owner before remote discovery and save reports/previews outside
+the scan root. A principal remains advisory, not authentication. Legacy workflow
+actions and placement previews remain inert with `executable:false`; they are not A03
+write plans or approval.
+
+## Errors, library, and verification
+
+JSON errors are `{ok:false,error:{code,message,details?}}`. Incomplete overview
+coverage is instead a successful result on stdout with exit 3. Exits are 0 success;
+2 invalid/config/unsupported; 3 incomplete/stale/audit decision; 4 approval/trust
+required; 5 conflict/busy; and 6 action failure.
+
+The package exports schema-v2 validators, safe JSON/YAML parsing, catalog/local-state
+file and memory stores, the trusted named adapter registry, plan creation/apply, v1 conversion,
+catalog list/export helpers, GitHub/local discovery, and the shared overview builder
+and observer alongside the preserved legacy library. File stores
+use private temporaries, sibling locks, atomic rename, revision CAS, and exact
+readback. An independent async adapter is exercised through the public interfaces in
+tests; it is not a production remote-store claim. See [the A17 storage contract](docs/m3-a17-contract.md).
+
+```sh
+npm run check:types
+npm test
+npm run build
+npm run verify:package
+```
+
+`npm run build` removes `dist` before compiling. `verify:package` packs and installs
+a fresh isolated consumer, exercises init/import/apply/catalog readback/doctor,
+checks packaged A05 commands/contracts/schema, selected-source overview exports, and
+the legacy/library/declaration surface, verifies
+`yaml@2.9.1`, and confirms retired output is absent. The exact contracts are
+[M2/A05](docs/m2-a05-contract.md), [M2/A04](docs/m2-a04-contract.md), retained
+[M2/A03](docs/m2-a03-contract.md), and the
+[M1 shell](docs/m1-cli-contract.md).

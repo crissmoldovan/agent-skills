@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "documentType": "workspacectl/local-state",
+  "selectedConfig": {
+    "path": "/tmp/workspacectl-synthetic/config.yaml",
+    "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "repositoryWorkspaces": [],
+  "coordinationWorkspaces": [],
+  "workspacePolicyOverlays": [],
+  "trustedInputApprovals": [],
+  "planReferences": [],
+  "runReferences": [],
+  "metadata": {}
+}

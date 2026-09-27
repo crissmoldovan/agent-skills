@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "format": "workspacectl-plan/1",
+  "id": "plan-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "kind": "init",
+  "createdAt": "2026-09-14T00:00:00.000Z",
+  "inputRevisions": {
+    "config": "absent",
+    "catalog": "absent",
+    "localState": "absent",
+    "sources": {}
+  },
+  "repositoryIds": [],
+  "request": {
+    "configPath": "/tmp/workspacectl-synthetic/config.yaml",
+    "catalogPath": "/tmp/workspacectl-synthetic/catalog.json",
+    "localStatePath": "/tmp/workspacectl-synthetic/local-state.json",
+    "plansDirectory": "/tmp/workspacectl-synthetic/plans",
+    "trustedRoots": [
+      "/tmp/workspacectl-synthetic/workspaces"
+    ]
+  },
+  "actions": [
+    {
+      "id": "write-catalog",
+      "type": "document-cas",
+      "target": "catalog",
+      "path": "/tmp/workspacectl-synthetic/catalog.json",
+      "expectedRevision": "absent",
+      "nextRevision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "preconditions": [
+    {
+      "id": "catalog-absent",
+      "type": "revision",
+      "target": "catalog",
+      "expected": "absent"
+    }
+  ],
+  "expectedOutputs": [
+    {
+      "id": "catalog-created",
+      "type": "document",
+      "target": "catalog",
+      "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "approvalsRequired": [
+    {
+      "id": "apply",
+      "kind": "explicit-plan-id"
+    }
+  ],
+  "semanticDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

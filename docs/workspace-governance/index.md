@@ -1,93 +1,36 @@
 # Workspace Governance
 
-v0.1 is an **unpublished, read-only release candidate**, not a checkout reconciler
-or workflow executor. Use the [portable skill](../../skills/workspace-governance/SKILL.md)
-for agent procedure and the [library/CLI guide](../../packages/workspace-governance/README.md)
-for exact installation, signatures, flags and limitations.
+Workspace Governance 0.3.0 gives terminal and local stdio MCP clients the same repository identity, context, planning and guarded workflow engine. The independently installed skill provides agent procedure and consent-based onboarding; neither CLI-only nor MCP-only operation requires the skill.
 
-## Architecture
+Start with the [portable skill](../../skills/workspace-governance/SKILL.md), [runtime installation and CLI guide](../../packages/workspace-governance/README.md), or the skill's [command reference](../../skills/workspace-governance/references/commands.md). Runtime and skill are version 0.3.0; their containing catalog release is 0.26.0. The runtime's distribution channel is the versioned GitHub Release, not npm registry publication. Check the actual release and immutable manifest anchor before installing.
 
-- `packages/workspace-governance/src/core.ts`: bounded strict JSON, schema/graph
-  validation, canonical identities, coherent snapshot validation, visibility,
-  policy/constraint/workflow resolution. No filesystem or subprocess imports.
-- `stores.ts`: file and memory read-only adapters; injected `SnapshotStore` port
-  permits trusted host adapters without dynamic code loading or fallback.
-- `discovery.ts`: explicit-root local Git observation and independent fixed-host
-  paginated GitHub observation. No remote calls in plan/audit/verify-plan.
-- `planner.ts`: pure deterministic preview and whole-plan comparison over supplied
-  snapshots/inventory; Node path/hash operations only, no filesystem or subprocesses.
-- `report.ts`: one deterministic hierarchy/placement/policy/workflow view over a
-  supplied snapshot and inventory; `report-html.ts` renders key fields from that
-  validated view rather than a lossless serialization.
-- `cli.ts`: file-store composition, strict command/flag parsing, JSON, optional
-  self-contained report HTML and exit codes.
-- `skills/workspace-governance`: independently copyable procedure with its own
-  references. Installing it does not install the CLI. No host-specific agent state.
+## What it does
 
-Read [the consolidated normative S1–S9 specification](specification.md). It carries
-only generic requirements and synthetic examples. A root describes one coherent
-authority; no automatically discovered user settings or embedded organization
-roster. Library `$defaults`/`$invocation` are reserved synthetic provenance labels,
-not real catalog node IDs. Bound checks count the outermost JSON value at depth0;
-ancestry permits at most32 nodes. Generic JSON traversal permits200,000 visited
-values; manifest records additionally total at most20,000. Schemas document
-structural constraints; runtime handles graph, uniqueness, byte/depth bounds and
-resolution semantics. JSON Schema cannot detect duplicate keys after decoding.
+- Resolves repository identities and local bindings without requiring that existing checkouts move. Read-only discovery observes explicitly selected roots and fixed GitHub sources; incomplete coverage stays explicit.
+- Resolves bounded context, rules, workflow definitions and provenance through the shared in-process engine.
+- Produces inert, revision-bound plans for supported catalog and repository operations. Explicit apply verifies the exact approval and current state before performing effects. Workflow execution retains exact target, attempt, evidence and recovery contracts.
+- Exposes typed local stdio MCP tools with read-only defaults. The MCP adapter accepts no arbitrary command, argv, environment or caller-selected configuration. Each instance uses one fixed configuration and capability set.
+- Exports logical catalogs as digest-checked portable data. Machine-specific paths, state and authority do not travel; unresolved executable/reference dependencies must be rebound and trusted locally. Import is a reviewed plan, not an automatic merge.
+- Bridges skill-first and CLI-first installation with explicit consent, pinned versions and verified installed bytes. Runtime and skill updates/removal remain separate, preserving governed data and unrelated components.
 
-## Taxonomy
+## Safety boundaries
 
-New multi-owner catalogs use `user → domain → source namespace → area → project →
-repository → workspace`. A domain is a stable logical grouping such as `personal`,
-`cue` or `rgc`; a source namespace is a provider-neutral hosting owner such as
-`crissmoldovan`, `cueplusplus`, `RGC-LABS` or `wherefromuk`. Area and project are
-optional below a source namespace, so catalogs do not need placeholder levels.
-Legacy organization-root and user → organization manifests remain valid.
-Human-facing labels preserve names such as `CUE++` and `Brand Assets`; separate
-path-safe slugs (`cue`, `brand-assets`) determine local checkout paths.
+A server capability, an exact domain approval and a human's permission are different things. `--allow-plans` enables inert plans; `--allow-apply` exposes effects whose operation bindings are still checked. The MCP host owns human permission prompts. An auto-allowing host deliberately grants the model effect authority. Registration guidance does not edit profiles or prove a connection.
 
-## Acceptance and verification
+The tool operates on the machine hosting the process. SSH uses existing user-controlled authentication and remote paths; it does not make the server operate on the client's local disk. No HTTP MCP listener, shared multi-tenant service, automatic disk synchronization or carried cross-machine execution authority is provided.
 
-From the repository root, run `npm run verify` on Node24+. It explicitly prepares
-and verifies both independent runtime packages; the repository does not use npm
-workspaces. New package tests run offline with synthetic fixtures and real
-throwaway local Git repositories. No live personal or organization inventory is
-part of the public fixtures.
+Runtime installation requires Node.js 24+, npm and POSIX tar; governed Git operations require Git. Linux and macOS are supported; WSL follows Linux requirements. Native Windows is outside the POSIX filesystem safety contract. Containers and SSH have the prerequisites and trusted paths of their own execution environment.
 
-| Acceptance | Executable evidence surface |
-|---|---|
-| A1 strict identity, hierarchy and schema | `test/core.test.ts`, `test/schema.test.ts`, `test/adversarial.test.ts` |
-| A2 merge algebra, constraints, provenance | `test/resolution.test.ts`, `test/adversarial.test.ts` |
-| A3 chosen workflow overlay and steps | `test/workflow.test.ts`, CLI/consumer workflow probes |
-| A4 intersecting visibility and safe denial | `test/workflow.test.ts`, `test/planner.test.ts`, `test/cli.test.ts` |
-| A5 coherent defensive stores | `test/stores.test.ts` |
-| A6 contained read-only Git discovery | `test/discovery.test.ts`, `test/boundaries.test.ts`, `test/connector-limits.test.ts` (real Git, worktrees, index, sentinel, fixed argv/env, metadata and core.worktree escapes) |
-| A7 bounded fixed-host pagination | `test/github.test.ts`, `test/connector-limits.test.ts` (offline runner, continuation/error/repetition/100-page bound) |
-| A8 deterministic scoped previews/reports/CLI | `test/planner.test.ts`, `test/report.test.ts`, `test/report-cli.test.ts`, `test/cli.test.ts` |
-| A9 isolated tarball CLI/library/types | `scripts/verify-package.mjs`, run by package verify |
-| A10 portable skill/root integration | root `test/workspace-governance-skill.test.mjs`, catalog tests and skill validator |
+## Implementation and verification
 
-Paths in the first nine rows are relative to `packages/workspace-governance`.
-Runtime test output, independent attack corpus results and complete verify logs
-are task-local artifacts, not committed inventories. Test counts should be read
-from current execution, not copied from a stale release note. Live GitHub smoke is
-optional and requires an explicitly approved public owner; it is not a CI gate.
-A11 independent code review belongs to the integrating maintainer before commit;
-this implementation's own tests are not an independent review.
+The runtime lives under `packages/workspace-governance`. Its CLI and local MCP adapter share in-process operations rather than shelling out to a caller-authored command. The skill under `skills/workspace-governance` carries its own guidance and standalone installer; it never relies on an unpublished sibling checkout.
 
-## Release and deferred scope
+From the repository root, run `npm run verify` with Node 24+. The repository prepares and verifies its independent runtime packages without npm workspaces. Tests use synthetic repositories and isolated homes. The clean Linux/macOS consumer jobs receive a self-contained bundle and standalone helper rather than importing runtime code from a checkout. A candidate-bundle CI consumer is distinct from a post-release public-download check and from a personal-machine trial.
 
-Root package version is unchanged. The independent package starts at0.1.0 with
-`private:true`; no publish/install lifecycle scripts, no global install, commit,
-push or publication is implied by verification. Local tarball consumers prove
-JavaScript, declarations, bin, schema, example, README and license ship together.
+The [S1–S9 specification](specification.md) is retained as the historical v0.1 read-only contract; it is not the complete 0.3 feature or release specification. The current runtime guide, carried skill references, package contracts and executable tests document the subsequent guarded operations, portability and lifecycle surfaces. Private inventories and qualification logs are not public product artifacts.
 
-File/memory authorization is advisory; trusted-host enforced full snapshots are
-subject-bound, not a client authentication mechanism. Scoped remote stores are
-unsupported. Preview hashes are observation-level freshness, not signatures,
-content-level change detection, upstream Git freshness or OS isolation.
+## Installation and retention
 
-Future work: authenticated apply/CAS/fencing/idempotency/recovery journals, guarded
-checkout/adopt/move, real workspace bindings, allowlisted executable workflow
-steps and gates, remote scoped storage/auth/cache/revocation, dependency revision
-vectors, typed cross-project ACL references, YAML, platform adapters and Windows
-subprocess/path tests. No pretend command or executor stub ships for these.
+Installing with `npx skills` installs the skill only. Its helper can install the pinned runtime after consent, or provide manual instructions. Starting with `workspacectl setup` offers the matching skill without requiring it. Ordinary read operations do not fetch installers.
+
+Managed runtime installation records owned paths and bytes, refuses modified/unmanaged conflicts, and verifies a new version before switching an owned launcher. Retain the prior version for explicit rollback. Removal requires a preview and consent, revalidates ownership, and preserves configuration, catalogs, policies, plans, repositories and local state by default. Disconnect MCP clients before removing their runtime. No profile cleanup or component cascade is performed silently.

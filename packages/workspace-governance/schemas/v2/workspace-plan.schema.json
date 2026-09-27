@@ -1,0 +1,947 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/workspace-plan.schema.json",
+  "title": "workspacectl registry plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "format",
+    "id",
+    "kind",
+    "createdAt",
+    "inputRevisions",
+    "repositoryIds",
+    "request",
+    "actions",
+    "preconditions",
+    "expectedOutputs",
+    "approvalsRequired",
+    "semanticDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "format": {
+      "const": "workspacectl-plan/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^plan-[a-f0-9]{32}$"
+    },
+    "kind": {
+      "enum": [
+        "init",
+        "import-v1",
+        "catalog-edit",
+        "workspace-edit",
+        "workspace-primary",
+        "adopt",
+        "coordination-create",
+        "checkout",
+        "checkout-reconcile",
+        "checkout-move",
+        "checkout-move-reconcile",
+        "worktree-create",
+        "worktree-remove"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "inputRevisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "catalog",
+        "localState",
+        "sources"
+      ],
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/revision"
+        },
+        "catalog": {
+          "$ref": "#/definitions/revision"
+        },
+        "localState": {
+          "$ref": "#/definitions/revision"
+        },
+        "sources": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/id"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "repositoryIds": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/id"
+      }
+    },
+    "request": {
+      "type": "object"
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/definitions/action"
+      }
+    },
+    "preconditions": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/definitions/precondition"
+      }
+    },
+    "expectedOutputs": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/definitions/output"
+      }
+    },
+    "approvalsRequired": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "const": "apply"
+          },
+          "kind": {
+            "const": "explicit-plan-id"
+          }
+        }
+      }
+    },
+    "semanticDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "catalog-edit"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "oneOf": [
+              {
+                "$ref": "#/definitions/catalogDraftRequest"
+              },
+              {
+                "$ref": "#/definitions/catalogOperationRequest"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "workspace-edit"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "$ref": "#/definitions/workspaceEditRequest"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "workspace-primary"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "$ref": "#/definitions/workspacePrimaryRequest"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "adopt"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "$ref": "#/definitions/adoptRequest"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "kind": { "const": "coordination-create" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": { "request": { "$ref": "#/definitions/coordinationCreateRequest" } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "checkout" } }, "required": ["kind"] },
+      "then": { "properties": { "request": { "$ref": "#/definitions/checkoutRequest" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "checkout-reconcile" } }, "required": ["kind"] },
+      "then": { "properties": { "request": { "$ref": "#/definitions/checkoutReconcileRequest" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "checkout-move" } }, "required": ["kind"] },
+      "then": { "properties": { "request": { "$ref": "#/definitions/moveRequest" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "checkout-move-reconcile" } }, "required": ["kind"] },
+      "then": { "properties": { "request": { "$ref": "#/definitions/moveReconcileRequest" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "worktree-create" } }, "required": ["kind"] },
+      "then": { "properties": { "request": { "$ref": "#/definitions/worktreeCreateRequest" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "worktree-remove" } }, "required": ["kind"] },
+      "then": { "properties": { "request": { "$ref": "#/definitions/worktreeRemoveRequest" } } }
+    }
+  ],
+  "definitions": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\\\\\u0000-\\u001f]+$",
+      "not": {
+        "enum": [
+          "__proto__",
+          "prototype",
+          "constructor"
+        ]
+      }
+    },
+    "absolutePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^/[^\\u0000\\r\\n]*$"
+    },
+    "canonicalGithubRemote": {
+      "type": "string",
+      "minLength": 22,
+      "maxLength": 159,
+      "pattern": "^https://github\\.com/(?=[a-z0-9-]{1,39}/)[a-z0-9]+(?:-[a-z0-9]+)*/(?=[a-z0-9_.-]{1,100}$)(?:[a-z0-9_-]|[a-z0-9_.-]*[a-z0-9_-])$",
+      "not": {
+        "pattern": "\\.git$"
+      }
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(?:absent|sha256:[a-f0-9]{64})$"
+    },
+    "presentRevision": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "localStateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currentRevision",
+        "nextRevision"
+      ],
+      "properties": {
+        "currentRevision": {
+          "$ref": "#/definitions/presentRevision"
+        },
+        "nextRevision": {
+          "$ref": "#/definitions/presentRevision"
+        }
+      }
+    },
+    "workspacePrimaryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configPath",
+        "plansDirectory",
+        "repositoryId",
+        "workspaceId",
+        "localStateChange"
+      ],
+      "properties": {
+        "configPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "plansDirectory": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "repositoryId": {
+          "$ref": "#/definitions/id"
+        },
+        "workspaceId": {
+          "$ref": "#/definitions/id"
+        },
+        "localStateChange": {
+          "$ref": "#/definitions/localStateChange"
+        }
+      }
+    },
+    "adoptObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "remote",
+        "head",
+        "branch",
+        "dirty",
+        "worktree",
+        "statusDigest"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "remote": {
+          "$ref": "#/definitions/canonicalGithubRemote"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[^\\u0000-\\u001f]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "statusDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "adoptRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Standard JSON Schema draft-07 cannot require observation.path to equal sibling request.path. Runtime validation enforces that cross-field equality after schema validation.",
+      "required": [
+        "configPath",
+        "plansDirectory",
+        "repositoryId",
+        "path",
+        "workspaceId",
+        "observation",
+        "localStateChange"
+      ],
+      "properties": {
+        "configPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "plansDirectory": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "repositoryId": {
+          "$ref": "#/definitions/id"
+        },
+        "path": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "workspaceId": {
+          "$ref": "#/definitions/id"
+        },
+        "observation": {
+          "$ref": "#/definitions/adoptObservation"
+        },
+        "localStateChange": {
+          "$ref": "#/definitions/localStateChange"
+        }
+      }
+    },
+    "coordinationCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "groupId", "path", "workspaceId", "files", "binding", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" },
+        "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "groupId": { "$ref": "#/definitions/id" },
+        "path": { "$ref": "#/definitions/absolutePath" },
+        "workspaceId": { "$ref": "#/definitions/id" },
+        "files": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["name", "content", "sha256"], "properties": { "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }, "content": { "type": "string", "maxLength": 262144 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } },
+        "binding": { "type": "object", "additionalProperties": false, "required": ["id", "kind", "scope", "path", "memberRepositoryIds", "memberWorkspaceIds", "hostProjectId", "generatedFiles", "revision"], "properties": { "id": { "$ref": "#/definitions/id" }, "kind": { "const": "coordination" }, "scope": { "type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": { "kind": { "enum": ["organization", "area", "project"] }, "id": { "$ref": "#/definitions/id" } } }, "path": { "$ref": "#/definitions/absolutePath" }, "memberRepositoryIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/id" } }, "memberWorkspaceIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/id" } }, "hostProjectId": { "anyOf": [{ "$ref": "#/definitions/id" }, { "type": "null" }] }, "generatedFiles": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" } }, "revision": { "$ref": "#/definitions/presentRevision" } } },
+        "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "checkoutResolved": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "name", "commit"],
+      "properties": {
+        "kind": { "enum": ["branch", "tag", "commit"] },
+        "name": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000-\\u001f]+$" }, { "type": "null" }] },
+        "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }
+      },
+      "oneOf": [
+        { "properties": { "kind": { "const": "branch" }, "name": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000-\\u001f]+$" } } },
+        { "properties": { "kind": { "const": "tag" }, "name": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000-\\u001f]+$" } } },
+        { "properties": { "kind": { "const": "commit" }, "name": { "type": "null" } } }
+      ]
+    },
+    "checkoutRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "repositoryId", "remote", "requestedRef", "resolved", "destination", "stagingPath", "operationId", "workspaceId", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "repositoryId": { "$ref": "#/definitions/id" }, "remote": { "$ref": "#/definitions/canonicalGithubRemote" },
+        "requestedRef": { "type": "string", "minLength": 1, "maxLength": 1100, "pattern": "^[^\\u0000-\\u001f]+$" },
+        "resolved": { "$ref": "#/definitions/checkoutResolved" }, "destination": { "$ref": "#/definitions/absolutePath" },
+        "stagingPath": { "$ref": "#/definitions/absolutePath" }, "operationId": { "$ref": "#/definitions/id" },
+        "workspaceId": { "$ref": "#/definitions/id" }, "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "checkoutReconcileRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "operationId", "repositoryId", "remote", "destination", "stagingPath", "workspaceId", "resolved", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "operationId": { "$ref": "#/definitions/id" }, "repositoryId": { "$ref": "#/definitions/id" },
+        "remote": { "$ref": "#/definitions/canonicalGithubRemote" }, "destination": { "$ref": "#/definitions/absolutePath" },
+        "stagingPath": { "$ref": "#/definitions/absolutePath" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "resolved": { "$ref": "#/definitions/checkoutResolved" }, "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "moveIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["remote", "head", "branch", "statusDigest", "device"],
+      "properties": {
+        "remote": { "$ref": "#/definitions/canonicalGithubRemote" },
+        "head": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "branch": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 1024 }, { "type": "null" }] },
+        "statusDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "device": { "type": "string", "pattern": "^\\d+$" }
+      }
+    },
+    "moveRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "operationId", "repositoryId", "workspaceId", "source", "destination", "confirmInactive", "identity", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "operationId": { "$ref": "#/definitions/id" }, "repositoryId": { "$ref": "#/definitions/id" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "source": { "$ref": "#/definitions/absolutePath" }, "destination": { "$ref": "#/definitions/absolutePath" },
+        "confirmInactive": { "const": true }, "identity": { "$ref": "#/definitions/moveIdentity" }, "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "moveReconcileRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "operationId", "repositoryId", "workspaceId", "source", "destination", "identity", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "operationId": { "$ref": "#/definitions/id" }, "repositoryId": { "$ref": "#/definitions/id" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "source": { "$ref": "#/definitions/absolutePath" }, "destination": { "$ref": "#/definitions/absolutePath" },
+        "identity": { "$ref": "#/definitions/moveIdentity" }, "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "worktreeCreateRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "operationId", "repositoryId", "remote", "primaryPath", "primaryWorkspaceId", "baseCommit", "branch", "path", "workspaceId", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "operationId": { "$ref": "#/definitions/id" }, "repositoryId": { "$ref": "#/definitions/id" },
+        "remote": { "$ref": "#/definitions/canonicalGithubRemote" }, "primaryPath": { "$ref": "#/definitions/absolutePath" },
+        "primaryWorkspaceId": { "$ref": "#/definitions/id" }, "baseCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "branch": { "$ref": "#/definitions/worktreeBranch" },
+        "path": { "$ref": "#/definitions/absolutePath" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "worktreeRemoveRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configPath", "plansDirectory", "operationId", "repositoryId", "workspaceId", "primaryPath", "path", "branch", "baseCommit", "confirmInactive", "commonDirectory", "localStateChange"],
+      "properties": {
+        "configPath": { "$ref": "#/definitions/absolutePath" }, "plansDirectory": { "$ref": "#/definitions/absolutePath" },
+        "operationId": { "$ref": "#/definitions/id" }, "repositoryId": { "$ref": "#/definitions/id" }, "workspaceId": { "$ref": "#/definitions/id" },
+        "primaryPath": { "$ref": "#/definitions/absolutePath" }, "path": { "$ref": "#/definitions/absolutePath" },
+        "branch": { "$ref": "#/definitions/worktreeBranch" },
+        "baseCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "confirmInactive": { "const": true }, "commonDirectory": { "$ref": "#/definitions/absolutePath" },
+        "localStateChange": { "$ref": "#/definitions/localStateChange" }
+      }
+    },
+    "worktreeBranch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!-)(?!.*(?:^|/)\\.)(?!.*\\.lock(?:/|$))(?!.*\\.\\.)(?!.*@\\{)(?!.*//)(?!.*\\.$)[^\\u0000-\\u0020\\u007f~^:?*\\[\\\\/]+(?:/[^\\u0000-\\u0020\\u007f~^:?*\\[\\\\/]+)*(?![\\s\\S])"
+    },
+    "target": {
+      "enum": [
+        "config",
+        "catalog",
+        "local-state"
+      ]
+    },
+    "catalogChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currentRevision",
+        "nextRevision",
+        "changedRecords"
+      ],
+      "properties": {
+        "currentRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "nextRevision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "changedRecords": {
+          "type": "array",
+          "maxItems": 22001,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "section",
+              "id",
+              "before",
+              "after"
+            ],
+            "properties": {
+              "section": {
+                "enum": [
+                  "groups",
+                  "repositories",
+                  "sources",
+                  "policies",
+                  "workflows",
+                  "metadata"
+                ]
+              },
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "before": {},
+              "after": {}
+            }
+          }
+        }
+      }
+    },
+    "catalogDraftRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configPath",
+        "draftPath",
+        "plansDirectory",
+        "catalogChange"
+      ],
+      "properties": {
+        "configPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "draftPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "plansDirectory": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "catalogChange": {
+          "$ref": "#/definitions/catalogChange"
+        }
+      }
+    },
+    "catalogOperationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configPath",
+        "plansDirectory",
+        "operation",
+        "catalogChange"
+      ],
+      "properties": {
+        "configPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "plansDirectory": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "operation": {
+          "$ref": "#/definitions/catalogOperation"
+        },
+        "catalogChange": {
+          "$ref": "#/definitions/catalogChange"
+        }
+      }
+    },
+    "catalogOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "group"
+          ],
+          "properties": {
+            "type": {
+              "const": "group-create"
+            },
+            "group": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "kind",
+                "name",
+                "slug",
+                "parentId",
+                "metadata"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "#/definitions/id"
+                },
+                "kind": {
+                  "enum": [
+                    "organization",
+                    "area",
+                    "project"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "slug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "parentId": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "metadata": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ],
+          "minProperties": 3,
+          "properties": {
+            "type": {
+              "const": "group-update"
+            },
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "slug": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "parentId"
+          ],
+          "properties": {
+            "type": {
+              "const": "group-reparent"
+            },
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "parentId": {
+              "$ref": "#/definitions/id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "projectId",
+            "action"
+          ],
+          "properties": {
+            "type": {
+              "const": "repo-membership"
+            },
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "projectId": {
+              "$ref": "#/definitions/id"
+            },
+            "action": {
+              "enum": [
+                "add",
+                "remove"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "decision",
+            "groupId"
+          ],
+          "properties": {
+            "type": {
+              "const": "repo-classify"
+            },
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "decision": {
+              "const": "accept"
+            },
+            "groupId": {
+              "$ref": "#/definitions/id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "decision"
+          ],
+          "properties": {
+            "type": {
+              "const": "repo-classify"
+            },
+            "id": {
+              "$ref": "#/definitions/id"
+            },
+            "decision": {
+              "const": "reject"
+            }
+          }
+        }
+      ]
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "target", "path", "expectedRevision", "nextRevision"],
+          "properties": {
+            "id": { "$ref": "#/definitions/id" }, "type": { "const": "document-cas" },
+            "target": { "$ref": "#/definitions/target" }, "path": { "$ref": "#/definitions/absolutePath" },
+            "expectedRevision": { "$ref": "#/definitions/revision" }, "nextRevision": { "$ref": "#/definitions/presentRevision" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "path"],
+          "properties": { "id": { "$ref": "#/definitions/id" }, "type": { "const": "directory-create" }, "path": { "$ref": "#/definitions/absolutePath" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "path", "sha256"],
+          "properties": { "id": { "$ref": "#/definitions/id" }, "type": { "const": "file-create" }, "path": { "$ref": "#/definitions/absolutePath" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "path"],
+          "properties": { "id": { "$ref": "#/definitions/id" }, "type": { "enum": ["git-clone", "directory-publish", "directory-rename", "git-worktree-add", "git-worktree-remove"] }, "path": { "$ref": "#/definitions/absolutePath" } }
+        }
+      ]
+    },
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "target",
+        "expected"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "type": {
+          "enum": [
+            "revision",
+            "source-digest"
+          ]
+        },
+        "target": {
+          "$ref": "#/definitions/id"
+        },
+        "expected": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "target",
+        "revision"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "type": {
+          "const": "document"
+        },
+        "target": {
+          "$ref": "#/definitions/target"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "workspaceEditRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configPath",
+        "draftPath",
+        "plansDirectory",
+        "workspaceId",
+        "localStateChange"
+      ],
+      "properties": {
+        "configPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "draftPath": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "plansDirectory": {
+          "$ref": "#/definitions/absolutePath"
+        },
+        "workspaceId": {
+          "$ref": "#/definitions/id"
+        },
+        "localStateChange": {
+          "$ref": "#/definitions/localStateChange"
+        }
+      }
+    }
+  }
+}

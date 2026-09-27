@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "documentType": "workspacectl/local-state",
+  "selectedConfig": {
+    "path": "relative/config.yaml",
+    "revision": "approved"
+  },
+  "repositoryWorkspaces": [],
+  "coordinationWorkspaces": [],
+  "workspacePolicyOverlays": [],
+  "trustedInputApprovals": [],
+  "planReferences": [],
+  "runReferences": [],
+  "metadata": {}
+}

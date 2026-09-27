@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/host-action.schema.json",
+  "title": "workspacectl inert host action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "digest", "logicalTarget", "cwd", "projectName", "contextReference", "host", "type", "requests"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^host-action-[a-f0-9]{24}$" },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "logicalTarget": { "$ref": "#/definitions/logicalTarget" },
+    "cwd": { "$ref": "#/definitions/absolutePath" },
+    "projectName": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "contextReference": { "$ref": "#/definitions/contextReference" },
+    "host": { "enum": ["hermes", "terminal"] },
+    "type": { "enum": ["hermes-project", "terminal-launch"] },
+    "requests": { "type": "array", "maxItems": 3 }
+  },
+  "allOf": [
+    { "if": { "properties": { "host": { "const": "terminal" } }, "required": ["host"] }, "then": { "properties": { "type": { "const": "terminal-launch" }, "requests": { "maxItems": 0 } } } },
+    { "if": { "properties": { "host": { "const": "hermes" } }, "required": ["host"] }, "then": { "properties": { "type": { "const": "hermes-project" }, "requests": { "oneOf": [
+      { "minItems": 2, "maxItems": 2, "items": [{ "$ref": "#/definitions/listRequest" }, { "$ref": "#/definitions/existingSwitchRequest" }], "additionalItems": false },
+      { "minItems": 3, "maxItems": 3, "items": [{ "$ref": "#/definitions/listRequest" }, { "$ref": "#/definitions/createRequest" }, { "$ref": "#/definitions/createdSwitchRequest" }], "additionalItems": false }
+    ] } } } }
+  ],
+  "definitions": {
+    "absolutePath": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^/[^\\u0000\\r\\n]*$" },
+    "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^/\\\\\\u0000-\\u001f]+$" },
+    "revision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "logicalTarget": { "type": "object", "additionalProperties": false, "required": ["kind", "id", "label"], "properties": { "kind": { "enum": ["repository", "group"] }, "id": { "$ref": "#/definitions/id" }, "label": { "type": "string", "minLength": 1 } } },
+    "nullableId": { "anyOf": [{ "$ref": "#/definitions/id" }, { "type": "null" }] },
+    "contextReference": { "type": "object", "additionalProperties": false, "required": ["repositoryId", "workspaceId", "selectedProjectId", "revisions"], "properties": { "repositoryId": { "$ref": "#/definitions/nullableId" }, "workspaceId": { "$ref": "#/definitions/nullableId" }, "selectedProjectId": { "$ref": "#/definitions/nullableId" }, "revisions": { "type": "object", "additionalProperties": false, "required": ["catalog", "localState"], "properties": { "catalog": { "$ref": "#/definitions/revision" }, "localState": { "$ref": "#/definitions/revision" } } } } },
+    "listRequest": { "type": "object", "additionalProperties": false, "required": ["id", "operation"], "properties": { "id": { "$ref": "#/definitions/id" }, "operation": { "const": "list" } } },
+    "createRequest": { "type": "object", "additionalProperties": false, "required": ["id", "operation", "name", "path"], "properties": { "id": { "$ref": "#/definitions/id" }, "operation": { "const": "create" }, "name": { "type": "string", "minLength": 1, "maxLength": 256 }, "path": { "$ref": "#/definitions/absolutePath" } } },
+    "existingSwitchRequest": { "type": "object", "additionalProperties": false, "required": ["id", "operation", "projectId", "path"], "properties": { "id": { "$ref": "#/definitions/id" }, "operation": { "const": "switch" }, "projectId": { "$ref": "#/definitions/id" }, "path": { "$ref": "#/definitions/absolutePath" } } },
+    "createdSwitchRequest": { "type": "object", "additionalProperties": false, "required": ["id", "operation", "projectId", "createdProjectFromRequestId"], "properties": { "id": { "$ref": "#/definitions/id" }, "operation": { "const": "switch" }, "projectId": { "type": "null" }, "createdProjectFromRequestId": { "$ref": "#/definitions/id" } } }
+  }
+}

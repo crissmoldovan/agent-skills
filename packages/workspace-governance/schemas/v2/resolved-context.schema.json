@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crissmoldovan/agent-skills/workspace-governance/v2/resolved-context.schema.json",
+  "title": "workspacectl v2 resolved relevant context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repositoryId", "workspaceId", "selectedProjectId", "revisions", "organization", "project", "settings", "provenance", "constraints", "instructions", "knowledgeReferences", "selectedSkills", "recordProvenance", "workflow", "commandDefinitions", "displayBudget", "ancestry", "warnings"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "repositoryId": { "$ref": "#/definitions/id" },
+    "workspaceId": { "$ref": "#/definitions/nullableId" },
+    "selectedProjectId": { "$ref": "#/definitions/nullableId" },
+    "revisions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["catalog", "localState"],
+      "properties": { "catalog": { "type": "string" }, "localState": { "type": "string" } }
+    },
+    "organization": { "$ref": "#/definitions/labeledId" },
+    "project": { "anyOf": [{ "$ref": "#/definitions/labeledId" }, { "type": "null" }] },
+    "settings": { "type": "object" },
+    "provenance": { "type": "array", "items": { "type": "object" } },
+    "constraints": { "type": "array", "items": { "type": "object" } },
+    "instructions": { "type": "array", "items": { "$ref": "#/definitions/instruction" } },
+    "knowledgeReferences": { "type": "array", "items": { "$ref": "#/definitions/reference" } },
+    "selectedSkills": { "type": "array", "items": { "$ref": "#/definitions/reference" } },
+    "recordProvenance": { "type": "array", "items": { "type": "object" } },
+    "workflow": { "anyOf": [{ "$ref": "#/definitions/workflow" }, { "type": "null" }] },
+    "commandDefinitions": { "type": "array", "items": { "$ref": "#/definitions/command" } },
+    "displayBudget": { "$ref": "#/definitions/budget" },
+    "ancestry": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "definitions": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "nullableId": { "anyOf": [{ "$ref": "#/definitions/id" }, { "type": "null" }] },
+    "scope": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "id"],
+      "properties": { "kind": { "enum": ["base", "user", "organization", "area", "project", "repository", "workspace"] }, "id": { "$ref": "#/definitions/id" } }
+    },
+    "labeledId": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name"],
+      "properties": { "id": { "$ref": "#/definitions/id" }, "name": { "type": "string", "minLength": 1 } }
+    },
+    "externalProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceRepository", "sourcePath", "sourceRevision", "contentDigest", "declaredScope"],
+      "properties": {
+        "sourceRepository": { "type": "string" }, "sourcePath": { "type": "string" }, "sourceRevision": { "type": "string" },
+        "contentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "declaredScope": { "$ref": "#/definitions/scope" }
+      }
+    },
+    "namedBase": {
+      "type": "object", "required": ["id", "required", "scope", "workflowId"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" }, "required": { "type": "boolean" }, "scope": { "$ref": "#/definitions/scope" },
+        "workflowId": { "$ref": "#/definitions/nullableId" }, "provenance": { "$ref": "#/definitions/externalProvenance" }
+      }
+    },
+    "instruction": {
+      "allOf": [
+        { "$ref": "#/definitions/namedBase" },
+        { "type": "object", "additionalProperties": false, "required": ["id", "required", "scope", "workflowId", "text", "status"],
+          "properties": {
+            "id": { "$ref": "#/definitions/id" }, "required": { "type": "boolean" }, "scope": { "$ref": "#/definitions/scope" }, "workflowId": { "$ref": "#/definitions/nullableId" },
+            "provenance": { "$ref": "#/definitions/externalProvenance" }, "text": { "type": "string" }, "status": { "const": "loaded" }
+          }
+        }
+      ]
+    },
+    "trust": {
+      "type": "object", "additionalProperties": false, "required": ["approval", "approvedRevision"],
+      "properties": { "approval": { "enum": ["not-required", "required", "approved"] }, "approvedRevision": { "anyOf": [{ "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, { "type": "null" }] } },
+      "allOf": [{ "if": { "properties": { "approval": { "const": "approved" } } }, "then": { "properties": { "approvedRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } } } }]
+    },
+    "reference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "required", "scope", "workflowId", "reference", "status", "active", "trust"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" }, "required": { "type": "boolean" }, "scope": { "$ref": "#/definitions/scope" }, "workflowId": { "$ref": "#/definitions/nullableId" },
+        "provenance": { "$ref": "#/definitions/externalProvenance" }, "reference": { "type": "string" }, "status": { "enum": ["linked", "loaded"] }, "active": { "const": false },
+        "trust": { "$ref": "#/definitions/trust" }, "content": { "type": "string" }, "contentRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "resolvedPath": { "type": "string" }
+      },
+      "allOf": [{ "if": { "properties": { "status": { "const": "loaded" } } }, "then": { "required": ["content", "contentRevision", "resolvedPath"], "properties": { "content": { "type": "string" }, "contentRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "resolvedPath": { "type": "string" }, "trust": { "type": "object", "required": ["approval"], "properties": { "approval": { "const": "approved" } } } } } }]
+    },
+    "workflow": {
+      "type": "object", "additionalProperties": false, "required": ["id", "inputs", "outputs", "steps", "provenance", "executable"],
+      "properties": { "id": { "$ref": "#/definitions/id" }, "inputs": { "type": "array" }, "outputs": { "type": "array" }, "steps": { "type": "array" }, "provenance": { "type": "array" }, "executable": { "const": false } }
+    },
+    "command": {
+      "type": "object", "additionalProperties": false, "required": ["key", "value", "scope", "contentRevision", "approval", "active"],
+      "properties": { "key": { "type": "string" }, "value": {}, "scope": { "$ref": "#/definitions/scope" }, "contentRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "approval": { "enum": ["required", "approved"] }, "active": { "const": false } }
+    },
+    "budget": {
+      "type": "object", "additionalProperties": false, "required": ["unit", "byteLimit", "usedBytes", "tokenEquivalent", "bytesPerToken"],
+      "properties": { "unit": { "const": "utf8-bytes" }, "byteLimit": { "type": "integer", "minimum": 1 }, "usedBytes": { "type": "integer", "minimum": 0 }, "tokenEquivalent": { "type": "integer", "minimum": 0 }, "bytesPerToken": { "const": 4 } }
+    }
+  }
+}

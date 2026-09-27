@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "format": "workspacectl-plan/1",
+  "id": "legacy-preview",
+  "kind": "init",
+  "createdAt": "not-a-timestamp",
+  "inputRevisions": {},
+  "repositoryIds": [],
+  "request": {},
+  "actions": [],
+  "preconditions": [],
+  "expectedOutputs": [],
+  "approvalsRequired": [],
+  "semanticDigest": "approved",
+  "approved": true
+}

@@ -90,9 +90,10 @@ function checkedInventory(input: Inventory): Inventory {
     );
   for (const p of [...i.occupiedPaths, ...i.unsafePaths]) path(p);
   for (const r of i.repositories) {
+    const keys = Object.keys(r).sort().join(",");
     requireThat(
-      Object.keys(r).sort().join(",") ===
-        "dirty,head,path,remote,status,worktree",
+      keys === "dirty,head,path,remote,status,worktree" ||
+        keys === "branch,dirty,head,path,remote,status,worktree",
     );
     path(r.path);
     requireThat(
@@ -106,6 +107,11 @@ function checkedInventory(input: Inventory): Inventory {
           /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(r.head)),
     );
     requireThat(
+      r.branch === undefined || r.branch === null ||
+        (typeof r.branch === "string" && r.branch.length > 0 &&
+          r.branch.length <= 1024 && !/[\x00-\x1f]/.test(r.branch)),
+    );
+    requireThat(
       typeof r.dirty === "boolean" &&
         typeof r.worktree === "boolean" &&
         typeof r.status === "string",
@@ -114,10 +120,14 @@ function checkedInventory(input: Inventory): Inventory {
   requireThat(
     new Set(i.repositories.map((r) => r.path)).size === i.repositories.length,
   );
-  for (const e of i.errors)
+  for (const e of i.errors) {
+    requireThat(e && typeof e === "object" && typeof e.code === "string");
+    const keys = Object.keys(e).sort();
     requireThat(
-      e && Object.keys(e).join(",") === "code" && typeof e.code === "string",
+      keys.join(",") === "code" || keys.join(",") === "code,target",
     );
+    if ("target" in e) path(e.target);
+  }
   requireThat(
     i.complete &&
       i.errors.length === 0 &&

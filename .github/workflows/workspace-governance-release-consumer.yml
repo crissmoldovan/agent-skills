@@ -1,0 +1,64 @@
+name: Workspace Governance published release consumer
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  ephemeral-ci-second-host:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.tag_name == 'workspace-governance-v0.3.0'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Use supported Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: ''
+
+      - name: Fetch reviewed verifier from immutable release tag
+        shell: bash
+        env:
+          VERIFIER_URL: https://raw.githubusercontent.com/crissmoldovan/agent-skills/workspace-governance-v0.3.0/scripts/verify-workspace-governance-release.mjs
+          VERIFIER_SHA256: d86610fd93531730c296dfdd0c07c8830369d69f6bed0b63d9f3483f4aac6d1c
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/workspace-governance-release-consumer"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/workspace-governance-release-consumer/verifier.mjs" \
+            "$VERIFIER_URL"
+          node - "$RUNNER_TEMP/workspace-governance-release-consumer/verifier.mjs" "$VERIFIER_SHA256" <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { readFileSync } = require('node:fs');
+          const [path, expected] = process.argv.slice(2);
+          const actual = createHash('sha256').update(readFileSync(path)).digest('hex');
+          if (actual !== expected) throw new Error(`verifier digest differs: ${actual}`);
+          NODE
+
+      - name: Exercise public release, pinned Skills CLI, CLI, MCP, and removals
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/workspace-governance-release-consumer/verifier.mjs" \
+            --mode release \
+            --repository https://github.com/crissmoldovan/agent-skills \
+            --tag workspace-governance-v0.3.0 \
+            --manifest-sha256 2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af \
+            --output "$RUNNER_TEMP/workspace-governance-release-consumer/result.json"
+
+      - name: Retain exact consumer readback
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: workspace-governance-v0.3.0-${{ matrix.os }}-ephemeral-ci-second-host
+          path: ${{ runner.temp }}/workspace-governance-release-consumer/result.json
+          if-no-files-found: warn
+          retention-days: 30

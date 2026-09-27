@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "documentType": "workspacectl/catalog",
+  "groups": [
+    {
+      "id": "org-synthetic",
+      "kind": "organization",
+      "name": "Synthetic",
+      "slug": "synthetic",
+      "parentId": null,
+      "metadata": {}
+    }
+  ],
+  "repositories": [
+    {
+      "id": "repo-synthetic-example",
+      "remote": "https://github.com/Synthetic/Example",
+      "sourceId": null,
+      "primaryGroupId": "org-synthetic",
+      "memberOf": [],
+      "aliases": [],
+      "classification": "confirmed",
+      "metadata": {}
+    }
+  ],
+  "sources": [],
+  "policies": [],
+  "workflows": [],
+  "metadata": {}
+}

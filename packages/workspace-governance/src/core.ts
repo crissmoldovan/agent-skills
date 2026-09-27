@@ -55,21 +55,34 @@ export interface Manifest {
 }
 export class GovernanceError extends Error {
   code: string;
-  constructor(code = "INVALID") {
+  details?: Json;
+  constructor(code = "INVALID", details?: Json) {
     super(
       (
         {
+          NOT_CONFIGURED: "Workspaces is not configured.",
+          INVALID_CONFIG: "Workspaces configuration or input is invalid.",
+          AMBIGUOUS: "The requested identity is ambiguous.",
+          NOT_FOUND: "The requested resource was not found.",
           UNAVAILABLE: "Resource unavailable.",
           INCOMPLETE: "Observation incomplete.",
+          APPROVAL_REQUIRED: "Explicit approval for the exact plan is required.",
           STALE_PLAN: "Preview is stale.",
+          CONFLICT: "The expected revision or identity conflicts with current state.",
+          BUSY: "The target document is busy; its existing lock was preserved.",
           UNSUPPORTED: "Operation unsupported.",
+          UNTRUSTED_INPUT: "Current trusted input is required for this write.",
+          ACTION_FAILED: "The requested action failed safely.",
           TOOL_FAILURE: "Observation tool failed.",
           CONSTRAINT: "Policy constraint failed.",
+          POLICY_CONFLICT: "Policy or workflow rules conflict.",
+          NEEDS_BINDING: "Portable dependency needs an explicit destination-local binding.",
         } as Record<string, string>
       )[code] ?? "Invalid input.",
     );
     this.name = "GovernanceError";
     this.code = code;
+    this.details = details;
   }
 }
 export function requireThat(ok: unknown, code = "INVALID"): asserts ok {

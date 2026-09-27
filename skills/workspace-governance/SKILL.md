@@ -1,142 +1,214 @@
 ---
 name: workspace-governance
-description: Audit repository placement and explain inherited policy.
-version: 0.1.0
+description: Use when finding, registering, organizing, or observing Workspaces repositories.
+version: 0.3.0
 author: Cristian Moldovan (crissmoldovan), Hermes Agent
 license: MIT
 platforms: [linux, darwin]
+compatibility: "workspacectl 0.3.0; catalog 0.26.0; skill tag workspace-governance-v0.3.0"
+metadata: "runtime-manifest-sha256=2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
 ---
 
 # Workspace Governance
 
-Use a deterministic read-only CLI to validate declared repository ownership,
-explain inherited rules, observe checkouts, and compare placement previews.
-This skill owns catalog/policy governance, not model routing, child lifecycles,
-codebase investigation, or publishing. It never executes workflows or moves repos.
+Workspaces v0.3.0 implements **M2/A06 through M7/A16 plus M3/A17** while retaining M2/A05.
+Legacy catalog, policy, discovery, report, and placement previews remain read-only.
+
+This skill owns workspace catalog, policy, guarded checkout/worktree guidance, and bounded workflow
+execution and explicitly approved supported checkout moves, not model routing, agent lifecycle, investigation, publication, or unapproved/portfolio moves. Native Hermes
+switching uses `desktop_project` only after explicit activation.
 
 ## When to Use
 
-- A user wants a declared domain/source-namespace/area/project/repository catalog audited.
-- An agent needs the effective rules and their provenance for a stable node ID.
-- A user wants a safe, reproducible local placement preview before designing moves.
 
-Do not use for checkout mutation, remote administration, executing workflow steps,
-or enforcing a filesystem security boundary: none is shipped in v0.1.
+- Run selector-free `list`, `config export --target catalog`, or `doctor` against the
+  selected setup.
+- Validate/plan a complete explicit catalog draft; create/update/reparent business
+  groups; and edit repository membership or accept/reject classification suggestions.
+- Resolve a repository by stable ID, canonical remote, or unique approved alias;
+  inspect/select its primary and distinguish intentional worktrees.
+- Register an existing checkout; create or move one through an exact plan; and manage
+  owned isolated worktrees without hidden Git mutation.
+- Author policies/workflows and resolve bounded `context`/`explain`, including selected approved references.
+- Run a supported inherited workflow through exact agent/external handoffs, approvals, and readback.
+- Run an exact two-repository coordination workflow with isolated repository contexts and inert rule-set proposals.
+- Compare carried rule-set source bytes read-only and report matching or drift.
+- Open an exact repository/project; perform and verify an explicitly requested native
+  Hermes Project action; or create/reopen an approved coordination workspace.
+- Observe explicit GitHub sources/trusted roots and compare overview coverage.
+
+
+Do not move real portfolio repositories, sweep knowledge, embed providers, perform external handoffs, or substitute `cd` for native activation.
 
 ## Prerequisites
 
-Install the CLI **separately** from a locally built tarball; a skills installer
-copies only this skill, not the sibling package. Read the portable
-[installation and command reference](references/commands.md). The candidate is
-unpublished: do not invent a registry installation or install globally.
+This skill loads without `workspacectl`. First run `command -v workspacectl` and
+`workspacectl --version`; do not guess a launcher or execute `latest`. The matching runtime is
+package `@crissmoldovan/workspace-governance` 0.3.0 from immutable tag
+`workspace-governance-v0.3.0`, catalog compatibility 0.26.0, and the anchored manifest named in
+this file's metadata.
 
-Node.js 24+, trusted Git and an explicit manifest/scan root are required.
-GitHub discovery is optional and requires trusted `gh` plus authorized credentials.
-**Linux and macOS both run the whole read-only surface this skill uses** — `validate`,
-`catalog`, `explain`, `workflow`, `discover`, `report` in JSON and in HTML, `plan`, `audit`
-and `verify-plan` — and the package's own suite passes on both. The CLI also carries three
-commands gated to Linux: `manifest-init-plan` and `manifest-init-trial-plan` require Linux
-x86_64, `mutation-status` requires Linux on any architecture. No step below calls them, and
-elsewhere all three refuse with `UNSUPPORTED` and exit 2. Windows is not supported.
-Use your host's terminal tool for the commands below. Do not scan home by default.
+With explicit consent, run the copied `scripts/install-runtime.mjs` using Node.js >=24, an
+absolute user-writable managed root and bin directory. It previews unless `--yes` is present.
+Without `--bundle` it downloads only the pinned public GitHub Release manifest/archive, needing
+no GitHub, Hermes, npm-registry, or AI credentials. For offline/manual installation pass
+`--bundle /absolute/release-assets`; the directory must contain the anchored
+`runtime-manifest.json` and its named archive. The helper verifies package/version/bins, complete
+content hashes, lifecycle-script absence and both managed launchers before activation.
+
+Declining is safe: keep using the skill as guidance and make no runtime, profile, or governed-data
+change. Manual preview:
+
+```sh
+node scripts/install-runtime.mjs plan \
+  --root "$HOME/.local/share/workspacectl" \
+  --bin-dir "$HOME/.local/bin" --json
+```
+
+Node.js >=24 (with npm) and POSIX `tar` are bootstrap prerequisites. Install them separately using
+your OS/vendor instructions; this helper never uses sudo or installs prerequisites. Git is needed
+only for governed Git operations, not release download. `npx` is needed only to install/remove the
+skill with pinned `skills@1.7.0 --copy`, not to run the runtime helper. Missing/old Node, npm, tar,
+Git or npx, unsupported Linux/macOS platform, network failure, unwritable destinations, occupied
+or symlinked paths, and modified/unmanaged receipts are blockers to fix explicitly—never reasons
+to overwrite, follow `latest`, access credentials, or mutate an agent profile.
+
+Node.js 24 and trusted Git are required. For GitHub, use existing authorized `gh`; never change credentials.
+Default `doctor` validates **standalone CLI readiness** and reads no skill. Use
+`doctor --integration --skill FILE` to validate a selected matching agent skill explicitly.
 
 ## Procedure
 
-1. **Identify the inputs.** Confirm the user's manifest, stable scope ID, principal
-   and local scan root. Keep real inventories outside public repositories. Separate
-   logical domain from its source namespace or GitHub owner; classify only by
-   explicit canonical remote mappings, never infer ownership from repository names.
-   Preserve human names in optional labels and keep slugs path-safe; filesystem
-   targets use slugs, while reports show both when they differ.
-2. **Validate.** Run `workspacectl validate --manifest manifest.json`. Stop on any
-   schema/parser error; do not repair malformed remote tokens before validation.
-   Root visibility is required. Workspace nodes are unbound catalog identities:
-   policy resolves by explicit ID, but workspace-scope plans are unsupported.
-3. **Explain access and policy.** Run catalog/explain for the explicitly chosen
-   principal and node. File/memory access is advisory simulation, not authentication.
-   `UNAVAILABLE` means absent or unreadable, without distinguishing the two.
-   Read the field-operation provenance and inherited constraints; do not treat
-   later settings as permission to bypass an ancestor's constraints.
-4. **Choose a workflow only when asked.** Supply `--workflow ID`; otherwise no
-   workflow contributes. The result is an inert resolved definition with
-   `executable:false`, not an executable plan. Never evaluate its action strings.
-5. **Observe within the declared root.** Raw discover is administrative and may
-   expose local facts. Plan/audit perform local discovery internally. Partial scans
-   cannot prove a checkout missing. Do not substitute a partial GitHub inventory
-   for the declared catalog. Stop rather than silently widening traversal scope.
-6. **Report, preview and verify.** Start with `report` to combine hierarchy,
-   placement summary, per-repository policy provenance and the selected inert
-   workflow. The selected node and its complete descendant subtree must be readable;
-   otherwise the whole report refuses with `UNAVAILABLE`. Ancestors shown are
-   readable. Use `--format html` for a self-contained visual rendering of key report
-   fields and redirect it outside the scan root. Save `plan` JSON outside the scan
-   root when a separately verifiable preview is needed. Run `audit` for drift. Run
-   `verify-plan` with the same explicit manifest/node/principal/root/workflow, not
-   values supplied by the saved plan. Report missing, misplaced, duplicate and
-   blocked entries without moving them.
-7. **Finish with evidence.** Report exact command exit codes, scope, authorization
-   class, completeness, revision and verification result. A valid preview is not
-   approval, authentication, or authority to clone/commit/push/install.
+1. **Select isolated paths.** Choose absent config, catalog, and state paths plus existing
+   plans/trusted-root directories. Never target an active or legacy catalog.
+2. **Preview initialization.** Run `init` with an absent plan path in the plans directory.
+   It writes only that plan. Review paths, revisions, actions, outputs, and approval.
+3. **Approve, then diagnose.** Apply the reviewed plan ID. The CLI re-derives inputs,
+   checks locks/revisions, CAS-writes, and reads back. Default `doctor` checks standalone
+   CLI readiness: all non-skill checks remain, `selected.skill:null`, and a skipped optional
+   skill prove no agent integration. Add `--integration --skill FILE` for explicit integration.
+4. **Import exactly.** Require `workspace-governance/v1` and
+   `workspace-governance/unclassified-repositories-v1`; malformed, duplicate, or unsupported
+   records refuse. Preview `import-v1` into the empty catalog, approve its explicit plan ID,
+   then reconcile `list --json` and `config export`; workspace state remains `unknown`.
+5. **Edit through one route.** Export a complete draft, save it outside active documents,
+   run `config validate FILE`, then `config plan FILE --config FILE --plan FILE`. Or use
+   `group create|update|reparent` and `repo membership|classify`; they call the same
+   catalog-plan library route. Review and approve the exact plan ID. Reconcile fresh
+   `group show`/`repo show` readback, stable IDs/remotes, and unchanged local-state and
+   checkout bytes. Rejected suggestions remain present and unclassified; explicit
+   additional project memberships remain. Invalid ancestry, cycles, duplicate sibling
+   slugs, stale/tampered plans, symlinks, and locks refuse without a catalog write.
+6. **Observe explicit selections.** Choose configured source IDs and absolute roots at
+   or below `trustedRoots`; never infer either from repository names. Run `discover --config`
+   with repeated `--source`/`--root`. Organization and user endpoints are
+   distinct. Read `complete`, `partial`, or `unknown` coverage, page/error limits and
+   private-visibility limits before interpreting absence. A failed target must not
+   erase a safe sibling result. Local worktrees, standalone duplicates, dirty state,
+   archived flags, unclassified rows and suggestions remain separate facts. The
+   command is read-only and no selections were persisted; it never picks a primary.
+7. **Find and register deliberately.** Run `workspacectl where TARGET` first. Refuse
+   ambiguous aliases or duplicate selected primaries; never choose the first candidate.
+   To register an existing path, run `workspacectl adopt --repo ID --path PATH --plan FILE`,
+   review the verified origin/HEAD/branch/dirty/worktree observation, then apply its exact
+   ID. Dirty is allowed. Adoption writes only local state and must leave branch, HEAD,
+   index, Git config, tracked/untracked files, and worktree metadata unchanged. Use
+   `workspace select-primary` through a separate exact approved plan when needed.
+8. **Cross-check public views.** Identical selectors give `discover`, selected `list`,
+   `report`, and `audit` the same `workspacectl-overview/1`. Suggestions are not approved.
+   Incomplete coverage and audit findings exit 3 with results on stdout.
+9. **Checkout by exact plan.** Preview an absent trusted destination and ref; review commit,
+   attachment, paths, revisions, actions, and plan ID. Apply and verify Git/registry readback.
+   No credentials, submodules, hooks, scripts, or installs are serialized/run. Show preserves
+   interrupted data; reconcile only plans unambiguous verified binding repair.
+10. **Manage isolated worktrees.** Create from an exact commit/new branch at an absent safe path.
+   Removal requires the persisted ID plus `--confirm-inactive`; recheck ownership, Git metadata,
+   clean content, remote reachability, locks, and use. Never force, delete the branch, or prune.
+11. **Move only the supported exact checkout.** Address a persisted primary workspace ID,
+   supply an absent trusted destination and `--confirm-inactive`, then review both paths, stable
+   IDs, Git identity, device, revisions, digest, actions, and plan ID. Apply and read back both
+   paths, destination identity, and binding. Dirty, busy, colliding, nested, linked, submodule,
+   symlinked, identity-mismatched, stale, cross-filesystem, or any linked/locked/stale/prunable/
+   malformed/symlinked/unreadable shared worktree registration refuses. Never prune, repair,
+   copy, delete, or force. After rename/save failure, accept only `operation show` plus the
+   separately approved one-CAS `operation reconcile` repair for the unchanged exact checkout.
+12. **Execute bounded workflows.** Review `workflow show`; run exact inputs. Agent submission is a
+   claim until resume verifies outputs. Approve only the pending digest; never turn argv into shell
+   text. External handoffs need typed readback, waiting is not completion, retries need fresh
+   approval, and interrupted unknown effects stay blocked without replay. Coordination requires
+   exact member readback and repository-bound contexts/steps. Rule proposals remain local, inert,
+   digest-bound, and explicit about `not-carrying`; never edit, merge, apply, or send them.
+13. **Use legacy views only when requested.** A legacy principal is advisory, not authentication. Selected legacy workflows and placement plans carry
+   `executable:false`; never execute their action text or treat a preview as approval.
+14. **Resolve bounded context read-only.** Run `context REPOSITORY` or `explain REPOSITORY [FIELD]`
+   with legal selectors. References stay linked unless individually `--load`ed with exact
+   `--approve-content` SHA-256; unknown approvals refuse. Descriptor reads stay below trusted roots and
+   retain identity. Validate linked text. The 16,000-byte/4,000-token-equivalent budget covers complete
+   JSON/text; oversized required output refuses and optional content stays linked. Instructions are never enforced;
+   everything executable stays inactive. `--source` compares only. Correct conflicts in the draft.
+15. **Open and activate exactly.** Run `workspacectl open TARGET` read-only. With explicit
+   `--host hermes --activate`, execute returned `desktop_project list/create/switch` requests,
+   read back the active Project and effective tool cwd, then acknowledge the exact action ID/digest.
+   Coordination creation uses a separate approved plan; reopen reports member drift without mutation.
+16. **Respect storage authority.** Use installed adapter names only. Route workspace/local-state export,
+    validation, plan, apply, CAS, and readback through the selected adapter; never fall back to files.
+    Degraded mutation authority cannot mutate; `CONFLICT` preserves the winner. `test-async-file`
+    is test-only, not remote authentication.
+17. **Finish with evidence.** Record paths, exits, scope, coverage, unchanged bytes,
+   identity/hash reconciliation, and refusals. A checkout approval grants only its exact clone;
+   success grants no authority to move, commit, push, persist a source, or activate a host.
 
 ## Quick Reference
 
+Default output is readable text. Add `--json` for the complete machine result.
+
 ```sh
-workspacectl catalog --manifest manifest.json --principal reader
-workspacectl explain --manifest manifest.json --node repo --principal reader
-workspacectl workflow --manifest manifest.json --node repo --principal reader --workflow feature
-workspacectl report --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature
-workspacectl report --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --workflow feature --format html > workspace-report.html
-workspacectl plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT"
-workspacectl audit --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT"
-workspacectl verify-plan --manifest manifest.json --node org --principal reader --root "$SCAN_ROOT" --plan preview.json
+workspacectl doctor --config "$CONFIG" --json
+workspacectl doctor --integration --config "$CONFIG" --skill "$SKILL" --json
+workspacectl list --config "$CONFIG" --json
+workspacectl mcp config --client hermes --config "$CONFIG" --json
+workspacectl config export --target catalog --config "$CONFIG"
+workspacectl config validate "$DRAFT" --config "$CONFIG" --json
+workspacectl config plan "$DRAFT" --config "$CONFIG" --plan "$PLANS/catalog.json" --json
+workspacectl-mcp --config "$CONFIG"
 ```
+
+`mcp config` only renders registration. It never edits an agent profile or proves
+a connection. Generated launch arguments are read-only by default and omit
+`--allow-plans`, `--allow-apply`, and host auto-approval settings. Apply the
+snippet separately through the client's supported configuration route, then
+restart/reload that client and verify initialization, tool discovery, and calls
+as distinct steps. Host-mediated human permission is separate from server
+capability and exact action binding; automatic allow grants the model authority
+and is not human consent.
+
+Config selection remains `--config`, `WORKSPACECTL_CONFIG`,
+`XDG_CONFIG_HOME/workspacectl/config.yaml`, then the conventional home path. Plan
+files are private, exclusive new files inside the configured plans directory.
+Preview does not change active documents. `STALE_PLAN` requires a new preview;
+`BUSY` preserves another writer's lock and the target document.
+
+Exit 0 is success; selected partial/unknown coverage and audit decision findings use
+exit 3 while retaining the overview on stdout. Exit 2 is invalid/config/unsupported;
+exit 3 also covers stale plans; exit 4 approval/trust required; exit 5 conflict or
+busy; exit 6 action failure. Unreachable required dependencies report `UNAVAILABLE`.
+Errors use the stable JSON envelope with `--json`.
+
+For document, import, store, and retained legacy safeguards, read the
+[policy and safety contract](references/policy.md).
 
 ## Usage Examples
 
 ```text
-Audit the declared repository catalog in manifest.json for the reader principal.
-Validate it first, and stop on any schema error rather than repairing it. Report
-missing, misplaced, duplicate and blocked entries, and move nothing.
+Connect the local stdio MCP in read-only mode to this exact Workspaces config. List
+catalog coverage, resolve repository `service`, and show its bounded context. Do not
+enable plans or effects, and do not let tool arguments replace the server config.
+Treat caller config, argv, and environment fields as unbound input and reject them.
 ```
 
 ```text
-Explain what policy applies to node repo for principal reader, and where each
-field came from. I want the inherited constraints and their provenance, not a
-summary — and do not treat a later setting as permission to bypass an ancestor's.
+Use `workspace_workflow` only to list/show definitions or read an existing run status.
+If I ask to run, approve, resume, interrupt, reconcile, or apply through MCP, report that
+the current read-only server does not advertise that capability instead of improvising a
+CLI or shell call.
 ```
-
-```text
-Before I design any moves: give me a local placement preview for node org under
-$SCAN_ROOT, saved outside the scan root, then verify it with the same explicit
-manifest, node, principal and root. Tell me the exit code and whether the scan
-was complete — a partial scan cannot prove a checkout missing.
-```
-
-## Pitfalls
-
-- Public or restricted catalog visibility is not an OS sandbox or credential ACL.
-  Trusted server hosts alone may supply enforced whole-authority snapshots bound
-  to an authenticated subject. Subject-filtered remote stores are unsupported.
-- Hidden descendants refuse a scoped report or plan rather than silently skipping obligations.
-  Readable policy/workflow text is deliberately shared; never put secrets or
-  hidden names into it. Metadata is opaque, not a typed cross-project ACL feature.
-- Symlink roots/ancestors and external Git metadata are refused. Scans skip known
-  dependency/cache folders and fail completeness on depth/error limits.
-- Dirty duplicates remain duplicates with a dirty flag; dirty singleton sources
-  block. Nothing stashes, moves, deletes, clones, fetches or fixes drift.
-- Preview freshness is observation-level only. File bytes may change without a
-  HEAD/status change. Revisions are not approval signatures or upstream Git sync.
-- No auto-loaded user configuration, YAML, apply engine, executable action registry,
-  remote scoped storage/cache, multi-store revision vectors or Hermes/MCP adapter.
-
-## Verification
-
-Exit 0 means valid output (plans may still show drift); exit 2 means invalid,
-unavailable, unsupported or tool failure; exit 3 means incomplete, audit drift or
-stale plan. Data is JSON on stdout except explicit `report --format html`; errors
-are static JSON on stderr. Audit adds `drift`.
-An incomplete plan has no partial stdout. Verify unchanged previews and report
-stale ones honestly; no automatic retries that disguise changed observations.
-
-For field/step merge rules, store boundaries and deferred mutation gates, read
-[the policy and safety contract](references/policy.md).
