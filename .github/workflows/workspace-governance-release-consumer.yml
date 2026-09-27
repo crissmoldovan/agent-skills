@@ -47,12 +47,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm_path=$(command -v npm)
+          tar_path=$(command -v tar)
           node "$RUNNER_TEMP/workspace-governance-release-consumer/verifier.mjs" \
             --mode release \
             --repository https://github.com/crissmoldovan/agent-skills \
             --tag workspace-governance-v0.3.0 \
             --manifest-sha256 2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af \
-            --output "$RUNNER_TEMP/workspace-governance-release-consumer/result.json"
+            --output "$RUNNER_TEMP/workspace-governance-release-consumer/result.json" \
+            --npm "$npm_path" \
+            --tar "$tar_path"
 
       - name: Retain exact consumer readback
         if: always()
