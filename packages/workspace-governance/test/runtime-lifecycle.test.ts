@@ -193,6 +193,53 @@ test("anchored offline install owns both launchers, no-ops, and removal preserve
   } finally { await rm(f.scratch, { recursive: true, force: true }); }
 });
 
+test("P24 initial receipt write and chmod failures roll back exact owned objects and permit a clean retry", async () => {
+  for (const injected of ["WORKSPACECTL_TEST_FAIL_RECEIPT_WRITE", "WORKSPACECTL_TEST_FAIL_RECEIPT_CHMOD"] as const) {
+    const f = await fixture();
+    try {
+      const args = ["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"];
+      const receiptPath = join(f.root, "manager-receipt.json");
+      const failed = run(args, { [injected]: receiptPath });
+      assert.notEqual(failed.status, 0, failed.stdout);
+      assert.deepEqual(await treeSnapshot(f.root), []);
+      assert.deepEqual(await treeSnapshot(f.bins), []);
+      const retried = run(args);
+      assert.equal(retried.status, 0, retried.stderr);
+      assert.equal(run(["status", "--root", f.root, "--bin-dir", f.bins, "--json"]).status, 0);
+      assert.equal(run(["remove", "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"]).status, 0);
+    } finally { await rm(f.scratch, { recursive: true, force: true }); }
+  }
+});
+
+test("P24 initial receipt, launcher, and version races preserve concurrent winners", async () => {
+  for (const boundary of ["receipt", "launcher", "version"] as const) {
+    const f = await fixture();
+    try {
+      const receiptPath = join(f.root, "manager-receipt.json");
+      const launcherPath = join(f.bins, "workspacectl-mcp");
+      const versionRoot = join(f.root, "versions", "0.3.0");
+      const env: Record<string, string> = boundary === "receipt"
+        ? { WORKSPACECTL_TEST_REPLACE_FRESH_RECEIPT_BEFORE_PUBLISH: receiptPath }
+        : boundary === "launcher"
+          ? { WORKSPACECTL_TEST_REPLACE_FRESH_LAUNCHER_AFTER_CREATE: launcherPath }
+          : { WORKSPACECTL_TEST_REPLACE_FRESH_VERSION_AFTER_QUARANTINE: versionRoot, WORKSPACECTL_TEST_FAIL_RECEIPT_WRITE: receiptPath };
+      const failed = run(["install", "--bundle", f.bundle, "--manifest-sha256", f.anchor, "--root", f.root, "--bin-dir", f.bins, "--json", "--yes"], env);
+      assert.equal(failed.status, boundary === "version" ? 2 : 5, failed.stderr);
+      assert.match(failed.stderr, boundary === "version" ? /INSTALL_FAILED/ : /CONFLICT/);
+      if (boundary === "receipt") assert.equal(await readFile(receiptPath, "utf8"), "concurrent receipt winner\n");
+      else if (boundary === "launcher") assert.equal(await readFile(launcherPath, "utf8"), "#!/bin/sh\necho concurrent launcher winner\n");
+      else {
+        assert.equal(await readFile(join(versionRoot, "concurrent-winner.txt"), "utf8"), "concurrent version winner\n");
+        const refusal = JSON.parse(failed.stderr).error;
+        assert.ok(refusal.recoverableState.some((entry: any) => entry.kind === "version" && entry.path === versionRoot));
+      }
+      if (boundary !== "version") await assert.rejects(lstat(versionRoot), /ENOENT/);
+      const otherLauncher = join(f.bins, boundary === "launcher" ? "workspacectl" : "workspacectl-mcp");
+      await assert.rejects(lstat(otherLauncher), /ENOENT/);
+    } finally { await rm(f.scratch, { recursive: true, force: true }); }
+  }
+});
+
 test("a receipt digest cannot bless launcher bytes that disagree with the fixed template", async () => {
   const f = await fixture();
   try {

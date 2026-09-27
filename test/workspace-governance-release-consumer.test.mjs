@@ -45,7 +45,7 @@ test("workflow is post-publication, read-only, dual-host, and source-runtime-fre
   assert.match(text, /ubuntu-latest/);
   assert.match(text, /macos-14/);
   assert.match(text, /workspace-governance-v0\.3\.0/);
-  assert.match(text, /2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379/);
+  assert.match(text, /2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af/);
   const verifierDigest = createHash("sha256").update(await readFile(runner)).digest("hex");
   assert.match(text, new RegExp(`VERIFIER_SHA256: ${verifierDigest}`));
   assert.doesNotMatch(text, /actions\/checkout/);

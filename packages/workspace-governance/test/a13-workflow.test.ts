@@ -38,7 +38,7 @@ async function fixture() {
       step("context", "context.resolve", [], { repositoryId: "repo", workspaceId: "ws" }),
       step("workspace", "workspace.check", ["context"], { repositoryId: "repo", workspaceId: "ws" }),
       step("agent", "agent.task", ["workspace"], { target: "repo", objective: "Create agent.txt", expectedOutputs: [{ id: "agent-file", path: "agent.txt" }], verification: [{ type: "file", path: "agent.txt", content: "agent-ok\n" }] }),
-      step("command", "command", ["agent"], { executable: process.execPath, argv: [commandScript], cwd: "workspace", environment: ["A13_MARKER"], timeoutMs: 5000, expectedExit: 0 }, "explicit"),
+      step("command", "command", ["agent"], { executable: process.execPath, argv: [commandScript], inputFiles: [{ argvIndex: 0 }], cwd: "workspace", environment: ["A13_MARKER"], timeoutMs: 5000, expectedExit: 0 }, "explicit"),
       step("verify", "verify", ["command"], { checks: [{ type: "file", path: "command.txt", content: "command-ok\n", outputId: "command-file" }] }),
       step("publish", "external.action", ["verify"], { target: "synthetic-publication", objective: "Record safe publication readback", expectedOutputs: [{ id: "publication", path: "publication.json" }], verification: [{ type: "json-file", path: "publication.json", fields: { url: "https://example.invalid/releases/a13", id: "release-a13", commit: "1111111111111111111111111111111111111111" } }] }, "explicit"),
     ] }], metadata: {},

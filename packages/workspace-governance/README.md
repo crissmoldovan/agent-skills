@@ -494,9 +494,12 @@ workspacectl workflow status --run RUN --config "$CONFIG" --json
 The runner accepts only its typed action registry. Agent and external steps return a bound
 handoff; submit records a claim, while resume independently reads declared outputs. Commands
 use one absolute executable plus argv, exact workspace cwd, named environment variables,
-timeout and expected exit, never a shell. Commands and external effects require the exact
-pending approval. Changed config/catalog/local-state, resolved workflow, workspace binding,
-executable, or absolute argv files make an existing run stale. Waiting is not completion.
+timeout and expected exit, never a shell. In a command definition, use optional
+`inputFiles: [{"argvIndex": 0}]` entries only for immutable script/input arguments whose regular-file
+bytes must remain unchanged; leave new output paths and directory arguments undeclared. Commands
+and external effects require the exact pending approval. Changed config/catalog/local-state,
+resolved workflow, workspace binding, executable, or declared `inputFiles` bytes make an existing
+run stale. Waiting is not completion.
 External publication/deployment is a host handoff only; the package performs no remote action.
 See [the A13 contract](docs/m6-a13-contract.md).
 For exact two-member context and rule-proposal semantics, see [the A15 contract](docs/m6-a15-contract.md).

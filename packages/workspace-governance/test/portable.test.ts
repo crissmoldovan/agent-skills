@@ -30,7 +30,7 @@ const catalog = (): CatalogDocument => ({
   workflows: [{
     id: "build", scope: { kind: "repository", id: "repo-a" }, inputs: [], outputs: [{ id: "artifact", required: true }], settings: {}, operations: [], constraints: [],
     steps: [
-      { id: "run", type: "command", needs: [], configuration: { executable: "/bin/sh", argv: ["-c", "/source/home/script"], cwd: "workspace", environment: ["TOKEN"], timeoutMs: 1000, expectedExit: 0 }, sideEffect: "workspace", approval: "explicit", retry: { mode: "never", maxAttempts: 1 }, required: true },
+      { id: "run", type: "command", needs: [], configuration: { executable: "/bin/sh", argv: ["-c", "/source/home/script"], inputFiles: [{ argvIndex: 1 }], cwd: "workspace", environment: ["TOKEN"], timeoutMs: 1000, expectedExit: 0 }, sideEffect: "workspace", approval: "explicit", retry: { mode: "never", maxAttempts: 1 }, required: true },
       { id: "verify", type: "verify", needs: ["run"], configuration: { checks: [{ type: "file", path: "artifact.txt", content: "ok", outputId: "artifact" }] }, sideEffect: "none", approval: "none", retry: { mode: "never", maxAttempts: 1 }, required: true },
     ],
   }],
@@ -64,6 +64,7 @@ test("portable export transforms authority and verifies RFC8785 digest", () => {
   assert.ok(exported.unresolvedBindings.length >= 7);
   assert.ok(exported.unresolvedBindings.every(binding => binding.dependants.length > 0));
   assert.ok(!JSON.stringify(exported).includes("/source/home"));
+  assert.deepEqual((exported.logical.workflows[0].steps[0] as any).configuration.inputFiles, [{ argvIndex: 1 }]);
   assert.deepEqual(exported.notCarried, [
     "config", "local-state", "checkout-paths", "workspace-ids", "native-project-ids", "coordination-bindings",
     "trusted-roots", "approvals", "plans", "journals", "runs", "locks", "observations", "receipts",
@@ -93,6 +94,21 @@ test("portable validation refuses dangling needs, alias ambiguity, and unknown a
   const unsupported = catalog();
   (unsupported.workflows[0].steps[0] as any).type = "custom.exec";
   assert.throws(() => createPortableDocument(unsupported, "2026-09-26T00:00:00.000Z", "x"), (error: any) => error.code === "UNSUPPORTED");
+});
+
+test("portable command inputFiles refuse malformed, duplicate, out-of-range, and non-absolute argv references", () => {
+  for (const inputFiles of [
+    [{ argvIndex: -1 }],
+    [{ argvIndex: 2 }],
+    [{ argvIndex: 1 }, { argvIndex: 1 }],
+    [{ argvIndex: 0 }],
+    [{ argvIndex: "1" }],
+    [{ argvIndex: 1, path: "/source/home/script" }],
+  ]) {
+    const malformed = catalog() as any;
+    malformed.workflows[0].steps[0].configuration.inputFiles = inputFiles;
+    assert.throws(() => createPortableDocument(malformed, "2026-09-26T00:00:00.000Z", "x"), (error: any) => error.code === "INVALID_CONFIG", JSON.stringify(inputFiles));
+  }
 });
 
 test("incoming portable validation reclassifies authority and graph semantics instead of trusting its digest", () => {

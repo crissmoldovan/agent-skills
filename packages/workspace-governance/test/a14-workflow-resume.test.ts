@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +27,7 @@ async function fixture(kind: "retry" | "ambiguous" = "retry") {
   const common = [step("context", "context.resolve", [], { repositoryId: "repo", workspaceId: "ws" }), step("workspace", "workspace.check", ["context"], { repositoryId: "repo", workspaceId: "ws" })];
   const steps = kind === "retry" ? [...common,
     step("agent", "agent.task", ["workspace"], { target: "repo", objective: "Create agent.json", expectedOutputs: [{ id: "agent", path: "agent.json" }], verification: [{ type: "json-file", path: "agent.json", fields: { kind: "task" } }] }),
-    step("command", "command", ["agent"], { executable: process.execPath, argv: [commandScript], cwd: "workspace", environment: [], timeoutMs: 5000, expectedExit: 0 }, "explicit", "safe"),
+    step("command", "command", ["agent"], { executable: process.execPath, argv: [commandScript], inputFiles: [{ argvIndex: 0 }], cwd: "workspace", environment: [], timeoutMs: 5000, expectedExit: 0 }, "explicit", "safe"),
     step("verify", "verify", ["command"], { checks: [{ type: "file", path: "effects.log", content: "command-effect\n", outputId: "effect" }] }),
   ] : [...common,
     step("publish", "external.action", ["workspace"], { target: "synthetic-publication", objective: "Publish once", expectedOutputs: [{ id: "publication", path: "publication.json" }], verification: [{ type: "json-file", path: "publication.json", fields: { id: "release-a14" } }] }, "explicit"),
@@ -148,6 +148,64 @@ test("A14 preserves an unknown per-run lock and refuses before command effect ex
     result = f.run(["workflow", "resume", "--run", run.id, "--config", f.configPath, "--json"]); assert.equal(result.status, 5); assert.equal(JSON.parse(result.stderr).error.code, "BUSY");
     assert.equal(await readFile(lockPath, "utf8"), "unknown lock owner\n"); await assert.rejects(readFile(join(f.workspace, "effects.log")));
   } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("P08 fingerprints only declared immutable inputs while absolute output and directory argv execute once", async () => {
+  const f = await fixture();
+  try {
+    const executable = join(f.root, "approved-command");
+    const input = join(f.root, "immutable-input.txt");
+    const output = join(f.root, "new-output.txt");
+    const directory = join(f.root, "output-directory");
+    await mkdir(directory);
+    await writeFile(input, "approved input\n");
+    await writeFile(executable, `#!${process.execPath}\nimport { appendFile, readFile, writeFile } from "node:fs/promises";\nconst [input, output, directory] = process.argv.slice(2);\nawait writeFile(output, await readFile(input));\nawait writeFile(directory + "/nested.txt", "nested output\\n");\nawait appendFile("effects.log", "command-effect\\n");\n`);
+    await chmod(executable, 0o700);
+    const changed = structuredClone(f.catalog);
+    changed.workflows[0].steps[3].configuration = { executable, argv: [input, output, directory], inputFiles: [{ argvIndex: 0 }], cwd: "workspace", environment: [], timeoutMs: 5000, expectedExit: 0 };
+    await writeFile(f.catalogPath, JSON.stringify(changed) + "\n");
+
+    let result = f.run(["workflow", "run", "--repo", "repo", "--workspace", "ws", "--workflow", "feature", "--input", "task=implement", "--config", f.configPath, "--json"]);
+    assert.equal(result.status, 0, result.stderr);
+    let run = await submitAgent(f, JSON.parse(result.stdout).run);
+    await writeFile(join(f.workspace, "agent.json"), JSON.stringify({ kind: "task", result: "good" }) + "\n");
+    const exactApproval = { ...run.pending };
+    result = f.run(["workflow", "approve", ...args(run), "--config", f.configPath, "--json"]); assert.equal(result.status, 0, result.stderr);
+    result = f.run(["workflow", "resume", "--run", run.id, "--config", f.configPath, "--json"]); assert.equal(result.status, 0, result.stderr); run = JSON.parse(result.stdout).run;
+    assert.equal(run.status, "completed");
+    assert.equal(await readFile(output, "utf8"), "approved input\n");
+    assert.equal(await readFile(join(directory, "nested.txt"), "utf8"), "nested output\n");
+    assert.equal(await readFile(join(f.workspace, "effects.log"), "utf8"), "command-effect\n");
+    assert.equal(run.approvals.includes(exactApproval.requestDigest), true);
+    for (let index = 0; index < 2; index += 1) {
+      result = f.run(["workflow", "resume", "--run", run.id, "--config", f.configPath, "--json"]); assert.equal(result.status, 0, result.stderr);
+    }
+    assert.equal(await readFile(join(f.workspace, "effects.log"), "utf8"), "command-effect\n");
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("P08 declared immutable input and executable byte changes make approval and resume stale", async () => {
+  for (const boundary of ["input", "executable"] as const) {
+    const f = await fixture();
+    try {
+      const executable = join(f.root, "approved-command");
+      const input = join(f.root, "immutable-input.txt");
+      await writeFile(input, "approved input\n");
+      await writeFile(executable, `#!${process.execPath}\nprocess.exit(0);\n`);
+      await chmod(executable, 0o700);
+      const changed = structuredClone(f.catalog);
+      changed.workflows[0].steps[3].configuration = { executable, argv: [input], inputFiles: [{ argvIndex: 0 }], cwd: "workspace", environment: [], timeoutMs: 5000, expectedExit: 0 };
+      await writeFile(f.catalogPath, JSON.stringify(changed) + "\n");
+      let result = f.run(["workflow", "run", "--repo", "repo", "--workspace", "ws", "--workflow", "feature", "--input", "task=implement", "--config", f.configPath, "--json"]); assert.equal(result.status, 0, result.stderr);
+      const run = await submitAgent(f, JSON.parse(result.stdout).run);
+      const runPath = join(f.plans, "runs", `${run.id}.json`), before = await readFile(runPath);
+      await writeFile(boundary === "input" ? input : executable, boundary === "input" ? "changed input\n" : `#!${process.execPath}\n// changed executable\nprocess.exit(0);\n`);
+      result = f.run(["workflow", "status", "--run", run.id, "--config", f.configPath, "--json"]); assert.notEqual(result.status, 0); assert.ok(JSON.parse(result.stdout).run.blockers.includes("executable-bytes"));
+      for (const command of [["workflow", "approve", ...args(run)], ["workflow", "resume", "--run", run.id]]) {
+        result = f.run([...command, "--config", f.configPath, "--json"]); assert.notEqual(result.status, 0); assert.deepEqual(await readFile(runPath), before);
+      }
+    } finally { await rm(f.root, { recursive: true, force: true }); }
+  }
 });
 
 test("A14 status exposes definition drift while old approval, resume, and executable-byte reuse refuse unchanged", async () => {

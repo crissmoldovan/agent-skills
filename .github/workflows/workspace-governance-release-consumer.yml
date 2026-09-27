@@ -28,7 +28,7 @@ jobs:
         shell: bash
         env:
           VERIFIER_URL: https://raw.githubusercontent.com/crissmoldovan/agent-skills/workspace-governance-v0.3.0/scripts/verify-workspace-governance-release.mjs
-          VERIFIER_SHA256: 719c030c233c3939ab7e51d2a075beeeb21cc46e1ae1cd0a9d4770f84c277208
+          VERIFIER_SHA256: d86610fd93531730c296dfdd0c07c8830369d69f6bed0b63d9f3483f4aac6d1c
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/workspace-governance-release-consumer"
@@ -51,7 +51,7 @@ jobs:
             --mode release \
             --repository https://github.com/crissmoldovan/agent-skills \
             --tag workspace-governance-v0.3.0 \
-            --manifest-sha256 2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379 \
+            --manifest-sha256 2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af \
             --output "$RUNNER_TEMP/workspace-governance-release-consumer/result.json"
 
       - name: Retain exact consumer readback

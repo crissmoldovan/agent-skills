@@ -172,7 +172,7 @@ function transformCatalog(input: CatalogDocument): { logical: CatalogDocument; b
         "context.resolve": ["repositoryId", "workspaceId"], "workspace.check": ["repositoryId", "workspaceId"],
         "agent.task": ["target", "objective", "expectedOutputs", "verification", "repositoryId", "workspaceId"],
         "external.action": ["target", "objective", "expectedOutputs", "verification", "repositoryId", "workspaceId"],
-        command: ["executable", "argv", "cwd", "environment", "timeoutMs", "expectedExit", "repositoryId", "workspaceId"],
+        command: ["executable", "argv", "inputFiles", "cwd", "environment", "timeoutMs", "expectedExit", "repositoryId", "workspaceId"],
         verify: ["checks", "repositoryId", "workspaceId"],
         "rules.distribute": ["outputId", "source", "repositories"],
       };
@@ -190,6 +190,17 @@ function transformCatalog(input: CatalogDocument): { logical: CatalogDocument; b
         replace(c, "executable", "executable", dependant("executable"));
         requireThat(Array.isArray(c.argv) && Array.isArray(c.environment), "INVALID_CONFIG");
         c.argv = c.argv.map((entry: unknown, index: number) => typeof entry === "string" && (isAbsolute(entry) || entry.startsWith("needs-binding:")) ? bind("absolute-argument", dependant(`argv.${index}`)) : entry);
+        if (Object.hasOwn(c, "inputFiles")) {
+          requireThat(Array.isArray(c.inputFiles) && c.inputFiles.length <= c.argv.length, "INVALID_CONFIG");
+          const indexes = new Set<number>();
+          for (const rawEntry of c.inputFiles) {
+            const entry = rawEntry as any, argvIndex = entry?.argvIndex;
+            requireThat(plain(entry) && Object.keys(entry).length === 1 && Number.isInteger(argvIndex) && argvIndex >= 0 && argvIndex < c.argv.length && !indexes.has(argvIndex), "INVALID_CONFIG");
+            const argument = c.argv[argvIndex];
+            requireThat(typeof argument === "string" && (isAbsolute(argument) || argument.startsWith("needs-binding:")), "INVALID_CONFIG");
+            indexes.add(argvIndex);
+          }
+        }
         replace(c, "cwd", "workspace", dependant("cwd"));
         c.environment = c.environment.map((_entry: unknown, index: number) => bind("environment", dependant(`environment.${index}`)));
       }

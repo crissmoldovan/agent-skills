@@ -12,7 +12,7 @@ const EXPECTED = Object.freeze({
   repository: "https://github.com/crissmoldovan/agent-skills",
   tag: "workspace-governance-v0.3.0",
   manifestAsset: "runtime-manifest.json",
-  manifestSha256: "2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379",
+  manifestSha256: "2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af",
   package: "@crissmoldovan/workspace-governance",
   packageVersion: "0.3.0",
   catalogVersion: "0.26.0",

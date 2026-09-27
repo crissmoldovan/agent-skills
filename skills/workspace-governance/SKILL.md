@@ -6,7 +6,7 @@ author: Cristian Moldovan (crissmoldovan), Hermes Agent
 license: MIT
 platforms: [linux, darwin]
 compatibility: "workspacectl 0.3.0; catalog 0.26.0; skill tag workspace-governance-v0.3.0"
-metadata: "runtime-manifest-sha256=2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
+metadata: "runtime-manifest-sha256=2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af; repository=https://github.com/crissmoldovan/agent-skills; release=workspace-governance-v0.3.0"
 ---
 
 # Workspace Governance

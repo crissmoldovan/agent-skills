@@ -87,8 +87,18 @@ function validateExecutableWorkflow(workflow: ResolvedWorkflow): void {
     if (step.type === "context.resolve" || step.type === "workspace.check") { exactKeys(c, ["repositoryId", "workspaceId"]); validateStepTarget(c, false); requireThat(step.sideEffect === "none" && step.approval === "none", "INVALID_CONFIG"); }
     if (step.type === "agent.task" || step.type === "external.action") { exactKeys(c, ["target", "objective", "expectedOutputs", "verification"], ["repositoryId", "workspaceId"]); validateStepTarget(c); boundedText(c.target); boundedText(c.objective); const outputs = validateOutputs(c.expectedOutputs) as any[], verification = validateVerification(c.verification) as any[]; requireThat(outputs.every((output) => verification.some((check) => check.path === output.path)), "INVALID_CONFIG"); if (step.type === "external.action") requireThat(verification.some((check) => outputs.some((output) => output.path === check.path) && hasTypedExternalHandle(check)) && step.sideEffect === "external" && step.approval === "explicit", "INVALID_CONFIG"); else requireThat(step.sideEffect === "none" && step.approval === "none", "INVALID_CONFIG"); }
     if (step.type === "command") {
-      exactKeys(c, ["executable", "argv", "cwd", "environment", "timeoutMs", "expectedExit"], ["repositoryId", "workspaceId"]); validateStepTarget(c); boundedText(c.executable); requireThat(resolve(c.executable) === c.executable, "INVALID_CONFIG");
+      exactKeys(c, ["executable", "argv", "cwd", "environment", "timeoutMs", "expectedExit"], ["inputFiles", "repositoryId", "workspaceId"]); validateStepTarget(c); boundedText(c.executable); requireThat(resolve(c.executable) === c.executable, "INVALID_CONFIG");
       requireThat(Array.isArray(c.argv) && c.argv.length <= 100 && c.argv.every((entry: unknown) => typeof entry === "string" && entry.length <= 16_384 && !entry.includes("\0")), "INVALID_CONFIG");
+      const inputFiles = c.inputFiles ?? [];
+      requireThat(Array.isArray(inputFiles) && inputFiles.length <= c.argv.length, "INVALID_CONFIG");
+      const inputIndexes = new Set<number>();
+      for (const rawInput of inputFiles) {
+        const input = rawInput as any;
+        exactKeys(input, ["argvIndex"]);
+        const argument = c.argv[input.argvIndex] as string;
+        requireThat(Number.isInteger(input.argvIndex) && input.argvIndex >= 0 && input.argvIndex < c.argv.length && !inputIndexes.has(input.argvIndex) && resolve(argument) === argument, "INVALID_CONFIG");
+        inputIndexes.add(input.argvIndex);
+      }
       requireThat(c.cwd === "workspace" && Array.isArray(c.environment) && new Set(c.environment).size === c.environment.length && c.environment.every((entry: unknown) => typeof entry === "string" && /^[A-Z_][A-Z0-9_]*$/.test(entry)), "INVALID_CONFIG");
       requireThat(typeof c.timeoutMs === "number" && Number.isInteger(c.timeoutMs) && c.timeoutMs >= 1 && c.timeoutMs <= 600_000 && typeof c.expectedExit === "number" && Number.isInteger(c.expectedExit) && c.expectedExit >= 0 && c.expectedExit <= 255 && step.approval === "explicit", "INVALID_CONFIG");
     }
@@ -147,8 +157,8 @@ async function selectedCoordination(configPath: string, coordinationWorkspaceId:
 async function commandFingerprints(workflow: ResolvedWorkflow): Promise<Record<string, string>> {
   const result: Record<string, string> = Object.create(null);
   for (const step of workflow.steps.filter((entry) => entry.type === "command")) {
-    const c = step.configuration as any, files: Array<{ path: string; digest: string }> = [];
-    for (const path of [c.executable, ...c.argv.filter((entry: string) => resolve(entry) === entry)]) { const status = await lstat(path); requireThat(status.isFile() && !status.isSymbolicLink() && status.size <= 256 * 1024 * 1024, "UNAVAILABLE"); files.push({ path, digest: createHash("sha256").update(await readFile(path)).digest("hex") }); }
+    const c = step.configuration as any, files: Array<{ role: string; path: string; digest: string }> = [];
+    for (const [role, path] of [["executable", c.executable], ...(c.inputFiles ?? []).map((input: any) => [`argv:${input.argvIndex}`, c.argv[input.argvIndex]] as const)] as Array<readonly [string, string]>) { const status = await lstat(path); requireThat(status.isFile() && !status.isSymbolicLink() && status.size <= 256 * 1024 * 1024, "UNAVAILABLE"); files.push({ role, path, digest: createHash("sha256").update(await readFile(path)).digest("hex") }); }
     result[step.id] = hash(files);
   }
   return result;

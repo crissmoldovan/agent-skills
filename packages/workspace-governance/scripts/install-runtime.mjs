@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { constants, realpathSync } from "node:fs";
 import { access, chmod, copyFile, lstat, link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -15,7 +15,7 @@ const MANIFEST_ASSET = "runtime-manifest.json";
 const CATALOG_VERSION = "0.26.0";
 // Replaced only after the stable 0.3.0 runtime is assembled. The runtime archive
 // does not contain this helper, so embedding its digest cannot create a cycle.
-const CARRIED_MANIFEST_SHA256 = "2a5ad4846c14e3ff9c2948b216133821743083ffb1c6d07b7474e1b4b4b46379";
+const CARRIED_MANIFEST_SHA256 = "2c875a6f6c192d8e2555f48ed2d6c5e6628fc6938d39fc060f7e405a2e8d47af";
 const BINS = ["workspacectl", "workspacectl-mcp"];
 const BIN_ENTRIES = { workspacectl: "dist/cli.js", "workspacectl-mcp": "dist/mcp-cli.js" };
 const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "preprepare", "postprepare", "prepublish", "prepublishOnly", "prepack", "postpack", "dependencies"];
@@ -228,7 +228,7 @@ async function validateBundle(o) {
 function shQuote(value) { return `'${value.replaceAll("'", `'\\''`)}'`; }
 function launcherText(node, cli, root, path) { return `#!/bin/sh\n# workspacectl-managed-launcher-v2\nset -eu\nexport WORKSPACECTL_INSTALL_PREFIX=${shQuote(root)}\nexport WORKSPACECTL_LAUNCHER=${shQuote(path)}\nexport WORKSPACECTL_RUNTIME_PATH=${shQuote(node)}\nexec ${shQuote(node)} ${shQuote(cli)} "$@"\n`; }
 async function acquire(root) { await mkdir(root, { recursive: true, mode: 0o700 }); const lock = join(root, ".manager-lock"); try { await mkdir(lock, { mode: 0o700 }); } catch (e) { if (e?.code === "EEXIST") fail("BUSY", "another runtime lifecycle operation holds the manager lock"); throw e; } return async () => rm(lock, { recursive: true, force: true }); }
-async function exclusiveFile(path, bytes, mode) { const dir = await mkdtemp(join(dirname(path), ".launcher-")); const candidate = join(dir, basename(path)); try { await writeFile(candidate, bytes, { mode }); await chmod(candidate, mode); await link(candidate, path); } catch (e) { if (e?.code === "EEXIST") fail("CONFLICT", `target became occupied: ${path}`); throw e; } finally { await rm(dir, { recursive: true, force: true }); } }
+async function exclusiveFile(path, bytes, mode) { const dir = await mkdtemp(join(dirname(path), ".launcher-")); const candidate = join(dir, basename(path)); try { if (process.env.WORKSPACECTL_TEST_FAIL_RECEIPT_WRITE === path) fail("INSTALL_FAILED", `injected receipt write failure: ${path}`); await writeFile(candidate, bytes, { mode }); if (process.env.WORKSPACECTL_TEST_FAIL_RECEIPT_CHMOD === path) fail("INSTALL_FAILED", `injected receipt chmod failure: ${path}`); await chmod(candidate, mode); await link(candidate, path); } catch (e) { if (e?.code === "EEXIST") fail("CONFLICT", `target became occupied: ${path}`); throw e; } finally { await rm(dir, { recursive: true, force: true }); } }
 async function restoreMovedNoReplace(moved, path) { try { await link(moved, path); } catch (e) { if (e?.code === "EEXIST") fail("CONFLICT", `target became occupied while preserving a concurrent replacement: ${path}`); throw e; } await unlink(moved); }
 async function quarantineOwned(path, digest) {
   if (await kind(path) !== "file") fail("CONFLICT", `owned target changed: ${path}`);
@@ -268,6 +268,44 @@ async function discardCandidate(path, digest) {
   const candidate = await quarantineOwned(path, digest);
   await releaseQuarantined(candidate);
   await rm(candidate.privateDir, { recursive: true, force: true });
+}
+async function restoreDirectoryNoReplace(moved, path) {
+  if (await kind(path) !== "absent") fail("CONFLICT", `version target became occupied while preserving a concurrent replacement: ${path}`);
+  await rename(moved, path);
+}
+async function discardVersionCandidate(root, record) {
+  if (await kind(record.root) === "absent") return;
+  if (await kind(record.root) !== "directory") fail("CONFLICT", `fresh version target changed: ${record.root}`);
+  const before = await stat(record.root);
+  await verifyVersion(root, record);
+  const privateDir = join(root, `.rollback-version-${randomBytes(8).toString("hex")}`), moved = join(privateDir, record.version);
+  await mkdir(privateDir, { mode: 0o700 });
+  try {
+    await rename(record.root, moved);
+    if (process.env.WORKSPACECTL_TEST_REPLACE_FRESH_VERSION_AFTER_QUARANTINE === record.root) { await mkdir(record.root, { mode: 0o700 }); await writeFile(join(record.root, "concurrent-winner.txt"), "concurrent version winner\n", { mode: 0o600 }); }
+    const after = await stat(moved);
+    if (after.dev !== before.dev || after.ino !== before.ino) { await restoreDirectoryNoReplace(moved, record.root); fail("CONFLICT", `fresh version changed concurrently: ${record.root}`); }
+    const files = await inventory(moved);
+    if (treeDigest(files) !== record.treeSha256 || JSON.stringify(files) !== JSON.stringify(record.files)) { await restoreDirectoryNoReplace(moved, record.root); fail("CONFLICT", `fresh version was modified concurrently and was preserved: ${record.root}`); }
+    await rm(privateDir, { recursive: true });
+  } catch (error) {
+    if (await kind(moved) === "directory" && await kind(record.root) === "absent") await restoreDirectoryNoReplace(moved, record.root).catch(() => undefined);
+    await rmdir(privateDir).catch(() => undefined);
+    throw error;
+  }
+}
+async function rollbackFreshInstall(o, created, record, error) {
+  const recoverableState = [];
+  for (const candidate of [...created].reverse()) {
+    try { await discardCandidate(candidate.path, candidate.digest); }
+    catch (cleanupError) { recoverableState.push({ kind: "launcher", path: candidate.path, reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) }); }
+    if (await kind(candidate.path) !== "absent") recoverableState.push({ kind: "launcher", path: candidate.path, reason: "target is concurrently occupied and was preserved" });
+  }
+  try { await discardVersionCandidate(o.root, record); }
+  catch (cleanupError) { recoverableState.push({ kind: "version", path: record.root, reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) }); }
+  if (await kind(record.root) !== "absent" && !recoverableState.some(entry => entry.kind === "version" && entry.path === record.root)) recoverableState.push({ kind: "version", path: record.root, reason: "target is concurrently occupied and was preserved" });
+  await rmdir(join(o.root, "versions")).catch(() => undefined);
+  if (recoverableState.length > 0 && error && typeof error === "object") error.recoverableState = recoverableState;
 }
 async function replaceOwnedSet(entries) {
   const quarantined = [], installed = [];
@@ -329,8 +367,18 @@ async function install(o, validated) {
     const unknownRoot = (await readdir(o.root)).filter(name => name !== ".manager-lock"); if (unknownRoot.length) fail("CONFLICT", "managed root is occupied without a valid receipt");
     for (const name of BINS) if (await kind(join(o.bin_dir, name)) !== "absent") fail("CONFLICT", `launcher path is occupied: ${join(o.bin_dir, name)}`);
     const version = validated.manifest.package.version, versionRoot = join(o.root, "versions", version); if (await kind(versionRoot) !== "absent") fail("CONFLICT", "version root is occupied without a valid receipt"); await mkdir(join(o.root, "versions"), { recursive: true, mode: 0o700 }); await mkdir(o.bin_dir, { recursive: true, mode: 0o700 }); const staging = await mkdtemp(join(o.root, `.staging-${version}-`));
-    await rm(staging, { recursive: true, force: true }); const record = await stageVersion(o, validated, versionRoot); const files = record.files; const launchers = {}; const created = []; try { for (const name of BINS) { const p = join(o.bin_dir, name), cli = join(versionRoot, "lib", "node_modules", "@crissmoldovan", "workspace-governance", validated.manifest.package.bins[name]); const bytes = launcherText(process.execPath, cli, o.root, p); await exclusiveFile(p, bytes, 0o755); created.push(p); launchers[name] = { path: p, sha256: sha(bytes), targetVersion: version, bytes }; } } catch (e) { for (const p of created) await rm(p, { force: true }); await rm(versionRoot, { recursive: true, force: true }); throw e; }
-    const identity = releaseIdentity(validated, o.manifest_sha256); const receipt = { schemaVersion: 2, package: PACKAGE, ...identity, activeVersion: version, runtime: process.execPath, versions: { [version]: record }, launchers, retainedVersions: [] }; await writeFile(join(o.root, RECEIPT), jsonBytes(receipt), { mode: 0o600 }); await chmod(join(o.root, RECEIPT), 0o600); return { action: o.action, applied: true, noOp: false, activeVersion: version, launchers: Object.fromEntries(BINS.map(n => [n, launchers[n].path])) };
+    await rm(staging, { recursive: true, force: true }); const record = await stageVersion(o, validated, versionRoot); const launchers = {}, created = [];
+    try {
+      for (const name of BINS) { const p = join(o.bin_dir, name), cli = join(versionRoot, "lib", "node_modules", "@crissmoldovan", "workspace-governance", validated.manifest.package.bins[name]); const bytes = launcherText(process.execPath, cli, o.root, p); await exclusiveFile(p, bytes, 0o755); created.push({ path: p, digest: sha(bytes) }); launchers[name] = { path: p, sha256: sha(bytes), targetVersion: version, bytes }; }
+      const racedLauncher = process.env.WORKSPACECTL_TEST_REPLACE_FRESH_LAUNCHER_AFTER_CREATE;
+      if (racedLauncher) { await unlink(racedLauncher); await writeFile(racedLauncher, "#!/bin/sh\necho concurrent launcher winner\n", { mode: 0o755 }); }
+      for (const candidate of created) if (await kind(candidate.path) !== "file" || sha(await readFile(candidate.path)) !== candidate.digest) fail("CONFLICT", `fresh launcher changed concurrently: ${candidate.path}`);
+      const identity = releaseIdentity(validated, o.manifest_sha256); const receipt = { schemaVersion: 2, package: PACKAGE, ...identity, activeVersion: version, runtime: process.execPath, versions: { [version]: record }, launchers, retainedVersions: [] };
+      const receiptPath = join(o.root, RECEIPT);
+      if (process.env.WORKSPACECTL_TEST_REPLACE_FRESH_RECEIPT_BEFORE_PUBLISH === receiptPath) await writeFile(receiptPath, "concurrent receipt winner\n", { mode: 0o600, flag: "wx" });
+      await exclusiveFile(receiptPath, jsonBytes(receipt), 0o600);
+      return { action: o.action, applied: true, noOp: false, activeVersion: version, launchers: Object.fromEntries(BINS.map(n => [n, launchers[n].path])) };
+    } catch (error) { await rollbackFreshInstall(o, created, record, error); throw error; }
   } finally { await release(); }
 }
 async function removeInstall(o) { const release = await acquire(o.root); try { const r = await loadReceipt(o.root, o.bin_dir); for (const v of Object.values(r.versions)) await verifyVersion(o.root, v); await verifyLaunchers(r); const known = new Set(Object.keys(r.versions)); const found = await readdir(join(o.root, "versions")); if (found.some(name => !known.has(name))) fail("CONFLICT", "versions container contains unknown content; nothing was removed"); if (o.preserve_version && !r.versions[o.preserve_version]) fail("INVALID_ARGUMENT", "--preserve-version must name an exactly owned version"); const quarantined = []; try { for (const n of BINS) quarantined.push(await quarantineOwned(r.launchers[n].path, r.launchers[n].sha256)); for (const transaction of quarantined) await releaseQuarantined(transaction); } catch (e) { for (const transaction of quarantined.reverse()) await rollbackQuarantined(transaction); throw e; } for (const transaction of quarantined) await rm(transaction.privateDir, { recursive: true, force: true }); const removedVersions = []; for (const [version, record] of Object.entries(r.versions)) if (version !== o.preserve_version) { await rm(record.root, { recursive: true }); removedVersions.push(version); } if (o.preserve_version) { const backup = { schemaVersion: 2, package: PACKAGE, release: r.release, manifestSha256: r.manifestSha256, archiveSha256: r.archiveSha256, preservedVersion: o.preserve_version, version: r.versions[o.preserve_version], compatibility: r.compatibility, runtime: r.runtime }; await writeFile(join(o.root, "backup-receipt.json"), jsonBytes(backup), { mode: 0o600 }); } else await rmdir(join(o.root, "versions")); await rm(join(o.root, RECEIPT)); return { action: "remove", applied: true, removedVersions, preservedVersion: o.preserve_version ?? null, preserved: ["config", "catalog", "state", "plans", "repositories", "skills"] }; } finally { await release(); try { if ((await readdir(o.root)).length === 0) await rm(o.root, { recursive: true }); } catch {} } }
@@ -370,4 +418,4 @@ function isEntrypoint(moduleUrl) {
   try { return realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(moduleUrl)); }
   catch { return false; }
 }
-if (isEntrypoint(import.meta.url)) main().catch(e => { const permission = !(e instanceof Refusal) && ["EACCES", "EPERM", "EROFS"].includes(e?.code); const code = permission ? "PERMISSION_DENIED" : e instanceof Refusal ? e.code : "INTERNAL"; const message = permission ? `permission denied for the selected user-writable destination; choose paths you own or correct permissions separately without sudo (${e.message})` : e instanceof Error ? e.message : String(e); process.stderr.write(`${JSON.stringify({ error: { code, message } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });
+if (isEntrypoint(import.meta.url)) main().catch(e => { const permission = !(e instanceof Refusal) && ["EACCES", "EPERM", "EROFS"].includes(e?.code); const code = permission ? "PERMISSION_DENIED" : e instanceof Refusal ? e.code : "INTERNAL"; const message = permission ? `permission denied for the selected user-writable destination; choose paths you own or correct permissions separately without sudo (${e.message})` : e instanceof Error ? e.message : String(e); process.stderr.write(`${JSON.stringify({ error: { code, message, ...(Array.isArray(e?.recoverableState) ? { recoverableState: e.recoverableState } : {}) } })}\n`); process.exitCode = code === "CONSENT_REQUIRED" ? 4 : code === "CONFLICT" || code === "BUSY" || code === "MODIFIED" || code === "UNMANAGED" ? 5 : 2; });

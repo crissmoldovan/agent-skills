@@ -22,6 +22,6 @@ Every public resume acquires one path-safe per-run ownership lock before loading
 
 ## Staleness and refusal
 
-`workflow status` always returns inspectable saved state. It adds `validity` and explicit `blockers`; stale status exits 3. Changed run inputs, workflow/command definition, config/trust, applicable catalog or workspace policy, workspace identity, executable bytes, or absolute argv-file bytes invalidate the saved authority. Approve, submit, interrupt, and resume then refuse without changing the journal. Start a reviewed replacement run against the current definition; old approvals are never carried forward.
+`workflow status` always returns inspectable saved state. It adds `validity` and explicit `blockers`; stale status exits 3. Changed run inputs, workflow/command definition, config/trust, applicable catalog or workspace policy, workspace identity, executable bytes, or explicitly declared immutable command input bytes invalidate the saved authority. Absolute argv not named by `inputFiles` remain approval-bound command arguments but are not assumed to exist or be regular-file inputs. Approve, submit, interrupt, and resume then refuse without changing the journal. Start a reviewed replacement run against the current definition; old approvals are never carried forward.
 
 No private journal edit is a public recovery route. Public status, bound submit/approve/interrupt/resume, independent readback, and a new run are the supported controls.

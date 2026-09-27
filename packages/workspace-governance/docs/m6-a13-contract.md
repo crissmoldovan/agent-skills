@@ -6,7 +6,7 @@
 
 Run control is explicit:
 
-- `workflow status --run ID` revalidates the current config, catalog, local state, resolved workflow, workspace binding, input fingerprint, executable, and absolute argv-file fingerprints.
+- `workflow status --run ID` revalidates the current config, catalog, local state, resolved workflow, workspace binding, input fingerprint, executable, and explicitly declared immutable `inputFiles` argv fingerprints. Other absolute argv may be new output paths or directories and are not read as inputs.
 - `workflow submit` binds the exact run, step, attempt, and request digest. It records a claim and evidence-reference digests; it never marks the step complete.
 - `workflow approve` binds only the exact pending command or external effect.
 - `workflow resume` independently reads required files or typed external JSON fields and only then completes the claimed step.
@@ -18,7 +18,7 @@ Execution is serial and dependency ordered. The initial action registry contains
 - `context.resolve`: verifies the run's exact repository/workspace binding.
 - `workspace.check`: verifies the registered path is the Git top level.
 - `agent.task`: returns `waiting-for-agent` with `{runId,stepId,attemptId,requestDigest,kind,target,objective,expectedOutputs,verification}`.
-- `command`: pauses for exact approval, then invokes one absolute executable with an argv array, exact workspace cwd, only declared environment names, bounded timeout, and expected exit. No shell or eval is used. Receipts retain environment names and output digests, not values.
+- `command`: pauses for exact approval, then invokes one absolute executable with an argv array, optional typed `inputFiles:[{argvIndex}]` declarations, exact workspace cwd, only declared environment names, bounded timeout, and expected exit. Every declared input is an absolute regular file fingerprinted with the executable; undeclared absolute argv can name outputs or directories. No shell or eval is used. Receipts retain environment names and output digests, not values.
 - `verify`: performs bounded regular-file content, digest, or typed JSON-field readback below the exact workspace.
 - `external.action`: pauses with the same bound handoff tuple, requires exact approval before submission, and completes only after declared `json-file` readback for an expected output containing at least one typed handle: an absolute HTTP(S) `url` without credentials, a bounded string `id` (`A-Z`, `a-z`, digits, `.`, `_`, `:`, `/`, or `-`), or a 7–64 hexadecimal `commit`. File-only checks, JSON fields without one of those handles, malformed handle values, and typed checks unrelated to any declared output make the workflow non-executable before a run is created. The package contains no publication/deployment API executor.
 

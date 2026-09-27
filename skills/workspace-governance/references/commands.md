@@ -28,6 +28,11 @@ absolute regular evidence files. Call `workflow resume`; only independent declar
 completes the step. Commands and external handoffs pause for `workflow approve` against the exact
 pending digest. External actions are not executed by the package.
 
+For a command step, declare immutable script/input argv positions as optional typed metadata,
+for example `"inputFiles":[{"argvIndex":0}]`. The executable and those declared regular files
+are fingerprinted across approval/resume. Do not declare a new output path or directory argument:
+it remains part of the exact approved argv without being mistaken for an existing file input.
+
 ```sh
 workspacectl workflow list --repo "$REPO" --workspace "$WORKSPACE" --config "$CONFIG" --json
 workspacectl workflow show --repo "$REPO" --workspace "$WORKSPACE" --workflow "$FLOW" --config "$CONFIG" --json
@@ -42,7 +47,7 @@ workspacectl workflow status --run "$RUN" --config "$CONFIG" --json
 ```
 
 Waiting and submitted claims are not completion. Any changed selected registry revision,
-resolved definition, workspace binding, executable, or absolute argv file makes the saved run
+resolved definition, workspace binding, executable, or declared immutable `inputFiles` bytes make the saved run
 stale. A real failed safe-retry command gets a fresh attempt and approval only after reusable
 checks are revalidated. For an approved effect interrupted in flight, use `workflow interrupt`,
 then bound `workflow submit --outcome completed|not-completed|unknown` with inspected evidence;

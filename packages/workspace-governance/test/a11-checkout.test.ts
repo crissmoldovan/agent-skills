@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -229,7 +229,10 @@ test("A11 LFS pointers refuse when verified LFS materialization is unavailable",
     git(f.dirs.source, "checkout", "main");
     await writeFile(join(f.dirs.source, ".gitattributes"), "*.bin filter=lfs diff=lfs merge=lfs -text\n");
     await writeFile(join(f.dirs.source, "asset.bin"), "version https://git-lfs.github.com/spec/v1\noid sha256:" + "a".repeat(64) + "\nsize 4\n");
-    git(f.dirs.source, "add", "."); git(f.dirs.source, "commit", "-m", "lfs pointer"); git(f.dirs.source, "push", `file://${join(f.dirs.remote, "repo.git")}`, "main");
+    const fixturePrePush = join(f.dirs.source, ".git", "hooks", "pre-push");
+    await writeFile(fixturePrePush, "#!/bin/sh\ntest \"$(git config --bool lfs.allowincompletepush)\" = true\n");
+    await chmod(fixturePrePush, 0o700);
+    git(f.dirs.source, "add", "."); git(f.dirs.source, "commit", "-m", "lfs pointer"); git(f.dirs.source, "-c", "lfs.allowincompletepush=true", "push", `file://${join(f.dirs.remote, "repo.git")}`, "main");
     const destination = join(f.dirs.workspaces, "lfs");
     const { planPath, preview: p } = await preview(f, destination);
     const result = f.run(["apply", "--config", f.config, "--plan", planPath, "--approve", p.plan.id, "--json"], { PATH: "/usr/bin:/bin" });
