@@ -142,11 +142,14 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
   they never collide with the skill's.
 
 Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of at
-least as many of its character, indented as far as the fence. An overlay with a fence that does not
-is refused: left open, the fence would swallow every heading after it, and with them every check
-those headings face. A line that opens another part of the overlay, one of its sections or a `###`
-heading whose first word is an id, ends a fence open across it, so an example that shows such a
-heading indents the fence and its lines.
+least as many of its character, indented as far as the fence or up to three columns further; a
+fence may open on the line of its list marker. An overlay with a fence that does not is refused:
+left open, the fence would swallow every heading after it, and with them every check those
+headings face. A line that opens another part of the overlay, one of its sections or a `###`
+heading whose first word is an id, ends a fence open across it, and so does such a heading
+indented one to three spaces, which Markdown still reads as a heading; an example that shows one
+indents the fence and its lines four spaces. An addition's heading starts at the left margin, so
+an indented one outside fenced code is refused too.
 
 ## The merge rules
 
@@ -214,16 +217,27 @@ the adapted `SKILL.md`, the copy carries:
 
 Every relative link in the adapted copy resolves, and a copy in which one does not is refused. A
 link inside fenced code is an example, written for wherever a reader is to put it, so it is not
-checked. A fence closes at the next bare line of at least as many of its character, backticks or
-tildes; an indented one, as in a list item, also ends at the first line indented less than it that
-is not blank, a closing line included, because that is where the item ends. A fence that ends that
-way or never closes is not read as one, so the links after it are checked. A link in an inline code
-span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.
-Not checked: the links after a fence at the left margin left open by mistake, up to the next bare
-line that closes it, as CommonMark closes it too; in an overlay that line sits in the addition or
-section the fence opens in, or the overlay is refused. Composing joins texts at fixed points and
-asks no model to merge them, so the result can be compared byte for byte, and composing again
-catches a hand edit or a stale copy.
+checked. A fence opens at three or more backticks or tildes after spaces, tabs or a list marker; a
+backtick fence whose info string holds a backtick is a code span, and a non-breaking space is not
+indentation. A fence closes at the next bare line of at least as many of its character, backticks
+or tildes, indented at most three columns more than the fence. The composer has no model of list
+items, so it cannot tell how an indented fence is meant. Each fence is read every way it could be
+meant: in a list item, where it also ends at the first line indented less than it that is not
+blank, a closing line included; without that rule, as when the item's text starts further left
+than the fence; indented three columns or fewer, at the top level, where its closing line is
+indented three columns at most; and, on the line of an ordered list marker other than 1 right
+after a line that is not blank, as no fence, since such a list cannot interrupt a paragraph. In a
+reading where a fence ends or never closes, its opening line is text and the lines after it are
+read again. A link is skipped only when every reading puts it in fenced code, so a reading that is
+wrong cannot hide it. A link in an inline code span, in a fence inside a blockquote, or in code
+indented four spaces that shows no fence of its own is checked. Not checked, though CommonMark
+shows them: the links after a line that looks like a fence where CommonMark reads something else,
+such as a line inside an HTML block or comment, or one that continues the paragraph above it, up
+to the next bare line that would close it. Nor are the links after a fence at the left margin left
+open by mistake, up to the next bare line that closes it, which CommonMark shows as code too; in an
+overlay that line sits in the addition or section the fence opens in, or the overlay is refused.
+Composing joins texts at fixed points and asks no model to merge them, so the result can be
+compared byte for byte, and composing again catches a hand edit or a stale copy.
 
 ### When the entry is a reference file
 
@@ -310,4 +324,4 @@ It does not check that the prose cites only declared ids, that a removed id's nu
 again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
 for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
 required slot unbound, writes `replaces:` on a hard line, adds to one in the words of an exception,
-or leaves a fence open past the addition or section it opens in.
+in its heading or under it, or leaves a fence open past the addition or section it opens in.

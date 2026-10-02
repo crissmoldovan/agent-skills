@@ -213,18 +213,25 @@ test('update-agent-skills maintains communication and every local plane', () => 
 // skill and its guide keep saying how a copy is composed, checked and moved, that `skills update`
 // never moves one, and that the guide stays free of a machine path, a real address or a real zone.
 // Names have no shape a public test can hold; scripts/scan-denylist.mjs reads for those.
-// Check 10 as both the guide and docs/project-adaptation.md state it: how a fence is paired, what
+// Check 10 as both the guide and docs/project-adaptation.md state it: how a fence opens and is
+// paired, that a link is skipped only when every reading of the fences calls it an example, what
 // the link check still reads, and what it does not.
 const CHECK_10_WORDS = [
-  'A fence closes at the next bare line of at least as many of its character, backticks or tildes',
-  'an indented one, as in a list item, also ends at the first line indented less than it that is not blank, a closing line included',
-  'A fence that ends that way or never closes is not read as one, so the links after it are checked.',
-  'A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.',
-  'Not checked: the links after a fence at the left margin left open by mistake, up to the next bare line that closes it',
+  'A fence opens at three or more backticks or tildes after spaces, tabs or a list marker',
+  'a backtick fence whose info string holds a backtick is a code span, and a non-breaking space is not indentation',
+  'A fence closes at the next bare line of at least as many of its character, backticks or tildes, indented at most three columns more than the fence',
+  'Each fence is read every way it could be meant',
+  'in a list item, where it also ends at the first line indented less than it that is not blank, a closing line included',
+  'A link is skipped only when every reading puts it in fenced code',
+  'A link in an inline code span, in a fence inside a blockquote, or in code indented four spaces that shows no fence of its own is checked.',
+  'Not checked, though CommonMark shows them: the links after a line that looks like a fence where CommonMark reads something else',
+  'the links after a fence at the left margin left open by mistake, up to the next bare line that closes it',
   'in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused',
 ];
-// The overlay rule both documents state: a fence closes inside its part, or the overlay is refused.
+// The overlay rules both documents state: a fence closes inside its part, or the overlay is
+// refused, and an addition's heading starts at the left margin.
 const OVERLAY_FENCE_WORDS = 'Fenced code in the overlay closes inside the addition or section it opens in';
+const OVERLAY_HEADING_WORDS = "An addition's heading starts at the left margin";
 
 test('update-agent-skills composes, checks and lists adapted copies, and keeps them out of skills update', async () => {
   const adapting = await read('skills/update-agent-skills/references/adapting.md');
@@ -250,10 +257,11 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   const checks = section(adapting, 'The checks');
   for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
   // Check 10 leaves out only fenced code that closes; the guide says how a fence is paired, what
-  // it still reads, and what it does not.
+  // it still reads, and what it does not. Check 5 reads an addition's heading with its text.
+  assert.match(checks.match(/^\| 5 \|.*$/m)?.[0] ?? '', /no addition to a hard line, its heading included, or overlay line naming one/);
   const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
   for (const words of CHECK_10_WORDS) assert.ok(linkCheck.includes(words), `check 10 in the guide does not say: ${words}`);
-  for (const words of [OVERLAY_FENCE_WORDS, 'a fence in the overlay that does not close inside its addition or section']) {
+  for (const words of [OVERLAY_FENCE_WORDS, OVERLAY_HEADING_WORDS, 'a fence in the overlay that does not close inside its addition or section', 'an indented `###` heading whose first word is an id']) {
     assert.match(adapting, new RegExp(words.replace(/ /g, '\\s+')), `the guide does not say: ${words}`);
   }
   assert.match(adapting, /warn and name each such link outside\s+fenced code/);
@@ -560,7 +568,10 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
     assert.match(copy, new RegExp(words.replace(/[.]/g, '\\.').replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
   }
   // And what the overlay holds its fences to, beside the overlay's own parts.
-  assert.match(adaptation, new RegExp(OVERLAY_FENCE_WORDS.replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${OVERLAY_FENCE_WORDS}`);
+  for (const words of [OVERLAY_FENCE_WORDS, OVERLAY_HEADING_WORDS]) {
+    assert.match(adaptation, new RegExp(words.replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
+  }
+  assert.match(adaptation, /adds to one in the words of an exception,\s+in its heading or under it,/);
   assert.match(adaptation, /or leaves a fence open past the addition or section it opens in\./);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
   assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);

@@ -113,10 +113,14 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 - Links in the overlay are written as they will be read from the generated `SKILL.md`: a project
   file is reached at the same path it has in the adapter folder.
 - Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of
-  at least as many of its character, indented as far as the fence; one left open would swallow
-  every heading after it, and the checks they face, so it is refused. A line that opens another
-  part of the overlay, a section or a `###` heading whose first word is an id, ends a fence open
-  across it: an example that shows such a heading indents the fence and its lines.
+  at least as many of its character, indented as far as the fence or up to three columns further;
+  a fence may open on the line of its list marker. One left open would swallow every heading after
+  it, and the checks they face, so it is refused. A line that opens another part of the overlay, a
+  section or a `###` heading whose first word is an id, ends a fence open across it, and so does
+  such a heading indented one to three spaces, which Markdown still reads as a heading: an example
+  that shows one indents the fence and its lines four spaces.
+- An addition's heading starts at the left margin, so an indented `###` heading whose first word
+  is an id is refused outside fenced code too.
 
 ## Commands
 
@@ -203,7 +207,8 @@ or put a marker of check 2 into the overlay; the rest it writes true. A refusal 
 printed with the number of its check. Two kinds carry a word instead: `[adapter]`, an adapter
 folder that does not read as one (an unknown key, a missing overlay, a project file out of place
 or colliding with a file of the skill, an overlay section the copy would drop, a fence in the
-overlay that does not close inside its addition or section), and `[pin]`, a pin
+overlay that does not close inside its addition or section, an indented `###` heading whose first
+word is an id), and `[pin]`, a pin
 that cannot be taken (a branch, an abbreviated sha, a tag that now names another commit, a
 recorded commit or tree the ref no longer gives, a skill or entry the ref does not have, or a
 source that cannot be read).
@@ -214,12 +219,12 @@ source that cannot be read).
 | 2 | the text between the markers has the sha256 recorded at compose time | an edit to the skill's own text |
 | 3 | composing again from the copy and the current adapter folder gives the same bytes | an overlay or `adapter.json` changed without composing; a pin moved in `adapter.json` but not composed |
 | 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapted copy, and to no other skill; `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy, or another skill than the adapted copy; two rows for one slot |
-| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, or overlay line naming one, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
+| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, its heading included, or overlay line naming one, a heading included, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
 | 6 | the adapted copy's name differs from the skill's | an adapter that takes its skill's name |
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
 | 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
-| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code, at any indentation, is an example and is not checked: it links from wherever a reader is to put it. A fence closes at the next bare line of at least as many of its character, backticks or tildes; an indented one, as in a list item, also ends at the first line indented less than it that is not blank, a closing line included. A fence that ends that way or never closes is not read as one, so the links after it are checked. A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked. Not checked: the links after a fence at the left margin left open by mistake, up to the next bare line that closes it; in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused | a link in the overlay or a project file to something that is not there |
+| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code, at any indentation, is an example and is not checked: it links from wherever a reader is to put it. A fence opens at three or more backticks or tildes after spaces, tabs or a list marker; a backtick fence whose info string holds a backtick is a code span, and a non-breaking space is not indentation. A fence closes at the next bare line of at least as many of its character, backticks or tildes, indented at most three columns more than the fence. Each fence is read every way it could be meant: in a list item, where it also ends at the first line indented less than it that is not blank, a closing line included; without that rule; indented three columns or fewer, at the top level, where its closing line is indented three columns at most; and, on the line of an ordered list marker other than 1 right after a line that is not blank, as no fence, since such a list cannot interrupt a paragraph. A link is skipped only when every reading puts it in fenced code. A link in an inline code span, in a fence inside a blockquote, or in code indented four spaces that shows no fence of its own is checked. Not checked, though CommonMark shows them: the links after a line that looks like a fence where CommonMark reads something else, inside an HTML block or comment or continuing the paragraph above it, up to the next bare line that would close it; nor the links after a fence at the left margin left open by mistake, up to the next bare line that closes it, which CommonMark shows as code too; in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused | a link in the overlay or a project file to something that is not there |
 
 A generated folder whose adapter folder is gone fails as well.
 

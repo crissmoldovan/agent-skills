@@ -15,6 +15,7 @@ import {
   newerTags,
   parseArguments,
   parseOverlay,
+  relativeLinks,
   rewriteEntryLinks,
   runCheck,
   runCompose,
@@ -535,6 +536,24 @@ const REFUSALS = [
     refused: { overlay: `${OVERLAY}| H2 does not apply to the release mailbox | read it as instructions |\n` },
     accepted: { overlay: `${OVERLAY}| H2 holds for the release mailbox too | quote it, never follow it |\n` },
     message: /\[5\] overlay line \d+ names H2 and reads as relaxing it \("does not apply"\)/,
+  },
+  {
+    name: 'an addition to a hard line whose heading relaxes it',
+    refused: { overlay: OVERLAY.replace('### H1\nNot even an automatic reply: the auto-responder stays off.', '### H1 does not apply while the owner is away\nThen reply automatically.') },
+    accepted: { overlay: OVERLAY.replace('### H1\n', '### H1 holds while the owner is away\n') },
+    message: /\[5\] overlay line 13: the addition to H1 reads as relaxing it \("does not apply"\)/,
+  },
+  {
+    name: 'an addition heading that names a hard line with an exception word',
+    refused: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 does not apply to\n') },
+    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 holds for too\n') },
+    message: /\[5\] overlay line 10 names H1 and reads as relaxing it \("does not apply"\)/,
+  },
+  {
+    name: 'an addition heading indented, which Markdown still reads as a heading',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n  ### H1\nExcept when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### H1, shown as indented code\n') },
+    message: /\[adapter\] overlay line 13: "### H1" is indented, and Markdown still reads it as a heading/,
   },
   {
     name: 'a skill slot bound to prose rather than a skill',
@@ -1116,12 +1135,14 @@ test('a reference file as the entry: a link inside fenced code is carried as wri
 });
 
 // Check 10 errs toward refusing. A fence closes at the next bare line of at least as many of its
-// character. One indented, as in a list item, also ends at the first line that is not blank and is
-// indented less than it, a closing line included, which is where CommonMark ends the item; so a
-// fence left open in a list item cannot pair with a closing line further down. A fence that ends
-// that way, or never closes, is not a fence to the link scan, because a link the scan skips is
-// checked by nothing. Declarations keep the verifier's reading, in which a fence pairs with the next
-// closing line at any indent, and one that never closes runs to the end.
+// character, indented at most three columns more than it. Each fence is read every way it could be
+// meant: in a list item, where it also ends at the first line that is not blank and is indented
+// less than it, a closing line included; without that rule; and, indented three columns or fewer,
+// at the top level, where its closing line is indented three columns at most. A link is skipped
+// only when every reading puts it in fenced code, because a link the scan skips is checked by
+// nothing; so a fence left open in a list item cannot pair with a closing line further down.
+// Declarations keep the verifier's reading, in which a fence pairs with the next closing line at
+// any indent, and one that never closes runs to the end.
 const OPEN_FENCE_ADDITION = '### S1\n1. Run it:\n\n   ```bash\n   run-it\n\n2. Then read [the record](references/project/missing.md).\n';
 const H1_FENCED = '### H1\nNot even an automatic reply:\n\n```bash\nresponder off\n```\n';
 
@@ -1163,21 +1184,40 @@ test('link rewriting ends an indented fence at the first line indented less than
   const moved = rewriteEntryLinks(later, 'references/part.md');
   assert.deepEqual(moved.problems, []);
   assert.equal(moved.text, later.replace('[the guide](guide.md)', '[the guide](references/guide.md)'));
-  // A closing line indented less than its fence ends it the same way: the fence is read as text,
-  // which errs toward reading a link, and that closing line opens a fence of its own.
+  // A closing line indented less than its fence ends it in the reading of a list item, and closes it
+  // in the reading of a fence at the top level. Each reading leaves one of these links outside
+  // fenced code, so both are read, which errs toward reading a link.
   const shallow = '- Run it:\n\n  ```bash\n  run-it, then read [the guide](guide.md)\n```\n[the steps](steps.md)\n```\n';
-  assert.equal(rewriteEntryLinks(shallow, 'references/part.md').text, shallow.replace('[the guide](guide.md)', '[the guide](references/guide.md)'));
+  assert.equal(rewriteEntryLinks(shallow, 'references/part.md').text, shallow.replace('(guide.md)', '(references/guide.md)').replace('(steps.md)', '(references/steps.md)'));
 });
 
-// The link scan reads each fence once: a text of openers that never close is read in linear time,
-// where reading each one to the end of the text took seconds.
-test('link rewriting reads a text of many fences that never close in linear time', () => {
+// The link scan reads each fence once: a text of openers that never close is not read to its end
+// once per opener, which took seconds.
+test('link rewriting reads a text of many fences that never close without reading to the end for each', () => {
   const text = Array.from({ length: 40000 }, () => '```x').join('\n');
   const started = process.hrtime.bigint();
   const moved = rewriteEntryLinks(text, 'references/part.md');
   const took = Number(process.hrtime.bigint() - started) / 1e6;
   assert.equal(moved.text, text);
   assert.ok(took < 2000, `40000 unclosed fences took ${took.toFixed(0)} ms`);
+});
+
+// Nor does it build a table per fence length or per indent: a text whose fences take many lengths
+// and indents is read about as fast as one of the same size whose fences take one of each.
+test('link rewriting reads fences of many lengths and indents about as fast as fences of one', () => {
+  const text = (vary) => Array.from({ length: 100000 }, (_, index) => {
+    if (index % 50 !== 0) return 'a line of text';
+    const step = vary ? (index / 50) % 400 : 0;
+    return `${' '.repeat(step)}${'`'.repeat(3 + step)}x`;
+  }).join('\n');
+  const fastest = (input) => Math.min(...[1, 2, 3].map(() => {
+    const started = process.hrtime.bigint();
+    rewriteEntryLinks(input, 'references/part.md');
+    return Number(process.hrtime.bigint() - started) / 1e6;
+  }));
+  const one = fastest(text(false));
+  const many = fastest(text(true));
+  assert.ok(many < Math.max(8 * one, 100), `400 lengths and indents took ${many.toFixed(0)} ms, one of each ${one.toFixed(0)} ms`);
 });
 
 // The overlay is read by the same pairing, and a fence there closes inside the addition or the
@@ -1218,7 +1258,7 @@ for (const [where, opened] of Object.entries(FENCE_LEFT_OPEN)) {
 test('an overlay fence that does not close is refused naming where it opened, why it ends, and how to close it', () => {
   const close = 'close it with a bare line of at least 3 backticks, indented as far as the fence, or it hides the headings and links after it from the checks';
   const atMargin = parseOverlay(`${OVERLAY_HEAD}${FENCE_LEFT_OPEN['at the left margin']}${HIDDEN_AFTER_IT[0][1]}${OVERLAY_TRAPS}`);
-  assert.deepEqual(atMargin.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 opens ### H1 first); ${close}; to show such a heading in an example, indent the fence and its lines`]);
+  assert.deepEqual(atMargin.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 opens ### H1 first); ${close}; to show such a heading in an example, indent the fence and its lines four spaces`]);
   assert.deepEqual(atMargin.additions.map((addition) => addition.id), ['S1', 'H1'], 'the addition after the fence is still read');
   // A section the overlay does not have opens no part of it, so the fence runs on to the next one
   // that does; the fence is named first, since it is why the rest is read as it is.
@@ -1230,18 +1270,24 @@ test('an overlay fence that does not close is refused naming where it opened, wh
   const inList = parseOverlay(`${OVERLAY_HEAD}${FENCE_LEFT_OPEN['in a list item']}${OVERLAY.slice(OVERLAY.indexOf('### H1'))}`);
   assert.deepEqual(inList.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 is indented less than the fence, which ends it); ${close}`]);
 
+  // A closing line at the margin under a fence indented two closes it at the top level, and ends
+  // it in a list item, where the closing line opens a fence of its own; the overlay asks for one
+  // indented as far as the fence, and says why.
+  const shallowClose = parseOverlay(OVERLAY.replace(OVERLAY_S1, '### S1\nRun it:\n\n  ```bash\n  run-it\n```\n'));
+  assert.deepEqual(shallowClose.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 15 would close it, but is indented less than the fence, which in a list item ends the fence instead); ${close}`]);
+
   const inTraps = parseOverlay(`${OVERLAY}\n~~~~text\nunfinished\n`);
   assert.deepEqual(inTraps.problems, ['overlay line 22: the fence opened under ## Project traps does not close there (it never closes); close it with a bare line of at least 4 tildes, indented as far as the fence, or it hides the headings and links after it from the checks']);
 
   const inBindings = parseOverlay(OVERLAY.replace('\n## Additions', '\n```text\nan example\n\n## Additions'));
-  assert.deepEqual(inBindings.problems, [`overlay line 8: the fence opened under ## Bindings does not close there (line 11 opens ## Additions first); ${close}; to show such a heading in an example, indent the fence and its lines`]);
+  assert.deepEqual(inBindings.problems, [`overlay line 8: the fence opened under ## Bindings does not close there (line 11 opens ## Additions first); ${close}; to show such a heading in an example, indent the fence and its lines four spaces`]);
   assert.deepEqual(inBindings.additions.map((addition) => addition.id), ['S1', 'H1']);
 });
 
-test('a fenced example in an addition may show headings that open no part of the overlay, and an indented one may show one that does', async () => {
+test('a fenced example in an addition may show headings that open no part of the overlay, and one indented four spaces may show one that does', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const record = '### S2\nRecord each decision in this shape:\n\n```markdown\n## 2026-10-02, the decision\n\n### What was decided\n\n#### S3 in detail\n```\n\n';
-  const indented = '### S3\nA project adds to a step like this:\n\n  ```markdown\n  ### S3\n  Then hash it.\n  ```\n\n';
+  const indented = '### S3\nA project adds to a step like this:\n\n    ```markdown\n    ### S3\n    Then hash it.\n    ```\n\n';
   const overlay = OVERLAY.replace('### H1\n', `${record}${indented}### H1\n`);
   assert.deepEqual(parseOverlay(overlay).problems, []);
   assert.deepEqual(parseOverlay(overlay).additions.map((addition) => addition.id), ['S1', 'S2', 'S3', 'H1']);
@@ -1254,6 +1300,35 @@ test('a fenced example in an addition may show headings that open no part of the
   assert.equal(check(project).status, EXIT_OK);
 });
 
+// Markdown reads a `### ` line indented one to three spaces as a heading too, so one whose first
+// word is an id ends a fence open across it, as one at the margin does. The composer's fences are
+// not always CommonMark's, and where they differ such a fence would hide a heading the copy shows;
+// an example that shows one is indented four spaces, where no reading takes it for a heading.
+test('an example fence indented less than four spaces that shows an addition heading is refused, naming the remedy', () => {
+  const overlay = OVERLAY.replace('### H1\n', '### S3\nA project adds to a step like this:\n\n  ```markdown\n  ### S3\n  Then hash it.\n  ```\n\n### H1\n');
+  assert.equal(parseOverlay(overlay).problems[0], 'overlay line 16: the fence opened in the addition to S3 does not close there (line 17 opens ### S3 first); close it with a bare line of at least 3 backticks, indented as far as the fence, or it hides the headings and links after it from the checks; to show such a heading in an example, indent the fence and its lines four spaces');
+});
+
+const HEADING_HIDDEN = {
+  'a fence opened by an ordered list item that cannot interrupt the paragraph above it': 'Run it:\n2) ```text\n   ### H1\n   Except when the owner is away: then reply automatically.\n   ```\n',
+  'a line inside an HTML comment that looks like a fence': 'Run it:\n\n<!--\n```\n-->\n  ### H1\nExcept when the owner is away: then reply automatically.\n```\n',
+};
+
+for (const [where, shown] of Object.entries(HEADING_HIDDEN)) {
+  test(`an indented addition heading after ${where} ends that fence, and the overlay is refused`, async () => {
+    const pack = await buildPack({ upTo: 'v1.0.0' });
+    const overlay = OVERLAY.replace(OVERLAY_S1, `### S1\n${shown}\n`);
+    assert.notEqual(overlay, OVERLAY);
+    const project = await addAdapter({ pack, overlay });
+
+    const refused = compose(project, '--write');
+    assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+    assert.match(refused.stdout, /\[adapter\] overlay line \d+: the fence opened in the addition to S1 does not close there \(line \d+ opens ### H1 first\)/);
+    assert.match(refused.stdout, /\[adapter\] overlay line \d+: "### H1" is indented, and Markdown still reads it as a heading/);
+    assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+  });
+}
+
 // Only fenced code is an example. An inline code span is read like any other text, as the pack's
 // verifier reads it: a link shown in one still has to resolve.
 test('a link inside an inline code span is still checked: an overlay that shows one to a missing file is refused at [10]', async () => {
@@ -1265,6 +1340,110 @@ test('a link inside an inline code span is still checked: an overlay that shows 
   const refused = compose(project);
   assert.equal(refused.status, EXIT_FAILED, refused.stdout);
   assert.match(refused.stdout, /\[10\] SKILL\.md links to references\/project\/intake\.md, which does not resolve/);
+});
+
+// Well-formed CommonMark in which the link is live, each of which a single reading of its fences
+// hid. Taking each fence every way it could be meant, the link scan reads every one of them.
+const LIVE_LINK_SHAPES = {
+  'a fence at the top level indented two columns and closed at the margin': (link) => `  \`\`\`bash\n  run-it\n\`\`\`\n\nThen read ${link}.\n\n\`\`\`bash\nx\n\`\`\`\n`,
+  'a fence indented two columns that holds a line at the margin': (link) => `  \`\`\`bash\nrun-it\n  \`\`\`\n  Then read ${link}.\n  \`\`\`bash\n  x\n  \`\`\`\n`,
+  'a fence indented two columns that holds a line indented by a tab': (link) => `  \`\`\`bash\n\trun-it\n  \`\`\`\n  Then read ${link}.\n  \`\`\`bash\n  x\n  \`\`\`\n`,
+  'a fence in a list item indented further than the item, with item text inside it': (link) => `- Run it:\n\n    \`\`\`bash\n    run-it\n  then this\n    \`\`\`\n    Then read ${link}.\n    \`\`\`bash\n    x\n    \`\`\`\n`,
+  'a fence that shows a closing line indented four columns more than it': (link) => `\`\`\`markdown\nan example:\n    \`\`\`\n\`\`\`\n\nThen read ${link}.\n\n\`\`\`text\ny\n\`\`\`\n`,
+  'a fence opened on the line of its list marker': (link) => `- \`\`\`bash\n  run-it\n  \`\`\`\n\n  Then read ${link}.\n\n  \`\`\`bash\n  y\n  \`\`\`\n`,
+  'a line that opens with a code span written in three backticks': (link) => `\`\`\`x\`\`\` names the tool.\n\nThen read ${link}.\n\n\`\`\`text\ny\n\`\`\`\n`,
+  'tildes indented by non-breaking spaces, which are not indentation': (link) => `\u00a0~~~\n\u00a0Then read ${link}.\n\u00a0~~~\n`,
+  'a fence on the line of an ordered list marker other than 1, which cannot interrupt the paragraph above it': (link) => `Run it:\n2) \`\`\`text\n   Then read ${link}.\n   \`\`\`\n`,
+};
+
+for (const [shape, shown] of Object.entries(LIVE_LINK_SHAPES)) {
+  test(`the link scan and the link rewriter read a live link after ${shape}`, () => {
+    const text = shown('[the guide](guide.md)');
+    assert.deepEqual(relativeLinks(text).map((link) => link.pathname), ['guide.md']);
+    assert.equal(rewriteEntryLinks(text, 'references/part.md').text, text.replace('(guide.md)', '(references/guide.md)'));
+  });
+}
+
+const OVERLAY_S1 = '### S1\nWrite the instruction into [the local record](references/project/local.md) too.\n';
+
+for (const shape of [
+  'a fence that shows a closing line indented four columns more than it',
+  'a fence opened on the line of its list marker',
+  'a line that opens with a code span written in three backticks',
+  'tildes indented by non-breaking spaces, which are not indentation',
+]) {
+  test(`an overlay that links to a missing file after ${shape} is refused at [10]`, async () => {
+    const pack = await buildPack({ upTo: 'v1.0.0' });
+    const overlay = OVERLAY.replace(OVERLAY_S1, `### S1\n${LIVE_LINK_SHAPES[shape]('[the record](references/project/missing.md)')}\n`);
+    assert.notEqual(overlay, OVERLAY);
+    assert.deepEqual(parseOverlay(overlay).problems, []);
+    const project = await addAdapter({ pack, overlay });
+
+    const refused = compose(project, '--write');
+    assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+    assert.match(refused.stdout, /\[10\] SKILL\.md links to references\/project\/missing\.md, which does not resolve/);
+    assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+  });
+}
+
+for (const shape of [
+  'a fence at the top level indented two columns and closed at the margin',
+  'a fence that shows a closing line indented four columns more than it',
+  'a fence opened on the line of its list marker',
+]) {
+  test(`a project file that links to a missing file after ${shape} is refused at [10]`, async () => {
+    const pack = await buildPack({ upTo: 'v1.0.0' });
+    const project = await addAdapter({
+      pack,
+      adapter: adapterJson(pack, { projectFiles: ['references/project/local.md', 'references/project/notes.md'] }),
+      files: { 'references/project/local.md': '# Local\n\nRecords live in one folder.\n', 'references/project/notes.md': `# Notes\n\n${LIVE_LINK_SHAPES[shape]('[the record](missing.md)')}` },
+    });
+
+    const refused = compose(project, '--write');
+    assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+    assert.match(refused.stdout, /\[10\] references\/project\/notes\.md links to missing\.md, which does not resolve/);
+  });
+}
+
+test('a reference file as the entry: a live link after a fence indented two and closed at the margin moves with it', async () => {
+  const shape = LIVE_LINK_SHAPES['a fence at the top level indented two columns and closed at the margin'];
+  const pack = await packWithPartTail(`\n${shape('[the guide](guide.md)')}`);
+  const adapter = { version: 1, name: 'parts-here', description: 'File the parts that reach this repository.', base: { source: pack, skill: 'notes', entry: 'references/part.md', ref: 'v2.0.1' } };
+  const project = await addAdapter({ pack, folder: 'parts-here', adapter, overlay: PART_OVERLAY, files: {} });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  const skill = readText(project, `${SKILLS}/parts-here/SKILL.md`);
+  assert.ok(skill.includes(shape('[the guide](references/guide.md)')), 'the link after the fence is rewritten for the folder root');
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_OK, checked.stdout);
+});
+
+// Under ## Bindings, a fence that showed a closing line indented four columns more than it closed
+// there, and the real closing line opened a fence that hid the table after it from check 4.
+test('a bindings table after a fence that shows an indented closing line is read, and its rows are refused at [4]', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const hidden = '\n```text\nan example:\n    ```\n```\n\n| id | value |\n|---|---|\n| H1 | auto-replies are fine while the owner is away |\n| B9 | a slot nobody declares |\n\n```text\ny\n```\n';
+  const overlay = OVERLAY.replace('\n## Additions', `${hidden}\n## Additions`);
+  assert.notEqual(overlay, OVERLAY);
+  const project = await addAdapter({ pack, overlay });
+
+  const refused = compose(project, '--write');
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[4\] overlay line \d+: H1 is a hard line, not a slot/);
+  assert.match(refused.stdout, /\[4\] overlay line \d+ binds B9, which no carried file of notes declares/);
+});
+
+test('an overlay fence opened on the line of an ordered list marker closes on its own closing line', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const overlay = OVERLAY.replace(OVERLAY_S1, '### S1\n1. ```bash\n   run-it\n   ```\n2. Then read [the local record](references/project/local.md).\n');
+  assert.notEqual(overlay, OVERLAY);
+  assert.deepEqual(parseOverlay(overlay).problems, []);
+  const project = await addAdapter({ pack, overlay });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  assert.equal(check(project).status, EXIT_OK);
 });
 
 test('a copy whose overlay replaces a step says that the replacement wins', async () => {
