@@ -165,9 +165,10 @@ adapt it without copying it ([project adaptation](project-adaptation.md)): eleve
 `B11`, with the history directory, the paths, the corpus, the zones, the names whose words arrive
 relayed and the secrets with no shape among the values, and `decision-journal`,
 `investigate-codebase` and `delphi-ground` as the sibling skills it hands work to; five hard lines,
-`H1` to `H5`; and seven steps, `S1` to `S7`. Its fit is `requestOnly`, so onboard-project never recommends it unasked. The suite holds its
-path encoder equal to onboard-project's and runs it over synthetic transcripts. The catalogue now
-ships thirty skills, and the README's header, which still said twenty-eight, says so too.
+`H1` to `H5`; and seven steps, `S1` to `S7`. Its fit is `requestOnly`, so onboard-project never
+recommends it unasked. The suite holds its path encoder equal to onboard-project's and runs it over
+synthetic transcripts. The catalogue now ships thirty skills, and the README's header, which still
+said twenty-eight, says so too.
 
 ## Release checklist
 
