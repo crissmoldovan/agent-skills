@@ -79,10 +79,41 @@ Do not use it to describe a change that already landed — one commit, one PR, o
 that is `release-ledger`, which is a system you install rather than a note you write. And do
 not use it for an internal branch merge nobody outside the repository can observe.
 
+## Bindings
+
+A project can adapt this skill without copying it: it binds these slots and adds to the steps by
+their ids, as the pack's project-adaptation guide (`docs/project-adaptation.md`) describes. A slot
+nobody binds keeps its default.
+
+| id | slot | kind | default |
+|---|---|---|---|
+| B1 | where the version being released is read from | value | the manifest, the tag or the changeset this project keeps it in, found by reading them |
+| B2 | every destination the note goes to | value | discovered at run time, as "Where the note lands" says |
+| B3 | the project's own release checklist | value | the one a search of the repository finds, such as a release section in `CONTRIBUTING.md` or a release document; with none, this file's procedure alone |
+| B4 | the bump judge: a command or tool that proposes a level from the change | value | none: the impact analysis alone sets the level |
+| B5 | who rules the number: the person whose word sets the version when it departs from the impact analysis | value | the person who asked for the release, when they name the number themselves |
+| B6 | where the description of a change that already landed comes from | skill | `describe-changes` |
+
+## Hard lines
+
+- **H1. Every release carries a note with a why and an impact, in every destination the project
+  records releases in.** A heading over a list of commit subjects is not one, whatever a
+  generator produced or a gate let through.
+- **H2. A number that departs from the impact analysis never ships unexplained.** Either the bump
+  matches the analysis, or the note records both readings and the ruling of the person bound as
+  B5.
+- **H3. The words describing a change are never edited to move its number.** When a bump judge
+  disagrees, fix the number or overrule the judge on the record
+  (`references/versioning-a-product.md`).
+- **H4. Nothing in this skill installs or arms the gate.** The user runs its installer, or
+  nobody does.
+
 ## Prerequisites
 
 1. **The version being released, read rather than assumed.** From the manifest, the tag, or
-   the changeset — not from memory, and not from the last release plus one.
+   the changeset (B1) — not from memory, and not from the last release plus one. A version or a
+   judgement computed from the working tree counts every uncommitted change, and another session
+   may be writing in the same checkout: read `git status` before trusting it.
 2. **The change itself, in enough detail to state an impact.** A diff, a PR, or a
    `describe-changes` output. A note written from a branch name is a guess.
 3. **The destinations this project uses**, discovered rather than assumed — see below.
@@ -98,6 +129,11 @@ Answer each before writing the Impact part. State "none" explicitly for the load
   stricter default = **breaking → major + a migration note**. New optional arg, new export,
   opt-in flag = **additive → minor**. Docs / internal only = **patch**. Match the version bump
   to this answer: a "small" additive API is still a **minor**, not a patch.
+- **No API?** An app, a site, a dashboard or a report has readers, not callers. Judge it by what
+  a reader relies on: removed, reversed or redefined = **major**; a new capability = **minor**; a
+  correction = **patch**. A removal is a patch only when the record says what went was false,
+  broken or never seen. `references/versioning-a-product.md` has the levels, the was-and-now
+  ledger they are read from, pre-release numbers and a renumbering restart.
 - **Migration** — if anything breaks, the exact steps a consumer takes. If nothing breaks, say
   "no migration, existing call sites are unchanged."
 - **Blast radius** — who is affected: downstream packages in this repo, external consumers, a
@@ -111,8 +147,8 @@ Answer each before writing the Impact part. State "none" explicitly for the load
 ## Where the note lands: every destination the project uses
 
 A release note is not done until it is in every place the project records releases. Discover
-them; do not assume one. `ls CHANGELOG.md docs/releases.md`, `ls .changeset/ docs/releases/`,
-`gh release list` — and read the project's own release checklist if it has one.
+them (B2); do not assume one. `ls CHANGELOG.md docs/releases.md`, `ls .changeset/ docs/releases/`,
+`gh release list` — and read the project's own release checklist if it has one (B3).
 
 - **Per-version changelog** — the `CHANGELOG.md` entry, the `docs/releases.md` entry, or a
   `.changeset/*.md` that generates one. Monorepo: the changed package's own changelog, **one
@@ -130,23 +166,28 @@ part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* a
 
 ## Procedure
 
-1. **Read the version and the change.** Manifest version, and the diff or the
-   `describe-changes` output. Complete when you can name the package, the version, and the
+1. **S1. Read the version and the change.** Manifest version (B1), and the diff or the
+   `describe-changes` output (B6). Complete when you can name the package, the version, and the
    surface that moved.
-2. **Run the impact analysis above, in writing.** Complete when every bullet has an answer,
-   including the explicit "none"s.
-3. **Settle the semver bump against that answer, not against the plan.** If they disagree,
-   change the bump or change the release. Complete when the version in the manifest matches
-   the impact you just wrote down.
-4. **Discover every destination.** Complete when you have a list, and each item is a path or a
+2. **S2. Run the impact analysis above, in writing.** For a product with no API, write the
+   ledger first: one was-and-now entry per change a reader can reach. Complete when every
+   bullet has an answer, including the explicit "none"s.
+3. **S3. Settle the semver bump against that answer, not against the plan.** If they disagree,
+   change the bump or change the release, unless the person bound as B5 rules a number that
+   departs from the analysis: then stamp theirs, and the note records both readings and the
+   ruling (H2). A bump judge (B4) is advice: read the words it quotes, then fix the number or
+   overrule the judge on the record, never by rewording a change (H3). Complete when the
+   version in the manifest matches the impact you just wrote down, or the note records the
+   ruling that departs from it.
+4. **S4. Discover every destination.** Complete when you have a list, and each item is a path or a
    URL rather than a category.
-5. **Write the note once**, in the three parts, and adapt it per destination without letting
+5. **S5. Write the note once**, in the three parts, and adapt it per destination without letting
    the versions drift apart. Complete when the changelog entry and the Release body say the
    same thing.
-6. **Score it with the sell-test.** Complete when it scores 3 or better, or you have rewritten
+6. **S6. Score it with the sell-test.** Complete when it scores 3 or better, or you have rewritten
    it.
-7. **Place it, then release.** The note goes in *before* the publish, the tag and the Release.
-   Complete when every destination on the list from step 4 has it.
+7. **S7. Place it, then release.** The note goes in *before* the publish, the tag and the Release.
+   Complete when every destination on the list from S4 has it.
 
 ## Sell-test: score before you ship
 
@@ -210,7 +251,11 @@ case the gate is a floor for rather than a grade.
 - **"The changelog is auto-generated from the diff."** That is the *what* only. Add the *why*
   and the *impact*.
 - **"I flagged the semver mismatch, then shipped it as a patch anyway."** Either bump to match
-  the impact analysis, or the note is dishonest.
+  the impact analysis, or put the ruling that departs from it in the note beside both readings
+  (H2). Shipped without them, the note is dishonest.
+- **"The bump tool says patch, so it is a patch."** A judge is advice. Read the words it quoted:
+  a phrase it has never seen falls through to its default. And do not reword the change until
+  it agrees (H3).
 - **"The gate let it through."** The gate checks that the version is mentioned, not that
   anything under it is a why or an impact. A heading with a git-message body passes the gate
   and fails this skill.
@@ -225,7 +270,8 @@ Before the publish, the tag or the Release — not after:
 
 1. The note has all three parts, in order, and the *why* is not a restatement of the *what*.
 2. Every impact bullet was answered, with explicit "none"s where that is the answer.
-3. The version bump matches the impact analysis.
-4. Every destination discovered in step 4 has the note, and they agree with each other.
+3. The version bump matches the impact analysis, or the note records both readings and the
+   ruling that departs from it.
+4. Every destination discovered in S4 has the note, and they agree with each other.
 5. The sell-test scores 3 or better.
 6. For a monorepo: one entry per bumped package, each naming its own version.

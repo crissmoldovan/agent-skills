@@ -323,6 +323,35 @@ test('release-notes owns the semver call, the destinations, and the limits of it
   assert.doesNotMatch(releaseNotes, /\bCUE\b|\bRGC\b/);
 });
 
+test('release-notes versions a product with no API, treats a bump judge as advice, and can be adapted', async () => {
+  const versioning = await read('skills/release-notes/references/versioning-a-product.md');
+  assert.match(releaseNotes, /references\/versioning-a-product\.md/);
+  // The slots, hard lines and steps a project's overlay cites, each under its id.
+  assert.match(releaseNotes, /^## Bindings$/m);
+  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']) assert.match(releaseNotes, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['H1', 'H2', 'H3', 'H4']) assert.match(releaseNotes, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
+  for (const id of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']) assert.match(releaseNotes, new RegExp(`^\\d+\\. \\*\\*${id}\\. `, 'm'));
+  assert.match(releaseNotes, /\| B6 \|[^\n]*\| skill \| `describe-changes` \|/);
+  // A number ruled against the impact analysis ships with both readings, never unexplained.
+  assert.match(releaseNotes, /records both readings and the\s+ruling/);
+  assert.match(releaseNotes, /judge \(B4\) is advice/);
+  assert.match(versioning, /what does a reader rely on/i);
+  assert.match(versioning, /false, broken or never\s+seen/);
+  assert.match(versioning, /Write the ledger first, as was and now/);
+  assert.match(versioning, /## A bump judge is advice/);
+  assert.match(versioning, /Never reword the ledger to move the number/);
+  assert.match(versioning, /records both readings/);
+  assert.match(versioning, /name the number they become/);
+  assert.match(versioning, /restart is recorded once/);
+  assert.match(versioning, /leave one out/);
+  for (const text of [releaseNotes, versioning]) {
+    assert.doesNotMatch(text, /\bCUE\b/);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
 
 async function assertRunRecordCopiesIdentical(directory) {
