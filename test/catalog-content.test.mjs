@@ -644,11 +644,16 @@ test('mine-session-transcripts reads transcripts without printing them, and stat
   const fitText = await read('skills/mine-session-transcripts/references/fit.json');
   const fit = JSON.parse(fitText);
   const script = await read('skills/mine-session-transcripts/scripts/transcripts.mjs');
-  // Every file the skill ships, the script and the fit file as much as the prose. The other
-  // organisation marker the blocks above name is on the contributors' private denylist, which
-  // scan-denylist.mjs reads before every push, so a new line does not restate it.
+  // Every file the skill ships, the script and the fit file as much as the prose, against the same
+  // organisation markers as onboard-project's block, read from that block so the two cannot drift.
+  const ownSource = await read('test/catalog-content.test.mjs');
+  const markerSource = ownSource.match(/assert\.doesNotMatch\(onboardProject, \/(.+?)\/\);/);
+  assert.ok(markerSource, "onboard-project's block no longer checks for organisation markers");
+  const organisationMarkers = new RegExp(markerSource[1]);
+  assert.match(' CUE ', organisationMarkers, 'the markers read from that block are the pattern the blocks above use');
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
   for (const text of [skill, shapes, documented, fitText, script]) {
-    assert.doesNotMatch(text, /\bCUE\b/);
+    assert.doesNotMatch(text, organisationMarkers);
     assert.doesNotMatch(text, /~\/work\//);
     for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
     assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
