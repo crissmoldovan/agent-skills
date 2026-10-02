@@ -2,7 +2,7 @@
 name: request-answers
 description: "The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth."
 license: MIT
-compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item and needs a filesystem; brief and normal are transcript-only. Output is the brief, optionally per-item files, and a ledger row per question."
+compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item; brief and normal are transcript-only but for the shot each question about a screen carries, taken with a local browser. Output is the brief, optional item files and shots, and a ledger row per question."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
@@ -27,10 +27,63 @@ decision is an ask whose answer is a choice; a clarification is an ask whose ans
 is a sentence. Everything below treats them the same way.
 
 **What this is not.** Recording why a decision was made afterwards is
-`decision-journal`. Saying where multi-phase work stands is `report-progress`.
-Building a verified-facts briefing before anyone reasons about an artefact is
-`delphi-ground`. This skill owns the ask itself — of any kind — and the ledger of
+`decision-journal` (B5). Saying where multi-phase work stands is `report-progress`
+(B6). Building a verified-facts briefing before anyone reasons about an artefact is
+`delphi-ground` (B7). This skill owns the ask itself — of any kind — and the ledger of
 what came back.
+
+## Bindings
+
+A project can adapt this skill without copying it: it binds these slots and adds to the steps by
+their ids, as the pack's
+[project-adaptation guide](https://github.com/crissmoldovan/agent-skills/blob/main/docs/project-adaptation.md)
+describes. A slot nobody binds keeps its default.
+
+| id | slot | kind | default |
+|---|---|---|---|
+| B1 | who the run answers to: the person who rules on what the run proposes to decide, and is told what the shooting finds | value | whoever asked for the ask |
+| B2 | who sends an ask to a person: the person who sends it, or approves its exact text for sending | value | the person bound as B1; an ask to another agent the run delivers itself |
+| B3 | who may be messaged at all | value | the recipients the person bound as B1 named, and nobody else |
+| B4 | how a screen is rendered and shot | value | the browser automation this environment has, run as `references/pointing-at-the-screen.md` requires; with none, ask once |
+| B5 | where the reasons behind a decision that comes back are recorded | skill | `decision-journal` |
+| B6 | where a reader is told how long-running work stands | skill | `report-progress` |
+| B7 | where a briefing of verified facts is built before anyone reasons about an artefact | skill | `delphi-ground` |
+
+## Hard lines
+
+- **H1. Never ask what you can answer yourself.** Every candidate goes through the hunt-down
+  pass (S2) before anything is written, and one answered here leaves the ask.
+- **H2. The answer sheet is answerable on its own, at every depth.** Detail, files and shots
+  are for the reader who wants them, never a dependency.
+- **H3. Nothing reaches a person on the run's own word.** The run prepares the ask and shows it
+  in full to the person bound as B2. It goes when that person sends it, or approves that exact
+  text, those recipients and those attachments for sending, and only to recipients B3 allows;
+  nobody else is copied in. An ask changed after the approval is approved again.
+- **H4. A shot shows exactly what its question is about, or there is no shot.** Never a
+  whole-screen stand-in for a target that was not found, never an edited image, and never a
+  live site or a signed-in session.
+- **H5. What the run decides or finds on its own is a proposal.** A question decided here
+  without a standing ruling, and anything the shooting shows that disagrees with a record, go
+  to the person bound as B1 with their evidence. Neither is fixed, or written into a brief as
+  settled, until that person rules.
+
+## Procedure
+
+1. **S1. Collect the candidates.** Every question the work waits on, each with where it came
+   from. Split a point with several parts into one question per part. A question they asked
+   you is not a question for them: it is yours to answer, or someone else's. When an
+   instruction could mean either, ask the person bound as B1.
+2. **S2. Hunt each one down and sort it**, as the iron rule below says. Every claim that takes
+   a question off the list goes past an independent refuter first.
+3. **S3. Pick the depth** from what the recipient needs to answer.
+4. **S4. Show the screen** for every open question about something a reader sees, rendered as
+   B4 says (Show the screen, below).
+5. **S5. Write the brief** in its five parts, the settled rows that concern this reader among
+   them.
+6. **S6. Hand it over** as H3 says. With the defaults, whoever asked for the ask reads the
+   brief, and sends it or approves its exact text for sending.
+7. **S7. Keep the ledger** as answers arrive. A closed question keeps its number, and moves to
+   the settled rows with the answer quoted.
 
 ## The iron rule
 
@@ -43,16 +96,29 @@ Look in the repository, the data, the exports, the logs, the running system, the
 other party's own code, the public web. Most "we need to ask them" turns out to be
 answerable in minutes, and every one you answer is a wait you do not pay for.
 
-Sort each candidate into one of four:
+Sort each candidate into one of five:
 
 - **answered here** — with the evidence, and it leaves the ask
+- **decided here** — a judgement a standing ruling already settles: cite the ruling, who gave
+  it and for what, and it leaves the ask. A ruling covers only what it was given for. With
+  none, the decision you would take is a proposal to the person bound as B1 (H5), and the
+  question leaves the ask only when they rule
 - **needs their judgement** — a preference, a name, a trade-off, a sign-off
 - **needs their access** — a truth only their system, scrape or inbox holds
 - **needs their intent** — why they did it this way, or which of two readings is meant
 
-Only the last three reach anyone. Keep the answered ones in the ledger: that is the
-record that a question was closed rather than forgotten, and it stops the same
+Only the last three reach the recipient. Keep the answered and decided ones in the ledger:
+that is the record that a question was closed rather than forgotten, and it stops the same
 question being asked next week.
+
+**Every claim that takes a question off goes past a refuter.** Give each "answered here" and
+"decided here" claim, with its evidence, to an independent refuter: another agent, or a person,
+who did not make it and is asked to break it. Re-check every claim yourself as well, upheld or
+not, and when a refuter overturns one, re-run its evidence before believing either side. With
+no refuter available, the claims go to the person bound as B1 marked unrefuted. In one run,
+forty-nine open questions came to forty open, six answered and three decidable, and a refuter
+caught the run's own claim that a colleague's mapping was wrong — it agreed on every row —
+before the claim reached them.
 
 From a real run: twelve questions were queued across four people. Nine were
 answerable — the upstream author's own unused helper showed a removal was an
@@ -73,13 +139,16 @@ recipient needs to answer, never from how much you happen to know.
 | **normal** *(default)* | brief, plus a detail section per item: current state, options, recommendation | anything that needs a judgement they cannot make from the line alone |
 | **deep** | normal, plus a file per item, an index and a ledger | more than about eight items; evidence has to be quotable; several owners; someone else implements the answers later; a pack will be sent onward or archived |
 
-Two rules bind every depth:
+Three rules bind every depth:
 
 - **The answer sheet must be answerable on its own** at every depth. Detail and
   files are for the reader who wants them, never a dependency.
 - **Say which depth you chose and why**, in one clause, so the recipient knows
   whether more exists: *"sixteen decisions, detail under each, evidence in the
   attached files."*
+- **A question about something on a screen carries its shot**, attached as a file at
+  every depth, brief and normal included: the screen with the thing boxed and labelled
+  (Show the screen, below).
 
 Ratchet up, never down: if an item turns out to need proof, raise that item to deep
 rather than dropping the proof.
@@ -96,13 +165,17 @@ The shape is the same; only the reply format changes.
   answer: *"name the file or command that settles it."*
 - **Either** gets the same iron rule: do not ask a subagent to find what you have
   already measured, and do not ask it to decide what only a human owns.
+- **Who sends** an ask to a person is B2, and who may be messaged at all is B3. By
+  default the run hands the brief to whoever asked for it, and they send it or approve
+  its exact text for sending. Nothing is sent on the run's own word, or addressed to
+  anyone they did not name (H3).
 
 An agent's answer is a claim until it carries evidence. Record it in the ledger the
 same way, with what it pointed at.
 
 ## The brief
 
-Four parts, in this order.
+Five parts, in this order.
 
 ### 1. The header
 
@@ -110,7 +183,7 @@ Three things, in two lines. The depth line is a required slot: agents given this
 skill wrote the brief correctly and silently dropped the depth, so it is a field to
 fill in rather than a rule to remember.
 
-> **16 asks · depth: normal** — detail under each, no attached files.
+> **16 asks · depth: normal** — detail under each; the eleven about a screen carry a shot.
 >
 > Nothing else is waiting on you. **Nine are a yes/no**; **five need you to choose
 > or write something**; **two are readings to confirm.**
@@ -147,7 +220,16 @@ Each section carries, in order:
 
 Keep a section to what fits on a phone screen. Longer belongs in the item file.
 
-### 4. Not for you
+### 4. Already settled
+
+The ledger's closed rows that concern this reader, headed *"nothing here needs an
+answer"*: each with the number it was asked by, how it closed — their answer, someone
+else's, a ruling, evidence found here, or a move to someone else — by whom and when,
+and the words or the evidence quoted. It stops them being asked twice, and shows them
+that what they said landed. With nothing closed yet, write the one line —
+*"Already settled: nothing yet."*
+
+### 5. Not for you
 
 The items owned by other people, each with the person named. It stops the recipient
 answering something that was never theirs, and lets them chase it in the same
@@ -190,6 +272,35 @@ worked example are in [references/answer-sheet.md](references/answer-sheet.md).
 **The files never replace the brief.** A recipient who reads only the brief must
 still be able to answer everything.
 
+## Show the screen
+
+A question about something a reader sees — a sentence, a tile, a row, a control —
+shows it, so nobody has to work out which one is meant. Shoot only the questions
+still open after S2, with the renderer B4 names:
+
+- **Two images per target**, attached at every depth: an overview of the screen with a
+  box around the thing, so the reader can find it, and a close-up with the same box and
+  a label naming the question by its number.
+- **A pinned build of what the reader will look at**, rendered on this machine with
+  every other host blocked. Never a live site, and never a signed-in session.
+- **A target that is not found fails the shot.** No image, and never a whole-screen
+  stand-in: a missing image reads as no evidence, a whole screen as evidence of the
+  wrong thing.
+- **Open every image** before it goes: the box holds exactly what is asked, and the
+  label names the right question.
+- **Every variant the question applies to** is shot: each layout, category or role it
+  covers.
+- **A state only a signed-in reader sees** is described in words, saying why there is
+  no shot.
+- **With no renderer here**, and none named when asked (B4), each question says in words
+  where to look, and the header says that no shots travel.
+- **What the shooting shows that disagrees with a record** goes to the person bound as
+  B1 as a finding, with its evidence (H5): not fixed, and not written into a question as
+  settled.
+
+The method, and what is recorded beside each image, are in
+[references/pointing-at-the-screen.md](references/pointing-at-the-screen.md).
+
 ## The ledger
 
 One place, updated as answers arrive, with a row per question: what was asked, who
@@ -197,16 +308,25 @@ owns it, what came back, and what it unblocked. Three sections earn their keep:
 
 - **open** — still waiting, with what each one blocks
 - **answered** — the reply, the date, and the work it released
-- **answered without asking** — the ones you closed yourself, with the evidence
+- **answered without asking** — the ones you closed yourself, with the evidence, or
+  the standing ruling that decided them
 
 The third is the one people forget and the one that saves the most time. It is also
 how you stay honest: when an item moves from "asked" to "answered here", say so and
 withdraw the question.
 
+**The reader gets the closed rows too.** The ledger is your record, so on its own it
+stops only you asking twice. Every brief carries the closed rows that concern its
+reader beside the open ones, in its fourth part. **Ids never move**: a question keeps
+its number in every later brief and in the settled rows, a new one takes the next
+unused number, and a closed one's number is never used again, so a reply's "Q7" means
+one question for good.
+
 ## Rules that keep it honest
 
 - **Measure the present tense.** "The panel shows only Retailer" is a claim; open it
-  and count. Quote the string, give the number, name the screen or file.
+  and count. Quote the string, give the number, name the screen or file, and show the
+  screen when the question is about one.
 - **Never invent an option.** If only one path exists, say so and ask for a yes.
 - **Recommend exactly one.** "It depends" hands the work back.
 - **One question per line.** Compound questions come back half-answered.
@@ -214,7 +334,8 @@ withdraw the question.
   reader loses.
 - **Say what you could not check**, and why, rather than implying you did.
 - **Withdraw a question you answered.** Leaving it in makes the whole list suspect.
-- **Do not pad.** An item you can decide is not a decision; deciding it is the work.
+- **Do not pad.** An item you can decide is not a decision for them; deciding it is the
+  work, under a standing ruling or as a proposal to the person bound as B1.
 - **Say what happens on silence**, per item. Never let a blocking item read as
   optional.
 - **Carry the context the answer needs** — no more. A judgement needs the trade-off;
@@ -224,18 +345,23 @@ withdraw the question.
 ## Verification checklist
 
 - [ ] Every item needs someone: none is answerable from the system
+- [ ] Every claim that took a question off went past an independent refuter, and was re-checked
+- [ ] Nothing decided here without a standing ruling is in the brief as settled
 - [ ] The header's depth slot is filled in, and matches what the recipient needs
 - [ ] The answer sheet can be answered without the detail
 - [ ] Every line has one question and one place to answer
 - [ ] Every item carries a measured present state, quoted where it is text
+- [ ] Every question about a screen carries its shot, or says why it has none, and every image was opened
 - [ ] Every item has one recommendation, or is honestly marked CHOOSE, WRITE, WHICH or EXPLAIN
 - [ ] No WRITE line asks for something you could have drafted
 - [ ] The header's count matches the sheet's lines
+- [ ] The settled part lists every closed row that concerns this reader, under its number
 - [ ] The closing section exists — with the other owners named, or the one line saying there are none
 - [ ] Silence has a stated consequence for every item
 - [ ] At deep depth: every item links to a file, and the index lists them all
 - [ ] The ledger holds every question, including those answered without asking
 - [ ] For an agent recipient: the reply contract is one line, and evidence is asked for
+- [ ] Nothing went to a person on the run's own word, nor to anyone B3 does not allow
 
 ## Common mistakes
 
@@ -254,7 +380,13 @@ withdraw the question.
 | Dropping "not for you" because it felt empty | Items belonging to named colleagues disappear |
 | Brief depth for a judgement call | They cannot answer, so they don't |
 | A brief with no ledger | The same questions again next week |
+| Sending only the open questions | They are asked again what they already answered |
+| Renumbering the open questions in a later brief | Their "yes to Q7" now means a different question |
 | Leaving an answered question on the list | They trust none of it |
+| Taking a question off on your own decision | A decision nobody took reads as settled |
+| Describing a screen in words when a shot would show it | They answer about the wrong sentence or tile |
+| A whole screen in place of a shot whose target was not found | It reads as evidence of the wrong thing |
+| Fixing what the shooting revealed | A finding nobody ruled on becomes a change nobody asked for |
 
 ## Usage Examples
 
@@ -304,3 +436,8 @@ structural rather than adding a rule:
 
 A fifth agent on the fixed skill produced the depth slot, the closing section naming
 both colleagues, and drafted band names offered for approval.
+
+The rules added after that test — the shots, the settled rows, the refuter and the
+decisions held as proposals — come from a project that ran this kind of round as its
+own skill over several rounds of questions to one reader. They were not part of the
+five-agent test above.
