@@ -13,24 +13,29 @@
  * - every changed file's name;
  * - every commit message in `<merge base>..HEAD`;
  * - the branch name;
- * - with `--worktree`, uncommitted changes and untracked files as well.
+ * - with `--worktree`, uncommitted changes and untracked files as well. An untracked repository
+ *   nested inside this one would be added as a link to one of its commits, so only its name is
+ *   read, and the run says so.
  * A line already on the base, or removed, is not read: it is not this branch's to fix.
  * A binary file is searched as bytes, which finds a name in image metadata but not one drawn
  * in the pixels, so every binary file is listed for a person to look at.
  *
  * The list is one term per line; blank lines and lines starting with `#` are ignored. A term
- * matches case-insensitively where it stands as a word: not inside a longer run of letters
- * and digits, though an underscore, a hyphen or a camelCase hump counts as a break, so
- * `name_export` and `nameClient` match `name` and `names` does not. An edge of a term that is
- * punctuation (`~/dir/`, `tool++`) matches wherever it is written. Whitespace inside a term
- * matches any run of whitespace. A hyphenated or joined spelling is another term.
+ * matches case-insensitively where it stands as a word: not inside a longer run of letters, or
+ * a longer run of digits. An underscore, a hyphen, a camelCase hump and a change between letters
+ * and digits each count as a break, so `name_export`, `nameClient` and `name01` match `name`,
+ * and `names` does not. An edge of a term that is punctuation (`~/dir/`, `tool++`) matches
+ * wherever it is written. Whitespace inside a term matches any run of whitespace. Any other
+ * spelling is another term, to be listed as well: a hyphenated or joined form, an abbreviation,
+ * or capitals run on into the next word (`NAMECorp` is one word).
  *
  * Terms are never printed. A hit names where it is and which line of the list it matched,
  * and any term inside a printed path is masked, so the output can be pasted where others
  * read it. `--show-matches` prints the matched text, for a local terminal only.
  *
  * Exit 0: nothing matched. Exit 1: hits. Exit 2: could not scan — no denylist, a denylist
- * inside this repository or with no terms, a base that does not resolve, or git failing.
+ * inside this repository (any of its worktrees included) or with no terms, a base that does not
+ * resolve, or git failing.
  * Dependency-free; needs git on PATH.
  */
 import { spawnSync } from 'node:child_process';
@@ -50,6 +55,7 @@ const MAX_BUFFER = 1024 * 1024 * 1024;
 // Git's own test for a binary file: a NUL byte in the first 8000 bytes.
 const BINARY_PROBE = 8000;
 const WORD = /[\p{L}\p{N}]/u;
+const LETTER = /\p{L}/u;
 const LOWER = /\p{Ll}/u;
 const UPPER = /\p{Lu}/u;
 
@@ -109,6 +115,27 @@ function compile(term, line) {
   };
 }
 
+/**
+ * Every directory a file could be committed from: this worktree, every other worktree of the same
+ * repository (a list left untracked in the main checkout can be committed there), and the shared
+ * git directory.
+ */
+function repositoryPlaces(top) {
+  const places = [top];
+  const common = git(top, ['rev-parse', '--git-common-dir'], { allowFailure: true })?.trim();
+  if (common) places.push(resolve(top, common));
+  for (const line of (git(top, ['worktree', 'list', '--porcelain'], { allowFailure: true }) ?? '').split('\n')) {
+    if (line.startsWith('worktree ')) places.push(line.slice('worktree '.length));
+  }
+  return places.flatMap((place) => {
+    try {
+      return [realpathSync(place)];
+    } catch {
+      return []; // a worktree that was moved or deleted without being pruned
+    }
+  });
+}
+
 function loadDenylist(file, top) {
   const absolute = resolve(process.cwd(), file);
   let real;
@@ -119,8 +146,8 @@ function loadDenylist(file, top) {
   } catch (error) {
     throw new Refusal(`cannot read the denylist at ${file}: ${error.code ?? error.message}`);
   }
-  if (isWithin(real, realpathSync(top))) {
-    throw new Refusal('the denylist is inside this repository; keep it outside every repository, so that it can never be committed');
+  if (repositoryPlaces(top).some((place) => isWithin(real, place))) {
+    throw new Refusal('the denylist is inside this repository or one of its worktrees; keep it outside every repository, so that it can never be committed');
   }
   const terms = [];
   source.split(/\r?\n/).forEach((raw, index) => {
@@ -142,21 +169,25 @@ function charAt(text, index) {
   return index < text.length ? String.fromCodePoint(text.codePointAt(index)) : undefined;
 }
 
+/**
+ * Whether a word ends between two adjacent characters: at the edge of the text, beside anything
+ * that is not a letter or a digit, where letters meet digits (`host01`, the numbered host a
+ * name most often hides in), and at a camelCase hump.
+ */
+function isBreak(before, after) {
+  if (before === undefined || after === undefined) return true;
+  if (!WORD.test(before) || !WORD.test(after)) return true;
+  if (LETTER.test(before) !== LETTER.test(after)) return true;
+  return LOWER.test(before) && UPPER.test(after);
+}
+
 /** Every place `term` stands as a word in `text`. */
 function* find(text, term, regex = term.text) {
   for (const match of text.matchAll(regex)) {
     const start = match.index;
     const end = start + match[0].length;
-    if (term.leftWord) {
-      const before = charBefore(text, start);
-      const hump = before !== undefined && LOWER.test(before) && UPPER.test(charAt(text, start));
-      if (before !== undefined && WORD.test(before) && !hump) continue;
-    }
-    if (term.rightWord) {
-      const after = charAt(text, end);
-      const hump = after !== undefined && UPPER.test(after) && LOWER.test(charBefore(text, end));
-      if (after !== undefined && WORD.test(after) && !hump) continue;
-    }
+    if (term.leftWord && !isBreak(charBefore(text, start), charAt(text, start))) continue;
+    if (term.rightWord && !isBreak(charBefore(text, end), charAt(text, end))) continue;
     yield { index: start, match: match[0] };
   }
 }
@@ -240,7 +271,11 @@ function changedFiles(top, range, worktree) {
   }
   if (worktree) {
     for (const path of git(top, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0')) {
-      if (path) files.push({ path, binary: workingBytes(top, path).subarray(0, BINARY_PROBE).includes(0), tracked: false });
+      if (!path) continue;
+      // Git lists an untracked repository nested in this one as `dir/`. Adding it would add a link
+      // to one of its commits, not its files, so its name is read and its contents are not.
+      if (path.endsWith('/')) files.push({ path: path.slice(0, -1), nested: true, binary: false, tracked: false });
+      else files.push({ path, binary: workingBytes(top, path).subarray(0, BINARY_PROBE).includes(0), tracked: false });
     }
   }
   return files;
@@ -292,7 +327,7 @@ function main(argv) {
 
   const diff = git(top, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--diff-filter=d', '-U0', '--src-prefix=a/', '--dst-prefix=b/', ...range]);
   const lines = addedLines(diff);
-  for (const file of files.filter((entry) => !entry.tracked && !entry.binary)) {
+  for (const file of files.filter((entry) => !entry.tracked && !entry.binary && !entry.nested)) {
     workingBytes(top, file.path).toString('utf8').split('\n').forEach((text, index, all) => {
       if (index < all.length - 1 || text !== '') lines.push({ path: file.path, line: index + 1, text });
     });
@@ -302,6 +337,7 @@ function main(argv) {
   }
 
   const binaries = files.filter((entry) => entry.binary);
+  const nested = files.filter((entry) => entry.nested);
   for (const { path, tracked } of binaries) {
     const bytes = tracked && !options.worktree ? git(top, ['cat-file', 'blob', `HEAD:${path}`], { buffer: true }) : workingBytes(top, path);
     const latin1 = bytes.toString('latin1');
@@ -329,11 +365,15 @@ function main(argv) {
   out.push(
     `Scanned what ${what} to ${options.base} (merge base ${mergeBase.slice(0, 12)}) against ${plural(terms.length, 'denylist term')}: `
     + `${plural(commits.length, 'commit and its message', 'commits and their messages')}, `
-    + `${plural(files.length, 'file')} (${files.length - binaries.length} text, ${binaries.length} binary) and their names, `
+    + `${plural(files.length, 'file')} (${files.length - binaries.length - nested.length} text, ${binaries.length} binary`
+    + `${nested.length ? `, ${plural(nested.length, 'nested repository', 'nested repositories')}` : ''}) and their names, `
     + `${plural(lines.length, 'added line')}, ${branchNote}.`,
   );
   if (binaries.length) {
     out.push(`Binary files are searched as bytes; a term drawn in an image is not, so look at each one: ${binaries.map((entry) => entry.path).sort().join(', ')}.`);
+  }
+  if (nested.length) {
+    out.push(`A nested repository would be added as a link to one of its commits, so only its name was read: ${nested.map((entry) => entry.path).sort().join(', ')}.`);
   }
   console.log(present(out.join('\n')));
   return hits.length ? 1 : 0;

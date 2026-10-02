@@ -117,10 +117,13 @@ remains the catalog parser.
 Before you push, also scan what your branch adds against your own private list of
 terms that must never appear here — the clients, people, hosts, account ids and
 machine details from the work a contribution came out of — kept outside every
-repository:
+repository, and outside every worktree of this one:
 `node scripts/scan-denylist.mjs --denylist <your file> --base origin/main`. It reads
 every added line, fixtures included, every file name, every commit message and the
-branch name, and prints no term it matched unless you pass `--show-matches`.
+branch name, and prints no term it matched unless you pass `--show-matches`. A term
+matches as a word, numbered forms included (`name01`); list every other spelling on a
+line of its own: joined, hyphenated, abbreviated, or in capitals run on into the next
+word.
 
 Workspace governance owns declared catalog/policy, read-only discovery, its local
 stdio MCP adapter, and guarded repository operations, not routing or agent lifecycle.

@@ -133,7 +133,7 @@ test('a file name that holds a term is a hit, and the printed path masks the ter
   assertNoTermPrinted(result.output);
 });
 
-test('a term matches as a word: case-insensitive, across an underscore, a hyphen or a camelCase hump, never inside a longer word', async () => {
+test('a term matches as a word: case-insensitive, across an underscore, a hyphen, a camelCase hump or a run of digits, never inside a longer word', async () => {
   const { repo, denylist } = await fixture();
   await commit(repo, {
     'a.md': [
@@ -142,9 +142,11 @@ test('a term matches as a word: case-insensitive, across an underscore, a hyphen
       'the globex-client package',
       'const globexClient = 1',
       'const myGlobex = 2',
+      'globex01 is a numbered host',
+      'and so is 2globex',
       'Globexian is a different word',
       'megaglobex is a different word',
-      'Globex2 runs a digit on, so it is a different word',
+      'GLOBEXCORP runs capitals on, so that spelling is listed on its own',
     ].join('\n') + '\n',
   });
 
@@ -152,7 +154,7 @@ test('a term matches as a word: case-insensitive, across an underscore, a hyphen
 
   assert.equal(result.status, 1, result.output);
   const lines = [...result.stdout.matchAll(/added line\s+a\.md:(\d+):/g)].map((match) => Number(match[1]));
-  assert.deepEqual(lines, [1, 2, 3, 4, 5]);
+  assert.deepEqual(lines, [1, 2, 3, 4, 5, 6, 7]);
 });
 
 test('a term that starts or ends in punctuation, or holds a host name, matches where it is written', async () => {
@@ -238,6 +240,26 @@ test('--worktree reads an untracked symbolic link as git would store it, danglin
   assert.match(result.stdout, new RegExp(`added line\\s+link:1:\\d+\\s+denylist line ${lineOf('Jane Roe')}`));
 });
 
+test('--worktree names an untracked nested repository and reads its name, not its files', async () => {
+  const { repo, denylist } = await fixture();
+  await commit(repo, { 'k.md': 'neutral\n' });
+  const nested = path.join(repo, 'vendor', 'globex-tools');
+  await mkdir(nested, { recursive: true });
+  git(nested, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(nested, 'notes.md'), 'Jane Roe\n');
+  git(nested, 'add', '-A');
+  git(nested, 'commit', '-q', '-m', 'nested');
+
+  const result = scan(repo, '--denylist', denylist, '--base', 'main', '--worktree');
+
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.stdout, new RegExp(`file name\\s+vendor/‹denylist line ${lineOf('Globex')}›-tools\\s+denylist line ${lineOf('Globex')}`));
+  assert.doesNotMatch(result.stdout, new RegExp(`denylist line ${lineOf('Jane Roe')}`));
+  assert.match(result.stdout, /1 nested repository\)/);
+  assert.match(result.stdout, /only its name was read: vendor\/‹denylist line \d+›-tools\./);
+  assertNoTermPrinted(result.output);
+});
+
 test('a refusal masks a term it would otherwise echo', async () => {
   const { repo, denylist } = await fixture();
   await commit(repo, { 'h.md': 'neutral\n' });
@@ -271,6 +293,23 @@ test('--branch names the branch when HEAD is detached; without it the run says t
   const named = scan(repo, '--denylist', denylist, '--base', 'main', '--branch', 'feat/globex');
   assert.equal(named.status, 1, named.output);
   assert.match(named.stdout, /branch name\s+denylist line/);
+});
+
+test('refuses a denylist kept in another worktree of the same repository', async () => {
+  const { repo, denylist } = await fixture();
+  await commit(repo, { 'm.md': 'neutral\n' });
+  const linked = path.join(await tempDir('scan-denylist-linked-'), 'linked');
+  git(repo, 'worktree', 'add', '-q', '-b', 'feature/linked', linked);
+  // Untracked in the main checkout, where it could be committed by mistake.
+  const inMainCheckout = path.join(repo, 'private-terms.txt');
+  await writeFile(inMainCheckout, DENYLIST);
+
+  const fromLinked = scan(linked, '--denylist', inMainCheckout, '--base', 'main');
+  assert.equal(fromLinked.status, 2, fromLinked.output);
+  assert.match(fromLinked.stderr, /inside this repository or one of its worktrees/);
+
+  const outside = scan(linked, '--denylist', denylist, '--base', 'main');
+  assert.equal(outside.status, 0, outside.output);
 });
 
 test('refuses to run without a usable denylist kept outside the repository, or without a base', async () => {

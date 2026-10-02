@@ -91,13 +91,16 @@ Most of what leaks from real work has no shape a public validator can hold: a cl
 person's handle, an internal host, an account id. `scripts/scan-denylist.mjs` checks what a
 branch adds against a list of terms that each contributor keeps outside every repository and
 passes with `--denylist`. It reads every added line (fixtures included), every changed file's
-name, every commit message and the branch name. A term matches case-insensitively as a word,
-and an underscore, a hyphen or a camelCase hump counts as a word break. Binary files are
-searched as bytes and listed for a person to look at. Each hit is named by where it is and by
-its line in the list, never by the term itself. A term inside a printed path is masked, and
-`--show-matches` prints the matched text for a local terminal. The scan exits 2 instead of
-passing when the list is missing, empty or inside the repository. CONTRIBUTING asks for it
-before every push.
+name, every commit message and the branch name; with `--worktree`, uncommitted changes and
+untracked files too, and a nested repository by its name only. A term matches
+case-insensitively as a word, and an underscore, a hyphen, a camelCase hump or a change between
+letters and digits counts as a word break, so a numbered host is found. Any other spelling
+(joined, abbreviated, or in capitals run on into the next word) is listed as a term of its own.
+Binary files are searched as bytes and listed for a person to look at. Each hit is named by
+where it is and by its line in the list, never by the term itself. A term inside a printed path
+is masked, and `--show-matches` prints the matched text for a local terminal. The scan exits 2
+instead of passing when the list is missing, empty, or inside the repository or any of its
+worktrees. CONTRIBUTING asks for it before every push.
 
 Nothing installed changes. Both scripts are contributor tooling and ship in no skill.
 
