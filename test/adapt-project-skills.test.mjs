@@ -761,6 +761,36 @@ const REFUSALS = [
     message: /\[adapter\] name notes-there differs from its folder notes-here/,
   },
   {
+    name: 'a base that is not an object',
+    refused: async (pack) => ({ raw: { ...adapterJson(pack), base: 'notes' } }),
+    accepted: {},
+    message: /\[adapter\] base must be an object naming source, skill and ref/,
+  },
+  {
+    name: 'a base skill that is not a skill name',
+    refused: { adapter: { base: { skill: 'Notes' } } },
+    accepted: {},
+    message: /\[adapter\] base\.skill must be the pack skill's name/,
+  },
+  {
+    name: 'an abbreviated recorded tree',
+    refused: { adapter: { base: { tree: 'abc1234' } } },
+    accepted: async (pack) => ({ adapter: { base: { tree: git(pack, 'rev-parse', 'v1.0.0:skills/notes') } } }),
+    message: /\[adapter\] base\.tree, when given, is the full tree sha/,
+  },
+  {
+    name: 'projectFiles as one string',
+    refused: { adapter: { projectFiles: 'references/project/local.md' } },
+    accepted: {},
+    message: /\[adapter\] projectFiles must be a list of paths/,
+  },
+  {
+    name: 'names as a list',
+    refused: { adapter: { names: ['notes'] } },
+    accepted: { adapter: { names: { notes: 'notes-here' } } },
+    message: /\[adapter\] names must map a pack skill's name to this repository's skill/,
+  },
+  {
     name: 'an empty description',
     refused: { adapter: { description: ' ' } },
     accepted: {},
@@ -864,10 +894,10 @@ for (const refusal of REFUSALS) {
     const pack = await buildPack();
     const build = async (variant) => {
       const spec = typeof variant === 'function' ? await variant(pack) : variant;
-      const { adapter: overrides = {}, overlay = OVERLAY, files, folder } = spec;
+      const { adapter: overrides = {}, raw, overlay = OVERLAY, files, folder } = spec;
       const merged = { ...overrides, base: overrides.base };
       if (!merged.base) delete merged.base;
-      return addAdapter({ pack, adapter: adapterJson(pack, merged), overlay, ...(files ? { files } : {}), ...(folder ? { folder } : {}) });
+      return addAdapter({ pack, adapter: raw ?? adapterJson(pack, merged), overlay, ...(files ? { files } : {}), ...(folder ? { folder } : {}) });
     };
     const refused = compose(await build(refusal.refused));
     assert.equal(refused.status, EXIT_FAILED, `expected a refusal:\n${refused.stdout}`);
@@ -1162,6 +1192,22 @@ test('outdated: a moved tag or a deleted one is an alarm, and compose refuses a 
   assert.match(deleted.stdout, /ALARM: the tag v1\.0\.0 is gone from the source/);
 });
 
+test('outdated: a source it cannot read is unknown, never current', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  renameSync(pack, `${pack}-gone`);
+  try {
+    const result = outdated(project);
+    assert.equal(result.status, EXIT_ATTENTION, result.stdout);
+    assert.match(result.stdout, /unknown: cannot list the tags of .+\. Unknown is not current\./);
+    assert.doesNotMatch(result.stdout, /no newer release/);
+  } finally {
+    renameSync(`${pack}-gone`, pack);
+  }
+  assert.equal(outdated(project).status, EXIT_OK);
+});
+
 test('outdated --verify: the copy is the upstream bytes, and a forgery the offline check cannot see is caught', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack });
@@ -1239,6 +1285,7 @@ test('other folders for adapters and skills are recorded, named in the generated
   assert.equal(elsewhere.status, EXIT_FAILED);
   assert.match(elsewhere.stdout, /\[1\] \.claude\/skills\/notes-here does not exist/);
   assert.throws(() => runCheck(parseArguments(['check', '--repo', project, '--skills-dir', '../outside']), collect().io), /--skills-dir must be a folder inside the repository/);
+  assert.throws(() => runCompose(parseArguments(['compose', '--repo', project, '--adapters-dir', '../outside']), collect().io), /--adapters-dir must be a folder inside the repository/);
 });
 
 test('the command line: usage on stderr with exit 1, and check exits 1 on a failure', async () => {

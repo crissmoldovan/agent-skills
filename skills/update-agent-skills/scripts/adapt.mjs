@@ -1606,7 +1606,8 @@ export function runOutdated(options, io) {
       }
     } catch (error) {
       if (!(error instanceof AdaptError)) throw error;
-      io.out(`  unknown: ${error.message}. Unknown is not current.`);
+      // git's own message runs over several lines; the verdict stays on one.
+      io.out(`  unknown: ${error.message.replace(/\s*\n\s*/g, ' ').replace(/\.+$/, '')}. Unknown is not current.`);
       attention = true;
     } finally {
       if (scratch.dir) rmSync(scratch.dir, { recursive: true, force: true });
