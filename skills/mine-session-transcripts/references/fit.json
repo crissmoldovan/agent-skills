@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "asked what a person said to an agent, when they said it, or whether it was ever written down, from this machine's session transcripts"
+}

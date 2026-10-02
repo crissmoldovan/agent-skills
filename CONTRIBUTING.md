@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, and `handoff-prompt` — twenty-nine in all. Routing
+`request-answers`, `handoff-prompt`, and `mine-session-transcripts` — thirty in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -40,7 +40,12 @@ itself rather than believing a builder's report, and the handoff bundle the run 
 transferred in; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
 Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, while installing
-nothing itself. A new skill must state which of these it does not duplicate.
+nothing itself; and `mine-session-transcripts` owns finding what a person said to an agent in
+the harness's own session transcripts — the messages typed and the ones queued while a turn ran,
+each located by line, time and session without the transcript being printed, and whether each is
+written down — while `decision-journal` records a decision once it is found and
+`investigate-codebase` answers what the code does about it. A new skill must state which of these
+it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

@@ -76,10 +76,10 @@ test('v0.27.0 release metadata, catalog, and review ownership cover the complete
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 29);
+  assert.equal(skillNames.length, 30);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships twenty-nine skills/i);
-  assert.match(composition, /catalog ships twenty-nine skills/i);
+  assert.match(architecture, /now ships thirty skills/i);
+  assert.match(composition, /catalog ships thirty skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -96,7 +96,8 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /twenty-eight public, portable Agent Skills/i);
+  assert.match(readme, /thirty public, portable Agent Skills/i);
+  assert.match(readme, /^Thirty skills\. Each one below/m);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -113,7 +114,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project', 'mine-session-transcripts']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -632,6 +633,49 @@ test('onboard-project states its boundaries, its consent rule, and what it never
   assert.match(onboardProjectWrites, /Undo/);
 });
 
+// A transcript holds every secret that passed through a session, so the skill that reads them is
+// held to never printing one, to counting the queued messages a search for user turns misses, and
+// to saying which shapes it saw on which harness. Names have no public pattern; scan-denylist.mjs
+// reads for those. The script's own behaviour is in mine-session-transcripts.test.mjs.
+test('mine-session-transcripts reads transcripts without printing them, and states what it does not own', async () => {
+  const skill = await read('skills/mine-session-transcripts/SKILL.md');
+  const shapes = await read('skills/mine-session-transcripts/references/record-shapes.md');
+  const documented = await read('skills/mine-session-transcripts/references/documented-or-not.md');
+  const fit = JSON.parse(await read('skills/mine-session-transcripts/references/fit.json'));
+  for (const text of [skill, shapes, documented]) {
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+  // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
+  for (const sibling of ['decision-journal', 'investigate-codebase', 'delphi-ground', 'onboard-project']) {
+    assert.match(skill, new RegExp(sibling));
+  }
+  // Every handoff to a sibling is a slot of kind skill, so a project can route it to its own.
+  const bindings = section(skill, 'Bindings');
+  for (const sibling of ['decision-journal', 'investigate-codebase', 'delphi-ground']) {
+    assert.match(bindings, new RegExp(`\\| skill \\| \`${sibling}\` \\|`));
+  }
+  assert.equal(fit.kind, 'requestOnly');
+
+  // The three failures it exists for: printing the transcript, missing queued messages, and a
+  // matcher that cannot match.
+  assert.match(skill, /\*\*H1\. Never print a transcript\.\*\*/);
+  assert.match(skill, /\*\*H5\. Not found is never "never said"\.\*\*/);
+  assert.match(shapes, /`attachment\.type: "queued_command"`, `attachment\.commandMode: "prompt"`/);
+  assert.match(shapes, /`origin\.kind: "human"`/);
+  assert.match(documented, /## Symmetry is the whole trick/);
+  assert.match(documented, /\*\*A positive control\.\*\*/);
+  // Observed, not assumed: every shape is tagged, and the harness versions are named.
+  assert.match(shapes, /\*\*OBSERVED\*\*: read from real transcripts written by \*\*Claude Code 2\.1\.224 to 2\.1\.286\*\*/);
+  assert.match(shapes, /\| NOT OBSERVED \|/);
+
+  for (const carried of ['references/record-shapes.md', 'references/documented-or-not.md', 'scripts/transcripts.mjs']) {
+    assert.ok(skill.includes(carried), `SKILL.md does not name ${carried}`);
+  }
+  assert.match(readme, /\[Record shapes\]\(skills\/mine-session-transcripts\/references\/record-shapes\.md\)/);
+});
+
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
 // "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
 // the example would invoke a sibling skill they may not have. Nothing failed, because the tests
@@ -639,7 +683,7 @@ test('onboard-project states its boundaries, its consent rule, and what it never
 test("no skill's example ask tells the reader to use a different skill", () => {
   const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
   const names = entries.map(([, name]) => name);
-  assert.equal(names.length, 29, 'every skill has a catalog entry');
+  assert.equal(names.length, 30, 'every skill has a catalog entry');
   for (const [, name, entry] of entries) {
     const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
     for (const ask of asks) {
@@ -663,7 +707,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
   const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  assert.equal(names.length, 29, 'the sweep must cover the whole pack');
+  assert.equal(names.length, 30, 'the sweep must cover the whole pack');
   for (const name of names) {
     const source = await read(`skills/${name}/SKILL.md`);
     assert.match(
@@ -687,7 +731,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
 // A severity number is a judgement; this is not. The list makes a claim about itself, so the
 // claim is what is tested.
 test('the flat skill list is in the catalog order it claims, and covers the pack', async () => {
-  const sentinel = readme.match(/^The twenty-nine, in the order they appear above:$/m);
+  const sentinel = readme.match(/^The thirty, in the order they appear above:$/m);
   assert.ok(sentinel, 'the flat list no longer announces itself as catalog-ordered');
 
   const after = readme.slice(readme.indexOf(sentinel[0]) + sentinel[0].length);
