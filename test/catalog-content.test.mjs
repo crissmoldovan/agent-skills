@@ -680,6 +680,40 @@ test('onboard-project states its boundaries, its consent rule, and what it never
   assert.match(onboardProjectWrites, /Undo/);
 });
 
+// A project adapts a pack skill with update-agent-skills' composer (docs/project-adaptation.md). The
+// copy stands in for the skill it adapts, so onboard-project must not offer that skill for install,
+// call it missing, or route a session to the generic copy. Its behaviour is held in
+// test/onboard-cli.test.mjs and test/onboard-profile.test.mjs; what is held here is that the skill,
+// its reference and the catalogue's prose keep saying so, and stay free of a machine path, a real
+// address or a real zone. Names have no shape a public test can hold; scripts/scan-denylist.mjs
+// reads for those.
+test('onboard-project counts an adapted copy as the skill it adapts, and routes to the copy', async () => {
+  const contributing = await read('CONTRIBUTING.md');
+  const adaptation = await read('docs/project-adaptation.md');
+
+  assert.match(onboardProject, /\*\*A skill this repository has adapted is already here\.\*\*/);
+  assert.match(onboardProject, /no install command, and a routing line that names the copy\s+instead of the skill/);
+  assert.match(onboardProject, /^\| Composing, checking and re-pinning a project's adapted copy of a pack skill \| `update-agent-skills` \| .*Never composes, edits or re-pins one\. \|$/m);
+  assert.match(onboardProject, /\*\*Sending a session to the generic skill when the repository has adapted it\.\*\*/);
+  assert.match(section(onboardProject, 'Verification'), /A skill this repository has adapted got no install command/);
+
+  assert.match(onboardProjectWrites, /^- `adapted` records every adapted copy in this repository, keyed by the skill it adapts\./m);
+  assert.match(onboardProjectWrites, /`adapted` \(the scan did not match it, and\s+this repository holds an adapted copy of it, which is the evidence\)/);
+  assert.match(onboardProjectWrites, /→ `ask-the-owner`, this repository's adapted copy of `request-answers`/);
+  assert.match(onboardProjectWrites, /unless one of four things is true/);
+  assert.match(onboardProjectWrites, /renders exactly as it did before 1\.1\.0/);
+
+  assert.match(contributing, /which names a\s+project's adapted copy of a skill rather than the skill it adapts/);
+  assert.match(releases, /### `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy/);
+  assert.match(adaptation, /A repository onboarded with `onboard-project` counts the adapted copy as the skill\s+it adapts/);
+
+  for (const [where, text] of [['SKILL.md', onboardProject], ['references/what-gets-written.md', onboardProjectWrites]]) {
+    assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/, `${where} carries a real address`);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/, `${where} names a real zone`);
+  }
+});
+
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
 // "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
 // the example would invoke a sibling skill they may not have. Nothing failed, because the tests
