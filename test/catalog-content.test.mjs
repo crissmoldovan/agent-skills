@@ -183,7 +183,7 @@ test('publish-agent-skill is generic and external targets are explicit opt-ins',
   assert.match(publishAgentSkill, /must not infer|do not infer|never infer/i);
   assert.match(publishAgentSkill, /repository policy.*(?:cannot|must not).*(?:select|authorize)|(?:cannot|must not).*(?:select|authorize).*repository policy/is);
   // Projects adapt a skill by citing its ids, so moving one breaks them (docs/project-adaptation.md).
-  assert.match(publishAgentSkill, /binding-slot, hard-line and step\s+ids[\s\S]{0,80}renaming or removing one is a major\s+change for that skill/i);
+  assert.match(publishAgentSkill, /where a skill declares `## Bindings`, its\s+binding-slot, hard-line and step ids[\s\S]{0,80}renaming\s+or removing one is a major change for that skill/i);
   assert.doesNotMatch(publishAgentSkill, /cueplusplus\/skills|crissmoldovan\/agent-skills|cue:/i);
 });
 
