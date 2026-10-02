@@ -641,8 +641,14 @@ test('mine-session-transcripts reads transcripts without printing them, and stat
   const skill = await read('skills/mine-session-transcripts/SKILL.md');
   const shapes = await read('skills/mine-session-transcripts/references/record-shapes.md');
   const documented = await read('skills/mine-session-transcripts/references/documented-or-not.md');
-  const fit = JSON.parse(await read('skills/mine-session-transcripts/references/fit.json'));
-  for (const text of [skill, shapes, documented]) {
+  const fitText = await read('skills/mine-session-transcripts/references/fit.json');
+  const fit = JSON.parse(fitText);
+  const script = await read('skills/mine-session-transcripts/scripts/transcripts.mjs');
+  // Every file the skill ships, the script and the fit file as much as the prose. The other
+  // organisation marker the blocks above name is on the contributors' private denylist, which
+  // scan-denylist.mjs reads before every push, so a new line does not restate it.
+  for (const text of [skill, shapes, documented, fitText, script]) {
+    assert.doesNotMatch(text, /\bCUE\b/);
     assert.doesNotMatch(text, /~\/work\//);
     for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
     assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
