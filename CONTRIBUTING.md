@@ -16,6 +16,8 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
+`update-agent-skills` owns moving installed copies wherever they live, and composing,
+checking and listing the adapted copy a project makes of a pack skill;
 `investigate-codebase` owns evidence-backed answers about a codebase; `blast-area`
 owns what a proposed change would affect and `visualise-blast-area` owns drawing it;
 `land-complex-change` owns the declared touch-set budget and the regression gate

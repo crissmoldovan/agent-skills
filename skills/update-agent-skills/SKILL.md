@@ -1,8 +1,8 @@
 ---
 name: update-agent-skills
-description: "Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack. It moves installed copies; it does not publish a new release — that is publish-agent-skill."
+description: "Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them, and compose a project's adapted copy of a pack skill from a pinned release and the project's overlay. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack, adapt a pack skill to this project. It moves installed copies; it does not publish a new release — that is publish-agent-skill."
 license: MIT
-compatibility: "Agent Skills-compatible agents; the generic Skills CLI for managed project/global installs; native plugin/package updaters or manual artifact channels where applicable."
+compatibility: "Agent Skills-compatible agents; the generic Skills CLI for managed project/global installs; native plugin/package updaters or manual artifact channels where applicable; Node.js 22 or newer and git for the composer, scripts/adapt.mjs."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
@@ -21,6 +21,8 @@ or mutation of an unmentioned machine, project, plugin, upload, or remote target
 - A released skill changed and its changelog, catalogue README, release notes, or
   update guidance must be corrected before users are encouraged to update.
 - Installed project/global/native/manual copies need a provenance-aware refresh.
+- A project adapts a pack skill to its own values and steps: compose the adapted
+  copy from a pinned release, check it, or find out whether its pin is behind.
 
 Do not use to publish unreleased source; use the target's publishing workflow
 first. Do not mutate real local libraries unless the user explicitly requests the
@@ -59,6 +61,9 @@ Record scope, source provenance, managed/unmanaged ownership, install path,
 copy/symlink form, and every consuming agent projection. Also discover:
 
 - native plugin/package channels and their namespaces/versions;
+- adapted copies a project composed from a pinned pack skill (an adapter folder
+  beside a generated folder holding `adapted.lock.json`): the Skills CLI does not
+  list them and never updates them, so they are a plane of their own;
 - manual/upload/raw-file channels;
 - remote machines, containers, browser-only agents, and other runtimes;
 - unsupported clients reported by the owning installer.
@@ -163,11 +168,14 @@ node scripts/check-pack-freshness.mjs --source <owner>/<repo>
 ```
 
 Silence means current. Drift prints the stale skill names, the latest release, and
-the exact command that would apply it. Whatever it could not determine—an
-unreadable lockfile, an unreachable source, an entry carrying no comparable hash,
-its own crash—prints a `PACK_FRESHNESS_UNKNOWN` block that says so. Unknown is a
-third state and is never folded into “current”: where silence is the healthy
-signal, a failure that renders as silence reads as health.
+the exact command that would apply it. With `--repo <project>` it also lists that
+project's adapted pins, each against the latest release, current ones included,
+because that run is an inventory; an adapted copy is never named in the command.
+Whatever it could not determine—an unreadable lockfile, an unreachable source, an
+entry carrying no comparable hash, its own crash—prints a `PACK_FRESHNESS_UNKNOWN`
+block that says so. Unknown is a third state and is never folded into “current”:
+where silence is the healthy signal, a failure that renders as silence reads as
+health.
 
 Every verdict goes to stdout; only a usage error goes to stderr. That split is
 mechanical, not stylistic. On the hook channel below, stderr does not supplement
@@ -240,6 +248,43 @@ choose it, and `--yes` keeps an upstream deletion a printed warning rather than 
 removal. An applied update still proves nothing about the agent projections;
 re-inventory and verify each one.
 
+## Adapting a Pack Skill to One Project
+
+A project that needs a pack skill to carry its own values — who rules, which zone,
+where records go, which of its own skills does a sibling's job — adapts the skill
+instead of forking it. The adapted copy is generated from the pack skill at a
+pinned ref and the project's overlay: bindings for the skill's slots, additions
+keyed to its step and hard-line ids, and project traps. The copy is committed, so
+every worktree and branch has it with no network, and it is never edited by hand.
+The contract is the pack's `docs/project-adaptation.md`; the files, the ten checks
+and the failure modes are in [adapting a pack skill](references/adapting.md).
+
+`scripts/adapt.mjs` is the composer: dependency-free Node plus git, reading the pack
+with git plumbing only, so nothing in a fetched tree runs.
+
+```bash
+node scripts/adapt.mjs compose --repo <project> --pack <pack clone>          # prints the change
+node scripts/adapt.mjs compose --repo <project> --pack <pack clone> --write  # writes it, vendors itself
+node <project>/.claude/skill-adapters/.tool/adapt.mjs check --repo <project>     # offline
+node <project>/.claude/skill-adapters/.tool/adapt.mjs outdated --repo <project>  # online, reads only
+```
+
+- **Composing is installing, so this skill's consent rules hold.** `compose` prints
+  the change and writes nothing without `--write`, and it refuses to overwrite a copy
+  edited by hand unless told `--discard-hand-edits`.
+- **`check` belongs in the project's tests.** It is offline and fast. A hand edit, an
+  overlay changed without composing, a pin moved but not composed, or an overlay that
+  cites an id the skill does not declare turns it red.
+- **A pin is a tag or a full commit sha, never a branch.** Moving it is a review:
+  `outdated` says when a newer tag leaves the skill's tree unchanged, so there is
+  nothing to read, and names the `git diff` to read when it changed. Edit the ref,
+  compose, and review the generated diff, which is that upstream change and nothing
+  else.
+- **A moved tag stops the line.** `outdated` raises an alarm, and `compose` refuses
+  until the new commit is recorded on purpose.
+- **`skills update` never moves an adapted copy.** Inventory adapted copies with
+  `check-pack-freshness.mjs --repo <project>`; move one by moving its pin and composing.
+
 ## Usage Examples
 
 ```text
@@ -247,6 +292,11 @@ Update this released skill for all supported agents in global scope on this
 machine. Inventory JSON and provenance first, preserve plugin namespaces and
 copy/symlink form, update through each owning channel, reload cached runtimes, and
 report unsupported or manual planes separately.
+```
+
+```text
+Adapt this pack skill to the project: compose it from the pinned release and our
+overlay, show me the change, and check it. Write nothing until I say so.
 ```
 
 ```text
@@ -279,6 +329,10 @@ Do not update any local library.
   cannot announce either. Deliver the words; keep the code for machines.
 - **Drift read as an upgrade:** a tree hash is equal or unequal, never later. A
   revert upstream reads as drift and “updating” to it walks the user backwards.
+- **An adapted copy treated as an install:** `skills update` never moves it, and a
+  hand edit is lost at the next compose. Put project text in the overlay; move the pin.
+- **A pin moved without reading:** a changed tree is upstream text the project now
+  carries. Read the diff `outdated` names before composing.
 
 ## Verification
 
@@ -301,3 +355,5 @@ Do not update any local library.
       by the user, and can be withdrawn.
 - [ ] `unknown` reaches the conversation on the same channel a drift notice does,
       and no verdict depends on an exit code to be delivered.
+- [ ] Adapted copies were inventoried by pin, moved only by composing, and `check`
+      passes on each.

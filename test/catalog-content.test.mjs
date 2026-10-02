@@ -208,6 +208,47 @@ test('update-agent-skills maintains communication and every local plane', () => 
   assert.doesNotMatch(updateAgentSkills, /cueplusplus\/skills|crissmoldovan\/agent-skills|cue:/i);
 });
 
+// A project adapts a pack skill by composing it (docs/project-adaptation.md), and this skill owns
+// that install. Its tests are test/adapt-project-skills.test.mjs; what is held here is that the
+// skill and its guide keep saying how a copy is composed, checked and moved, that `skills update`
+// never moves one, and that the guide stays free of a machine path, a real address or a real zone.
+// Names have no shape a public test can hold; scripts/scan-denylist.mjs reads for those.
+test('update-agent-skills composes, checks and lists adapted copies, and keeps them out of skills update', async () => {
+  const adapting = await read('skills/update-agent-skills/references/adapting.md');
+  const adaptation = await read('docs/project-adaptation.md');
+  const contributing = await read('CONTRIBUTING.md');
+
+  assert.match(descriptionOf(updateAgentSkills), /adapt a pack skill to this project/);
+  assert.match(updateAgentSkills, /^compatibility: .*Node\.js 22 or newer and git for the composer, scripts\/adapt\.mjs/m);
+  const adapt = section(updateAgentSkills, 'Adapting a Pack Skill to One Project');
+  assert.match(adapt, /\]\(references\/adapting\.md\)/);
+  for (const command of ['compose', 'check', 'outdated']) assert.match(adapt, new RegExp(`adapt\\.mjs ${command} --repo`));
+  assert.match(adapt, /writes nothing without `--write`/);
+  assert.match(adapt, /--discard-hand-edits/);
+  assert.match(adapt, /never a branch/);
+  assert.match(adapt, /`skills update` never moves an adapted copy/);
+  assert.match(adapt, /check-pack-freshness\.mjs --repo/);
+  assert.match(section(updateAgentSkills, 'Inventory Every Requested Plane'), /adapted copies a project composed/);
+
+  // The guide names all ten checks, and the two identities a pin is refused for.
+  const checks = section(adapting, 'The checks');
+  for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
+  assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
+  assert.match(adapting, /never edited by hand/);
+  assert.match(adapting, /`outdated --verify` fetches the pinned commit and compares every carried\s+file/);
+
+  assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
+  assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);
+  assert.match(contributing, /`update-agent-skills` owns moving installed copies wherever they live, and composing,\s+checking and listing the adapted copy/);
+  assert.match(releases, /`update-agent-skills` moves installed copies wherever they live, and owns the adapted copy/);
+
+  for (const [where, text] of [['SKILL.md', updateAgentSkills], ['references/adapting.md', adapting]]) {
+    assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/, `${where} carries a real address`);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/, `${where} names a real zone`);
+  }
+});
+
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
   for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['visualise-blast-area', visualiseBlastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery], ['release-notes', releaseNotes]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));

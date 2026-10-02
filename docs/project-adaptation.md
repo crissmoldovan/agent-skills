@@ -19,8 +19,12 @@ What checks what today:
 
 - `scripts/verify-skills.mjs` checks the declarations in this pack: every file under `skills/` that
   declares `## Bindings` ([what it holds](#what-the-verifier-holds)).
-- Composing an adapted copy, and checking it against its pin, happens in the project. No tool in the
-  pack does that yet; a tool that does follows this page.
+- Composing an adapted copy, checking it against its pin, and reporting newer pins happen in the
+  project, with `update-agent-skills`' composer,
+  [`scripts/adapt.mjs`](../skills/update-agent-skills/scripts/adapt.mjs). A project vendors it
+  beside its adapters and runs its offline check from its own tests;
+  [adapting a pack skill](../skills/update-agent-skills/references/adapting.md) is the guide to
+  it, and it follows this page.
 
 ## The three kinds of id
 
@@ -287,4 +291,6 @@ such as the ones on this page declares nothing. It fails when:
 
 It does not check that the prose cites only declared ids, that a removed id's number is not used
 again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
-for whatever composes the adapted copy.
+for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
+required slot unbound, writes `replaces:` on a hard line, or adds to one in the words of an
+exception.

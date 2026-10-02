@@ -58,6 +58,11 @@ and the bundle an unattended run is handed over in. The moment the change is lan
 repository it is `land-complex-change`'s; the map it is budgeted from is `blast-area`'s; and the
 verdict it produces authorizes nothing beyond itself.
 
+`update-agent-skills` moves installed copies wherever they live, and owns the adapted copy a
+project makes of a pack skill: it composes the copy from a pinned release and the project's
+overlay, checks it offline, and lists adapted pins beside the installed ones, while
+`skills update` never moves one ([project adaptation](project-adaptation.md)).
+
 `onboard-project` decides which of these skills a repository should use, and puts them in front of
 every session in it. Each skill declares its own fit in `references/fit.json`, which
 `verify-skills` now requires; the scan evaluates those declarations against the repository's files
@@ -119,7 +124,8 @@ The one override, `replaces:`, is explicit, says where its decision is recorded,
 hard line. The page also says what an adapted copy carries, the pack's MIT licence among it, how a
 project adapts a reference file of a skill rather than its `SKILL.md`, and how the copy pins the
 skill it came from: a tag or a full commit sha, the skill folder's git tree, and the sha256 of every
-file. This change ships no composer; the page is the contract that any composer follows.
+file. The page is the contract that any composer follows, and the next entry is the one this
+pack carries.
 
 `scripts/verify-skills.mjs` now checks every file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It requires well-formed ids, unique across the skill, one
@@ -134,6 +140,44 @@ page classes every change to a declared id as major, minor or patch, and says wh
 the catalogue's, and a per-skill tag's where the skill has one, with a major change moving the
 middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
 removing an id is major among its pitfalls, which is the only change to an installed skill.
+
+### `update-agent-skills` composes a project's adapted copy of a pack skill, checks it offline, and lists adapted pins
+
+A project that adapts a pack skill now has the tool the contract above was written for.
+`skills/update-agent-skills/scripts/adapt.mjs` builds the adapted copy from two inputs, the pack
+skill at a pinned tag or full commit sha and the project's adapter folder (`adapter.json`, an
+overlay of bindings, additions and traps, and any project files), and writes it as a generated
+folder the project commits and never edits by hand. One invocation of that copy brings the skill's
+whole text byte for byte, the project's values, its additions by step id and its traps, so nothing
+depends on a second skill being found by its description or winning a precedence contest with a
+personal copy of the generic one.
+
+- **`compose`** reads the pin with git plumbing only, never a checkout, so nothing in the fetched
+  tree runs. It prints what it would add, change or remove, what moved in the pin, and every
+  addition to a hard line for review, and writes nothing without `--write`. It refuses a branch, an
+  abbreviated sha, a tag that now names another commit, a binding or addition to an id no carried
+  file declares, an unbound required slot, `replaces:` on a hard line, an addition to one in the
+  words of an exception, a handoff to a skill the project also adapts that is not mapped to the
+  adapter, a link that does not resolve, and a copy edited by hand unless told
+  `--discard-hand-edits`. With `--write` it vendors itself beside the adapters.
+- **`check`** is offline: no git and no network. It holds each copy to its lock file by file, to the
+  sha256 of the skill text between its markers, to a fresh compose of its recorded inputs, and to
+  the rules above, and warns when the composed `SKILL.md` passes 500 lines. A project runs it from
+  its own tests, so a hand edit or an overlay changed without composing turns them red.
+- **`outdated`** reads tags and says, per copy, whether a newer release leaves the skill's tree
+  unchanged (moving the pin is a no-op) or changes it (with the `git diff` to read). It raises an
+  alarm when a pinned tag moved or was deleted, and `--verify` compares every carried file with the
+  upstream bytes, which is what proves a copy the offline check can only show was not changed.
+
+A reference file of a skill can be the entry instead of `SKILL.md`: its links are rewritten for the
+folder root, and an id only `SKILL.md` declares is refused. `check-pack-freshness.mjs --repo
+<project>` lists a project's adapted pins against the latest release beside the global installs.
+It never names one in its update command, so an armed auto hook never touches one.
+
+**Who should update.** Anyone adapting a pack skill to a project. The skill's description gains
+the symptom "adapt a pack skill to this project", and its `compatibility` names Node.js 22 and git
+for the composer. Nothing installed changes behaviour: the freshness check without `--repo`
+behaves as before.
 
 ## Release checklist
 
