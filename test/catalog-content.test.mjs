@@ -489,7 +489,7 @@ test('the carried-link reading finds a link in fenced code, and passes the path 
     'references/notes.md links to references/notes.md, which does not resolve from references/',
   ]);
   assert.deepEqual(unresolvedLinks(fenced, 'SKILL.md', carried), []);
-  const asCode = 'Follow it with the words `the notes` a link to `references/notes.md`:\n\n```markdown\nSee the notes.\n```\n';
+  const asCode = 'Follow it with the sentence below, linking the words `the notes` to `references/notes.md`:\n\n```markdown\nSee the notes.\n```\n';
   assert.deepEqual(unresolvedLinks(asCode, 'references/notes.md', carried), []);
   assert.deepEqual(unresolvedLinks('    [n]: ../other/SKILL.md\n[m]: missing.md\n', 'SKILL.md', carried), [
     'SKILL.md links to missing.md, which does not resolve from ./',
@@ -516,7 +516,7 @@ test('every relative link in a Markdown file a skill carries resolves from that 
 
 const runRecordConvention = await read('skills/investigate-codebase/references/documenting-the-run.md');
 const inBodyCoreTemplate = fencedBlockAfter(runRecordConvention, '## In-body core (copy verbatim)', 'in-body core');
-const pointerMarker = 'Follow it, in the same section, with this sentence exactly';
+const pointerMarker = 'Follow it, in the same section, with the sentence below, word for word,';
 const runRecordPointer = fencedBlockAfter(runRecordConvention, pointerMarker, 'pointer sentence');
 
 test('every --document skill embeds the verbatim in-body core and the exact pointer sentence', () => {
@@ -539,8 +539,8 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
   assert.deepEqual(relativeLinkPaths(runRecordPointer), [], 'the pointer sentence in documenting-the-run.md is written as a link, which resolves from references/');
   const anchor = runRecordConvention.indexOf(pointerMarker);
   const lead = runRecordConvention.slice(anchor, runRecordConvention.indexOf('```markdown\n', anchor));
-  const named = lead.match(/the words\s+`([^`]+)`\s+a link to\s+`([^`]+)`/);
-  assert.ok(named, 'documenting-the-run.md does not name, as code, the words of the pointer sentence that link and the path they link to');
+  const named = lead.match(/linking the words\s+`([^`]+)`\s+to\s+`([^`]+)`/);
+  assert.ok(named, 'documenting-the-run.md does not say to link, naming as code, the words of the pointer sentence that link and the path they link to');
   const [, words, target] = named;
   assert.equal(runRecordPointer.split(words).length, 2, `the pointer sentence holds "${words}" exactly once`);
   const pointer = runRecordPointer.replace(words, `[${words}](${target})`);
