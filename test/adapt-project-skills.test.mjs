@@ -1230,12 +1230,34 @@ test('outdated --verify: the copy is the upstream bytes, and a forgery the offli
   assert.match(verified.stdout, /references\/guide\.md differs from upstream/);
 });
 
-test('newer tags: a catalogue pin is compared with catalogue tags, a sha pin with the newest of each kind', () => {
+test('newer tags: a catalogue pin is compared with catalogue tags, a per-skill pin with its own and the newest catalogue tag, a sha pin with the newest of each kind', () => {
   const tags = new Map([['v1.0.0', 'a'], ['v1.2.0', 'b'], ['v1.10.0', 'c'], ['notes-v1.1.0', 'd'], ['other-v9.0.0', 'e'], ['v2.0.0-rc.1', 'f']]);
   assert.deepEqual(newerTags(tags, 'v1.0.0', 'notes'), ['v1.10.0']);
   assert.deepEqual(newerTags(tags, 'v1.10.0', 'notes'), []);
-  assert.deepEqual(newerTags(tags, 'notes-v1.0.0', 'notes'), ['notes-v1.1.0']);
+  assert.deepEqual(newerTags(tags, 'notes-v1.0.0', 'notes'), ['notes-v1.1.0', 'v1.10.0']);
+  // No newer tag of its own: the catalogue is still compared, since it can change the skill alone.
+  assert.deepEqual(newerTags(tags, 'notes-v1.1.0', 'notes'), ['v1.10.0']);
+  assert.deepEqual(newerTags(new Map([['notes-v1.1.0', 'd']]), 'notes-v1.1.0', 'notes'), []);
   assert.deepEqual(newerTags(tags, 'a'.repeat(40), 'notes'), ['notes-v1.1.0', 'v1.10.0']);
+});
+
+test('outdated: a per-skill pin is compared with the catalogue too, and a different tree there is never read as current', async () => {
+  // notes-v1.1.0 sits on v1.2.0's commit; v2.0.0 then changes the skill with no per-skill tag.
+  const pack = await buildPack();
+  const project = await addAdapter({ pack, adapter: adapterJson(pack, { base: { ref: 'notes-v1.1.0' } }) });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  const behind = outdated(project);
+  assert.equal(behind.status, EXIT_ATTENTION, behind.stdout);
+  assert.doesNotMatch(behind.stdout, /no newer release/);
+  assert.match(behind.stdout, /v2\.0\.0 exists; skills\/notes differs \(tree [0-9a-f]{12} -> [0-9a-f]{12}\), and a per-skill tag is not ordered against v2\.0\.0: read `git diff notes-v1\.1\.0 v2\.0\.0 -- skills\/notes` and the release notes before moving the pin/);
+
+  // The latest catalogue release carries the same tree: nothing to read, and nothing to do.
+  const level = await buildPack({ upTo: 'v1.2.0' });
+  const levelProject = await addAdapter({ pack: level, adapter: adapterJson(level, { base: { ref: 'notes-v1.1.0' } }) });
+  assert.equal(compose(levelProject, '--write').status, EXIT_OK);
+  const same = outdated(levelProject);
+  assert.equal(same.status, EXIT_OK, same.stdout);
+  assert.match(same.stdout, /v1\.2\.0 exists; skills\/notes unchanged: moving the pin is a no-op/);
 });
 
 test('the overlay is read in its three parts and nothing else', () => {

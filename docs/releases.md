@@ -167,10 +167,12 @@ personal copy of the generic one.
   the rules above, and warns when the composed `SKILL.md` passes 500 lines. A project runs it from
   its own tests, so a hand edit or an overlay changed without composing turns them red.
 - **`outdated`** reads tags and says, per copy, whether a newer release leaves the skill's tree
-  unchanged (moving the pin is a no-op) or changes it (with the `git diff` to read). It raises an
-  alarm when a pinned tag moved or was deleted, flags a vendored composer that is not the one the
-  pinned release ships, and `--verify` compares every carried file with the upstream bytes, which is
-  what proves a copy the offline check can only show was not changed.
+  unchanged (moving the pin is a no-op) or changes it (with the `git diff` to read). A per-skill
+  tag is compared with the latest catalogue release as well, and where a version cannot order the
+  two, as there and for a sha pin, a different tree is reported as differing, never as newer. It
+  raises an alarm when a pinned tag moved or was deleted, flags a vendored composer that is not the
+  one the pinned release ships, and `--verify` compares every carried file with the upstream bytes,
+  which is what proves a copy the offline check can only show was not changed.
 
 A reference file of a skill can be the entry instead of `SKILL.md`: its links are rewritten for the
 folder root, an id only `SKILL.md` declares is refused, and a link from another carried file to the

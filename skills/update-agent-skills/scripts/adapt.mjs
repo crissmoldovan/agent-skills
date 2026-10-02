@@ -1494,14 +1494,21 @@ function compareVersions(left, right) {
   return 0;
 }
 
-/** The newest tag of each family that is newer than the pin, or the newest of each for a sha pin. */
+/**
+ * The tags `outdated` compares a pin with. A catalogue pin: the newest newer catalogue tag. A
+ * per-skill pin: the newest newer tag of its own, and the newest catalogue tag, because a later
+ * catalogue release can change the skill without a per-skill tag beside it. A sha pin: the newest
+ * of each. Versions order tags only within one family, so a comparison across families, or with a
+ * sha, says whether the trees differ and never which is newer.
+ */
 export function newerTags(tags, pinRef, skill) {
   const pinned = tagVersion(pinRef, skill);
   const newest = new Map();
   for (const tag of tags.keys()) {
     const parsed = tagVersion(tag, skill);
     if (!parsed) continue;
-    if (pinned && (parsed.family !== pinned.family || compareVersions(parsed.version, pinned.version) <= 0)) continue;
+    if (pinned?.family === 'catalogue' && parsed.family !== 'catalogue') continue;
+    if (pinned && parsed.family === pinned.family && compareVersions(parsed.version, pinned.version) <= 0) continue;
     const best = newest.get(parsed.family);
     if (!best || compareVersions(parsed.version, best.version) > 0) newest.set(parsed.family, { tag, version: parsed.version });
   }
@@ -1565,17 +1572,24 @@ export function runOutdated(options, io) {
       }
       const newer = newerTags(tags, pinned.ref, pinned.skill);
       if (newer.length === 0) io.out(FULL_SHA.test(pinned.ref) ? '  no release tag to compare with' : `  no newer release than ${pinned.ref}`);
+      const pinFamily = tagVersion(pinned.ref, pinned.skill)?.family ?? null;
       for (const tag of newer) {
         const reader = readerFor();
         fetchRef(reader, `+refs/tags/${tag}:refs/tags/${tag}`);
         const commit = reader.commitOf(`refs/tags/${tag}`);
         const tree = commit ? reader.treeAt(commit, `skills/${pinned.skill}`) : null;
+        // A version orders tags of one family only; against a sha, or across families, the trees
+        // can only differ, so the line says which to read and never claims the tag is newer.
+        const ordered = pinFamily !== null && tagVersion(tag, pinned.skill)?.family === pinFamily;
         if (!tree) {
           io.out(`  ${tag} exists, and skills/${pinned.skill} is gone from it: read the release notes before moving the pin`);
           attention = true;
         } else if (tree === pinned.tree) io.out(`  ${tag} exists; skills/${pinned.skill} unchanged: moving the pin is a no-op`);
-        else {
+        else if (ordered) {
           io.out(`  ${tag} exists; skills/${pinned.skill} changed (tree ${short(pinned.tree)} -> ${short(tree)}): read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\``);
+          attention = true;
+        } else {
+          io.out(`  ${tag} exists; skills/${pinned.skill} differs (tree ${short(pinned.tree)} -> ${short(tree)}), and ${pinFamily ? 'a per-skill tag' : 'a commit'} is not ordered against ${tag}: read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\` and the release notes before moving the pin`);
           attention = true;
         }
       }
