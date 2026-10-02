@@ -41,7 +41,7 @@ compete for one register.
 Sixteen points. Each scores 1, 0.5 or 0, and counts only where the plan names the field, path, command
 or time source; gesturing at it is not enough. A half point is lost wherever a plan **writes** something
 the skill forbids, on any surface: a list of what waits, a gap's prose, a commit message or a note
-counts as much as the main record.
+counts as much as the main record. R2 is not scored for an arrival that brings no pack.
 
 | id | a good ingest | the failure it answers |
 |---|---|---|
@@ -64,7 +64,8 @@ counts as much as the main record.
 
 ## What the first runs showed
 
-Four scenarios, one run each, plan-only.
+Four scenarios, one run each, plan-only. Sixteen points each would make 64, but R2 did not apply to
+scenarios B and C, which bring no pack, so every result below is out of 62.
 
 - **Without the skill, 46 of 62 (74%).** All four plans fell short on exact times in both zones (R4),
   parties (R6), recording everywhere (R11) and supersession (R14).

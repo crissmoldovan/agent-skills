@@ -72,7 +72,7 @@ Forwarded message inside it (unauthenticated, as quoted): From <…> · Date <ve
 <Moments block>
 <Parties block>
 <The rest block>
-Files here: message.eml, <attachments, byte for byte>, SHA256SUMS, CONTENTS.txt (every pack member, measured here), EVIDENCE.txt
+Files here: message.eml, <attachments, byte for byte>, SHA256SUMS, EVIDENCE.txt; for a pack, unpacked/<pack name>/ and CONTENTS.txt (every member, measured here)
 Body, as received (<which part is rendered>; <n> quoted lines omitted by the tool; <n> hidden-text items removed):
 
 <the body, verbatim>
@@ -88,11 +88,11 @@ document:
 Kept here byte for byte, outside every repository, because <it holds personal chat | client data | …>.
 Transport: <agent> · <event id> · <where-from> · <session and transcript line> · <recorder and meeting id>
 Channel before that: <… | not recorded>
-Verbatim means: <for a paste: the text as pasted, slips kept, extracted from the transcript line by script>
+Verbatim means: <for a paste: the text as pasted, slips kept, written by script out of the message as B14 showed it (PASTE.txt)>
 <Moments block>
 <Parties block>
 <The rest block>
-Files: <each file, one line: what it is; which files are derived, and by which tool>; SHA256SUMS; CONTENTS.txt for a pack; EVIDENCE.txt
+Files: <each file, one line: what it is; which files are derived, and by which tool>; SHA256SUMS; EVIDENCE.txt; unpacked/ and CONTENTS.txt for a pack
 ```
 
 ## C · The landing record (beside the pack, where B4 says)
@@ -170,14 +170,19 @@ assumption.
 Each was run on synthetic files before it was written here. Node 22+ and Python 3 run them on any
 platform; the shell lines are written for macOS, and the Linux equivalent is named where it differs.
 
-**One instant in UTC and in B2.** Takes an ISO time or a Date header, and refuses a value with no zone,
-which would otherwise be read in the machine's own zone without a word:
+**One instant in UTC and in B2.** Takes an ISO time or a Date header, with a numeric offset or a
+zone name RFC 5322 defines, and refuses a value with no zone, which would otherwise be read in the
+machine's own zone without a word. A value that names any other zone is refused too, and kept
+verbatim, marked "zone named, not converted":
 
 ```sh
 node -e '
 const [value = "", zone] = process.argv.slice(1);
-if (!/(Z|[+-]\d\d:?\d\d|\bGMT|\bUTC?)\s*(\([^)]*\))?$/i.test(value.trim())) {
-  console.error(`zone not stated: keep "${value}" verbatim and mark it so`); process.exit(2);
+if (!/(\dZ|[+-]\d\d:?\d\d|\b(Z|GMT|UTC?|[ECMP][SD]T))\s*(\([^)]*\))?$/i.test(value.trim())) {
+  console.error(/[A-Za-z]{2,}\s*(\([^)]*\))?$/.test(value.trim())
+    ? `zone named, not converted: "${value}" names a zone this command does not read; keep it verbatim and mark it so`
+    : `zone not stated: keep "${value}" verbatim and mark it so`);
+  process.exit(2);
 }
 const t = new Date(value);
 if (!zone || Number.isNaN(t.getTime())) { console.error("usage: <ISO time or Date header> <zone>"); process.exit(2); }
@@ -194,6 +199,34 @@ console.log(`${new Date(whole).toISOString().replace(".000Z", "Z")} (${f.year}-$
 
 It prints to the second. The offset is computed for that instant, so a time either side of a
 daylight-saving change gets the offset it had.
+
+**A day in B2, as UTC bounds.** For the day's sweep (`S9`). Takes a date and the zone, and prints the
+first instant of that day and of the next, in UTC. A day is not always 24 hours long, and on a
+daylight-saving day its bounds are not a fixed offset from midnight UTC, so they are found, not
+added:
+
+```sh
+node -e '
+const [day = "", zone] = process.argv.slice(1);
+if (!/^\d{4}-\d\d-\d\d$/.test(day) || !zone) { console.error("usage: <YYYY-MM-DD> <the zone bound as B2, or UTC>"); process.exit(2); }
+const format = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23",
+  year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const wall = (t) => { const f = Object.fromEntries(format.formatToParts(t).map((p) => [p.type, p.value]));
+  return Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second); };
+// The first instant whose clock in the zone reads the date or later: its midnight, or the end of a skipped hour.
+const first = (date) => {
+  const target = Date.parse(`${date}T00:00:00Z`);
+  let lo = target - 18 * 3600000, hi = target + 18 * 3600000;
+  while (hi - lo > 1000) { const mid = lo + Math.floor((hi - lo) / 2000) * 1000; if (wall(mid) >= target) hi = mid; else lo = mid; }
+  return new Date(hi).toISOString().replace(".000Z", "Z");
+};
+const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+console.log(`start ${first(day)}`);
+console.log(`end   ${first(next)} (not included)`);
+' '<YYYY-MM-DD>' '<the zone bound as B2, or UTC>'
+```
+
+A query over the day takes times from `start` up to, and not including, `end`.
 
 **Hash and bytes, in place and after the copy.** Into `SHA256SUMS` beside the copy (`sha256sum` on
 Linux):
@@ -218,7 +251,9 @@ EOF
 ```
 
 **`CONTENTS.txt`, ours whether or not the pack has a manifest.** `<full sha256> <bytes> <path>` for
-every member, run on the fresh unpack before anything is added to the folder:
+every member, run on the fresh unpack before anything is added to it. Each pack is extracted into
+`unpacked/<pack name>/` in the arrival's folder, so the walk reads `unpacked/` and nothing else, and
+each path starts with its pack's folder:
 
 ```sh
 node -e '
@@ -231,10 +266,11 @@ for (const file of walk(root)) {
   const st = fs.lstatSync(file), rel = path.relative(root, file);
   if (!st.isFile()) { console.log(`not a regular file: ${rel}`); continue; }
   console.log(`${crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")} ${st.size} ${rel}`);
-}' '<unpacked pack folder>' > '<archive folder>/CONTENTS.txt'
+}' '<arrival folder>/unpacked' > '<arrival folder>/CONTENTS.txt'
 ```
 
-**"N of N, and no file outside the manifest".** In bash, in the pack's own folder, for a manifest of
+**"N of N, and no file outside the manifest".** In bash, in the pack's own folder
+(`unpacked/<pack name>/`, or where it landed), for a manifest of
 `<sha256>  <path>` lines (`sha256sum -c` on Linux). The first line must read `N of N`, and nothing may
 follow it:
 
@@ -275,6 +311,88 @@ grep -oE '!\[[^]]*\]\(https?://[^)]+\)' '<doc>.md' | wc -l    # linked, not embe
 pdfimages -list '<doc>.pdf' | awk 'NR>2 && $3=="image"' | wc -l
 ```
 
-**A paste's words.** The transcript line, and its time, come from the skill bound as B14, which
-scans a message for secrets before it shows it. Keep that line; write the words out of it by script;
-never retype them.
+## Derived files, from a checked source
+
+A derived file (an extracted image, the words of a paste, a converted page) comes only from a command
+that refuses to run when its source's hash differs from the one in `SHA256SUMS` (H3). Any command
+becomes one behind this guard (`sha256sum -c --status -` on Linux):
+
+```sh
+printf '%s  %s\n' '<full sha256, from SHA256SUMS>' '<source>' | shasum -a 256 -c --status - \
+  && <the command that derives the file>
+```
+
+Each image command below writes into a new folder, made without `-p`, and the first two print one
+line per image (full sha256, bytes, name) and then the count, never the encoded bytes.
+
+**Embedded images from a Markdown export.** It checks the source hash itself:
+
+```sh
+node -e '
+const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+const [source, expected, out] = process.argv.slice(1);
+const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
+const text = fs.readFileSync(source);
+if (sha(text) !== expected) { console.error(`${source}: sha256 is not ${expected}; nothing extracted`); process.exit(2); }
+fs.mkdirSync(out);
+let n = 0;
+for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([A-Za-z0-9+\/=\s]+)/g)) {
+  const bytes = Buffer.from(data.replace(/\s+/g, ""), "base64");
+  const name = `image-${String(++n).padStart(3, "0")}.${type.split("+")[0].replace("jpeg", "jpg")}`;
+  fs.writeFileSync(path.join(out, name), bytes, { flag: "wx" });
+  console.log(`${sha(bytes)} ${bytes.length} ${name}`);
+}
+console.log(`${n} images`);
+' '<arrival folder>/<doc>.md' '<its full sha256>' '<arrival folder>/images-md'
+```
+
+**Image parts from the raw email.** The same, for `message.eml`:
+
+```sh
+python3 - '<arrival folder>/message.eml' '<its full sha256>' '<arrival folder>/images-eml' <<'EOF'
+import sys, os, hashlib, email
+from email import policy
+source, expected, out = sys.argv[1:4]
+data = open(source, 'rb').read()
+if hashlib.sha256(data).hexdigest() != expected:
+    sys.exit(f'{source}: sha256 is not {expected}; nothing extracted')
+os.mkdir(out)
+n = 0
+for part in email.message_from_bytes(data, policy=policy.default).walk():
+    if part.get_content_maintype() != 'image':
+        continue
+    n += 1
+    body = part.get_payload(decode=True) or b''
+    name = f'image-{n:03d}.{part.get_content_subtype().split("+")[0]}'
+    with open(os.path.join(out, name), 'xb') as f:
+        f.write(body)
+    print(hashlib.sha256(body).hexdigest(), len(body), name)
+print(n, 'image parts')
+EOF
+```
+
+**A PDF's images**, behind the guard. `pdfimages -all` writes each image in its own format; hash
+them into `SHA256SUMS` after:
+
+```sh
+printf '%s  %s\n' '<its full sha256>' '<arrival folder>/<doc>.pdf' | shasum -a 256 -c --status - \
+  && mkdir '<arrival folder>/images-pdf' \
+  && pdfimages -all '<arrival folder>/<doc>.pdf' '<arrival folder>/images-pdf/image'
+```
+
+**A paste's words.** The skill bound as B14 finds the message's file and line, and shows the
+message only after its scan for secrets. With its default, `mine-session-transcripts`, `show`
+prints one line (file, line, time and session), a blank line, then the words, and exits 0 only when
+it showed them. Keep what it printed as `PASTE.txt`, and write the words out of that; never retype
+them. When it refuses, nothing of the message is kept, and B1 is told the kind of secret it named
+(H3):
+
+```sh
+p='<arrival folder>/PASTE.txt'
+node '<mine-session-transcripts folder>/scripts/transcripts.mjs' show --file '<the file it located>' --line <n> > "$p" \
+  && tail -n +3 "$p" > '<arrival folder>/words.txt' \
+  || { cat "$p"; rm "$p"; }
+```
+
+The raw transcript line is not kept: it can carry harness text that the scan, which reads only the
+person's words, never read.

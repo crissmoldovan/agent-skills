@@ -738,7 +738,8 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
   // The commands in the record forms, run as written.
   const { spawnSync } = await import('node:child_process');
   const { createHash } = await import('node:crypto');
-  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { access, mkdir, writeFile } = await import('node:fs/promises');
+  const exists = (file) => access(file).then(() => true, () => false);
   const nodeCommand = (lead) => {
     const start = forms.indexOf(lead);
     assert.notEqual(start, -1, `record forms no longer carry: ${lead}`);
@@ -756,18 +757,52 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
   const zoneless = convert('2026-03-14 09:21:42', 'UTC');
   assert.equal(zoneless.status, 2, 'a time with no zone must be refused, not read in the machine\'s zone');
   assert.match(zoneless.stderr, /zone not stated/);
+  // A zone the command cannot read is named all the same, so the refusal must not call it unstated.
+  const unread = convert('Sat, 14 Mar 2026 09:21:42 XYZ', 'UTC');
+  assert.equal(unread.status, 2);
+  assert.match(unread.stderr, /zone named, not converted/);
+  assert.equal(convert('Sat, 14 Mar 2026 09:21:42 GMT', '+01:00').stdout.trim(), '2026-03-14T09:21:42Z (2026-03-14T10:21:42+01:00)');
 
-  const pack = await tempDir('ingest-arrival-pack-');
-  await mkdir(`${pack}/data`);
-  await writeFile(`${pack}/README.md`, 'A synthetic pack.\n');
-  await writeFile(`${pack}/data/a.csv`, 'id,v\n1,2\n');
-  const contents = nodeCommand('**`CONTENTS.txt`, ours whether or not the pack has a manifest.**')(pack);
+  // The sweep's bounds are a day in B2, found as UTC instants: the converter above refuses a zoneless
+  // midnight, so the day needs a command of its own.
+  const bounds = nodeCommand('**A day in B2, as UTC bounds.**');
+  assert.deepEqual(bounds('2026-03-29', '+05:30').stdout.trim().split('\n'), ['start 2026-03-28T18:30:00Z', 'end   2026-03-29T18:30:00Z (not included)']);
+  assert.deepEqual(bounds('2026-12-31', '-03:30').stdout.trim().split('\n'), ['start 2026-12-31T03:30:00Z', 'end   2027-01-01T03:30:00Z (not included)']);
+  assert.deepEqual(bounds('2026-03-29', 'UTC').stdout.trim().split('\n'), ['start 2026-03-29T00:00:00Z', 'end   2026-03-30T00:00:00Z (not included)']);
+  assert.equal(bounds('2026-3-29', 'UTC').status, 2, 'a date that is not YYYY-MM-DD must be refused');
+
+  // Each pack is extracted into unpacked/<pack name>/, and the walk reads unpacked/, so every path
+  // names its pack and two packs never share one.
+  const arrival = await tempDir('ingest-arrival-pack-');
+  await mkdir(`${arrival}/unpacked/pack-a/data`, { recursive: true });
+  await writeFile(`${arrival}/unpacked/pack-a/README.md`, 'A synthetic pack.\n');
+  await writeFile(`${arrival}/unpacked/pack-a/data/a.csv`, 'id,v\n1,2\n');
+  const contents = nodeCommand('**`CONTENTS.txt`, ours whether or not the pack has a manifest.**')(`${arrival}/unpacked`);
   assert.equal(contents.status, 0, contents.stderr);
   const sha = (text) => createHash('sha256').update(text).digest('hex');
   assert.deepEqual(contents.stdout.trim().split('\n'), [
-    `${sha('A synthetic pack.\n')} 18 README.md`,
-    `${sha('id,v\n1,2\n')} 9 data/a.csv`,
+    `${sha('A synthetic pack.\n')} 18 pack-a/README.md`,
+    `${sha('id,v\n1,2\n')} 9 pack-a/data/a.csv`,
   ]);
+
+  // A derived file comes only from a checked source: the images are written, hashed and counted,
+  // never printed, and a source whose hash differs gets nothing extracted.
+  const extract = nodeCommand('**Embedded images from a Markdown export.**');
+  const one = Buffer.from('synthetic image one'), two = Buffer.from('synthetic image two');
+  const doc = `# Notes\n![a](data:image/png;base64,${one.toString('base64')}) ![b](data:image/jpeg;base64,${two.toString('base64')})\n![c](https://example.com/c.png)\n`;
+  await writeFile(`${arrival}/doc.md`, doc);
+  const refused = extract(`${arrival}/doc.md`, sha('another document'), `${arrival}/images-refused`);
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /nothing extracted/);
+  assert.equal(await exists(`${arrival}/images-refused`), false, 'a refused source leaves no folder behind');
+  const extracted = extract(`${arrival}/doc.md`, sha(doc), `${arrival}/images-md`);
+  assert.equal(extracted.status, 0, extracted.stderr);
+  assert.deepEqual(extracted.stdout.trim().split('\n'), [
+    `${sha(one)} ${one.length} image-001.png`,
+    `${sha(two)} ${two.length} image-002.jpg`,
+    '2 images',
+  ]);
+  assert.doesNotMatch(extracted.stdout, new RegExp(one.toString('base64')));
 
   for (const carried of ['references/record-forms.md', 'references/transport-evidence.md', 'references/pressure-tests.md']) {
     assert.ok(skill.includes(carried), `SKILL.md does not name ${carried}`);

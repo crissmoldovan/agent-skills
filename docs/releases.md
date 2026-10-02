@@ -187,9 +187,11 @@ link once, read-only, unless the fetch would notify someone; reads the content a
 arrived apart from what it asks and recording which arrival supersedes which; and records it on every
 surface the project keeps, each naming the others. It contacts nobody.
 `references/record-forms.md` holds the forms and the commands that fill them, each run on synthetic
-files; `references/transport-evidence.md` says what each channel leaves behind, with the macOS
-evidence marked as such and what was observed on macOS 26; and `references/pressure-tests.md` holds
-the scenarios and the sixteen-point rubric the skill was tested with.
+files, among them the UTC bounds of a day in the project's zone and the extraction of images behind a
+check of the source's hash; `references/transport-evidence.md` says what each channel leaves behind,
+with the macOS evidence marked as such and what was observed on macOS 26; and
+`references/pressure-tests.md` holds the scenarios and the sixteen-point rubric the skill was tested
+with.
 
 **Why.** An arrival's record is what later settles which file was the real delivery, when a request
 came and who asked for it, and four failures spoil it. A pack recorded as a supplier's delivery was

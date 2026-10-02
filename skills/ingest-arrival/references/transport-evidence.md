@@ -1,8 +1,8 @@
 # Transport evidence
 
 What each channel leaves behind, how to read it, and what was observed. Step `S2` reads this before
-anything is copied or moved, and writes what it reads into `EVIDENCE.txt` beside the copy. Slot ids
-(`B1`, `B9`, …) are the skill's own, from its `SKILL.md`.
+anything is copied or moved, and writes what it reads into `EVIDENCE.txt` in the arrival's folder,
+which it makes first. Slot ids (`B1`, `B9`, …) are the skill's own, from its `SKILL.md`.
 
 Each row is tagged:
 
@@ -39,7 +39,7 @@ Then, for every channel:
 
 ## macOS: reading a file's evidence before it moves
 
-Append this to `EVIDENCE.txt` for each file, where the transport put it:
+Append this to the arrival's `EVIDENCE.txt` for each file, where the transport put it:
 
 ```sh
 f='<file>'
@@ -51,7 +51,7 @@ f='<file>'
   else echo "quarantine none"; fi
   mdls -name kMDItemWhereFroms -name kMDItemDateAdded "$f"
   shasum -a 256 "$f"
-} >> EVIDENCE.txt
+} >> '<arrival folder>/EVIDENCE.txt'
 ```
 
 The quarantine attribute reads `flags;hex-time;agent;event-id`. The time is seconds since 1970, in
@@ -62,7 +62,7 @@ sqlite3 -readonly ~/Library/Preferences/com.apple.LaunchServices.QuarantineEvent
   "SELECT datetime(LSQuarantineTimeStamp+978307200,'unixepoch')||'Z', LSQuarantineAgentName,
           LSQuarantineAgentBundleIdentifier, LSQuarantineDataURLString, LSQuarantineOriginURLString,
           quote(LSQuarantineSenderName)
-   FROM LSQuarantineEvent WHERE LSQuarantineEventIdentifier='<event id>'" >> EVIDENCE.txt
+   FROM LSQuarantineEvent WHERE LSQuarantineEventIdentifier='<event id>'" >> '<arrival folder>/EVIDENCE.txt'
 ```
 
 The database counts time from 2001-01-01, hence the `978307200`.
@@ -90,8 +90,8 @@ Observed on macOS 26.6, with synthetic files and counts only; nothing private wa
 
 ### The day's events
 
-For the sweep in `S9`. The bounds are UTC: a day in the zone bound as B2 starts and ends at that zone's
-midnight, converted to UTC with the command in [record forms](record-forms.md).
+For the sweep in `S9`. The bounds are UTC: the `start` and `end` that the day's-bounds command in
+[record forms](record-forms.md) prints for the day in the zone bound as B2.
 
 ```sh
 sqlite3 -readonly ~/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2 \
