@@ -420,20 +420,41 @@ function widenTools(baseTools, widen) {
 // ---------------------------------------------------------------------------------------------
 // what a skill declares
 
-/** Lines with every fenced block blanked, so line numbers still match; a fence at any indent. */
-function unfencedLines(text) {
+/** For each line, whether it sits in a fenced block, its fences included; a fence at any indent. */
+function fencedLines(text) {
   let fence = null;
   return text.split('\n').map((line) => {
     if (fence === null) {
       const open = line.match(/^\s*(`{3,}|~{3,})/);
-      if (!open) return line;
+      if (!open) return false;
       fence = open[1];
-      return '';
+      return true;
     }
     const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
     if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-    return '';
+    return true;
   });
+}
+
+/** Lines with every fenced block blanked, so line numbers still match. */
+function unfencedLines(text) {
+  const fenced = fencedLines(text);
+  return text.split('\n').map((line, index) => (fenced[index] ? '' : line));
+}
+
+/**
+ * The text as runs of whole lines, each wholly inside fenced code or wholly outside it; joining
+ * every run's text with a newline gives the text back.
+ */
+function fenceRuns(text) {
+  const fenced = fencedLines(text);
+  const runs = [];
+  text.split('\n').forEach((line, index) => {
+    const last = runs.at(-1);
+    if (last && last.fenced === fenced[index]) last.lines.push(line);
+    else runs.push({ fenced: fenced[index], lines: [line] });
+  });
+  return runs.map((run) => ({ fenced: run.fenced, text: run.lines.join('\n') }));
 }
 
 function tableCells(line) {
@@ -609,24 +630,34 @@ function splitTarget(target) {
   return { wrapped, pathname, suffix: cut === -1 ? '' : inner.slice(cut) };
 }
 
-/** Every relative link target in a Markdown text: inline links, images and link definitions. */
+/**
+ * Every relative link target in a Markdown text: inline links, images and link definitions,
+ * outside fenced code. Fenced code is an example, read as the pack's verifier reads it for
+ * declarations: a line shown there links from wherever a reader is to put it, not from here.
+ */
 export function relativeLinks(text) {
   const found = [];
-  for (const match of text.matchAll(INLINE_LINK)) {
-    const target = splitTarget(match[2]);
-    if (target) found.push(target);
+  const outside = fenceRuns(text).filter((run) => !run.fenced).map((run) => run.text);
+  for (const part of outside) {
+    for (const match of part.matchAll(INLINE_LINK)) {
+      const target = splitTarget(match[2]);
+      if (target) found.push(target);
+    }
   }
-  for (const match of text.matchAll(LINK_DEFINITION)) {
-    const target = splitTarget(match[2]);
-    if (target) found.push(target);
+  for (const part of outside) {
+    for (const match of part.matchAll(LINK_DEFINITION)) {
+      const target = splitTarget(match[2]);
+      if (target) found.push(target);
+    }
   }
   return found;
 }
 
 /**
  * A reference file becomes the body of SKILL.md at the folder root, so every relative link it
- * holds is rewritten for its new place. A link to its own skill's SKILL.md is refused: that file
- * is not carried, and the adapted SKILL.md that takes its place is not what the link meant.
+ * holds outside fenced code is rewritten for its new place; fenced code is an example, carried as
+ * written. A link to its own skill's SKILL.md is refused: that file is not carried, and the
+ * adapted SKILL.md that takes its place is not what the link meant.
  */
 export function rewriteEntryLinks(text, entry) {
   const from = posix.dirname(entry);
@@ -646,13 +677,17 @@ export function rewriteEntryLinks(text, entry) {
     const moved = `${resolved}${parts.suffix}`;
     return parts.wrapped ? `<${moved}>` : moved;
   };
-  const rewritten = text
-    .replace(INLINE_LINK, (whole, open, target, close) => `${open}${move(target)}${close}`)
-    .replace(LINK_DEFINITION, (whole, open, target) => `${open}${move(target)}`);
+  const rewritten = fenceRuns(text)
+    .map((run) => (run.fenced
+      ? run.text
+      : run.text
+        .replace(INLINE_LINK, (whole, open, target, close) => `${open}${move(target)}${close}`)
+        .replace(LINK_DEFINITION, (whole, open, target) => `${open}${move(target)}`)))
+    .join('\n');
   return { text: rewritten, problems };
 }
 
-/** Check 10: every relative link in the generated folder resolves, and none leaves the repository. */
+/** Check 10: every relative link in the generated folder, outside fenced code, resolves, and none leaves the repository. */
 export function linkProblems(files, { folder, exists }) {
   const problems = [];
   const directories = new Set();

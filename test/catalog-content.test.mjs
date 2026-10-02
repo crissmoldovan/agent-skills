@@ -532,7 +532,8 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   const copy = section(adaptation, 'The adapted copy');
   assert.match(copy, /`LICENSE`, the MIT text/);
   assert.match(copy, /### When the entry is a reference file/);
-  assert.match(copy, /relative link in it is rewritten for its new place/);
+  assert.match(copy, /relative link in it outside fenced code is rewritten for its new place; a link inside fenced code\s+is an example, carried as written/);
+  assert.match(copy, /A\s+link inside fenced code is an example, written for wherever a reader is to put it, so it is not\s+checked\./);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
   assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);
 

@@ -180,12 +180,13 @@ of the skill and of the text between the markers, the sha256 of every adapter in
 generated file, and the composer's version and sha256.
 
 **A reference file as the entry.** Its text becomes the body of `SKILL.md` at the folder root, so
-every relative link in it is rewritten for that place, and it is still carried at its own path. The
-skill's own `SKILL.md` is not carried, so a link to it from the entry is refused, and so is a
-binding or an addition to an id that only `SKILL.md` declares. Another carried file that links to
-the skill's `SKILL.md` is carried byte for byte, so its link resolves to this copy's `SKILL.md`,
-which holds the entry's text; `compose` and `check` warn and name each such link, because only an
-edit to the skill can change it.
+every relative link in it outside fenced code is rewritten for that place, and it is still carried
+at its own path. A link inside fenced code is an example, carried as written. The skill's own
+`SKILL.md` is not carried, so a link to it from the entry is refused, and so is a binding or an
+addition to an id that only `SKILL.md` declares. Another carried file that links to the skill's
+`SKILL.md` is carried byte for byte, so its link resolves to this copy's `SKILL.md`, which holds the
+entry's text; `compose` and `check` warn and name each such link, because only an edit to the skill
+can change it.
 
 Composing is concatenation at fixed points, never a model merging text, so the result can be
 compared byte for byte: LF line endings, files in sorted order, no timestamps.
@@ -212,7 +213,7 @@ source that cannot be read).
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
 | 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
-| 10 | every relative link in the generated folder resolves and stays inside the repository | a link in the overlay or a project file to something that is not there |
+| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code, at any indentation, is an example and is not checked: it links from wherever a reader is to put it | a link in the overlay or a project file to something that is not there |
 
 A generated folder whose adapter folder is gone fails as well.
 

@@ -205,9 +205,10 @@ the adapted `SKILL.md`, the copy carries:
   pack's work and the licence asks for its notice in every such copy;
 - the record of its pin (below), with the sha256 of every file it carries.
 
-Every relative link in the adapted copy resolves, and a copy in which one does not is refused.
-Composing joins texts at fixed points and asks no model to merge them, so the result can be
-compared byte for byte, and composing again catches a hand edit or a stale copy.
+Every relative link in the adapted copy resolves, and a copy in which one does not is refused. A
+link inside fenced code is an example, written for wherever a reader is to put it, so it is not
+checked. Composing joins texts at fixed points and asks no model to merge them, so the result can
+be compared byte for byte, and composing again catches a hand edit or a stale copy.
 
 ### When the entry is a reference file
 
@@ -215,8 +216,9 @@ A project may adapt one reference file of a skill instead of its `SKILL.md`, whe
 the procedure it needs.
 
 - The entry's text becomes the body of the adapted `SKILL.md`, at the folder root, so every
-  relative link in it is rewritten for its new place. The entry is still carried at its own path
-  too, so the skill's other files still find it.
+  relative link in it outside fenced code is rewritten for its new place; a link inside fenced code
+  is an example, carried as written. The entry is still carried at its own path too, so the skill's
+  other files still find it.
 - The skill's own `SKILL.md` is not carried, because the adapted `SKILL.md` takes its place. A file
   written to be adapted on its own therefore names its skill in backticks, such as `release-notes`,
   where it sends the reader to the rest of that skill, rather than linking to `../SKILL.md`, so the

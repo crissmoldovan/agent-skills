@@ -1026,6 +1026,89 @@ test('link rewriting refuses a link to the skill\'s own SKILL.md and one that le
   assert.match(rewriteEntryLinks('[out](../../other/SKILL.md)', 'references/part.md').problems.join('\n'), /outside its skill/);
 });
 
+// Fenced code is an example, as the pack's verifier reads it: a line a reader is to paste into
+// another file links from where it will sit, not from where it is shown. From references/, the
+// links below do not resolve, and are not meant to. One fence is nested in a list item.
+const FENCED_EXAMPLE = `
+A skill that files parts says so in its own SKILL.md, in these words:
+
+\`\`\`markdown
+Parts are filed per [the filing guide](references/part.md).
+\`\`\`
+
+1. A list item can show one too:
+
+   ~~~markdown
+   Back to [the steps](../SKILL.md), as [guide] says.
+
+   [guide]: references/guide.md
+   ~~~
+`;
+
+/** The pack with a release v2.0.1 whose references/part.md ends with `tail`. */
+async function packWithPartTail(tail) {
+  const pack = await buildPack();
+  write(pack, 'skills/notes/references/part.md', `${PART}${tail}`);
+  git(pack, 'commit', '--quiet', '-am', 'v2.0.1');
+  git(pack, 'tag', 'v2.0.1');
+  return pack;
+}
+
+test('a link inside fenced code is an example: a carried file that shows one composes and checks clean', async () => {
+  const pack = await packWithPartTail(FENCED_EXAMPLE);
+  const project = await addAdapter({ pack, adapter: adapterJson(pack, { base: { ref: 'v2.0.1' } }) });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  assert.ok(read(project, generated(project, 'references/part.md')).equals(read(pack, 'skills/notes/references/part.md')));
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_OK, checked.stdout);
+});
+
+test('a link outside fenced code that does not resolve is still refused, and the fenced ones beside it are not named', async () => {
+  const pack = await packWithPartTail(`${FENCED_EXAMPLE}\nThe rest is in [the parts index](missing.md).\n`);
+  const project = await addAdapter({ pack, adapter: adapterJson(pack, { base: { ref: 'v2.0.1' } }) });
+
+  const refused = compose(project);
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[10\] references\/part\.md links to missing\.md, which does not resolve/);
+  assert.doesNotMatch(refused.stdout, /links to references\//);
+});
+
+test('an overlay may show a template in fenced code whose link the project has yet to fill', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const template = OVERLAY.replace('### H1\n', '### S2\nRecord the transport evidence in these words:\n\n```markdown\nReceived per [the intake page](references/project/intake.md).\n```\n\n### H1\n');
+  const project = await addAdapter({ pack, overlay: template });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  assert.match(readText(project, generated(project, 'SKILL.md')), /Received per \[the intake page\]\(references\/project\/intake\.md\)\./);
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_OK, checked.stdout);
+});
+
+test('link rewriting leaves fenced code as written, and refuses nothing in it', () => {
+  const text = `[a](guide.md)\n${FENCED_EXAMPLE}\n\`\`\`\n[out](../../other/SKILL.md)\n[d]: ../assets/x.png\n\`\`\`\n[b](guide.md)\n`;
+  const moved = rewriteEntryLinks(text, 'references/part.md');
+  assert.deepEqual(moved.problems, []);
+  assert.equal(moved.text, text.replace('[a](guide.md)', '[a](references/guide.md)').replace('[b](guide.md)', '[b](references/guide.md)'));
+});
+
+test('a reference file as the entry: a link inside fenced code is carried as written, and checked as an example', async () => {
+  const pack = await packWithPartTail(FENCED_EXAMPLE);
+  const adapter = { version: 1, name: 'parts-here', description: 'File the parts that reach this repository.', base: { source: pack, skill: 'notes', entry: 'references/part.md', ref: 'v2.0.1' } };
+  const project = await addAdapter({ pack, folder: 'parts-here', adapter, overlay: PART_OVERLAY, files: {} });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  const skill = readText(project, `${SKILLS}/parts-here/SKILL.md`);
+  assert.ok(skill.includes(FENCED_EXAMPLE), 'the fenced example is carried byte for byte');
+  assert.match(skill, /\[the guide\]\(references\/guide\.md\)/);
+  assert.doesNotMatch(composed.stdout, /Warning: references\/part\.md links to/);
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_OK, checked.stdout);
+});
+
 test('a copy whose overlay replaces a step says that the replacement wins', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack, overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S1. Instructions arrive through the build server, which records them. Decided in records/decisions.md.\n') });
