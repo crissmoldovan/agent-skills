@@ -39,6 +39,8 @@ additions together.
 
 `--adapters-dir` and `--skills-dir` move the two folders for a harness that reads skills from
 somewhere else; pass the same values to every command, because the lock records them.
+`onboard-project` looks for adapted copies only in `.claude/skills/` and `.agents/skills/`, so a
+copy composed anywhere else does not stand in for its skill there.
 
 ### `adapter.json`
 
@@ -153,6 +155,11 @@ a clone at the pinned ref is what makes the vendored composer the release's. Whe
 `compose` notes it and `outdated` flags it, and composing again with the composer from a clone at
 the pinned ref replaces it.
 
+In a repository onboarded with `onboard-project`, refresh its profile in the change that composes
+a first copy, removes one, or moves a pin: its session-start check compares the copies on disk,
+with their refs and trees, against the profile, and names any difference at every session start
+until a refresh records it. The refresh is also what routes a session to a new copy by name.
+
 Wire `check` into the project's tests, so that drift is a red test even without CI, and add one
 line to the project's agent instructions: never edit `.claude/skills/<name>/`; edit the adapter
 folder and compose. When branches that both changed an adapted skill merge, never merge the
@@ -235,6 +242,9 @@ file, and that is what proves it.
    If `compose` notes that the new ref ships another composer, compose again with the one from a
    clone of the pack at that ref, so the vendored composer moves with the pin.
 5. Run `check` and whatever scenarios the project keeps for the skill, and commit it as one change.
+   In a repository onboarded with `onboard-project`, refresh its profile in that same change: its
+   session-start check compares each copy's ref and tree with the profile, so a re-pin it has not
+   recorded is reported at every session start, a same-tree re-pin included.
 
 `check-pack-freshness.mjs --repo <project>` lists the same pins against the latest release, beside
 the global installs, as part of an inventory; a copy of another source is listed as not compared,
@@ -250,7 +260,7 @@ and the run exits 2 when a pin moved or differs. Neither it nor `skills update` 
 | a newer release renames an id the overlay cites | `compose` refuses and names it | fix the overlay in the same change as the pin |
 | no network | only `compose` (without `--pack`) and `outdated` stop | nothing else needs it |
 | a git setting (`url.<base>.insteadOf`) rewrites GitHub addresses to ssh | `compose` without `--pack` refuses the pin, and `outdated` reports unknown: the composer allows a remote over https only, and the message names the setting | run the command with that setting left out (for one in the global configuration, `GIT_CONFIG_GLOBAL` naming an empty file), or compose from a clone with `--pack` |
-| the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions |
+| the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions; `onboard-project`'s routing file does that for a repository it onboards |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |
 | a pin moved with the old composer | the copies are composed, vendored and checked by the old composer; nothing offline disagrees | `compose` notes it and `outdated` flags it; compose again with the composer from a clone at the pinned ref |

@@ -685,6 +685,62 @@ test('onboard-project states its boundaries, its consent rule, and what it never
   assert.match(onboardProjectWrites, /Undo/);
 });
 
+// A project adapts a pack skill with update-agent-skills' composer (docs/project-adaptation.md). The
+// copy stands in for the skill it adapts, so onboard-project must not offer that skill for install,
+// call it missing, or route a session to the generic copy. Its behaviour is held in
+// test/onboard-cli.test.mjs and test/onboard-profile.test.mjs; what is held here is that the skill,
+// its reference and the catalogue's prose keep saying so, and stay free of a machine path, a real
+// address or a real zone. Names have no shape a public test can hold; scripts/scan-denylist.mjs
+// reads for those.
+test('onboard-project counts an adapted copy as the skill it adapts, and routes to the copy', async () => {
+  const contributing = await read('CONTRIBUTING.md');
+  const adaptation = await read('docs/project-adaptation.md');
+
+  // The description is what a listing shows, and the README carries it word for word: it must not
+  // still say the check speaks whenever a listed skill is not installed.
+  const description = onboardProject.match(/^description: "(.*)"$/m)[1];
+  assert.match(description, /says one line when a listed skill is neither installed nor adapted here, the repository's evidence or its adapted copies move/);
+  assert.match(onboardProject, /\*\*A skill this repository has adapted is already here\.\*\*/);
+  assert.match(onboardProject, /no install command, and a routing line that names the copy\s+instead of the skill/);
+  assert.match(onboardProject, /^\| Composing, checking and re-pinning a project's adapted copy of a pack skill \| `update-agent-skills` \| .*Never composes, edits or re-pins one\. \|$/m);
+  assert.match(onboardProject, /\*\*Sending a session to the generic skill when the repository has adapted it\.\*\*/);
+  assert.match(section(onboardProject, 'Verification'), /A skill this repository has adapted got no install command/);
+
+  assert.match(onboardProjectWrites, /^- `adapted` records every adapted copy in this repository, keyed by the skill it adapts\./m);
+  assert.match(onboardProjectWrites, /`adapted` \(the scan did not match it, and\s+this repository holds an adapted copy of it, which is the evidence\)/);
+  assert.match(onboardProjectWrites, /→ `ask-the-owner`, this repository's adapted copy of `request-answers`/);
+  assert.match(onboardProjectWrites, /unless one of four things is true/);
+  assert.match(onboardProjectWrites, /renders exactly as it did before 1\.1\.0/);
+
+  assert.match(contributing, /which names a\s+project's adapted copy of a skill rather than the skill it adapts/);
+  assert.match(releases, /### `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy/);
+  assert.match(adaptation, /A repository onboarded with `onboard-project` counts the adapted copy as the skill\s+it adapts/);
+  // The check compares each copy's ref and tree, so a pin moved without a refresh is reported at
+  // every session start; the procedure that moves a pin has to say so, not only this skill.
+  const adapting = await read('skills/update-agent-skills/references/adapting.md');
+  assert.match(section(adapting, 'Moving a pin'), /In a repository onboarded with `onboard-project`, refresh its profile in that same change/);
+  assert.match(releases, /names them at every session start until a refresh\s+records them/);
+  // Composing a first copy or removing one moves the check just as a re-pin does, so the commands
+  // and the skill's own pin rule say so too, not only the procedure that moves a pin.
+  assert.match(section(adapting, 'Commands'), /refresh its profile in the change that composes\s+a first copy, removes one, or moves a pin/);
+  assert.match(updateAgentSkills, /refresh its profile in the\s+change that moves a pin, composes a first copy or removes one/);
+  // Each kind of `adapted copy:` line says what to do with it, and a lock version this skill does
+  // not read is not sent to the composer, whose own check would pass it.
+  assert.match(onboardProject, /when the problem is a lock version this skill does not read, update\s+onboard-project/);
+  assert.match(onboardProject, /`<copy> adapts <skill>, which this catalogue does not carry`/);
+  // A skill listed only for its copy leaves with it, and a copy lifts a decline.
+  assert.match(onboardProject, /except a skill listed only as `adapted`, which leaves with its last\s+copy/);
+  assert.match(onboardProject, /composing a copy of a declined skill lifts\s+the decline/);
+  assert.match(onboardProjectWrites, /The exception is a skill listed only as `adapted`/);
+  assert.doesNotMatch(onboardProjectWrites, /whole text/, 'the routing paragraph says a copy over one file carries the whole skill');
+
+  for (const [where, text] of [['SKILL.md', onboardProject], ['references/what-gets-written.md', onboardProjectWrites]]) {
+    assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/, `${where} carries a real address`);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/, `${where} names a real zone`);
+  }
+});
+
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
 // "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
 // the example would invoke a sibling skill they may not have. Nothing failed, because the tests

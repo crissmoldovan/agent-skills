@@ -3,9 +3,10 @@
  * ARM THE SESSION-START CHECK, or take it away again.
  *
  * The check has one mode, because it cannot cost anyone a turn: it reads, it never blocks, and it
- * prints one line only when a required skill is missing, the repository's evidence has moved, or
- * the generated rules file no longer matches its profile. So there is no observe/block choice
- * here — arming it means writing the hook, and `--remove` takes it back.
+ * prints one line only when a required skill is neither installed nor adapted here, the
+ * repository's evidence has moved, an adapted copy was added, removed or re-pinned, or the
+ * generated rules file no longer matches its profile. So there is no observe/block choice here —
+ * arming it means writing the hook, and `--remove` takes it back.
  *
  * IT AFFECTS EVERY PROJECT ON THIS MACHINE. The hook lives in the user's own settings file, so
  * onboarding one repository must never install it silently: the skill shows it as its own row,
@@ -206,8 +207,9 @@ export async function main(argv, { stdout = process.stdout, stderr = process.std
     stdout.write([
       `Armed the onboard-project check in ${file}, on SessionStart (${MATCHERS.join(' and ')}).`,
       '',
-      'It says ONE line, and only when one of three things is true: a skill this project lists is',
-      'not installed, the repository\'s evidence has moved since the profile was written, or the',
+      'It says ONE line, and only when one of four things is true: a skill this project lists is',
+      'neither installed nor adapted here, the repository\'s evidence has moved since the profile',
+      'was written, an adapted copy of a skill was added, removed or re-pinned since then, or the',
       'generated routing file no longer matches that profile. Every other session start is silent.',
       '',
       'It reads no session history, never blocks a turn, and fails open — any error at all produces',

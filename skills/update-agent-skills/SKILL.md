@@ -288,7 +288,9 @@ node <project>/.claude/skill-adapters/.tool/adapt.mjs outdated --repo <project> 
   `outdated` says when a newer tag leaves the skill's tree unchanged, so there is
   nothing to read, and names the `git diff` to read when it changed. Edit the ref,
   compose, and review the generated diff, which is that upstream change and nothing
-  else.
+  else. In a repository onboarded with `onboard-project`, refresh its profile in the
+  change that moves a pin, composes a first copy or removes one, or its check names
+  the copy at every session start.
 - **A moved tag stops the line.** `outdated` raises an alarm, and `compose` refuses
   until the new commit is recorded on purpose.
 - **The composer moves with the pin only when a person runs the new one.** The

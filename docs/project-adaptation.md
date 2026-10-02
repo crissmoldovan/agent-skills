@@ -174,7 +174,8 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
    change the project's practice; and only then write a `replaces:`.
 6. **The adapted copy never takes its skill's name.** It has a name and a description of its own,
    with the project's own trigger phrases, so neither copy hides the other and a reader can tell which
-   one was loaded.
+   one was loaded. A repository onboarded with `onboard-project` counts the adapted copy as the skill
+   it adapts, and its routing file names the copy for the task.
 7. **The frontmatter follows the skill, except what the project names.** `name` and `description`
    come from the project. `allowed-tools` and `compatibility` come from the skill, and the project
    widens the tools only by naming each one where review sees it. `metadata` is a map that records
