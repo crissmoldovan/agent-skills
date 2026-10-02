@@ -136,6 +136,7 @@ node .claude/skill-adapters/.tool/adapt.mjs outdated --repo . --verify  # and co
 - `check` is offline: no git, no network. It exits 1 when any check below fails.
 - `outdated` exits 2 when something needs a person: a newer tag that changes the skill, a moved or
   deleted tag, or a question it could not answer. It never says "current" when it could not tell.
+  With `--verify` it exits 1 when a carried file is not the upstream bytes.
 
 Wire `check` into the project's tests, so that drift is a red test even without CI, and add one
 line to the project's agent instructions: never edit `.claude/skills/<name>/`; edit the adapter
@@ -172,7 +173,8 @@ compared byte for byte: LF line endings, files in sorted order, no timestamps.
 
 ## The checks
 
-`check` holds every adapted copy to these; `compose` refuses an input that would break 3 to 6, 9 or 10.
+`check` holds every adapted copy to these. `compose` refuses an input that would break 4, 5, 6 or 10,
+or put a marker of check 2 into the overlay; the rest it writes true.
 
 | # | what it holds | what fails it |
 |---|---|---|
