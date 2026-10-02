@@ -73,15 +73,19 @@ check is off until the user arms it.
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-### `verify-skills` reads every text file, and contributors get a private-denylist scan
+### `verify-skills` reads every file the repository would publish, and contributors get a private-denylist scan
 
 `scripts/verify-skills.mjs` looked for likely secrets and home-directory paths only in files
-with one of ten extensions. A `.toml` fixture, a `.sh` helper, a `.jsonl` capture or an
-extensionless config was never read, and this repository's own `Cargo.toml` fixture was one of
-them. It now reads every file that is text, whatever its name. A file counts as text when it
-has no NUL byte; it is decoded as UTF-8 with replacement, so a Latin-1 file is read too. A file
-with a NUL byte is binary, and the run names it as not scanned. A pass no longer suggests that
-a file was read when it was not.
+with one of ten extensions, and not at all in `packages/agent-lifecycle`. A `.toml` fixture, a
+`.sh` helper, a `.jsonl` capture or an extensionless config was never read, and this
+repository's own `Cargo.toml` fixture was one of them. It now reads every file the repository
+would publish, whatever its name: in a git checkout, every tracked file, wherever it sits, and
+every untracked file git does not ignore outside generated output, so a local `.env` cannot
+fail the run. Both patterns are ASCII, so every file is searched whatever its encoding. A
+binary file is searched as bytes, which finds a path in an image's metadata, and is named for a
+person to look at, since what an image shows is not read. One lifecycle test file, whose token
+fields are fixtures, is read for paths but not for the secret pattern, and the run names it. A
+pass no longer suggests that a file was read when it was not.
 
 Most of what leaks from real work has no shape a public validator can hold: a client's name, a
 person's handle, an internal host, an account id. `scripts/scan-denylist.mjs` checks what a
