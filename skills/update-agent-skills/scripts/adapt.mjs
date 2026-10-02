@@ -446,8 +446,9 @@ function unfencedLines(text) {
   });
 }
 
-// The link scan and the overlay read fences closer to CommonMark, because a line read as fenced
-// code there is a line no check reads.
+// The overlay reads its fences closer to CommonMark, and holds each to the addition or section it
+// opens in, because a fence left open there would hide the headings after it, and with them every
+// check they face. Links are read everywhere, fenced or not, as the verifier reads a skill's files.
 
 /** The column a run of spaces and tabs reaches from `from`, a tab moving to the next multiple of four. */
 function column(whitespace, from = 0) {
@@ -465,9 +466,7 @@ const OPENER_LEAD = /[ \t]+|[-+*]|\d{1,9}[.)]/g;
  * list markers, as `- ```bash` and `1. ```bash` open one in a list item. Its indent is the column
  * the fence starts at, a marker counting its own width; a non-breaking space is not indentation.
  * A backtick fence whose info string holds a backtick is a code span, and more than four columns
- * after a marker make indented code, so neither opens a fence. `continues` says that the line
- * opens with an ordered list marker other than 1, which cannot interrupt a paragraph: after a line
- * of text it continues that paragraph, and its fence is no fence.
+ * after a marker make indented code, so neither opens a fence.
  */
 function fenceOpener(line) {
   const match = line.match(FENCE_OPENER);
@@ -487,7 +486,7 @@ function fenceOpener(line) {
       afterMarker = true;
     }
   }
-  return { fence, indent: at, continues: !/^[ \t]*(?:[-+*]|0*1[.)])?(?:[ \t]|$)/.test(lead) };
+  return { fence, indent: at };
 }
 
 /** A bare line of backticks or tildes, which may close a fence: its fence and the column it starts at. */
@@ -526,21 +525,18 @@ class FirstAtMost {
 }
 
 /**
- * What every reading of a text's fences shares. For each line, the fence it opens; for each such
- * fence, its closing line: the first bare line after it of at least as many of the same character,
- * indented at most three columns more than the fence (`close`) or, read at the top level, at most
- * three (`closeTop`), since CommonMark puts a closing line at most three columns into its container,
- * which starts at or before the fence; and the first line after it that is not blank and is
- * indented less than it (`shallower`). Each answer is read from a tree in O(log n), the openers
- * longest fence first so that the tree holds exactly the closing lines long enough, so a text is
- * read in O(n log n) however many fence lengths and indents it holds.
+ * For each line, the fence it opens; for each such fence, its closing line, the first bare line
+ * after it of at least as many of the same character indented at most three columns more than the
+ * fence (`close`), and the first line after it that is not blank and is indented less than it
+ * (`shallower`). Each answer is read from a tree in O(log n), the openers longest fence first so
+ * that the tree holds exactly the closing lines long enough, so a text is read in O(n log n)
+ * however many fence lengths and indents it holds.
  */
 function fenceTable(lines) {
   const count = lines.length;
   const opens = lines.map(fenceOpener);
   const closes = lines.map(fenceCloser);
   const close = new Int32Array(count).fill(count);
-  const closeTop = new Int32Array(count).fill(count);
   for (const character of ['`', '~']) {
     const asked = [];
     const closing = [];
@@ -556,8 +552,6 @@ function fenceTable(lines) {
       for (; added < closing.length && closes[closing[added]].fence.length >= fence.length; added += 1) tree.set(closing[added], closes[closing[added]].indent);
       const found = tree.first(index + 1, indent + 3);
       if (found !== -1) close[index] = found;
-      const top = indent <= 3 ? tree.first(index + 1, 3) : -1;
-      if (top !== -1) closeTop[index] = top;
     }
   }
   const depth = new FirstAtMost(lines.map((line) => (isBlank(line) ? Infinity : column(line.match(/^[ \t]*/)[0]))));
@@ -565,13 +559,13 @@ function fenceTable(lines) {
     const found = depth.first(index + 1, opens[index].indent - 1);
     return found === -1 ? count : found;
   };
-  return { count, opens, close, closeTop, shallower };
+  return { count, opens, close, shallower };
 }
 
 /**
- * The fences of an overlay, each read as if in a list item, which is the strictest reading: a fence
- * closes at its closing line, and also ends at the first line that is not blank and is indented
- * less than it, a closing line included, and at a line `ends` holds, when one is given. A fence that
+ * The fences of an overlay, each read as if in a list item, the strictest way it could be meant: a
+ * fence closes at its closing line, and also ends at the first line that is not blank and is
+ * indented less than it, a closing line included, and at a line `ends` holds, when one is given. A fence that
  * ends either way, or never closes, opens nothing: its opening line is read as text, like the
  * lines after it, which are read again from the next line. Each such fence is listed in
  * `unclosed`, with the line that ended it and why. A shallower line that would have closed it is
@@ -608,61 +602,6 @@ function readFences(text, { ends = null } = {}) {
     at = end + 1;
   }
   return { fenced, unclosed };
-}
-
-/**
- * For each line, whether every reading of the text's fences puts it in fenced code. Without a model
- * of list items the composer cannot tell how an indented fence is meant, so it reads each fence
- * three ways: in a list item, where it also ends at the first line that is not blank and is
- * indented less than it, a closing line included; without that rule; and, when it is indented
- * three columns or fewer, at the top level, where its closing line is indented three columns at
- * most and nothing else ends it. A fence on the line of an ordered list marker other than 1, right
- * after a line that is not blank, is also read as no fence, as CommonMark reads it after a line of
- * a paragraph. Where a reading closes the fence, reading goes on after its closing line; where one
- * does not, its opening line is text and reading goes on from the next line. A line is in fenced
- * code only when no choice of readings, fence by fence, reaches it outside one, so a link is
- * skipped only when every reading calls it an example. Each line is reached once, so this adds
- * O(n) to the table.
- */
-function fencedEveryReading(text) {
-  const lines = text.split('\n');
-  const { count, opens, close, closeTop, shallower } = fenceTable(lines);
-  const reached = new Uint8Array(count + 1);
-  const outside = new Uint8Array(count);
-  reached[0] = 1;
-  for (let at = 0; at < count; at += 1) {
-    if (!reached[at]) continue;
-    const open = opens[at];
-    const ends = [];
-    if (open) {
-      ends.push(close[at] < shallower(at) ? close[at] : count, close[at]);
-      if (open.indent <= 3) ends.push(closeTop[at]);
-      if (open.continues && at > 0 && !isBlank(lines[at - 1])) ends.push(count);
-    }
-    if (!open || ends.includes(count)) {
-      outside[at] = 1;
-      reached[at + 1] = 1;
-    }
-    for (const end of ends) if (end < count) reached[end + 1] = 1;
-  }
-  return Array.from(outside, (read) => read === 0);
-}
-
-/**
- * The text as runs of whole lines, each wholly inside fenced code or wholly outside it; joining
- * every run's text with a newline gives the text back. These runs are what the link scan and the
- * link rewriter read, and a line is in fenced code only when every reading of the fences puts it
- * there, which errs toward reading a link, because a link this scan skips is checked by nothing.
- */
-function fenceRuns(text) {
-  const fenced = fencedEveryReading(text);
-  const runs = [];
-  text.split('\n').forEach((line, index) => {
-    const last = runs.at(-1);
-    if (last && last.fenced === fenced[index]) last.lines.push(line);
-    else runs.push({ fenced: fenced[index], lines: [line] });
-  });
-  return runs.map((run) => ({ fenced: run.fenced, text: run.lines.join('\n') }));
 }
 
 function tableCells(line) {
@@ -731,7 +670,7 @@ function opensOverlayPart(line) {
  * (one `### <id>` heading per step or hard line it adds to), and `## Project traps`. Anything
  * else would be dropped from the copy without a word, so it is refused instead.
  *
- * Fences are read as in a list item, the strictest of the link scan's readings, and a fence closes
+ * Fences are read as in a list item, the strictest way they could be meant, and a fence closes
  * inside the addition or the section it opens in. One that does not would swallow every heading
  * after it until something closed it, and with them every check those headings face, so it is
  * refused, and read as text so that what follows is still read: a line that opens another part of
@@ -849,7 +788,7 @@ export function parseOverlay(source) {
     else if (fence.why === 'shallower') why = `line ${fence.at + 1} is indented less than the fence, which ends it`;
     else if (fence.why === 'closes shallower') why = `line ${fence.at + 1} would close it, but is indented less than the fence, which in a list item ends the fence instead`;
     const example = fence.why === 'ends' ? '; to show such a heading in an example, indent the fence and its lines four spaces' : '';
-    return `overlay line ${fence.line + 1}: the fence opened ${where.get(fence.line) ?? 'before the first section'} does not close there (${why}); close it with a bare line of at least ${fence.fence.length} ${fence.fence[0] === '`' ? 'backticks' : 'tildes'}, indented as far as the fence, or it hides the headings and links after it from the checks${example}`;
+    return `overlay line ${fence.line + 1}: the fence opened ${where.get(fence.line) ?? 'before the first section'} does not close there (${why}); close it with a bare line of at least ${fence.fence.length} ${fence.fence[0] === '`' ? 'backticks' : 'tildes'}, indented as far as the fence, or it hides the headings after it from the checks${example}`;
   }));
 
   return {
@@ -887,33 +826,29 @@ function splitTarget(target) {
 }
 
 /**
- * Every relative link target in a Markdown text: inline links, images and link definitions,
- * outside fenced code. Fenced code is an example: a line shown there links from wherever a reader
- * is to put it, not from here. Fences are read as fenceRuns reads them, erring toward reading a link.
+ * Every relative link target in a Markdown text: inline links, images and link definitions, fenced
+ * code included, as the pack's verifier reads a skill's files. A link this scan skipped would be
+ * checked by nothing, and no reading of fences by hand matches CommonMark, so an example writes a
+ * path as code instead.
  */
 export function relativeLinks(text) {
   const found = [];
-  const outside = fenceRuns(text).filter((run) => !run.fenced).map((run) => run.text);
-  for (const part of outside) {
-    for (const match of part.matchAll(INLINE_LINK)) {
-      const target = splitTarget(match[2]);
-      if (target) found.push(target);
-    }
+  for (const match of text.matchAll(INLINE_LINK)) {
+    const target = splitTarget(match[2]);
+    if (target) found.push(target);
   }
-  for (const part of outside) {
-    for (const match of part.matchAll(LINK_DEFINITION)) {
-      const target = splitTarget(match[2]);
-      if (target) found.push(target);
-    }
+  for (const match of text.matchAll(LINK_DEFINITION)) {
+    const target = splitTarget(match[2]);
+    if (target) found.push(target);
   }
   return found;
 }
 
 /**
  * A reference file becomes the body of SKILL.md at the folder root, so every relative link it
- * holds outside fenced code is rewritten for its new place; fenced code is an example, carried as
- * written. A link to its own skill's SKILL.md is refused: that file is not carried, and the
- * adapted SKILL.md that takes its place is not what the link meant.
+ * holds, fenced code included, is rewritten for its new place. A link to its own skill's SKILL.md
+ * is refused: that file is not carried, and the adapted SKILL.md that takes its place is not what
+ * the link meant.
  */
 export function rewriteEntryLinks(text, entry) {
   const from = posix.dirname(entry);
@@ -933,17 +868,13 @@ export function rewriteEntryLinks(text, entry) {
     const moved = `${resolved}${parts.suffix}`;
     return parts.wrapped ? `<${moved}>` : moved;
   };
-  const rewritten = fenceRuns(text)
-    .map((run) => (run.fenced
-      ? run.text
-      : run.text
-        .replace(INLINE_LINK, (whole, open, target, close) => `${open}${move(target)}${close}`)
-        .replace(LINK_DEFINITION, (whole, open, target) => `${open}${move(target)}`)))
-    .join('\n');
+  const rewritten = text
+    .replace(INLINE_LINK, (whole, open, target, close) => `${open}${move(target)}${close}`)
+    .replace(LINK_DEFINITION, (whole, open, target) => `${open}${move(target)}`);
   return { text: rewritten, problems };
 }
 
-/** Check 10: every relative link in the generated folder, outside fenced code, resolves, and none leaves the repository. */
+/** Check 10: every relative link in the generated folder resolves, and none leaves the repository. */
 export function linkProblems(files, { folder, exists }) {
   const problems = [];
   const directories = new Set();

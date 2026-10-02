@@ -111,7 +111,8 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 - Nothing else reaches the copy, so any other section, or text before the first one, is refused. A
   `#` title and HTML comments before the first section are allowed.
 - Links in the overlay are written as they will be read from the generated `SKILL.md`: a project
-  file is reached at the same path it has in the adapter folder.
+  file is reached at the same path it has in the adapter folder. Every link is checked, in fenced
+  code too, so an example writes a path as code, such as `docs/intake.md`, not as a link.
 - Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of
   at least as many of its character, indented as far as the fence or up to three columns further;
   a fence may open on the line of its list marker. One left open would swallow every heading after
@@ -189,13 +190,12 @@ of the skill and of the text between the markers, the sha256 of every adapter in
 generated file, and the composer's version and sha256.
 
 **A reference file as the entry.** Its text becomes the body of `SKILL.md` at the folder root, so
-every relative link in it outside fenced code is rewritten for that place, and it is still carried
-at its own path. A link inside fenced code is an example, carried as written. The skill's own
-`SKILL.md` is not carried, so a link to it from the entry is refused, and so is a binding or an
-addition to an id that only `SKILL.md` declares. Another carried file that links to the skill's
-`SKILL.md` is carried byte for byte, so its link resolves to this copy's `SKILL.md`, which holds the
-entry's text; `compose` and `check` warn and name each such link outside fenced code, because only
-an edit to the skill can change it.
+every relative link in it, fenced code included, is rewritten for that place, and it is still
+carried at its own path. The skill's own `SKILL.md` is not carried, so a link to it from the entry
+is refused, and so is a binding or an addition to an id that only `SKILL.md` declares. Another
+carried file that links to the skill's `SKILL.md` is carried byte for byte, so its link resolves to
+this copy's `SKILL.md`, which holds the entry's text; `compose` and `check` warn and name each such
+link, because only an edit to the skill can change it.
 
 Composing is concatenation at fixed points, never a model merging text, so the result can be
 compared byte for byte: LF line endings, files in sorted order, no timestamps.
@@ -224,7 +224,7 @@ source that cannot be read).
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
 | 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
-| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code, at any indentation, is an example and is not checked: it links from wherever a reader is to put it. A fence opens at three or more backticks or tildes after spaces, tabs or a list marker; a backtick fence whose info string holds a backtick is a code span, and a non-breaking space is not indentation. A fence closes at the next bare line of at least as many of its character, backticks or tildes, indented at most three columns more than the fence. Each fence is read every way it could be meant: in a list item, where it also ends at the first line indented less than it that is not blank, a closing line included; without that rule; indented three columns or fewer, at the top level, where its closing line is indented three columns at most; and, on the line of an ordered list marker other than 1 right after a line that is not blank, as no fence, since such a list cannot interrupt a paragraph. A link is skipped only when every reading puts it in fenced code. A link in an inline code span, in a fence inside a blockquote, or in code indented four spaces that shows no fence of its own is checked. Not checked, though CommonMark shows them: the links after a line that looks like a fence where CommonMark reads something else, inside an HTML block or comment or continuing the paragraph above it, up to the next bare line that would close it; nor the links after a fence at the left margin left open by mistake, up to the next bare line that closes it, which CommonMark shows as code too; in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused | a link in the overlay or a project file to something that is not there |
+| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code is checked like any other, as the pack's verifier checks a skill's files: a link the check skipped would be checked by nothing, and no reading of fences by hand matches CommonMark. An example that shows a path writes it as code, such as `docs/guide.md`, not as a link | a link in the overlay or a project file to something that is not there, an example's included |
 
 A generated folder whose adapter folder is gone fails as well.
 

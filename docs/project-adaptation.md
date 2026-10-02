@@ -216,26 +216,9 @@ the adapted `SKILL.md`, the copy carries:
 - the record of its pin (below), with the sha256 of every file it carries.
 
 Every relative link in the adapted copy resolves, and a copy in which one does not is refused. A
-link inside fenced code is an example, written for wherever a reader is to put it, so it is not
-checked. A fence opens at three or more backticks or tildes after spaces, tabs or a list marker; a
-backtick fence whose info string holds a backtick is a code span, and a non-breaking space is not
-indentation. A fence closes at the next bare line of at least as many of its character, backticks
-or tildes, indented at most three columns more than the fence. The composer has no model of list
-items, so it cannot tell how an indented fence is meant. Each fence is read every way it could be
-meant: in a list item, where it also ends at the first line indented less than it that is not
-blank, a closing line included; without that rule, as when the item's text starts further left
-than the fence; indented three columns or fewer, at the top level, where its closing line is
-indented three columns at most; and, on the line of an ordered list marker other than 1 right
-after a line that is not blank, as no fence, since such a list cannot interrupt a paragraph. In a
-reading where a fence ends or never closes, its opening line is text and the lines after it are
-read again. A link is skipped only when every reading puts it in fenced code, so a reading that is
-wrong cannot hide it. A link in an inline code span, in a fence inside a blockquote, or in code
-indented four spaces that shows no fence of its own is checked. Not checked, though CommonMark
-shows them: the links after a line that looks like a fence where CommonMark reads something else,
-such as a line inside an HTML block or comment, or one that continues the paragraph above it, up
-to the next bare line that would close it. Nor are the links after a fence at the left margin left
-open by mistake, up to the next bare line that closes it, which CommonMark shows as code too; in an
-overlay that line sits in the addition or section the fence opens in, or the overlay is refused.
+link inside fenced code is checked like any other, as the pack's verifier checks a skill's files: a
+link the check skipped would be checked by nothing, and no reading of fences by hand matches
+CommonMark. An example that shows a path writes it as code, such as `docs/guide.md`, not as a link.
 Composing joins texts at fixed points and asks no model to merge them, so the result can be
 compared byte for byte, and composing again catches a hand edit or a stale copy.
 
@@ -245,9 +228,8 @@ A project may adapt one reference file of a skill instead of its `SKILL.md`, whe
 the procedure it needs.
 
 - The entry's text becomes the body of the adapted `SKILL.md`, at the folder root, so every
-  relative link in it outside fenced code is rewritten for its new place; a link inside fenced code
-  is an example, carried as written. The entry is still carried at its own path too, so the skill's
-  other files still find it.
+  relative link in it, fenced code included, is rewritten for its new place. The entry is still
+  carried at its own path too, so the skill's other files still find it.
 - The skill's own `SKILL.md` is not carried, because the adapted `SKILL.md` takes its place. A file
   written to be adapted on its own therefore names its skill in backticks, such as `release-notes`,
   where it sends the reader to the rest of that skill, rather than linking to `../SKILL.md`, so the

@@ -213,21 +213,14 @@ test('update-agent-skills maintains communication and every local plane', () => 
 // skill and its guide keep saying how a copy is composed, checked and moved, that `skills update`
 // never moves one, and that the guide stays free of a machine path, a real address or a real zone.
 // Names have no shape a public test can hold; scripts/scan-denylist.mjs reads for those.
-// Check 10 as both the guide and docs/project-adaptation.md state it: how a fence opens and is
-// paired, that a link is skipped only when every reading of the fences calls it an example, what
-// the link check still reads, and what it does not.
+// Check 10 as both the guide and docs/project-adaptation.md state it: every link is read, fenced
+// code included, and why; an example writes a path as code. Neither says a fenced link is skipped.
 const CHECK_10_WORDS = [
-  'A fence opens at three or more backticks or tildes after spaces, tabs or a list marker',
-  'a backtick fence whose info string holds a backtick is a code span, and a non-breaking space is not indentation',
-  'A fence closes at the next bare line of at least as many of its character, backticks or tildes, indented at most three columns more than the fence',
-  'Each fence is read every way it could be meant',
-  'in a list item, where it also ends at the first line indented less than it that is not blank, a closing line included',
-  'A link is skipped only when every reading puts it in fenced code',
-  'A link in an inline code span, in a fence inside a blockquote, or in code indented four spaces that shows no fence of its own is checked.',
-  'Not checked, though CommonMark shows them: the links after a line that looks like a fence where CommonMark reads something else',
-  'the links after a fence at the left margin left open by mistake, up to the next bare line that closes it',
-  'in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused',
+  "A link inside fenced code is checked like any other, as the pack's verifier checks a skill's files",
+  'a link the check skipped would be checked by nothing, and no reading of fences by hand matches CommonMark',
+  'An example that shows a path writes it as code, such as `docs/guide.md`, not as a link',
 ];
+const NO_FENCE_EXEMPTION = /is an example and is not checked|so it is not\s+checked|skipped only when every reading|read every way it could\s+be meant|carried as written/;
 // The overlay rules both documents state: a fence closes inside its part, or the overlay is
 // refused, and an addition's heading starts at the left margin.
 const OVERLAY_FENCE_WORDS = 'Fenced code in the overlay closes inside the addition or section it opens in';
@@ -256,15 +249,17 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   // The guide names all ten checks, and the two identities a pin is refused for.
   const checks = section(adapting, 'The checks');
   for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
-  // Check 10 leaves out only fenced code that closes; the guide says how a fence is paired, what
-  // it still reads, and what it does not. Check 5 reads an addition's heading with its text.
+  // Check 10 reads every link, fenced code included, and says why. Check 5 reads an addition's
+  // heading with its text.
   assert.match(checks.match(/^\| 5 \|.*$/m)?.[0] ?? '', /no addition to a hard line, its heading included, or overlay line naming one/);
   const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
   for (const words of CHECK_10_WORDS) assert.ok(linkCheck.includes(words), `check 10 in the guide does not say: ${words}`);
+  assert.doesNotMatch(adapting, NO_FENCE_EXEMPTION);
   for (const words of [OVERLAY_FENCE_WORDS, OVERLAY_HEADING_WORDS, 'a fence in the overlay that does not close inside its addition or section', 'an indented `###` heading whose first word is an id']) {
     assert.match(adapting, new RegExp(words.replace(/ /g, '\\s+')), `the guide does not say: ${words}`);
   }
-  assert.match(adapting, /warn and name each such link outside\s+fenced code/);
+  assert.match(adapting, /every\s+relative\s+link\s+in\s+it,\s+fenced\s+code\s+included,\s+is\s+rewritten\s+for\s+that\s+place/);
+  assert.match(adapting, /warn\s+and\s+name\s+each\s+such\s+link,\s+because\s+only\s+an\s+edit\s+to\s+the\s+skill\s+can\s+change\s+it/);
   assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
   assert.match(adapting, /never edited by hand/);
   assert.match(adapting, /`outdated --verify` fetches the pinned commit and compares every carried\s+file/);
@@ -561,9 +556,9 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   const copy = section(adaptation, 'The adapted copy');
   assert.match(copy, /`LICENSE`, the MIT text/);
   assert.match(copy, /### When the entry is a reference file/);
-  assert.match(copy, /relative link in it outside fenced code is rewritten for its new place; a link inside fenced code\s+is an example, carried as written/);
-  assert.match(copy, /A\s+link inside fenced code is an example, written for wherever a reader is to put it, so it is not\s+checked\./);
-  // How check 10 pairs a fence, what it still reads and what it does not, wherever the page wraps it.
+  assert.match(copy, /relative\s+link\s+in\s+it,\s+fenced\s+code\s+included,\s+is\s+rewritten\s+for\s+its\s+new\s+place/);
+  assert.doesNotMatch(adaptation, NO_FENCE_EXEMPTION);
+  // That check 10 reads every link, and why, wherever the page wraps it.
   for (const words of CHECK_10_WORDS) {
     assert.match(copy, new RegExp(words.replace(/[.]/g, '\\.').replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
   }
