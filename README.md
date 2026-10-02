@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty-one public, portable Agent Skills for agent operations, reviews, releases
+  Thirty-two public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -18,7 +18,7 @@ generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty-one skills. Each one below carries its own install command and a couple of
+Thirty-two skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -513,6 +513,22 @@ Ask it:
 
 More: [Skill](skills/ingest-arrival/SKILL.md) · [Record forms](skills/ingest-arrival/references/record-forms.md) · [Transport evidence](skills/ingest-arrival/references/transport-evidence.md) · [Pressure tests](skills/ingest-arrival/references/pressure-tests.md)
 
+### `visitor-session-forensics`
+
+Find out what named people did on a live site from its own records (events, session recordings, page loads, sign-ins), evidenced row by row, consent first: write down the purpose and get a yes for this run before any query; read only the people, window and hosts named; prove every counter with a control; say whether the site loaded for them, whether they saw the live release or a cached copy, and whether a person or an agent was at the controls, weighing signals that are uncalibrated and never proof; keep addresses, devices and email addresses out of the summary; and check a published report signed out. Symptoms: what did X do on the site, show me their sessions, it would not load for her, did they see the new release, was that a person or an agent, did they really sign in. It reads records and contacts nobody; what someone said in an agent session is mine-session-transcripts', and fixing a problem a visitor reported is resolve-problem-report's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill visitor-session-forensics
+```
+
+Ask it:
+
+- *"Dana Example says the site would not load for her on Tuesday afternoon. Find her visits then and tell me what failed on her side — summary only, no addresses or device details."*
+- *"Did the three reviewers we invited see Monday's release, or a copy their browsers kept? Ask me before you query anything."*
+- *"Was the approval recorded under Sam Example's account at 02:14 UTC made by a person or by an agent? Weigh the signals on both sides and say what you can't rule out."*
+
+More: [Skill](skills/visitor-session-forensics/SKILL.md) · [Evidence signals](skills/visitor-session-forensics/references/evidence-signals.md) · [Query contracts](skills/visitor-session-forensics/references/query-contracts.md)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -563,7 +579,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty-one public skills from crissmoldovan/agent-skills.
+Install or update the thirty-two public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -623,9 +639,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty-one, in the order they appear above:
+The thirty-two, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `ingest-arrival`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `ingest-arrival` · `visitor-session-forensics`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -928,6 +944,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/investigate-codebase/references/documenting-the-run.md`](skills/investigate-codebase/references/documenting-the-run.md) — the run-record convention, carried byte-identically by each of the six.
 - [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
 - [`skills/ingest-arrival/references/transport-evidence.md`](skills/ingest-arrival/references/transport-evidence.md) — what each channel an arrival comes by leaves behind, how to read it before the file moves, and what was observed on macOS.
+- [`skills/visitor-session-forensics/references/evidence-signals.md`](skills/visitor-session-forensics/references/evidence-signals.md) — what a visit's rows can and cannot show for person or agent, did-not-load, live or cached, and signed in or a tab left open, with every threshold marked uncalibrated.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.

@@ -12,7 +12,8 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `ingest-arrival` — thirty-one in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `ingest-arrival`, and
+`visitor-session-forensics` — thirty-two in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -49,8 +50,13 @@ what arrives for a piece of work — the verbatim copy hashed before and after i
 transport evidence read before the file moves, every moment and every party recorded from evidence,
 and the record on every surface the project keeps — while contacting nobody, and handing questions
 to `request-answers`, reported defects to `resolve-problem-report`, rulings to `decision-journal`
-and credentials to `secure-credential-setup`. A new skill must state which of these it does not
-duplicate.
+and credentials to `secure-credential-setup`; and `visitor-session-forensics` owns what named
+people did on a live site, read from the site's own records with a yes for each run — the purpose
+written down before the first query, only the people, window and hosts named, a control beside
+every counter, signals weighed and labelled uncalibrated, and a summary that identifies nobody
+beyond the names asked about — while `mine-session-transcripts` reads agent sessions rather than
+site visits and `resolve-problem-report` takes a problem a visitor reported to its fix. A new
+skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `ingest-arrival`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `ingest-arrival`, and `visitor-session-forensics`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -210,6 +210,45 @@ and `resolve-problem-report`, `request-answers`, `decision-journal`, `secure-cre
 `mine-session-transcripts` as the sibling skills it hands work to; five hard lines, `H1` to `H5`; and
 ten steps, `S1` to `S10`. Its fit is `general`, so onboard-project recommends it in any repository. It
 takes the catalogue to thirty-one skills.
+
+### A new skill, `visitor-session-forensics`: what named people did on a live site, evidenced row by row, consent first
+
+**What.** `visitor-session-forensics` answers what a named person did on a live site from the
+site's own records: the events, the session recordings, the timings of every file a page loaded,
+and the sign-in log. It opens with consent. The request is written down (who asks, the purpose,
+the people, the window and the site), some purposes are refused whoever asks (rating a person's
+effort, finding where someone is, identifying a visitor who did not sign in, reading what someone
+typed), and nothing is read until the person who may authorise the run has said yes to that run.
+A source that one of the project's standing limits rules out is read only on a go for that run
+from the person the limit names, and a yes to the run lifts no limit its question did not name.
+It then reads only the people, the window and the hosts named, filtered in the query, and proves
+every source's held range and every counter with a control before using it. Per visit it says
+what the person did, whether the site loaded for them, whether they saw the live release or a copy
+their browser kept, and whether a person or an agent was at the controls. Every number is a count
+of rows. The summary carries no network address, device detail, email address or session id, and
+a report that is published is fetched signed out at every address it is served at.
+`references/evidence-signals.md` gives each signal with what it cannot prove, and labels every
+threshold uncalibrated; `references/query-contracts.md` gives each query's filters, row and
+control, with `{SOURCE_ID}`, `{TABLE}` and `example.com` placeholders.
+
+**Why.** The same records that answer "did it load for her" are a dossier on her, and the query
+is easy enough to run before anyone has said why. The answers also fail quietly. A count of clicks
+that left out taps reported a phone user's whole visit as idle. Reading one device per person hid
+the second machine that a failed visit was made on. A published report's short address was public
+while its long one asked for a sign-in. And "no pointer movement, a steady beat" is a weighing
+from thresholds nobody has measured, which, said about a named person, is an accusation.
+
+**Impact.** A new skill; nothing installed changes. It ships no script and no report template: the
+method only. It declares `## Bindings`, so a project can adapt it without copying it
+([project adaptation](project-adaptation.md)): sixteen slots, `F1` to `F16`, taking their own
+letter because a project adapts this skill beside skills whose `B` slots would be read as its own.
+Among the values are who may authorise a run, what the visitors were told, the sources, the hosts,
+the accounts that are not people, the screen names, the release history, the zones, the run
+directory, the recipients, the report tool and the project's standing limits on reading records;
+`resolve-problem-report`, `investigate-codebase`, `secure-credential-setup` and `request-answers`
+are the sibling skills it hands work to. It has ten hard lines, `H1` to `H10`, and nine steps, `S1`
+to `S9`. Its fit is `requestOnly`, so onboard-project never recommends it unasked. It takes the
+catalogue to thirty-two skills.
 
 ## Release checklist
 

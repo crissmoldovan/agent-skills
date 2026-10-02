@@ -76,10 +76,10 @@ test('v0.27.0 release metadata, catalog, and review ownership cover the complete
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 31);
+  assert.equal(skillNames.length, 32);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships thirty-one skills/i);
-  assert.match(composition, /catalog ships thirty-one skills/i);
+  assert.match(architecture, /now ships thirty-two skills/i);
+  assert.match(composition, /catalog ships thirty-two skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -96,8 +96,8 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /thirty-one public, portable Agent Skills/i);
-  assert.match(readme, /^Thirty-one skills\. Each one below/m);
+  assert.match(readme, /thirty-two public, portable Agent Skills/i);
+  assert.match(readme, /^Thirty-two skills\. Each one below/m);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -114,7 +114,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project', 'mine-session-transcripts', 'ingest-arrival']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project', 'mine-session-transcripts', 'ingest-arrival', 'visitor-session-forensics']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -810,6 +810,86 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
   assert.match(readme, /\[Record forms\]\(skills\/ingest-arrival\/references\/record-forms\.md\)/);
 });
 
+// A visitor's records are a dossier on a named person, so the skill that reads them is held to
+// asking before it reads, to refusing some purposes outright, to keeping identifiers out of the
+// summary, and to labelling the thresholds it weighs as uncalibrated. It is method only: no script,
+// no template. Names have no public pattern; scan-denylist.mjs reads for those.
+test('visitor-session-forensics asks before it reads, labels its signals uncalibrated, and states what it does not own', async () => {
+  const skill = await read('skills/visitor-session-forensics/SKILL.md');
+  const signals = await read('skills/visitor-session-forensics/references/evidence-signals.md');
+  const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
+  const fitText = await read('skills/visitor-session-forensics/references/fit.json');
+  const fit = JSON.parse(fitText);
+  // Every file the skill ships, against the same organisation markers as onboard-project's block,
+  // read from that block so the two cannot drift.
+  const ownSource = await read('test/catalog-content.test.mjs');
+  const markerSource = ownSource.match(/assert\.doesNotMatch\(onboardProject, \/(.+?)\/\);/);
+  assert.ok(markerSource, "onboard-project's block no longer checks for organisation markers");
+  const organisationMarkers = new RegExp(markerSource[1]);
+  for (const text of [skill, signals, contracts, fitText]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+    // A site it names is example.com's, so no real host stands in for "the site".
+    for (const host of text.match(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|app|dev|co|uk)\b/gi) ?? []) {
+      assert.match(host, /(?:^|\.)example\.com$/i, `a host other than example.com: ${host}`);
+    }
+  }
+  // Method only: the skill ships its instructions and two references, and no composer or template.
+  const shipped = (await readdir(new URL('skills/visitor-session-forensics/', root), { recursive: true })).sort();
+  assert.deepEqual(shipped, ['SKILL.md', 'references', 'references/evidence-signals.md', 'references/fit.json', 'references/query-contracts.md']);
+
+  // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
+  for (const sibling of ['mine-session-transcripts', 'resolve-problem-report', 'investigate-codebase', 'secure-credential-setup', 'request-answers']) {
+    assert.match(skill, new RegExp(sibling));
+  }
+  // Its slots take their own letter, F, and every handoff to a sibling is one of kind skill.
+  const bindings = section(skill, 'Bindings');
+  const slots = [...bindings.matchAll(/^\| ([A-Z][0-9]+) \|/gm)].map(([, id]) => id);
+  assert.ok(slots.length >= 1);
+  for (const id of slots) assert.match(id, /^F[1-9][0-9]*$/);
+  for (const sibling of ['resolve-problem-report', 'investigate-codebase', 'secure-credential-setup', 'request-answers']) {
+    assert.match(bindings, new RegExp(`\\| skill \\| \`${sibling}\` \\|`));
+  }
+  assert.equal(fit.kind, 'requestOnly');
+
+  // Consent first: the first hard line is the purpose and a yes, and the first two steps come
+  // before any step that reads a source.
+  assert.match(skill, /\*\*H1\. Purpose and a yes before the first query\.\*\*/);
+  assert.match(skill, /\*\*H2\. Some purposes are refused, whoever asks\.\*\*/);
+  assert.ok(skill.indexOf('**S1. Write down the request.**') < skill.indexOf('**S2. Ask for the yes.**'));
+  assert.ok(skill.indexOf('**S2. Ask for the yes.**') < skill.indexOf('**S3. Prove each source'));
+  // A project's standing limits on reading records are a slot of their own, and the yes for a run
+  // lifts none its question did not name, so a project can keep a rule such as "no read of the live
+  // site without a go for that run" without it being waved through by the yes.
+  assert.match(bindings, /^\| F16 \| the project's standing limits on reading records: .+ \| value \| /m);
+  assert.match(skill, /\*\*H10\. The project's standing limits hold\.\*\*/);
+  assert.match(skill, /lifts no limit its question did not name/);
+  // Minimisation, and the published report checked signed out.
+  assert.match(skill, /\*\*H4\. Raw rows stay in the run\.\*\*/);
+  assert.match(skill, /\*\*H5\. The summary identifies nobody beyond the names asked about\.\*\*/);
+  assert.match(skill, /never from a lookup service that is told the address/);
+  assert.match(skill, /\*\*H9\. Nothing is published until every address that serves it refuses a reader who is not signed\s+in\.\*\*/);
+  // A weighing, labelled as one.
+  assert.match(skill, /\*\*H7\. Person or agent is a weighing, never a finding\.\*\*/);
+  assert.match(signals, /^\*\*UNCALIBRATED\.\*\* Every threshold in this file/m);
+  assert.match(signals, /\| signal \| leans towards \| threshold \(uncalibrated\) \| what it does not prove \|/);
+  assert.match(signals, /\*\*What none of them rules out\*\*/);
+  // A control on every counter: each query's contract names one.
+  assert.ok(contracts.includes('{SOURCE_ID}') && contracts.includes('{TABLE}'));
+  const queries = contracts.split(/^## (?=[QAR][0-9]\. )/m).slice(1);
+  assert.ok(queries.length >= 8, 'the contracts cover the queries the procedure runs');
+  for (const query of queries) assert.match(query, /\*\*Control\.\*\*/, `no control in: ${query.split('\n')[0]}`);
+  assert.match(contracts, /\*\*A click is `click` or `tap`\.\*\*/);
+  assert.match(contracts, /\*\*The host, never an environment field\.\*\*/);
+
+  for (const carried of ['references/evidence-signals.md', 'references/query-contracts.md']) {
+    assert.ok(skill.includes(carried), `SKILL.md does not name ${carried}`);
+  }
+  assert.match(readme, /\[Evidence signals\]\(skills\/visitor-session-forensics\/references\/evidence-signals\.md\)/);
+});
+
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
 // "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
 // the example would invoke a sibling skill they may not have. Nothing failed, because the tests
@@ -817,7 +897,7 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
 test("no skill's example ask tells the reader to use a different skill", () => {
   const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
   const names = entries.map(([, name]) => name);
-  assert.equal(names.length, 31, 'every skill has a catalog entry');
+  assert.equal(names.length, 32, 'every skill has a catalog entry');
   for (const [, name, entry] of entries) {
     const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
     for (const ask of asks) {
@@ -841,7 +921,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
   const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  assert.equal(names.length, 31, 'the sweep must cover the whole pack');
+  assert.equal(names.length, 32, 'the sweep must cover the whole pack');
   for (const name of names) {
     const source = await read(`skills/${name}/SKILL.md`);
     assert.match(
@@ -865,7 +945,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
 // A severity number is a judgement; this is not. The list makes a claim about itself, so the
 // claim is what is tested.
 test('the flat skill list is in the catalog order it claims, and covers the pack', async () => {
-  const sentinel = readme.match(/^The thirty-one, in the order they appear above:$/m);
+  const sentinel = readme.match(/^The thirty-two, in the order they appear above:$/m);
   assert.ok(sentinel, 'the flat list no longer announces itself as catalog-ordered');
 
   const after = readme.slice(readme.indexOf(sentinel[0]) + sentinel[0].length);
