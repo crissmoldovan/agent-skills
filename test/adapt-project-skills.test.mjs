@@ -1109,6 +1109,44 @@ test('a reference file as the entry: a link inside fenced code is carried as wri
   assert.equal(checked.status, EXIT_OK, checked.stdout);
 });
 
+// Check 10 errs toward refusing. A fence that never closes is not a fence to the link scan: the
+// fence reader does not know where a list item ends, as CommonMark does, so a fence left open in
+// one would otherwise hide every link after it, and a link the scan skips is checked by nothing.
+// Declarations keep the verifier's reading, in which such a fence runs to the end.
+const OPEN_FENCE_ADDITION = '### S1\n1. Run it:\n\n   ```bash\n   run-it\n\n2. Then read [the record](references/project/missing.md).\n';
+
+test('a fence left open does not hide the links after it: an overlay whose list item leaves one open is refused at [10]', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const overlay = OVERLAY.replace('### S1\nWrite the instruction into [the local record](references/project/local.md) too.\n', OPEN_FENCE_ADDITION);
+  assert.notEqual(overlay, OVERLAY);
+  const project = await addAdapter({ pack, overlay });
+
+  const refused = compose(project, '--write');
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[10\] SKILL\.md links to references\/project\/missing\.md, which does not resolve/);
+  assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+});
+
+test('link rewriting reads past a fence that never closes, as check 10 does, and a fence after it that closes is still an example', () => {
+  const text = '1. Run it:\n\n   ```bash\n   run-it\n\n2. Then read [the guide](guide.md).\n\n~~~markdown\nBack to [the steps](../SKILL.md).\n~~~\n';
+  const moved = rewriteEntryLinks(text, 'references/part.md');
+  assert.deepEqual(moved.problems, []);
+  assert.equal(moved.text, text.replace('[the guide](guide.md)', '[the guide](references/guide.md)'));
+});
+
+// Only fenced code is an example. An inline code span is read like any other text, as the pack's
+// verifier reads it: a link shown in one still has to resolve.
+test('a link inside an inline code span is still checked: an overlay that shows one to a missing file is refused at [10]', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const overlay = OVERLAY.replace('### H1\n', '### S2\nWrite it as `[the intake page](references/project/intake.md)` in the record.\n\n### H1\n');
+  assert.notEqual(overlay, OVERLAY);
+  const project = await addAdapter({ pack, overlay });
+
+  const refused = compose(project);
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[10\] SKILL\.md links to references\/project\/intake\.md, which does not resolve/);
+});
+
 test('a copy whose overlay replaces a step says that the replacement wins', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack, overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S1. Instructions arrive through the build server, which records them. Decided in records/decisions.md.\n') });

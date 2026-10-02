@@ -236,6 +236,11 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   // The guide names all ten checks, and the two identities a pin is refused for.
   const checks = section(adapting, 'The checks');
   for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
+  // Check 10 leaves out only fenced code that closes; the guide says what it still reads.
+  const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
+  assert.match(linkCheck, /A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked/);
+  assert.match(linkCheck, /a fence that never closes is not read as one, so the links after it are checked/);
+  assert.match(adapting, /warn and name each such link outside\s+fenced code/);
   assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
   assert.match(adapting, /never edited by hand/);
   assert.match(adapting, /`outdated --verify` fetches the pinned commit and compares every carried\s+file/);
@@ -534,6 +539,10 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.match(copy, /### When the entry is a reference file/);
   assert.match(copy, /relative link in it outside fenced code is rewritten for its new place; a link inside fenced code\s+is an example, carried as written/);
   assert.match(copy, /A\s+link inside fenced code is an example, written for wherever a reader is to put it, so it is not\s+checked\./);
+  // What check 10 still reads, wherever the page wraps it.
+  for (const words of ['A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.', 'A fence that never closes is not read as one, so the links after it are checked']) {
+    assert.match(copy, new RegExp(words.replace(/[.]/g, '\\.').replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
+  }
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
   assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);
 

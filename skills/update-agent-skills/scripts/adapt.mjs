@@ -420,20 +420,35 @@ function widenTools(baseTools, widen) {
 // ---------------------------------------------------------------------------------------------
 // what a skill declares
 
-/** For each line, whether it sits in a fenced block, its fences included; a fence at any indent. */
-function fencedLines(text) {
-  let fence = null;
-  return text.split('\n').map((line) => {
-    if (fence === null) {
-      const open = line.match(/^\s*(`{3,}|~{3,})/);
-      if (!open) return false;
-      fence = open[1];
-      return true;
+/**
+ * For each line, whether it sits in a fenced block, its fences included; a fence at any indent.
+ * A fence closes at the next bare line of at least as many of its character. One that never
+ * closes runs to the end of the text, as the pack's verifier reads declarations, unless
+ * `unclosed` is 'text': then its opening line opens nothing and is read as text, like the lines
+ * after it, which are read again from the next line.
+ */
+function fencedLines(text, { unclosed = 'to the end' } = {}) {
+  const lines = text.split('\n');
+  const fenced = lines.map(() => false);
+  for (let at = 0; at < lines.length;) {
+    const open = lines[at].match(/^\s*(`{3,}|~{3,})/);
+    if (!open) {
+      at += 1;
+      continue;
     }
-    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
-    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-    return true;
-  });
+    let end = at + 1;
+    for (; end < lines.length; end += 1) {
+      const close = lines[end].match(/^\s*(`{3,}|~{3,})\s*$/);
+      if (close && close[1][0] === open[1][0] && close[1].length >= open[1].length) break;
+    }
+    if (end === lines.length && unclosed === 'text') {
+      at += 1;
+      continue;
+    }
+    fenced.fill(true, at, end + 1);
+    at = end + 1;
+  }
+  return fenced;
 }
 
 /** Lines with every fenced block blanked, so line numbers still match. */
@@ -444,10 +459,15 @@ function unfencedLines(text) {
 
 /**
  * The text as runs of whole lines, each wholly inside fenced code or wholly outside it; joining
- * every run's text with a newline gives the text back.
+ * every run's text with a newline gives the text back. These runs are what the link scan and the
+ * link rewriter read, and they err toward reading a link: a fence that never closes is not one
+ * here, because this reader does not know where a list item or a blockquote ends, as CommonMark
+ * does, so one left open would hide every link after it, and a link this scan skips is checked by
+ * nothing. Declarations keep the verifier's reading, in which such a fence runs to the end, so the
+ * composer still sees exactly the ids the verifier saw.
  */
 function fenceRuns(text) {
-  const fenced = fencedLines(text);
+  const fenced = fencedLines(text, { unclosed: 'text' });
   const runs = [];
   text.split('\n').forEach((line, index) => {
     const last = runs.at(-1);
@@ -632,8 +652,9 @@ function splitTarget(target) {
 
 /**
  * Every relative link target in a Markdown text: inline links, images and link definitions,
- * outside fenced code. Fenced code is an example, read as the pack's verifier reads it for
- * declarations: a line shown there links from wherever a reader is to put it, not from here.
+ * outside fenced code. Fenced code is an example, paired as the pack's verifier pairs it for
+ * declarations: a line shown there links from wherever a reader is to put it, not from here. A
+ * fence that never closes is not one here, so it cannot hide the links after it (fenceRuns).
  */
 export function relativeLinks(text) {
   const found = [];
