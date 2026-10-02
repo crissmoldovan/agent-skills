@@ -155,6 +155,11 @@ a clone at the pinned ref is what makes the vendored composer the release's. Whe
 `compose` notes it and `outdated` flags it, and composing again with the composer from a clone at
 the pinned ref replaces it.
 
+In a repository onboarded with `onboard-project`, refresh its profile in the change that composes
+a first copy, removes one, or moves a pin: its session-start check compares the copies on disk,
+with their refs and trees, against the profile, and names any difference at every session start
+until a refresh records it. The refresh is also what routes a session to a new copy by name.
+
 Wire `check` into the project's tests, so that drift is a red test even without CI, and add one
 line to the project's agent instructions: never edit `.claude/skills/<name>/`; edit the adapter
 folder and compose. When branches that both changed an adapted skill merge, never merge the

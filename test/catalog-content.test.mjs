@@ -720,6 +720,10 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
   const adapting = await read('skills/update-agent-skills/references/adapting.md');
   assert.match(section(adapting, 'Moving a pin'), /In a repository onboarded with `onboard-project`, refresh its profile in that same change/);
   assert.match(releases, /names them at every session start until a refresh\s+records them/);
+  // Composing a first copy or removing one moves the check just as a re-pin does, so the commands
+  // and the skill's own pin rule say so too, not only the procedure that moves a pin.
+  assert.match(section(adapting, 'Commands'), /refresh its profile in the change that composes\s+a first copy, removes one, or moves a pin/);
+  assert.match(updateAgentSkills, /refresh its profile in the\s+change that moves a pin, composes a first copy or removes one/);
   // Each kind of `adapted copy:` line says what to do with it, and a lock version this skill does
   // not read is not sent to the composer, whose own check would pass it.
   assert.match(onboardProject, /when the problem is a lock version this skill does not read, update\s+onboard-project/);
