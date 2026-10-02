@@ -159,20 +159,27 @@ personal copy of the generic one.
   file declares, an unbound required slot, `replaces:` on a hard line, an addition to one in the
   words of an exception, a handoff to a skill the project also adapts that is not mapped to the
   adapter, a link that does not resolve, and a copy edited by hand unless told
-  `--discard-hand-edits`. With `--write` it vendors itself beside the adapters.
+  `--discard-hand-edits`. With `--write` it vendors itself beside the adapters. It never runs a
+  composer it fetched, so it says when the pinned release ships another composer than the one
+  running; the composer moves with a pin when a person runs the release's own.
 - **`check`** is offline: no git and no network. It holds each copy to its lock file by file, to the
   sha256 of the skill text between its markers, to a fresh compose of its recorded inputs, and to
   the rules above, and warns when the composed `SKILL.md` passes 500 lines. A project runs it from
   its own tests, so a hand edit or an overlay changed without composing turns them red.
 - **`outdated`** reads tags and says, per copy, whether a newer release leaves the skill's tree
   unchanged (moving the pin is a no-op) or changes it (with the `git diff` to read). It raises an
-  alarm when a pinned tag moved or was deleted, and `--verify` compares every carried file with the
-  upstream bytes, which is what proves a copy the offline check can only show was not changed.
+  alarm when a pinned tag moved or was deleted, flags a vendored composer that is not the one the
+  pinned release ships, and `--verify` compares every carried file with the upstream bytes, which is
+  what proves a copy the offline check can only show was not changed.
 
 A reference file of a skill can be the entry instead of `SKILL.md`: its links are rewritten for the
-folder root, and an id only `SKILL.md` declares is refused. `check-pack-freshness.mjs --repo
-<project>` lists a project's adapted pins against the latest release beside the global installs.
-It never names one in its update command, so an armed auto hook never touches one.
+folder root, an id only `SKILL.md` declares is refused, and a link from another carried file to the
+skill's `SKILL.md`, which in that copy holds the entry's text, is named in a warning. When an
+addition replaces a step, the copy's opening says the addition wins. `check-pack-freshness.mjs --repo
+<project>` lists a project's adapted pins against the latest release beside the global installs,
+lists a copy of another source as not compared, and exits 2 when a pin moved or differs. It never
+names one in its update command, so an armed auto hook never touches one, and it is refused with
+`--hook`, whose silence means current.
 
 **Who should update.** Anyone adapting a pack skill to a project. The skill's description gains
 the symptom "adapt a pack skill to this project", and its `compatibility` names Node.js 22 and git
