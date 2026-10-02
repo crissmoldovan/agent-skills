@@ -113,7 +113,8 @@ Nothing installed changes. Both scripts are contributor tooling and ship in no s
 4. Review all content against the [public-content policy](public-content-policy.md).
 5. Merge through a reviewed pull request after CI succeeds.
 6. Tag and publish human-readable GitHub Release notes explaining outcomes,
-   compatibility/migration, who should update, and exact update action.
+   compatibility/migration, who should update, and exact update action. A pushed tag
+   is never moved or deleted ([Tags](#tags)).
 7. Read back main, release, installer discovery, and isolated installation before
    encouraging humans or agents to update.
 
@@ -122,6 +123,21 @@ Nothing installed changes. Both scripts are contributor tooling and ship in no s
 The repository version records public catalog releases. Use semantic impact:
 major for broken existing guidance/contracts, minor for new skills or substantive
 new guidance, and patch for corrections within an already-correct contract.
+
+## Tags
+
+A tag is what a pinned install and an adapted project skill point at, so it is a promise.
+
+- **A published tag is never moved or deleted.** Once pushed, a tag names the same commit for
+  good. A release that turns out wrong is followed by a new version, never re-tagged, and the new
+  release's notes say what it corrects.
+- **Catalogue tags** are `vX.Y.Z` and name a catalogue release. **Per-skill tags**
+  `<skill>-vX.Y.Z` name one skill's release, where `<skill>` is the skill's directory name, and may
+  sit on the same commit as a catalogue tag; `workspace-governance-v0.1.0` and
+  `workspace-governance-v0.3.0` are such tags.
+- **A branch is never a release identity**, because it moves.
+- An accidental disclosure in a tagged commit is handled under [SECURITY.md](../SECURITY.md). The
+  credential is revoked, which is the only remedy once a tag has been fetched, and the tag stays.
 
 ## Changelog and update communication
 
