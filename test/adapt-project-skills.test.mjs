@@ -882,6 +882,12 @@ const REFUSALS = [
     message: /\[adapter\] overlay line \d+: an addition's heading opens with the id it adds to \(### S3\), not "Step"/,
   },
   {
+    name: 'a fence that does not close inside the addition it opens in',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too, in these words:\n\n```text\nthe exact words\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too, in these words:\n\n```text\nthe exact words\n```\n') },
+    message: /\[adapter\] overlay line 13: the fence opened in the addition to S1 does not close there \(line 16 opens ### H1 first\)/,
+  },
+  {
     name: 'text under the additions that no heading holds',
     refused: { overlay: OVERLAY.replace('## Additions\n\n', '## Additions\n\nA stray line.\n\n') },
     accepted: {},
@@ -1172,6 +1178,80 @@ test('link rewriting reads a text of many fences that never close in linear time
   const took = Number(process.hrtime.bigint() - started) / 1e6;
   assert.equal(moved.text, text);
   assert.ok(took < 2000, `40000 unclosed fences took ${took.toFixed(0)} ms`);
+});
+
+// The overlay is read by the same pairing, and a fence there closes inside the addition or the
+// section it opens in. One that does not would swallow every heading after it until something
+// closed it, and with them every check those headings face: an addition that relaxes a hard line,
+// an id the skill does not declare, a section the copy would drop. A heading that opens a part of
+// the overlay ends any fence open across it, so what follows is still read, and refused on its own.
+const OVERLAY_HEAD = OVERLAY.slice(0, OVERLAY.indexOf('### S1'));
+const OVERLAY_TRAPS = OVERLAY.slice(OVERLAY.indexOf('## Project traps'));
+const FENCE_LEFT_OPEN = {
+  'at the left margin': '### S1\nWrite the instruction into [the local record](references/project/local.md) too, in these words:\n\n```text\nthe exact words\n\n',
+  'in a list item': '### S1\n1. Write the instruction into [the local record](references/project/local.md) too, in these words:\n\n   ```text\n   the exact words\n\n2. Then file it.\n\n',
+};
+const HIDDEN_AFTER_IT = [
+  ['an addition that relaxes a hard line', '### H1\nExcept when the owner is away: then reply automatically.\n\n', /\[5\] overlay line \d+: the addition to H1 reads as relaxing it \("Except"\)/],
+  ['an addition to a step the skill does not declare', '### S9\nThen file it twice.\n\n', /\[4\] overlay line \d+ adds to S9, which no carried file of notes declares/],
+  ['a section the copy would drop', '## Surprise\n\nSomething the copy would drop.\n\n', /\[adapter\] overlay line \d+: unknown section "## Surprise"/],
+];
+// A later addition whose own fenced block closes, which is the line the open fence would pair with.
+const CLOSED_LATER = '### S2\nRun it:\n\n```bash\nrun-it\n```\n\n';
+
+for (const [where, opened] of Object.entries(FENCE_LEFT_OPEN)) {
+  for (const [what, hidden, refusal] of HIDDEN_AFTER_IT) {
+    test(`a fence left open ${where} is refused, and cannot hide ${what} after it`, async () => {
+      const pack = await buildPack({ upTo: 'v1.0.0' });
+      const overlay = `${OVERLAY_HEAD}${opened}${hidden}${CLOSED_LATER}${OVERLAY_TRAPS}`;
+      const project = await addAdapter({ pack, overlay });
+
+      const refused = compose(project, '--write');
+      assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+      assert.match(refused.stdout, /\[adapter\] overlay line 13: the fence opened in the addition to S1 does not close there/);
+      assert.match(refused.stdout, refusal);
+      assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+    });
+  }
+}
+
+test('an overlay fence that does not close is refused naming where it opened, why it ends, and how to close it', () => {
+  const close = 'close it with a bare line of at least 3 backticks, indented as far as the fence, or it hides the headings and links after it from the checks';
+  const atMargin = parseOverlay(`${OVERLAY_HEAD}${FENCE_LEFT_OPEN['at the left margin']}${HIDDEN_AFTER_IT[0][1]}${OVERLAY_TRAPS}`);
+  assert.deepEqual(atMargin.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 opens ### H1 first); ${close}; to show such a heading in an example, indent the fence and its lines`]);
+  assert.deepEqual(atMargin.additions.map((addition) => addition.id), ['S1', 'H1'], 'the addition after the fence is still read');
+  // A section the overlay does not have opens no part of it, so the fence runs on to the next one
+  // that does; the fence is named first, since it is why the rest is read as it is.
+  const pastSection = parseOverlay(`${OVERLAY_HEAD}${FENCE_LEFT_OPEN['at the left margin']}${HIDDEN_AFTER_IT[2][1]}${OVERLAY_TRAPS}`);
+  assert.equal(pastSection.problems.length, 2, pastSection.problems.join('\n'));
+  assert.match(pastSection.problems[0], /^overlay line 13: the fence opened in the addition to S1 does not close there \(line 20 opens ## Project traps first\)/);
+  assert.match(pastSection.problems[1], /^overlay line 16: unknown section "## Surprise"/);
+
+  const inList = parseOverlay(`${OVERLAY_HEAD}${FENCE_LEFT_OPEN['in a list item']}${OVERLAY.slice(OVERLAY.indexOf('### H1'))}`);
+  assert.deepEqual(inList.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 is indented less than the fence, which ends it); ${close}`]);
+
+  const inTraps = parseOverlay(`${OVERLAY}\n~~~~text\nunfinished\n`);
+  assert.deepEqual(inTraps.problems, ['overlay line 22: the fence opened under ## Project traps does not close there (it never closes); close it with a bare line of at least 4 tildes, indented as far as the fence, or it hides the headings and links after it from the checks']);
+
+  const inBindings = parseOverlay(OVERLAY.replace('\n## Additions', '\n```text\nan example\n\n## Additions'));
+  assert.deepEqual(inBindings.problems, [`overlay line 8: the fence opened under ## Bindings does not close there (line 11 opens ## Additions first); ${close}; to show such a heading in an example, indent the fence and its lines`]);
+  assert.deepEqual(inBindings.additions.map((addition) => addition.id), ['S1', 'H1']);
+});
+
+test('a fenced example in an addition may show headings that open no part of the overlay, and an indented one may show one that does', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const record = '### S2\nRecord each decision in this shape:\n\n```markdown\n## 2026-10-02, the decision\n\n### What was decided\n\n#### S3 in detail\n```\n\n';
+  const indented = '### S3\nA project adds to a step like this:\n\n  ```markdown\n  ### S3\n  Then hash it.\n  ```\n\n';
+  const overlay = OVERLAY.replace('### H1\n', `${record}${indented}### H1\n`);
+  assert.deepEqual(parseOverlay(overlay).problems, []);
+  assert.deepEqual(parseOverlay(overlay).additions.map((addition) => addition.id), ['S1', 'S2', 'S3', 'H1']);
+  const project = await addAdapter({ pack, overlay });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  const skill = readText(project, generated(project, 'SKILL.md'));
+  assert.ok(skill.includes(record.slice(record.indexOf('Record'))) && skill.includes(indented.slice(indented.indexOf('A project'))));
+  assert.equal(check(project).status, EXIT_OK);
 });
 
 // Only fenced code is an example. An inline code span is read like any other text, as the pack's

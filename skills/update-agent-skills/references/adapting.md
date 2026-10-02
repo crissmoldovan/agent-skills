@@ -112,6 +112,11 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
   `#` title and HTML comments before the first section are allowed.
 - Links in the overlay are written as they will be read from the generated `SKILL.md`: a project
   file is reached at the same path it has in the adapter folder.
+- Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of
+  at least as many of its character, indented as far as the fence; one left open would swallow
+  every heading after it, and the checks they face, so it is refused. A line that opens another
+  part of the overlay, a section or a `###` heading whose first word is an id, ends a fence open
+  across it: an example that shows such a heading indents the fence and its lines.
 
 ## Commands
 
@@ -197,7 +202,8 @@ compared byte for byte: LF line endings, files in sorted order, no timestamps.
 or put a marker of check 2 into the overlay; the rest it writes true. A refusal or a failure is
 printed with the number of its check. Two kinds carry a word instead: `[adapter]`, an adapter
 folder that does not read as one (an unknown key, a missing overlay, a project file out of place
-or colliding with a file of the skill, an overlay section the copy would drop), and `[pin]`, a pin
+or colliding with a file of the skill, an overlay section the copy would drop, a fence in the
+overlay that does not close inside its addition or section), and `[pin]`, a pin
 that cannot be taken (a branch, an abbreviated sha, a tag that now names another commit, a
 recorded commit or tree the ref no longer gives, a skill or entry the ref does not have, or a
 source that cannot be read).
@@ -213,7 +219,7 @@ source that cannot be read).
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
 | 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
-| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code, at any indentation, is an example and is not checked: it links from wherever a reader is to put it. A fence closes at the next bare line of at least as many of its character, backticks or tildes; an indented one, as in a list item, also ends at the first line indented less than it that is not blank, a closing line included. A fence that ends that way or never closes is not read as one, so the links after it are checked. A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked. Not checked: the links after a fence at the left margin left open by mistake, up to the next bare line that closes it | a link in the overlay or a project file to something that is not there |
+| 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code, at any indentation, is an example and is not checked: it links from wherever a reader is to put it. A fence closes at the next bare line of at least as many of its character, backticks or tildes; an indented one, as in a list item, also ends at the first line indented less than it that is not blank, a closing line included. A fence that ends that way or never closes is not read as one, so the links after it are checked. A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked. Not checked: the links after a fence at the left margin left open by mistake, up to the next bare line that closes it; in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused | a link in the overlay or a project file to something that is not there |
 
 A generated folder whose adapter folder is gone fails as well.
 

@@ -221,7 +221,10 @@ const CHECK_10_WORDS = [
   'A fence that ends that way or never closes is not read as one, so the links after it are checked.',
   'A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.',
   'Not checked: the links after a fence at the left margin left open by mistake, up to the next bare line that closes it',
+  'in an overlay that line sits in the addition or section the fence opens in, or the overlay is refused',
 ];
+// The overlay rule both documents state: a fence closes inside its part, or the overlay is refused.
+const OVERLAY_FENCE_WORDS = 'Fenced code in the overlay closes inside the addition or section it opens in';
 
 test('update-agent-skills composes, checks and lists adapted copies, and keeps them out of skills update', async () => {
   const adapting = await read('skills/update-agent-skills/references/adapting.md');
@@ -250,6 +253,9 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   // it still reads, and what it does not.
   const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
   for (const words of CHECK_10_WORDS) assert.ok(linkCheck.includes(words), `check 10 in the guide does not say: ${words}`);
+  for (const words of [OVERLAY_FENCE_WORDS, 'a fence in the overlay that does not close inside its addition or section']) {
+    assert.match(adapting, new RegExp(words.replace(/ /g, '\\s+')), `the guide does not say: ${words}`);
+  }
   assert.match(adapting, /warn and name each such link outside\s+fenced code/);
   assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
   assert.match(adapting, /never edited by hand/);
@@ -553,6 +559,9 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   for (const words of CHECK_10_WORDS) {
     assert.match(copy, new RegExp(words.replace(/[.]/g, '\\.').replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
   }
+  // And what the overlay holds its fences to, beside the overlay's own parts.
+  assert.match(adaptation, new RegExp(OVERLAY_FENCE_WORDS.replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${OVERLAY_FENCE_WORDS}`);
+  assert.match(adaptation, /or leaves a fence open past the addition or section it opens in\./);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
   assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);
 

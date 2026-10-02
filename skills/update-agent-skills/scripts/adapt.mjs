@@ -431,19 +431,22 @@ function nextPassing(lines, test) {
 }
 
 /**
- * For each line, whether it sits in a fenced block, its fences included. A fence opens at a line
- * that starts, at any indent, with three or more backticks or tildes, and closes at the next bare
- * line of at least as many of the same character. One that never closes runs to the end of the
- * text, as the pack's verifier reads declarations, unless `unclosed` is 'text'. Then an indented
- * fence, as in a list item, also ends at the first line that is not blank and is indented less than
- * it, a closing line included, which is where CommonMark ends the item; and a fence that ends that
- * way, or never closes, opens nothing: its opening line is read as text, like the lines after it,
- * which are read again from the next line. The next closing line and the next shallower line are
- * looked up in tables read once from the end, so the text is read in linear time.
+ * The fenced blocks of a text. A fence opens at a line that starts, at any indent, with three or
+ * more backticks or tildes, and closes at the next bare line of at least as many of the same
+ * character. One that never closes runs to the end of the text, as the pack's verifier reads
+ * declarations, unless `unclosed` is 'text'. Then an indented fence, as in a list item, also ends at
+ * the first line that is not blank and is indented less than it, a closing line included, which is
+ * where CommonMark ends the item; a fence also ends at a line that `ends` holds, when one is given;
+ * and a fence that ends either way, or never closes, opens nothing: its opening line is read as
+ * text, like the lines after it, which are read again from the next line. Each such fence is
+ * listed in `unclosed`, with the line that ended it and why. The next closing line, the next
+ * shallower line and the next line `ends` holds are looked up in tables read once from the end, so
+ * the text is read in linear time.
  */
-function fencedLines(text, { unclosed = 'to the end' } = {}) {
+function readFences(text, { unclosed = 'to the end', ends = null } = {}) {
   const lines = text.split('\n');
   const fenced = lines.map(() => false);
+  const left = [];
   const tables = new Map();
   const next = (key, test) => {
     if (!tables.has(key)) tables.set(key, nextPassing(lines, test));
@@ -463,7 +466,10 @@ function fencedLines(text, { unclosed = 'to the end' } = {}) {
     const end = next(`close ${fence}`, closes)[at + 1];
     if (unclosed === 'text') {
       const shallower = indent.length === 0 ? lines.length : next(`under ${indent.length}`, (line) => /\S/.test(line) && line.match(/^\s*/)[0].length < indent.length)[at + 1];
-      if (shallower <= end) {
+      const part = ends ? next('ends', ends)[at + 1] : lines.length;
+      const stop = Math.min(shallower, part);
+      if (stop <= end) {
+        left.push({ line: at, fence, at: stop, why: stop === lines.length ? 'never closes' : stop === part ? 'ends' : 'shallower' });
         at += 1;
         continue;
       }
@@ -471,7 +477,12 @@ function fencedLines(text, { unclosed = 'to the end' } = {}) {
     fenced.fill(true, at, end + 1);
     at = end + 1;
   }
-  return fenced;
+  return { fenced, unclosed: left };
+}
+
+/** For each line, whether it sits in a fenced block, its fences included, as readFences reads them. */
+function fencedLines(text, options) {
+  return readFences(text, options).fenced;
 }
 
 /** Lines with every fenced block blanked, so line numbers still match. */
@@ -548,15 +559,35 @@ export function parseDeclarations(files) {
 // the overlay
 
 /**
+ * Whether a line, read on its own, opens a part of an overlay: a section an overlay has, or an
+ * addition, a `### ` heading whose first word is an id. A fence open across one ends there.
+ */
+function opensOverlayPart(line) {
+  if (line.startsWith('####')) return false;
+  const addition = line.match(/^###\s+(\S+)/);
+  if (addition) return ID.test(addition[1].replace(/[.:,;]$/, ''));
+  const section = line.match(/^##\s+(.+?)\s*$/);
+  return Boolean(section) && OVERLAY_SECTIONS.has(section[1].toLowerCase());
+}
+
+/**
  * The overlay in its three parts: `## Bindings` (a two-column `| id | value |` table), `## Additions`
  * (one `### <id>` heading per step or hard line it adds to), and `## Project traps`. Anything
  * else would be dropped from the copy without a word, so it is refused instead.
+ *
+ * Fences are read as the link scan reads them, and a fence closes inside the addition or the
+ * section it opens in. One that does not would swallow every heading after it until something
+ * closed it, and with them every check those headings face, so it is refused, and read as text so
+ * that what follows is still read: a line that opens another part of the overlay ends it.
  */
 export function parseOverlay(source) {
   const text = lf(source);
   const problems = [];
   const rows = text.split('\n');
-  const plain = unfencedLines(text);
+  const fences = readFences(text, { unclosed: 'text', ends: opensOverlayPart });
+  const plain = rows.map((line, index) => (fences.fenced[index] ? '' : line));
+  // Where each line sits, so a fence that does not close can be named by where it opened.
+  const where = new Map();
   const sections = new Map();
   let current = null;
   plain.forEach((line, index) => {
@@ -566,16 +597,18 @@ export function parseOverlay(source) {
       if (!OVERLAY_SECTIONS.has(key)) {
         problems.push(`overlay line ${index + 1}: unknown section "## ${heading[1]}" — an overlay has ## Bindings, ## Additions and ## Project traps, and nothing else reaches the copy`);
         // Its body is already refused with the heading, so it is not reported line by line.
-        current = { key: null, start: index + 1, lines: [] };
+        current = { key: null, name: heading[1], start: index + 1, lines: [] };
         return;
       }
       if (sections.has(key)) problems.push(`overlay line ${index + 1}: ## ${OVERLAY_SECTIONS.get(key)} appears twice`);
-      current = { key, start: index + 1, lines: [] };
+      current = { key, name: OVERLAY_SECTIONS.get(key), start: index + 1, lines: [] };
       sections.set(key, current);
       return;
     }
-    if (current) current.lines.push(index);
-    else if (rows[index].trim() !== '' && !/^#\s/.test(rows[index]) && !/^\s*<!--.*-->\s*$/.test(rows[index])) {
+    if (current) {
+      current.lines.push(index);
+      where.set(index, `under ## ${current.name}`);
+    } else if (rows[index].trim() !== '' && !/^#\s/.test(rows[index]) && !/^\s*<!--.*-->\s*$/.test(rows[index])) {
       problems.push(`overlay line ${index + 1}: text before the first section would not reach the copy; put it under ## Additions or ## Project traps`);
     }
   });
@@ -626,8 +659,10 @@ export function parseOverlay(source) {
         additions.push(open);
         continue;
       }
-      if (open) open.lines.push(rows[index]);
-      else if (rows[index].trim() !== '') problems.push(`overlay line ${index + 1}: text under ## Additions sits under a ### <id> heading`);
+      if (open) {
+        open.lines.push(rows[index]);
+        where.set(index, `in the addition to ${open.id}`);
+      } else if (rows[index].trim() !== '') problems.push(`overlay line ${index + 1}: text under ## Additions sits under a ### <id> heading`);
     }
     for (const addition of additions) {
       addition.text = trimBlank(addition.lines.join('\n'));
@@ -640,6 +675,15 @@ export function parseOverlay(source) {
       }
     }
   }
+
+  // A fence left open explains what else is refused around it, so it is named first.
+  problems.unshift(...fences.unclosed.map((fence) => {
+    let why = 'it never closes';
+    if (fence.why === 'ends') why = `line ${fence.at + 1} opens ${rows[fence.at].trim()} first`;
+    else if (fence.why === 'shallower') why = `line ${fence.at + 1} is indented less than the fence, which ends it`;
+    const example = fence.why === 'ends' ? '; to show such a heading in an example, indent the fence and its lines' : '';
+    return `overlay line ${fence.line + 1}: the fence opened ${where.get(fence.line) ?? 'before the first section'} does not close there (${why}); close it with a bare line of at least ${fence.fence.length} ${fence.fence[0] === '`' ? 'backticks' : 'tildes'}, indented as far as the fence, or it hides the headings and links after it from the checks${example}`;
+  }));
 
   return {
     text,

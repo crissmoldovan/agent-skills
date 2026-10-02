@@ -141,6 +141,13 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 - **Project files.** Reference files of the project's own, carried under `references/project/` so
   they never collide with the skill's.
 
+Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of at
+least as many of its character, indented as far as the fence. An overlay with a fence that does not
+is refused: left open, the fence would swallow every heading after it, and with them every check
+those headings face. A line that opens another part of the overlay, one of its sections or a `###`
+heading whose first word is an id, ends a fence open across it, so an example that shows such a
+heading indents the fence and its lines.
+
 ## The merge rules
 
 1. **A binding replaces the default, and nothing else.** The bound value holds wherever the skill
@@ -213,9 +220,10 @@ is not blank, a closing line included, because that is where the item ends. A fe
 way or never closes is not read as one, so the links after it are checked. A link in an inline code
 span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.
 Not checked: the links after a fence at the left margin left open by mistake, up to the next bare
-line that closes it, as CommonMark closes it too. Composing joins texts at fixed points and asks no
-model to merge them, so the result can be compared byte for byte, and composing again catches a
-hand edit or a stale copy.
+line that closes it, as CommonMark closes it too; in an overlay that line sits in the addition or
+section the fence opens in, or the overlay is refused. Composing joins texts at fixed points and
+asks no model to merge them, so the result can be compared byte for byte, and composing again
+catches a hand edit or a stale copy.
 
 ### When the entry is a reference file
 
@@ -301,5 +309,5 @@ such as the ones on this page declares nothing. It fails when:
 It does not check that the prose cites only declared ids, that a removed id's number is not used
 again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
 for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
-required slot unbound, writes `replaces:` on a hard line, or adds to one in the words of an
-exception.
+required slot unbound, writes `replaces:` on a hard line, adds to one in the words of an exception,
+or leaves a fence open past the addition or section it opens in.
