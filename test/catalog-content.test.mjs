@@ -243,6 +243,8 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   assert.match(checks, /`\[adapter\]`, an adapter\s+folder that does not read as one/);
   assert.match(checks, /`\[pin\]`, a pin\s+that cannot be taken/);
   assert.match(adapting, /\*\*Which composer is vendored\.\*\*/);
+  // A git setting that rewrites GitHub addresses to ssh is common, and the composer refuses it.
+  assert.match(section(adapting, 'Failure modes'), /`url\.<base>\.insteadOf`.*`--pack`/);
 
   assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
   assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);
@@ -250,6 +252,9 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   assert.match(releases, /`update-agent-skills` moves installed copies wherever they live, and owns the adapted copy/);
 
   for (const [where, text] of [['SKILL.md', updateAgentSkills], ['references/adapting.md', adapting]]) {
+    // The other organisation marker the blocks above name is on the contributors' private
+    // denylist, which scan-denylist.mjs reads before every push, so a new line does not restate it.
+    assert.doesNotMatch(text, /\bCUE\b/, `${where} names an organisation`);
     assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);
     for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/, `${where} carries a real address`);
     assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/, `${where} names a real zone`);

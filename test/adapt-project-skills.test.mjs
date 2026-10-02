@@ -953,6 +953,12 @@ test('a skill slot whose default this repository adapts is bound to the adapter,
   assert.equal(refused.status, EXIT_FAILED);
   assert.match(refused.stdout, /\[4\] B3 hands work to `helper`, which this repository adapts as `helper-here`; bind B3 to it/);
 
+  // Bound, but to another skill than the adapted copy: a typo, or a second answer to one question.
+  await addAdapter({ project, pack });
+  const elsewhere = compose(project, '--adapter', 'notes-here');
+  assert.equal(elsewhere.status, EXIT_FAILED, elsewhere.stdout);
+  assert.match(elsewhere.stdout, /\[4\] B3 hands work to `helper`, which this repository adapts as `helper-here`, and the overlay binds it to `ask-here`; bind B3 to the adapted copy/);
+
   await addAdapter({ project, pack, overlay: OVERLAY.replace('`ask-here`', '`helper-here`') });
   const accepted = compose(project, '--write');
   assert.equal(accepted.status, EXIT_OK, accepted.stdout);
@@ -1139,6 +1145,32 @@ test('a GitHub source: a pin is fetched by tag or full sha, a branch or a missin
   assert.match(report.stdout, /verify: every carried file is the upstream bytes at [0-9a-f]{12}/);
 });
 
+test('a GitHub source rewritten to ssh by a git setting is refused with its cause, and a local clone still composes', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack, adapter: adapterJson(GITHUB_PACK) });
+  assert.equal(overGithub(pack, ['compose', '--repo', project, '--write']).status, EXIT_OK);
+
+  // A common setting sends every GitHub address over ssh. git refuses the transport before it
+  // connects, so nothing here reaches a network.
+  const env = { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'url.ssh://git@example.com/example-owner/example-pack.insteadOf', GIT_CONFIG_VALUE_0: GITHUB_PACK };
+  const run = (args) => spawnSync(process.execPath, [ADAPT, ...args], { encoding: 'utf8', env });
+  const cause = /transport 'ssh' not allowed\. A git setting \(url\.<base>\.insteadOf\) rewrites the https address to ssh, and the composer reads a remote over https only/;
+
+  const refused = run(['compose', '--repo', project]);
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout + refused.stderr);
+  assert.match(refused.stdout, /\[pin\] cannot read https:\/\/github\.com\/example-owner\/example-pack: /);
+  assert.match(refused.stdout, cause);
+  assert.match(refused.stdout, /compose from a clone of the pack with --pack/);
+
+  const unknown = run(['outdated', '--repo', project]);
+  assert.equal(unknown.status, EXIT_ATTENTION, unknown.stdout + unknown.stderr);
+  assert.match(unknown.stdout, cause);
+  assert.match(unknown.stdout, /Unknown is not current\./);
+
+  const fromClone = run(['compose', '--repo', project, '--pack', pack]);
+  assert.equal(fromClone.status, EXIT_OK, fromClone.stdout + fromClone.stderr);
+});
+
 test('a long composed SKILL.md is a warning, never a failure', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const rows = Array.from({ length: 520 }, (_, index) => `| trap ${index + 1} | so ${index + 1} |`).join('\n');
@@ -1230,12 +1262,34 @@ test('outdated --verify: the copy is the upstream bytes, and a forgery the offli
   assert.match(verified.stdout, /references\/guide\.md differs from upstream/);
 });
 
-test('newer tags: a catalogue pin is compared with catalogue tags, a sha pin with the newest of each kind', () => {
+test('newer tags: a catalogue pin is compared with catalogue tags, a per-skill pin with its own and the newest catalogue tag, a sha pin with the newest of each kind', () => {
   const tags = new Map([['v1.0.0', 'a'], ['v1.2.0', 'b'], ['v1.10.0', 'c'], ['notes-v1.1.0', 'd'], ['other-v9.0.0', 'e'], ['v2.0.0-rc.1', 'f']]);
   assert.deepEqual(newerTags(tags, 'v1.0.0', 'notes'), ['v1.10.0']);
   assert.deepEqual(newerTags(tags, 'v1.10.0', 'notes'), []);
-  assert.deepEqual(newerTags(tags, 'notes-v1.0.0', 'notes'), ['notes-v1.1.0']);
+  assert.deepEqual(newerTags(tags, 'notes-v1.0.0', 'notes'), ['notes-v1.1.0', 'v1.10.0']);
+  // No newer tag of its own: the catalogue is still compared, since it can change the skill alone.
+  assert.deepEqual(newerTags(tags, 'notes-v1.1.0', 'notes'), ['v1.10.0']);
+  assert.deepEqual(newerTags(new Map([['notes-v1.1.0', 'd']]), 'notes-v1.1.0', 'notes'), []);
   assert.deepEqual(newerTags(tags, 'a'.repeat(40), 'notes'), ['notes-v1.1.0', 'v1.10.0']);
+});
+
+test('outdated: a per-skill pin is compared with the catalogue too, and a different tree there is never read as current', async () => {
+  // notes-v1.1.0 sits on v1.2.0's commit; v2.0.0 then changes the skill with no per-skill tag.
+  const pack = await buildPack();
+  const project = await addAdapter({ pack, adapter: adapterJson(pack, { base: { ref: 'notes-v1.1.0' } }) });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  const behind = outdated(project);
+  assert.equal(behind.status, EXIT_ATTENTION, behind.stdout);
+  assert.doesNotMatch(behind.stdout, /no newer release/);
+  assert.match(behind.stdout, /v2\.0\.0 exists; skills\/notes differs \(tree [0-9a-f]{12} -> [0-9a-f]{12}\), and a per-skill tag is not ordered against v2\.0\.0: read `git diff notes-v1\.1\.0 v2\.0\.0 -- skills\/notes` and the release notes before moving the pin/);
+
+  // The latest catalogue release carries the same tree: nothing to read, and nothing to do.
+  const level = await buildPack({ upTo: 'v1.2.0' });
+  const levelProject = await addAdapter({ pack: level, adapter: adapterJson(level, { base: { ref: 'notes-v1.1.0' } }) });
+  assert.equal(compose(levelProject, '--write').status, EXIT_OK);
+  const same = outdated(levelProject);
+  assert.equal(same.status, EXIT_OK, same.stdout);
+  assert.match(same.stdout, /v1\.2\.0 exists; skills\/notes unchanged: moving the pin is a no-op/);
 });
 
 test('the overlay is read in its three parts and nothing else', () => {

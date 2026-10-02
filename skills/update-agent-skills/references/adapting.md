@@ -70,7 +70,7 @@ copy composed anywhere else does not stand in for its skill there.
 | `base.source` | `https://github.com/<owner>/<repo>`, or a local path to a clone of the pack. Every other transport is refused |
 | `base.skill` | the pack skill's folder name, `skills/<skill>` |
 | `base.entry` | `SKILL.md`, or one reference file of the skill when that file holds the procedure the project needs |
-| `base.ref` | a tag (`vX.Y.Z` or `<skill>-vX.Y.Z`) or a full commit sha. A branch is refused, because it moves, and so is an abbreviated sha |
+| `base.ref` | a tag (`vX.Y.Z` or `<skill>-vX.Y.Z`) or a full commit sha. A branch is refused, because it moves, and so is an abbreviated sha. A per-skill tag is compared with newer tags of its own and with the latest catalogue tag, because a catalogue release can change the skill without a per-skill tag beside it |
 | `base.commit`, `base.tree` | optional. When present, a ref that now resolves elsewhere is refused |
 | `widenTools` | tools added to the skill's `allowed-tools`, each named here where review sees it |
 | `overlay` | the overlay file, `overlay.md` unless named |
@@ -119,7 +119,10 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 
 ```bash
 # The first time, and when a pin moves to a ref that ships another composer: run the composer
-# from a clone of the pack checked out at the pinned ref.
+# from a clone of the pack checked out at the pinned ref, a tag or a full commit sha.
+git clone https://github.com/<owner>/<pack> <pack clone>
+git -C <pack clone> fetch origin <ref>    # only for a commit that no branch or tag holds
+git -C <pack clone> checkout --detach <ref>
 node <pack clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <pack clone>
 node <pack clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <pack clone> --write
 
@@ -139,8 +142,10 @@ node .claude/skill-adapters/.tool/adapt.mjs outdated --repo . --verify  # and co
 - `check` is offline: no git, no network. It exits 1 when any check below fails.
 - `outdated` exits 2 when something needs a person: a newer tag that changes the skill, a moved or
   deleted tag, a vendored composer that is not the one the pinned ref ships, or a question it could
-  not answer. It never says "current" when it could not tell. With `--verify` it exits 1 when a
-  carried file is not the upstream bytes.
+  not answer. A version orders tags of one kind only, so for a per-skill tag against a catalogue
+  tag, or for a sha pin, a different tree is reported as differing, never as newer. It never says
+  "current" when it could not tell. With `--verify` it exits 1 when a carried file is not the
+  upstream bytes.
 
 **Which composer is vendored.** The one that ran `compose --write`, byte for byte; check 7 then
 holds every copy to it. `compose` reads the pack and never runs anything it fetched, the pinned
@@ -203,7 +208,7 @@ source that cannot be read).
 | 1 | every generated file has the sha256 its lock records, and the folder holds nothing else | a hand edit, a file added or removed by hand |
 | 2 | the text between the markers has the sha256 recorded at compose time | an edit to the skill's own text |
 | 3 | composing again from the copy and the current adapter folder gives the same bytes | an overlay or `adapter.json` changed without composing; a pin moved in `adapter.json` but not composed |
-| 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapter; `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy; two rows for one slot |
+| 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapted copy, and to no other skill; `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy, or another skill than the adapted copy; two rows for one slot |
 | 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, or overlay line naming one, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
 | 6 | the adapted copy's name differs from the skill's | an adapter that takes its skill's name |
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
@@ -221,7 +226,9 @@ file, and that is what proves it.
 ## Moving a pin
 
 1. `outdated` prints, per adapted skill, either `v1.5.0 exists; skills/<skill> unchanged: moving the
-   pin is a no-op`, or `changed (tree a -> b): read git diff v1.4.0 v1.5.0 -- skills/<skill>`.
+   pin is a no-op`, or `changed (tree a -> b): read git diff v1.4.0 v1.5.0 -- skills/<skill>`. For a
+   per-skill tag against a catalogue tag, or a sha pin, it says `differs`, never newer, and names
+   the same diff; read it with the release notes before moving the pin.
 2. Read that diff in the pack. A release note that names a renamed or removed id says what an
    overlay cites instead.
 3. Change `base.ref` (and `base.commit` and `base.tree`, if recorded). `compose` refuses, and names
@@ -242,11 +249,12 @@ and the run exits 2 when a pin moved or differs. Neither it nor `skills update` 
 
 | what goes wrong | what happens | what to do |
 |---|---|---|
-| someone edits the generated folder | `check` fails at 1 or 2; `compose` refuses to overwrite it | move the change into the overlay, then compose with `--discard-hand-edits` |
+| someone edits the generated folder | `check` fails at 1, and for an edit to `SKILL.md` at 3 as well: at 2 too inside the base markers, and at 9 in the frontmatter; `compose` refuses to overwrite it | move the change into the overlay, then compose with `--discard-hand-edits` |
 | a folder of the same name was written by hand | `compose` refuses: it has no lock | move its project text into the overlay, then `--discard-hand-edits` |
 | a pinned tag is moved or deleted upstream | `outdated` raises an alarm; `compose` refuses the moved tag; the committed copy and the offline check are unaffected | read why; re-pin to a full sha or a new tag, or record the new commit in `base.commit` on purpose |
 | a newer release renames an id the overlay cites | `compose` refuses and names it | fix the overlay in the same change as the pin |
 | no network | only `compose` (without `--pack`) and `outdated` stop | nothing else needs it |
+| a git setting (`url.<base>.insteadOf`) rewrites GitHub addresses to ssh | `compose` without `--pack` refuses the pin, and `outdated` reports unknown: the composer allows a remote over https only, and the message names the setting | run the command with that setting left out (for one in the global configuration, `GIT_CONFIG_GLOBAL` naming an empty file), or compose from a clone with `--pack` |
 | the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions; `onboard-project`'s routing file does that for a repository it onboards |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |

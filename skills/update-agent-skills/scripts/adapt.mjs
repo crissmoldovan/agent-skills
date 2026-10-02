@@ -233,10 +233,22 @@ export class GitReader {
   }
 }
 
+/**
+ * git's own message for a remote call that failed, and, when git refused a transport, the cause:
+ * a `url.<base>.insteadOf` setting, often an ssh rewrite of every GitHub address, has turned the
+ * https source into one the composer does not allow.
+ */
+export function remoteFailure(stderr, fallback) {
+  const message = stderr || fallback;
+  const refused = message.match(/transport '([^']+)' not allowed/);
+  if (!refused) return message;
+  return `${message.replace(/\.+$/, '')}. A git setting (url.<base>.insteadOf) rewrites the https address to ${refused[1]}, and the composer reads a remote over https only: run it with that setting left out (for one in the global configuration, GIT_CONFIG_GLOBAL naming an empty file), or compose from a clone of the pack with --pack`;
+}
+
 /** `<tag> -> <commit>` for every tag the source has, peeled to the commit an annotated tag names. */
 export function listRemoteTags(source) {
   const result = runGit(['ls-remote', '--tags', source], { timeout: 60_000 });
-  if (result.status !== 0) throw new AdaptError(`cannot list the tags of ${source}: ${result.stderr || 'git ls-remote failed'}`);
+  if (result.status !== 0) throw new AdaptError(`cannot list the tags of ${source}: ${remoteFailure(result.stderr, 'git ls-remote failed')}`);
   const tags = new Map();
   const peeled = new Map();
   for (const line of utf8(result.stdout).split('\n')) {
@@ -251,7 +263,7 @@ export function listRemoteTags(source) {
 
 function remoteHeads(source, ref) {
   const result = runGit(['ls-remote', source, `refs/tags/${ref}`, `refs/heads/${ref}`], { timeout: 60_000 });
-  if (result.status !== 0) throw new AdaptError(`cannot read ${source}: ${result.stderr || 'git ls-remote failed'}`);
+  if (result.status !== 0) throw new AdaptError(`cannot read ${source}: ${remoteFailure(result.stderr, 'git ls-remote failed')}`);
   const names = new Set(utf8(result.stdout).split('\n').map((line) => line.split('\t')[1]).filter(Boolean));
   return { tag: names.has(`refs/tags/${ref}`), branch: names.has(`refs/heads/${ref}`) };
 }
@@ -309,7 +321,7 @@ export function openSource(base, { repo, pack } = {}) {
     const reader = new GitReader(scratch);
     const refspec = FULL_SHA.test(base.ref) ? base.ref : `+refs/tags/${base.ref}:refs/tags/${base.ref}`;
     const fetch = reader.run(['fetch', '--quiet', '--depth', '1', '--no-tags', base.source, refspec], { timeout: 300_000 });
-    if (fetch.status !== 0) throw new AdaptError(`cannot fetch ${base.ref} from ${sourceLabel(base.source)}: ${fetch.stderr || 'git fetch failed'}`);
+    if (fetch.status !== 0) throw new AdaptError(`cannot fetch ${base.ref} from ${sourceLabel(base.source)}: ${remoteFailure(fetch.stderr, 'git fetch failed')}`);
     return { reader, cleanup, origin: sourceLabel(base.source) };
   } catch (error) {
     cleanup();
@@ -985,8 +997,17 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   const adaptedHere = new Map();
   for (const other of others) if (other.name !== adapter.name) adaptedHere.set(other.skill, [...(adaptedHere.get(other.skill) ?? []), other.name]);
   for (const slot of declared.slots.values()) {
-    if (!slot.skill || !slot.defaultSkill || !adaptedHere.has(slot.defaultSkill) || names.has(slot.defaultSkill)) continue;
-    fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${adaptedHere.get(slot.defaultSkill).map((name) => `\`${name}\``).join(' and ')}; bind ${slot.id} to it, or the agent is sent to the generic copy`);
+    if (!slot.skill || !slot.defaultSkill || !adaptedHere.has(slot.defaultSkill)) continue;
+    const adapters = adaptedHere.get(slot.defaultSkill);
+    const listed = adapters.map((name) => `\`${name}\``).join(' and ');
+    const binding = bound.get(slot.id);
+    // Bound to another skill than the adapted copy is refused too: the project keeps an adapted
+    // copy of this skill for this work, so a different name is a typo or a second answer.
+    if (binding && binding.skill !== slot.defaultSkill) {
+      if (!adapters.includes(binding.skill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}, and the overlay binds it to \`${binding.skill}\`; bind ${slot.id} to the adapted copy`);
+      continue;
+    }
+    if (!names.has(slot.defaultSkill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}; bind ${slot.id} to it, or the agent is sent to the generic copy`);
   }
   if (identity.entry !== 'SKILL.md' && adaptedHere.has(identity.skill) && base.entryText.includes(`\`${identity.skill}\``) && !names.has(identity.skill)) {
     fail(4, `${identity.entry} sends the reader to \`${identity.skill}\`, which this repository adapts as ${adaptedHere.get(identity.skill).map((name) => `\`${name}\``).join(' and ')}; map it in adapter.json names`);
@@ -1494,14 +1515,21 @@ function compareVersions(left, right) {
   return 0;
 }
 
-/** The newest tag of each family that is newer than the pin, or the newest of each for a sha pin. */
+/**
+ * The tags `outdated` compares a pin with. A catalogue pin: the newest newer catalogue tag. A
+ * per-skill pin: the newest newer tag of its own, and the newest catalogue tag, because a later
+ * catalogue release can change the skill without a per-skill tag beside it. A sha pin: the newest
+ * of each. Versions order tags only within one family, so a comparison across families, or with a
+ * sha, says whether the trees differ and never which is newer.
+ */
 export function newerTags(tags, pinRef, skill) {
   const pinned = tagVersion(pinRef, skill);
   const newest = new Map();
   for (const tag of tags.keys()) {
     const parsed = tagVersion(tag, skill);
     if (!parsed) continue;
-    if (pinned && (parsed.family !== pinned.family || compareVersions(parsed.version, pinned.version) <= 0)) continue;
+    if (pinned?.family === 'catalogue' && parsed.family !== 'catalogue') continue;
+    if (pinned && parsed.family === pinned.family && compareVersions(parsed.version, pinned.version) <= 0) continue;
     const best = newest.get(parsed.family);
     if (!best || compareVersions(parsed.version, best.version) > 0) newest.set(parsed.family, { tag, version: parsed.version });
   }
@@ -1549,7 +1577,7 @@ export function runOutdated(options, io) {
     const fetchRef = (reader, refspec) => {
       if (!isGithubSource(pinned.source) || fetchedRefs.has(refspec)) return;
       const fetched = reader.run(['fetch', '--quiet', '--depth', '1', '--no-tags', pinned.source, refspec], { timeout: 300_000 });
-      if (fetched.status !== 0) throw new AdaptError(`cannot fetch ${refspec} from ${sourceLabel(pinned.source)}: ${fetched.stderr || 'git fetch failed'}`);
+      if (fetched.status !== 0) throw new AdaptError(`cannot fetch ${refspec} from ${sourceLabel(pinned.source)}: ${remoteFailure(fetched.stderr, 'git fetch failed')}`);
       fetchedRefs.add(refspec);
     };
     try {
@@ -1565,17 +1593,24 @@ export function runOutdated(options, io) {
       }
       const newer = newerTags(tags, pinned.ref, pinned.skill);
       if (newer.length === 0) io.out(FULL_SHA.test(pinned.ref) ? '  no release tag to compare with' : `  no newer release than ${pinned.ref}`);
+      const pinFamily = tagVersion(pinned.ref, pinned.skill)?.family ?? null;
       for (const tag of newer) {
         const reader = readerFor();
         fetchRef(reader, `+refs/tags/${tag}:refs/tags/${tag}`);
         const commit = reader.commitOf(`refs/tags/${tag}`);
         const tree = commit ? reader.treeAt(commit, `skills/${pinned.skill}`) : null;
+        // A version orders tags of one family only; against a sha, or across families, the trees
+        // can only differ, so the line says which to read and never claims the tag is newer.
+        const ordered = pinFamily !== null && tagVersion(tag, pinned.skill)?.family === pinFamily;
         if (!tree) {
           io.out(`  ${tag} exists, and skills/${pinned.skill} is gone from it: read the release notes before moving the pin`);
           attention = true;
         } else if (tree === pinned.tree) io.out(`  ${tag} exists; skills/${pinned.skill} unchanged: moving the pin is a no-op`);
-        else {
+        else if (ordered) {
           io.out(`  ${tag} exists; skills/${pinned.skill} changed (tree ${short(pinned.tree)} -> ${short(tree)}): read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\``);
+          attention = true;
+        } else {
+          io.out(`  ${tag} exists; skills/${pinned.skill} differs (tree ${short(pinned.tree)} -> ${short(tree)}), and ${pinFamily ? 'a per-skill tag' : 'a commit'} is not ordered against ${tag}: read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\` and the release notes before moving the pin`);
           attention = true;
         }
       }
