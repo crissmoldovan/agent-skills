@@ -303,7 +303,9 @@ test('resolve-problem-report assesses a report on three separate questions, and 
   // reader meets the fix, prerequisite 1 asks where the date came from, and the checklist holds both.
   assert.match(resolveProblemReport, /Answer severity, priority\s+and effort separately, each by its owner: \[assessing a report\]\(references\/assessing-a-report\.md\)/);
   assert.match(resolveProblemReport, /its date and the source it was taken from/);
-  assert.match(resolveProblemReport, /nor the fix being released[\s\S]{0,200}where the reader meets it/);
+  assert.match(resolveProblemReport, /nor the fix being released[\s\S]{0,200}requires and, once released, where\s+the reader meets it/);
+  assert.match(resolveProblemReport, /\| \*\*G5 verify \+ describe\*\* \|[^\n]*\(a released fix also where its reader meets it\)/);
+  assert.match(resolveProblemReport, /close the report \(a fix only\s+once it is verified where its reader meets it\)/);
   assert.match(resolveProblemReport, /severity, priority and effort are three answers, each with its owner/);
   assert.match(resolveProblemReport, /a released fix where its\s+reader meets it/);
   assert.match(section(resolveProblemReport, 'Deeper reading'), /\[assessing a report\]\(references\/assessing-a-report\.md\)/);
@@ -328,6 +330,9 @@ test('resolve-problem-report assesses a report on three separate questions, and 
   assert.match(assessing, /Effort is not a candidate's size/);
   assert.match(assessing, /worst credible reader/);
   assert.match(assessing, /keep the old answer beside the new one/);
+  // Priority's check is cited to its source and leaves the level to who is waiting, not to the harm.
+  assert.match(assessing, /\[triage best practices\]\(https:\/\/www\.chromium\.org\/for-testers\/bug-reporting-guidelines\/triage-best-practices\/\)/);
+  assert.match(assessing, /The\s+level follows from that answer, not from the harm \(H1\)/);
   // The real date, with its source; nothing backfilled.
   assert.match(assessing, /Date the report from its source/);
   assert.match(assessing, /\*\*H3\. Nothing is dated or judged from memory\.\*\*/);
@@ -336,8 +341,15 @@ test('resolve-problem-report assesses a report on three separate questions, and 
   assert.match(assessing, /\*\*H2\. A released fix is not a verified one\.\*\*/);
   assert.match(assessing, /even when someone says to close it/);
   assert.match(assessing, /git merge-base --is-ancestor <fix commit> <released commit>/);
+  assert.match(assessing, /the merge or squash commit, not the branch's own/);
+  assert.match(assessing, /the one the release records as built or served, not a branch tip/);
+  assert.match(assessing, /cherry-pick or a backport[\s\S]{0,120}by its\s+patch id/);
+  assert.match(assessing, /\*\*S5\. Once the fix is released, verify where the reader meets it \(B8\)/);
   assert.match(assessing, /A surface no check reached is not verified/);
   assert.match(assessing, /Close a fix as fixed only once it is verified/);
+  // A fix that has landed but is not released has a state of its own, and G5's close waits for it.
+  assert.match(assessing, /It is\s+landed once it is on the line a release is cut from, released once S4 passes, and verified once\s+S5's checks reach where the reader meets it/);
+  assert.match(assessing, /G5 can describe and review\s+a landed fix, but its close waits for verification/);
   // It assesses one report; the register of every report is not this skill's.
   assert.match(assessing, /keeps no register of every report/);
   // The organisation markers are read from the block above rather than restated, so a change to that

@@ -5,7 +5,7 @@ is, how soon it is wanted and how much work it is get answered as one vague sens
 each borrows from the others. At the end, a fix that was released gets called fixed when nobody
 has looked at it where the reader meets it. This file covers both for `resolve-problem-report`:
 severity, priority and effort, answered as three separate questions at G0; the date the report
-was really made; and the step from released to verified at G5.
+was really made; and the steps a fix takes from landed to released to verified.
 
 It assesses one report. It keeps no register of every report, with their ids, states and the
 links between them. A project that keeps one binds where each judgement is recorded (B6), and the
@@ -86,8 +86,11 @@ high as the surface it started on.
 | **next release** | Wanted, and it can slip one release without anyone noticing |
 | **backlog** | Nobody is waiting |
 
-The test, from Chromium's triage guide: would someone notice, in a bad way, if this were present
-in the release? A yes is this release or sooner.
+A check against the table, adapted from the Chromium project's
+[triage best practices](https://www.chromium.org/for-testers/bug-reporting-guidelines/triage-best-practices/):
+would someone notice, in a bad way, if this were still there in the release? A yes on a report
+levelled next release or backlog means finding out who would notice and what they were told. The
+level follows from that answer, not from the harm (H1).
 
 ## Effort: the work to the next state
 
@@ -122,10 +125,15 @@ hours had been spent before it.
    line, a commit, a count or a message. "Re-assessed" names nothing. In one register, one
    judgement moved from "possible release blocker" to "not a defect" and another from "cosmetic"
    to "a factual error a reader sees", and the record was worth keeping for what changed each.
-4. **S4. Before recording a release, check that the fix is in it.**
-   `git merge-base --is-ancestor <fix commit> <released commit>` must succeed. A fix merged in
-   time can still miss the release that was cut.
-5. **S5. At G5, verify where the reader meets it (B8), and say what each check reached.**
+4. **S4. Before recording a release, check that the fix is in it.** The fix commit is the one that
+   landed on the line the release was cut from (the merge or squash commit, not the branch's own),
+   and the released commit is the one the release records as built or served, not a branch tip.
+   `git merge-base --is-ancestor <fix commit> <released commit>` must succeed. A fix carried across
+   by a cherry-pick or a backport is a different commit, so check the change itself there, by its
+   patch id (`git patch-id`, or `git cherry`), not the ancestry. A fix merged in time can still
+   miss the release that was cut.
+5. **S5. Once the fix is released, verify where the reader meets it (B8), and say what each check
+   reached.**
    - A test suite run on a pre-production environment reaches that environment.
    - A check that the tree released is the tree tested carries the code across, not the data,
      the configuration or the accounts that differ between the two.
@@ -137,11 +145,16 @@ hours had been spent before it.
 
    A surface no check reached is not verified. Write exactly where the fix was checked, for
    example "verified on the pre-production environment, not on production".
-6. **S6. Close a fix as fixed only once it is verified.** Told to close a released fix before
-   then, answer with what verification still needs, and leave it released (H2). A closing reason
-   other than fixed, such as a ruling, a duplicate or won't-fix, is for a report with no fix in
-   it, never a way to take a released, unchecked fix off a list. The resolution note and any
-   message to the reporter say released until then, not fixed.
+6. **S6. Close a fix as fixed only once it is verified.** A fix moves through three states. It is
+   landed once it is on the line a release is cut from, released once S4 passes, and verified once
+   S5's checks reach where the reader meets it. Where the reader meets a fix as soon as it lands
+   (B8), as with a tool run from its main line, landing is its release. G5 can describe and review
+   a landed fix, but its close waits for verification, and until then the fix is recorded and
+   reported in the state it has reached, with where it was checked. Told to close it before then,
+   answer with what release and verification still need, and leave it in that state (H2). A
+   closing reason other than fixed, such as a ruling, a duplicate or won't-fix, is for a report
+   with no fix in it, never a way to take an unchecked fix off a list. The resolution note and any
+   message to the reporter say landed or released until then, not fixed.
 
 ## Mistakes seen, and what to do instead
 

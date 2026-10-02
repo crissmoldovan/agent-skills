@@ -35,7 +35,7 @@ companions that own the work, and the pipeline can correctly terminate at any of
 | **G2 offer** | the **candidate table** | 2–4 candidates carry a blast area, what each does **not** fix, reversibility and size — and the do-nothing line is a real row, not a courtesy |
 | **G3 spec** | the **build contract** | every requirement names its files, its proving test and the **mutation** that must kill that test, and the requirements' file sets are disjoint |
 | **G4 implement** | the **landed change with its budget and gate ladder** | `land-complex-change` returns them; this skill declares no budget and arms no gates of its own |
-| **G5 verify + describe** | the **resolution note**, plus **one filed report per disagreement** | each requirement is checked at its own evidence class, the reporter's original numbers are re-measured, and anything that disagrees is filed rather than chased |
+| **G5 verify + describe** | the **resolution note**, plus **one filed report per disagreement** | each requirement is checked at its own evidence class (a released fix also where its reader meets it), the reporter's original numbers are re-measured, and anything that disagrees is filed rather than chased |
 
 A gate that cannot open is information: the artifact under it is missing, which is far better
 said at G1 than discovered at G5, with a change landed and somebody waiting for a mail.
@@ -309,9 +309,9 @@ one for the report whose correct answer was a question.
 
 8. **G5 — verify at the class, describe, review — and file what verification turns up.**
    Verification is not the test suite going green, nor the fix being released; it is each numbered
-   requirement checked at the evidence class **its own claim** requires, where the reader meets it,
-   plus a re-measurement of the reporter's original numbers against the same table from G1. A green
-   suite over a surface nothing guarded is evidence about the other surfaces.
+   requirement checked at the evidence class **its own claim** requires and, once released, where
+   the reader meets it, plus a re-measurement of the reporter's original numbers against the same
+   table from G1. A green suite over a surface nothing guarded is evidence about the other surfaces.
 
    **A verification that opens a new report is a success.** When the re-measurement turns up a
    figure that disagrees with the system's own — two counts of the same thing differing by more
@@ -322,9 +322,9 @@ one for the report whose correct answer was a question.
    Hand the landed diff to `describe-changes` for the resolution note — its short register is
    the reporter's line, its detailed register is the reviewer's — and the pull request loop to
    `request-blocks-review` and `blocks`, giving them the contract, the budget, the ladder and
-   the residuals alongside the diff. Then, behind step 6's act gate, close the report and tell
-   the reporter what was true in their account, what was not, what changed, what it does **not**
-   fix, and what to do if it recurs.
+   the residuals alongside the diff. Then, behind step 6's act gate, close the report (a fix only
+   once it is verified where its reader meets it) and tell the reporter what was true in their
+   account, what was not, what changed, what it does **not** fix, and what to do if it recurs.
 
 9. **Deliver the outcome the evidence supports, including the ones with no change in them.**
    Three terminal outcomes are legitimate and each is delivered with its evidence:
