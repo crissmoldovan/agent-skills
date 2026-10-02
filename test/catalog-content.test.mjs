@@ -841,7 +841,7 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
   assert.deepEqual(shipped, ['SKILL.md', 'references', 'references/evidence-signals.md', 'references/fit.json', 'references/query-contracts.md']);
 
   // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
-  for (const sibling of ['mine-session-transcripts', 'resolve-problem-report', 'investigate-codebase', 'secure-credential-setup', 'request-answers']) {
+  for (const sibling of ['mine-session-transcripts', 'resolve-problem-report', 'investigate-codebase', 'secure-credential-setup', 'request-answers', 'decision-journal']) {
     assert.match(skill, new RegExp(sibling));
   }
   // Its slots take their own letter, F, and every handoff to a sibling is one of kind skill.
@@ -849,7 +849,7 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
   const slots = [...bindings.matchAll(/^\| ([A-Z][0-9]+) \|/gm)].map(([, id]) => id);
   assert.ok(slots.length >= 1);
   for (const id of slots) assert.match(id, /^F[1-9][0-9]*$/);
-  for (const sibling of ['resolve-problem-report', 'investigate-codebase', 'secure-credential-setup', 'request-answers']) {
+  for (const sibling of ['resolve-problem-report', 'investigate-codebase', 'secure-credential-setup', 'request-answers', 'decision-journal']) {
     assert.match(bindings, new RegExp(`\\| skill \\| \`${sibling}\` \\|`));
   }
   assert.equal(fit.kind, 'requestOnly');
@@ -866,16 +866,29 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
   assert.match(bindings, /^\| F16 \| the project's standing limits on reading records: .+ \| value \| /m);
   assert.match(skill, /\*\*H10\. The project's standing limits hold\.\*\*/);
   assert.match(skill, /lifts no limit its question did not name/);
+  // The controls that prove each counter are reads too, so the yes names them, and one over anyone
+  // but the named people returns a count and no identifiers.
+  assert.match(skill, /the controls S3 will run and whose records each\s+reads/);
+  assert.match(skill, /returns a\s+count and no identifiers/);
+  assert.match(contracts, /\*\*Controls are named, and read no more than they must\.\*\*/);
   // Minimisation, and the published report checked signed out.
   assert.match(skill, /\*\*H4\. Raw rows stay in the run\.\*\*/);
-  assert.match(skill, /\*\*H5\. The summary identifies nobody beyond the names asked about\.\*\*/);
+  assert.match(skill, /\*\*H5\. Nothing outside the detail identifies anybody beyond the names asked about\.\*\*/);
   assert.match(skill, /never from a lookup service that is told the address/);
-  assert.match(skill, /\*\*H9\. Nothing is published until every address that serves it refuses a reader who is not signed\s+in\.\*\*/);
+  // A URL's query can carry a sign-in link's token, so a URL leaves the run as host and path only.
+  assert.match(skill, /A URL is cut to its host and path before it is written anywhere else/);
+  assert.match(contracts, /\*\*A URL is cut to its host and path\.\*\*/);
+  // The check can only follow the publication, so it gates the link, and a failure has its remedy.
+  assert.match(skill, /\*\*H9\. A published report's link goes to nobody until every address that serves it refuses a\s+reader who is not signed in\.\*\*/);
+  assert.match(skill, /the report is taken down at once/);
   // A weighing, labelled as one.
   assert.match(skill, /\*\*H7\. Person or agent is a weighing, never a finding\.\*\*/);
   assert.match(signals, /^\*\*UNCALIBRATED\.\*\* Every threshold in this file/m);
   assert.match(signals, /\| signal \| leans towards \| threshold \(uncalibrated\) \| what it does not prove \|/);
   assert.match(signals, /\*\*What none of them rules out\*\*/);
+  // No signal on either side is not a person: the weighing says too little to judge.
+  assert.match(signals, /No signal on either side[^\n]*too little to judge/);
+  assert.match(signals, /An absence of signals is never read as a person\./);
   // A control on every counter: each query's contract names one.
   assert.ok(contracts.includes('{SOURCE_ID}') && contracts.includes('{TABLE}'));
   const queries = contracts.split(/^## (?=[QAR][0-9]\. )/m).slice(1);

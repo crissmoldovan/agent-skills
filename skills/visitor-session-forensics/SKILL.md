@@ -44,6 +44,7 @@ that has its own report tool binds it as F11.
 | What the site's code records, and what a recorded label points at | the skill bound as F13, by default `investigate-codebase` | Asks it when an event or a label has to be traced to the code that sends it. |
 | A credential a source needs | the skill bound as F14, by default `secure-credential-setup` | Stops and hands over. A key is never asked for in the conversation. |
 | A question only another person can answer, such as what the site's visitors were told | the skill bound as F15, by default `request-answers` | Writes the question. It sends nothing itself. |
+| Keeping the record of who said yes to a run, to what, and when, after the raw rows are gone | the skill bound as F17, by default `decision-journal` | Hands it the request, the question asked, each answer and its time. Never a row. |
 | How many people used each screen this week | none: an aggregate count | Not this skill. A count of everyone needs no names, so it is made without identifiers. |
 
 ## When to Use
@@ -75,7 +76,7 @@ skill beside others whose `B` slots would be read as its own.
 | F2 | what the site's visitors were told about what is recorded, and where they were told it | value | ask once; with nothing known, the report says so and goes to nobody but the person bound as F1 |
 | F3 | the sources read, each with what it records and how long it keeps it | value | ask once; a source nobody named is not read |
 | F4 | the hosts that are the site, and which of them is live | value | ask once; events from any other host are counted and left out |
-| F5 | accounts that are not people: test, monitoring and the team's own | value | none known: every account found is listed, and the report says none was left out |
+| F5 | accounts that are not people: test, monitoring and the team's own | value | none known: no account is left out, and the report says so |
 | F6 | the names the site's screens and controls had during the window | value | read from the window's own records (S6), never invented |
 | F7 | where the release history is read from, for the live-or-cached check | value | ask once; without it, the report says the comparison was not made |
 | F8 | the zones times are shown in, beside UTC | value | UTC only |
@@ -87,6 +88,7 @@ skill beside others whose `B` slots would be read as its own.
 | F14 | where a credential a source needs is set up | skill | `secure-credential-setup` |
 | F15 | where a question for another person goes | skill | `request-answers` |
 | F16 | the project's standing limits on reading records: the sources, sites or environments a run must not read, and who, if anyone, may lift a limit for one run | value | ask once, in the question for the yes (S2); with no limit named, the hard lines below are the only limits |
+| F17 | where the yes for a run, each go and each refusal are recorded, so that they outlive the raw rows | skill | `decision-journal` |
 
 ## Hard lines
 
@@ -99,15 +101,22 @@ skill beside others whose `B` slots would be read as its own.
   sign in; reading what a person typed; and any purpose the request will not state. The run says
   which, and stops.
 - **H3. Read only what the purpose needs.** The people, the window and the hosts named, filtered in
-  the query and not afterwards. A wider question is a new request, with a new yes.
+  the query and not afterwards. A wider question is a new request, with a new yes. The controls
+  that prove each counter (S3) are reads too: the question for the yes names each one, and a
+  control over anyone other than the named people, or over a time outside the window, returns a
+  count and no identifiers.
 - **H4. Raw rows stay in the run.** They hold full network addresses, email addresses and device
   details, so they are kept where F9 says, never in a repository, a message or a ticket, and are
   deleted when F9 says. A network address is masked before it is written anywhere else (to its /64
   for IPv6, to its first two octets for IPv4), and the network's owner is read from the registry
-  with `whois` on the masked block, never from a lookup service that is told the address.
-- **H5. The summary identifies nobody beyond the names asked about.** It carries no network
-  addresses, network names, device details, email addresses or session ids. The detail, which may
-  carry them, goes only to those bound as F10, and the report says plainly what the detail carries.
+  with `whois` on the masked block, never from a lookup service that is told the address; of what
+  the registry returns, only the owner and whether it is a hosting provider are kept, never a
+  location. A URL is cut to its host and path before it is written anywhere else, because its query
+  and fragment can carry a sign-in link's token, an email address or an id.
+- **H5. Nothing outside the detail identifies anybody beyond the names asked about.** The answers
+  that lead the report and the summary carry no network addresses, network names, device details,
+  email addresses, session ids or URL queries. The detail, which may carry them, goes only to those
+  bound as F10, and the report says plainly what the detail carries.
 - **H6. Nothing invented.** Every number is a count of rows or arithmetic over rows, and every claim
   names its rows. A query that returns nothing is "none in the window", never "did nothing"; a visit
   with no recording is "no recording stored"; a mechanism that no row shows is not described.
@@ -118,10 +127,12 @@ skill beside others whose `B` slots would be read as its own.
 - **H8. Read-only, and contacts nobody.** The run writes to no source, changes no account or
   session, never signs in as a visitor, and never contacts the people it is about. A refusal by the
   harness, or a permission prompt, is reported as it came and never worked around.
-- **H9. Nothing is published until every address that serves it refuses a reader who is not signed
-  in.** Publishing needs a yes for that publication (F10). Then each address the host serves it at,
-  aliases the host made on its own included, is fetched with no cookie and no token, and each
-  result is recorded.
+- **H9. A published report's link goes to nobody until every address that serves it refuses a
+  reader who is not signed in.** Publishing needs a yes for that publication (F10). Once it is up,
+  each address the host serves it at, aliases the host made on its own included, is fetched with no
+  cookie and no token, and each result is recorded. An address that serves it to that fetch means
+  the report is taken down at once, the person bound as F1 is told, and the exposure is recorded:
+  which addresses served it, and from when until it came down.
 - **H10. The project's standing limits hold.** The run reads nothing the limits bound as F16 rule
   out. Where a limit can be lifted, only the person it names lifts it, for this run, in answer to a
   question that named the limit, and the go is recorded with its time. The yes for the run (H1)
@@ -142,32 +153,39 @@ what it filters on, the row it returns, and its control.
    window, the hosts and the recipients.
 
 2. **S2. Ask for the yes.** Put the request to the person bound as F1 as one question: these people,
-   this window, these sources (F3), this purpose, what the summary and the detail will carry, where
-   they go, and when the raw rows are deleted (F9). Say what the visitors were told about being
-   recorded (F2), or that it is not known. Name every source a standing limit (F16) rules out, and
-   who may lift that limit. Their go, for this run, is asked for in the same question when they are
-   the person bound as F1; otherwise it is written as a question of its own through F15 (H10). A
-   source that needs a credential goes to F14 first. Record each answer and its time.
+   this window, these sources (F3), this purpose, the controls S3 will run and whose records each
+   reads, what the summary and the detail will carry, where they go, and when the raw rows are
+   deleted (F9). Say what the visitors were told about being recorded (F2), or that it is not known.
+   Name every source a standing limit (F16) rules out, and who may lift that limit. Their go, for
+   this run, is asked for in the same question when they are the person bound as F1; otherwise it
+   is written as a question of its own through F15 (H10). A source that needs a credential goes to
+   F14 first. Record each answer and its time through F17.
    **Complete when:** a yes for this run, and every go H10 requires, is recorded with its time, or
    the run has stopped.
 
 3. **S3. Prove each source can see the window, and each counter can count.** For each source, read
    the time of the earliest and latest row it holds: a window older than its retention is reported
-   as not held, not as quiet. Then run each counter the report will carry once on a control, a case
-   whose true count is known not to be zero: a visit made for the purpose by the person bound as F1,
-   an account bound as F5, a day known to be busy, a tap from a touch device. A counter that does
-   not find its control is not used, and the report says why.
-   **Complete when:** every source has its held range, and every counter has found its control.
+   as not held, not as quiet. Then run each counter the report will carry once on a control the yes
+   named, a case whose true count is known not to be zero: a visit made for the purpose by the
+   person bound as F1, an account bound as F5, a day known to be busy, a tap from a touch device.
+   A control need not fall in the window: the same query, over the control's own identity and a
+   time it is known to have been there within the source's held range, has to find it. A control
+   over anyone other than the named people, or over a time outside the window, is run as a count
+   and returns no identifiers (H3). A counter that does not find its control is not used, and the
+   report says why.
+   **Complete when:** every source has its held range, every counter has found its control, and
+   every control read was one the yes named.
 
 4. **S4. Find the people in the sources.** Run the "who is there" query over the hosts bound as F4,
    chosen by each page's own host and never by an environment field, and filtered to the named
    people's sign-in identities; it lists every account in the window only when the request asked
    about everyone. Map each person to the browser identifiers seen with their sign-in. One person
    may use several browsers and machines, so a device is read per browser and never per person.
-   Leave out the accounts bound as F5, and count them. A visitor the records do not name is
+   An account bound as F5 that turns up (a request about everyone, or a browser a named person
+   shares with a test account) is left out and counted. A visitor the records do not name is
    "unnamed", never matched by a guess.
    **Complete when:** each named person has zero or more browser identifiers, each with its first
-   and last time, and every account left out is counted.
+   and last time, and any account left out is counted.
 
 5. **S5. Pull the rows, as returned.** Run the queries the questions need (events, visit facts,
    devices, recordings, files loaded, page loads, accounts, sign-ins, releases), over the people's
@@ -177,7 +195,7 @@ what it filters on, the row it returns, and its control.
    later. A store that keeps recent rows apart from older ones is read in both places with the
    overlap removed. A log that caps its rows per query is read a day at a time.
    **Complete when:** each input is saved with its query, the time it ran and its row count, and
-   nothing outside the request was read.
+   nothing outside the request and the controls it named was read.
 
 6. **S6. Name what they saw by the names it had then.** Screens and controls are named as the site
    named them during the window (F6): line up a navigation click with the screen event that follows
@@ -203,8 +221,8 @@ what it filters on, the row it returns, and its control.
    **Complete when:** every question written down in S1 has an answer citing its rows, or "not
    gathered" with the reason.
 
-8. **S8. Write the report.** Lead with the answer to each question, then the summary (H5) and, only
-   when it was asked for, the detail. Queries run in UTC; the report shows UTC and the zones bound
+8. **S8. Write the report.** Lead with the answer to each question, then the summary, both under
+   H5, and, only when it was asked for, the detail. Queries run in UTC; the report shows UTC and the zones bound
    as F8, carries the snapshot time (when the rows were read), and says when a person was still
    active at that moment. A report about one person carries that person's visits and nobody
    else's. The coverage closes it: the sources and the range each holds, the window, each control
@@ -212,14 +230,15 @@ what it filters on, the row it returns, and its control.
    removed), and what was not read. When F11 names a tool, it composes and checks the report; a
    rendered page is opened and looked at, because a page that renders is not a page that reads
    correctly.
-   **Complete when:** every number traces to a row, the summary carries nothing H5 forbids, and
-   the coverage is stated.
+   **Complete when:** every number traces to a row, the answers and the summary carry nothing H5
+   forbids, and the coverage is stated.
 
 9. **S9. Hand it over, and clean up.** Deliver by the route bound as F10. Publishing follows H9. A
    problem a visitor reported goes to F12 with the report, and a question for another person to
    F15. Delete the raw rows when F9 says, and say that they were deleted.
-   **Complete when:** the report reached only those bound as F10, anything published refused a
-   signed-out fetch at every address, and the deletion of the raw rows is recorded.
+   **Complete when:** the report reached only those bound as F10; anything published refused a
+   signed-out fetch at every address before its link went to anyone, or was taken down with the
+   exposure recorded and the person bound as F1 told; and the deletion of the raw rows is recorded.
 
 ## Usage Examples
 
@@ -278,6 +297,10 @@ Filling a query contract, with the placeholders the contracts use:
   email address, and one `git add .` commits them.
 - **Checking only the address you were given.** A host can serve one deployment at several
   addresses, protect the long one and leave a short alias public. Fetch every address signed out.
+- **Quoting a URL whole.** A page address or a referrer can carry a sign-in link's token or an email
+  address in its query. Cut it to the host and the path.
+- **A control that reads more than the request.** A busy day of the sign-in log, or another
+  visitor's touch visit, is everyone's records. Name it in the yes and read it as a count.
 
 ## Verification
 
@@ -287,15 +310,16 @@ Filling a query contract, with the placeholders the contracts use:
   own host.
 - [ ] Nothing a standing limit (F16) rules out was read without a go for this run from the person
   that limit names, recorded with its time.
-- [ ] Every source has its held range, and every counter in the report found its control.
+- [ ] Every source has its held range, every counter in the report found its control, and every
+  control was named in the yes and read beyond the named people only as a count.
 - [ ] Every number traces to a row; "none in the window" and "no recording stored" are said where
   they apply.
 - [ ] The person-or-agent section gives both sides, says the signals are uncalibrated, and says
   what they cannot rule out.
-- [ ] The summary carries no network address, network name, device detail, email address or
-  session id.
-- [ ] Nothing was published without a yes, and every address it is served at refused a signed-out
-  fetch.
+- [ ] The answers and the summary carry no network address, network name, device detail, email
+  address, session id or URL query.
+- [ ] Nothing was published without a yes, and its link went to nobody before every address it is
+  served at refused a signed-out fetch; an address that did not was taken down and recorded.
 - [ ] The raw rows stayed in the run directory and their deletion is recorded.
 
 ## Deeper reading

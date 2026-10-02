@@ -34,15 +34,23 @@ A real source id, table name or host goes in the project's overlay, never in thi
   no event.
 - **Saved as returned.** A result the tool wrote to a file is copied; a small one shown inline is
   copied, never retyped.
+- **A URL is cut to its host and path.** A page address or a referrer can carry a sign-in link's
+  token, an email address or an id in its query or fragment. Cut it in the query where the store
+  can; where it cannot, cut it before the row leaves the run directory (H4).
+- **Controls are named, and read no more than they must.** Each control is one the yes named (H3).
+  A control over anyone other than the named people, or over a time outside the window, returns a
+  count and no identifiers. A control need not fall in the window: the same query, over the
+  control's identity and a time it is known to have been there within the source's held range,
+  has to find it.
 
-The filter every events query starts from:
+The filter every events query after Q0 starts from:
 
 ```sql
 WITH visits AS (
   SELECT DISTINCT dt, raw FROM (
     SELECT dt, raw FROM {TABLE}
       WHERE source_id = {SOURCE_ID} AND dt BETWEEN {FROM} AND {TO}
-    UNION ALL
+    UNION ALL  -- this half, and the DISTINCT, only where the store keeps an archive apart
     SELECT dt, raw FROM {ARCHIVE_TABLE}
       WHERE source_id = {SOURCE_ID} AND dt BETWEEN {FROM} AND {TO}
   )
@@ -50,6 +58,10 @@ WITH visits AS (
     AND domain(JSONExtractString(raw, 'page_url')) IN ({HOSTS})
 )
 ```
+
+Q0 has no `{VISITORS}` yet, because finding them is its job: it starts from the same shape with
+the visitor line replaced by the sign-in identity, `IN ({IDENTITIES})`. Where the store keeps no
+archive apart, both read `{TABLE}` alone.
 
 ## Q0. Who is there
 
@@ -63,8 +75,10 @@ request asked about everyone in the window is that filter dropped.
   with no identity is reported *unnamed*, never matched by a guess.
 - Accounts bound as F5 are counted and left out.
 
-**Control.** The person bound as F1, or an account bound as F5, visits the site in the window and
-is found.
+**Control.** The same query, with `{IDENTITIES}` set to a control identity the yes named (the
+person bound as F1, or an account bound as F5) and the window set to a time that identity is known
+to have visited within the source's held range, finds it. A visit made now for the purpose is one
+such time, and the "control visit" the contracts below refer to.
 
 ## Q1. Events
 
@@ -79,7 +93,7 @@ short prefix of the visit id, enough to keep visits apart; the full id goes in Q
 - Clicks are counted as `event IN ('click', 'tap')`.
 
 **Control.** A visit known to have used a touch device shows taps, and a visit known to have
-clicked shows clicks.
+clicked shows clicks. A control visit that is not a named person's returns the two counts only.
 
 ## Q2. Visit facts
 
@@ -87,7 +101,8 @@ clicked shows clicks.
 `["<visit>", "<full visit id>", "<identity>", "<screen size>", "<window size>", "<pixel ratio>", automated, ["<masked address>", …], "<entry referrer>", "<release>"]`.
 
 - Addresses are masked in the query where the store can (H4); where it cannot, they are masked
-  before the row leaves the run directory.
+  before the row leaves the run directory. The entry referrer is cut to its host and path the same
+  way.
 - `automated` is the browser's own report (the evidence signals say what it does not prove).
 
 **Control.** The control visit from Q0 has one row, with its release.
@@ -130,13 +145,14 @@ clicked shows clicks.
   meaning.
 - `status` separates a refused file (401, 403) from a missing one (404) and a failed one (5xx).
 
-**Control.** A file the control visit loaded for the first time shows a transfer at least its
-encoded size.
+**Control.** A file of a few kilobytes or more that the control visit loaded for the first time
+shows a transfer above its encoded size.
 
 ## Q6. Page loads (optional)
 
 **Returns** one row per page load:
-`["<identity>", ms, duration_s, largest_contentful_paint_s, "<referrer>", visible_at_start, "<connection type>"]`.
+`["<identity>", ms, duration_s, largest_contentful_paint_s, "<referrer>", visible_at_start, "<connection type>"]`,
+with the referrer cut to its host and path.
 
 **Control.** The control visit's first page load has a row.
 
@@ -162,8 +178,10 @@ time** where the log caps the rows one query returns.
 
 - A day that returns nothing may be past the log's retention, not quiet.
 
-**Control.** A day known to be busy returns rows. Without one, the report says the sign-in record
-could not be shown to be complete.
+**Control.** A day known to be busy returns rows, read as a count of that day's lines with no
+filter to the people and no identifiers returned, or the control identity's own sign-in on a day
+it is known to have signed in. Without either, the report says the sign-in record could not be
+shown to be complete.
 
 ## R1. Releases (for live or cached)
 
@@ -173,12 +191,16 @@ release live at each minute that matters.
 ```bash
 git log <release branch> --first-parent --since=<from> --until=<to> --format='%h|%cI|%s'
 git rev-list -1 --first-parent --before=<UTC time> <release branch>   # the release live then
-git show <commit>:<file> | shasum -a 256 | cut -c1-16                  # that file's tag, where the tag is a content hash
+git show <commit>:<file> | sha256sum | cut -c1-16                     # that file's tag, where the served file is committed as served
 ```
 
 **Returns** the merges with their times, and per release the version tags its files would carry.
 
 - A merge time is a release time give or take the deploy; the report says so.
 - The tag's length and hash are the project's; read them from its build, never assume them.
+- The `git show` line holds only where the file is served exactly as it is committed. A built
+  site's tag hashes build output that git does not hold: build that release, or read its build
+  manifest, and take the tag from there. `sha256sum` is `shasum -a 256` where only that is
+  installed.
 
 **Control.** The release live at the control visit's time carries the tag that visit loaded.

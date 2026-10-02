@@ -26,7 +26,7 @@ The weighing of one visit, from its clicks and taps, its recording, and its brow
 | the same pixel again and again | an agent | at least 20 clicks, and distinct positions under 80% of clicks | a person pressing one "next" button in one place does it too |
 | no pointer movement between clicks, in a recording that covers them | an agent | none recorded | a keyboard-only visitor, and a recording that dropped its pointer events, move nothing |
 | a software graphics renderer, or almost no installed fonts | an agent in a headless browser | the renderer names a software rasteriser | a locked-down or virtual desktop looks the same |
-| a data-centre network | an agent | the registry names a hosting or cloud provider (H4: `whois` on the masked block) | a person on a company VPN or a remote desktop exits from one |
+| a data-centre network | an agent | the registry names a hosting or cloud provider (H4: `whois` on the masked block; keep the owner and "hosting provider: yes or no", never the location it also returns) | a person on a company VPN or a remote desktop exits from one; and a masked block can span several registrants, so the owner named may not be the visitor's network |
 | the pointer moved between clicks | a person | any pointer positions recorded between clicks | an agent that drives the real pointer moves it too |
 | keys were pressed | a person | any key press recorded (what had focus is recorded; the keys never are) | an agent that types does this too |
 | the window's focus changed | a person | any blur or focus recorded | an agent switching tabs does this too |
@@ -40,8 +40,10 @@ The weighing of one visit, from its clicks and taps, its recording, and its brow
 
 1. No clicks or taps: *too little activity to judge*.
 2. Any signal that leans towards an agent: *check the recording*, naming each signal that fired.
-3. Otherwise: *a person, on these signals*, with *(no recording stored)* when there is none,
-   naming the signals that lean towards a person.
+3. Otherwise, any signal that leans towards a person: *a person, on these signals*, naming each
+   one, with *(no recording stored)* when there is none.
+4. No signal on either side, as with a few clicks and no recording: *too little to judge, on these
+   signals*. An absence of signals is never read as a person.
 
 **What none of them rules out**, said in every report that weighs a visit:
 
@@ -57,11 +59,14 @@ listed as a reason:
 
 | signal | threshold (uncalibrated) | read from |
 |---|---|---|
-| one of the site's own files was refused or failed | any status 401, 403 or 5xx, or a failed load, on a host bound as F4 | the files loaded (the "files loaded" contract) |
+| one of the site's own files was refused, missing or failed | any status 401, 403, 404 or 5xx, or a failed load, on a file the site's pages link, on a host bound as F4 | the files loaded (the "files loaded" contract) |
 | the page reported an error | any error event the site sends | the events |
 | reloads | 3 or more in one visit | the events: the same screen loaded again with no navigation between |
 | sign-ins | 3 or more in one visit | the sign-in log and the events |
 | the site's own retry control was pressed | any press | the events: the control the site shows when a page cannot load |
+
+A 404 on a file the site's pages link is the usual way a kept copy of a page fails: it asks for a
+versioned file, such as a bundle with a hash in its name, that a newer release has removed.
 
 Not a signal:
 
@@ -78,10 +83,15 @@ transferred, the file's encoded size and its decoded size. Compare the first two
 
 | transferred | meaning |
 |---|---|
-| at least the encoded size | downloaded from the site |
-| more than zero, but below the encoded size (a few hundred bytes of headers) | the site confirmed that the browser's copy was current (a 304) |
+| more than the encoded size (the body and its headers) | downloaded from the site |
+| more than zero, but below the encoded size (the headers alone) | the site confirmed that the browser's copy was current (a 304) |
 | zero, with a body size | the browser used its own copy, or a service worker answered, and the site was never asked |
 | zero, and no body size | another site's file whose server does not allow its timing to be read: the sizes are hidden, and the answer is unknown |
+
+A file no larger than a response's headers (often a few hundred bytes, more where a site sends
+long security headers or cookies) cannot be judged by its sizes: a 304's headers alone can match
+or pass its encoded size, and then it reads as downloaded. Report such a file as unknown, unless
+its row's status is 304.
 
 That answers *downloaded or kept*. *Which release* is a second check:
 
