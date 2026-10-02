@@ -696,6 +696,10 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
   const contributing = await read('CONTRIBUTING.md');
   const adaptation = await read('docs/project-adaptation.md');
 
+  // The description is what a listing shows, and the README carries it word for word: it must not
+  // still say the check speaks whenever a listed skill is not installed.
+  const description = onboardProject.match(/^description: "(.*)"$/m)[1];
+  assert.match(description, /says one line when a listed skill is neither installed nor adapted here, the repository's evidence or its adapted copies move/);
   assert.match(onboardProject, /\*\*A skill this repository has adapted is already here\.\*\*/);
   assert.match(onboardProject, /no install command, and a routing line that names the copy\s+instead of the skill/);
   assert.match(onboardProject, /^\| Composing, checking and re-pinning a project's adapted copy of a pack skill \| `update-agent-skills` \| .*Never composes, edits or re-pins one\. \|$/m);
