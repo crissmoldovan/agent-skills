@@ -230,7 +230,8 @@ file, and that is what proves it.
 5. Run `check` and whatever scenarios the project keeps for the skill, and commit it as one change.
 
 `check-pack-freshness.mjs --repo <project>` lists the same pins against the latest release, beside
-the global installs, as part of an inventory. Neither it nor `skills update` ever moves one.
+the global installs, as part of an inventory; a copy of another source is listed as not compared,
+and the run exits 2 when a pin moved or differs. Neither it nor `skills update` ever moves one.
 
 ## Failure modes
 

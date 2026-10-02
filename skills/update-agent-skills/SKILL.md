@@ -170,7 +170,9 @@ node scripts/check-pack-freshness.mjs --source <owner>/<repo>
 Silence means current. Drift prints the stale skill names, the latest release, and
 the exact command that would apply it. With `--repo <project>` it also lists that
 project's adapted pins, each against the latest release, current ones included,
-because that run is an inventory; an adapted copy is never named in the command.
+because that run is an inventory; a copy of another source is listed as not
+compared, and an adapted copy is never named in the command. An inventory is
+never silent, so `--repo` is refused with `--hook`.
 Whatever it could not determine—an unreadable lockfile, an unreachable source, an
 entry carrying no comparable hash, its own crash—prints a `PACK_FRESHNESS_UNKNOWN`
 block that says so. Unknown is a third state and is never folded into “current”:
@@ -183,7 +185,8 @@ stdout—it replaces it—so a verdict written to stderr is a verdict any stray 
 from any other process can erase.
 
 Exit codes are a machine-readable API for a caller that wants one: 0 when current,
-untracked, or unknown; 2 on drift; 1 on a usage error. **Nothing user-facing may
+untracked, or unknown; 2 on drift, and with `--repo` when an adapted pin moved or
+differs from the latest release; 1 on a usage error. **Nothing user-facing may
 depend on them.** An earlier version of this skill delivered through the exit code
 and so reported `unknown` by exiting silently—the exact failure the paragraph
 above forbids, shipped inside the check that forbids it.

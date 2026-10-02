@@ -585,6 +585,15 @@ test('--hook and --print-stale-names are refused together rather than one silent
   assert.equal(result.stdout.trim(), '');
 });
 
+test('--hook and --repo are refused together: a hook is silent when current, and an inventory never is', async () => {
+  const home = await stateHome('hook-repo', { blocks: lockEntry('blocks', 'sha-old') });
+  const result = await runChecker(['--source', SOURCE, '--hook', '--repo', home], { XDG_STATE_HOME: home });
+
+  assert.equal(result.status, EXIT_USAGE);
+  assert.equal(result.stdout.trim(), '');
+  assert.match(result.stderr, /--hook and --repo are different outputs/);
+});
+
 // ── The auto-mode hook body, run as the shipped command string ──────────────
 // buildHookEntry emits a complete `sh -c '…' <node> <checker> <source>` command.
 // Running that string is the only way to test the quoting and the shell logic
@@ -708,6 +717,7 @@ test('--repo lists every adapted pin against the latest release, and never names
     'notes-here': adaptedBase('release-notes', 'v1.0.0', 'tree-notes-old'),
     'asks-here': adaptedBase('request-answers', 'v1.0.0', 'tree-asks'),
     'elsewhere-here': adaptedBase('blocks', 'v1.0.0', 'tree-x', 'https://github.com/other-owner/other-pack'),
+    'local-here': adaptedBase('blocks', 'v1.0.0', 'tree-y', '../example-pack'),
   });
   const fetchImpl = stubFetch([
     ['git/trees/HEAD', jsonResponse(treeResponse({ 'skills/blocks': 'sha-blocks' }))],
@@ -723,12 +733,15 @@ test('--repo lists every adapted pin against the latest release, and never names
   assert.deepEqual(result.stale, []);
   assert.deepEqual(result.adapted.pins.map((pin) => [pin.name, pin.state]), [['asks-here', 'current'], ['notes-here', 'differs']]);
   const notice = formatAdaptedNotice(result);
-  assert.match(notice, /^ADAPTED_PINS example-owner\/example-pack 2 adapted copies in this project$/m);
+  assert.match(notice, /^ADAPTED_PINS example-owner\/example-pack 2 adapted copies of its skills in this project, and 2 adapted copies not compared$/m);
   assert.match(notice, /notes-here adapts release-notes at v1\.0\.0: differs from the latest release v1\.2\.3 \(tree tree-notes-o -> tree-notes-n\)/);
   assert.match(notice, /git diff v1\.0\.0 v1\.2\.3 -- skills\/release-notes/);
   assert.match(notice, /asks-here adapts request-answers at v1\.0\.0: the same tree as the latest release v1\.2\.3/);
   assert.match(notice, /skills update never moves it/);
-  assert.doesNotMatch(notice, /elsewhere-here/, 'a copy of another source was listed');
+  // A copy of another source, or of a local clone, is listed rather than left out, and never compared.
+  assert.match(notice, /elsewhere-here adapts blocks at v1\.0\.0 from other-owner\/other-pack: not compared, because this check reads example-owner\/example-pack only/);
+  assert.match(notice, /local-here adapts blocks at v1\.0\.0 from the local clone \.\.\/example-pack: not compared/);
+  assert.deepEqual(result.adapted.pins.map((pin) => pin.name).sort(), ['asks-here', 'notes-here'], 'a copy of another source was compared');
   assert.doesNotMatch(reportFor(result), /npx skills update/, 'an adapted copy reached the update command');
 
   // On the command line: an inventory is never silent, it exits 2 when a pin needs a person, and
