@@ -75,8 +75,10 @@ which is often the least a change can be, or the most.
 
 A project may say who decides the version: a maintainer, a release manager, the person the release
 is cut for. `release-notes` takes that person as the slot B5. When they name a number that departs
-from what the impact analysis found, that is their ruling, and it is the number stamped. The note
-still tells the truth, because it records both readings (hard line H2):
+from what the impact analysis found, show them what it found, and the words a judge quoted if one
+ran: a number named before the analysis existed may not survive reading it. If they keep their
+number, that is their ruling, and it is the number stamped. The note still tells the truth,
+because it records both readings (hard line H2):
 
 - the level the impact analysis found, and the change it was found from;
 - the number ruled, who ruled it, their words, and when;

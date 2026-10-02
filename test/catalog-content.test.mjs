@@ -337,7 +337,10 @@ test('release-notes versions a product with no API, treats a bump judge as advic
   // only a person a project names may rule it: unbound, the analysis alone sets the number.
   assert.match(releaseNotes, /\| B5 \|[^\n]*\| value \| nobody: the impact analysis alone sets the number/);
   assert.match(releaseNotes, /records both readings and the\s+ruling of the person bound as B5/);
-  assert.match(releaseNotes, /judge \(B4\) is advice/);
+  // The ruling counts once the person has seen what the analysis found and kept their number.
+  assert.match(releaseNotes, /show them what the analysis found, and if they keep their number,\s+stamp theirs/);
+  assert.match(versioning, /show them what it found, and the words a judge quoted if one\s+ran/);
+  assert.match(releaseNotes, /judge \(B4\)\s+is advice/);
   // Untrue words are corrected on the record; words are never reworded to move the number.
   assert.match(releaseNotes, /never reworded to move its number/);
   assert.match(versioning, /A\s+correction makes the words true; a rewording only makes the judge agree/);
@@ -350,8 +353,16 @@ test('release-notes versions a product with no API, treats a bump judge as advic
   assert.match(versioning, /name the number they become/);
   assert.match(versioning, /restart is recorded once/);
   assert.match(versioning, /leave one out/);
+  // The reference against the same organisation markers as release-notes' own block above, read
+  // from that block so the two cannot drift and a new line need not restate them.
+  const ownSource = await read('test/catalog-content.test.mjs');
+  const markerSource = ownSource.match(/assert\.doesNotMatch\(releaseNotes, \/(.+?)\/\);/);
+  assert.ok(markerSource, "release-notes' block no longer checks for organisation markers");
+  const organisationMarkers = new RegExp(markerSource[1]);
+  assert.match(' CUE ', organisationMarkers, 'the markers read from that block are the pattern the blocks above use');
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
   for (const text of [releaseNotes, versioning]) {
-    assert.doesNotMatch(text, /\bCUE\b/);
+    assert.doesNotMatch(text, organisationMarkers);
     assert.doesNotMatch(text, /~\/work\//);
     for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
     assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);

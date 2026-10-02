@@ -124,8 +124,8 @@ file. This change ships no composer; the page is the contract that any composer 
 `scripts/verify-skills.mjs` now checks every file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It requires well-formed ids, unique across the skill, one
 letter for all of a skill's slots, a known kind and a default for every slot, and a `skill` slot
-that defaults to a skill this catalogue ships. No skill declares the section yet, so nothing that
-passed before fails now.
+that defaults to a skill this catalogue ships. No skill declared the section before this release,
+so nothing that passed before fails now.
 
 The pins rely on a tag policy that had never been written down, and this file now carries it under
 [Tags](#tags): a published tag is never moved or deleted, unless it carries personal or client
@@ -157,8 +157,9 @@ until it agrees. A change's words that are untrue are still corrected, on the re
 reason, even when the correction moves the number.
 
 A project can now name the person who rules the number. When that person departs from the
-impact analysis, the number is theirs, and the note is honest when it records both readings and
-the ruling; a mismatch shipped without them, or on the agent's own say-so, is still dishonest. A
+impact analysis, they are shown what it found; if they keep their number, the number is theirs,
+and the note is honest when it records both readings and the ruling. A mismatch shipped without
+them, or on the agent's own say-so, is still dishonest. A
 project that names nobody keeps the rule as it was: the impact analysis sets the number, and when
 it disagrees with the plan, the bump changes or the release does. So no existing guidance changes
 meaning, and this is new guidance, a minor change under [Versioning](#versioning). The procedure's

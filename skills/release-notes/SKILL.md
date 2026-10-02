@@ -176,12 +176,13 @@ part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* a
    bullet has an answer, including the explicit "none"s, and, for a product with no API, every
    change a reader can reach has its ledger entry.
 3. **S3. Settle the semver bump against that answer, not against the plan.** If they disagree,
-   change the bump or change the release, unless the person bound as B5 rules a number that
-   departs from the analysis: then stamp theirs, and write down both readings and the ruling for
-   the note (H2). A bump judge (B4) is advice: read the words it quotes, then fix the number or
-   overrule the judge on the record, never by rewording a change (H3). Complete when the
-   version in the manifest matches the impact you just wrote down, or both readings and the
-   ruling are written down for S5 to carry into the note.
+   change the bump or change the release, unless the person bound as B5 names a number that
+   departs from the analysis: show them what the analysis found, and if they keep their number,
+   stamp theirs and write down both readings and the ruling for the note (H2). A bump judge (B4)
+   is advice: read the words it quotes, then fix the number or overrule the judge on the record,
+   never by rewording a change (H3). Complete when the version in the manifest matches the impact
+   you just wrote down, or both readings and the ruling are written down for S5 to carry into
+   the note.
 4. **S4. Discover every destination.** Complete when you have a list, and each item is a path or a
    URL rather than a category.
 5. **S5. Write the note once**, in the three parts, and adapt it per destination without letting
