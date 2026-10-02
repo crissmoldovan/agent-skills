@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "asked what named people did on a live site, whether it loaded for them, whether they saw the live release, or whether a person or an agent was at the controls, from the site's own records and with a yes for the run"
+}
