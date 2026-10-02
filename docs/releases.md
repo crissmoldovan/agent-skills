@@ -142,12 +142,14 @@ session transcripts. It locates a repository's transcripts, its worktrees' and i
 included, and confirms each by the paths its records carry, because the directory name the harness
 derives from a path is lossy and a session that moves into a worktree is filed under the worktree.
 It counts a person's messages of three kinds: typed at the prompt, queued while a turn was running,
-and a slash command's arguments. Every other record is counted by its kind and left out, and
-nothing is deduplicated by text. It finds a message by a fixed phrase and reports its file, line,
-time and session, never its words; it shows one message only after a scan for secrets; and it
-checks whether each message is written down in the repository, with both sides normalised by one
-function and a control sentence that must be found before any count is shown. A path with no
-history is reported as unknown, never as zero. `scripts/transcripts.mjs` does each step with no
+and a slash command's arguments. Every other record is counted by its kind and left out, the
+harness's own elements are screened out of a person's turn wherever they sit in it, and nothing is
+deduplicated by text. It finds a message by a fixed phrase and reports its file, line, time and
+session, never its words, and says whether a message enqueued while the agent was busy ever reached
+the session; it shows one message only after a scan for secrets; and it checks whether each
+message is written down in the repository, with both sides normalised by one function and a
+control sentence that must be found before any count is shown. A path with no history is reported
+as unknown, never as zero. `scripts/transcripts.mjs` does each step with no
 dependency beyond Node, and `references/record-shapes.md` records every shape it relies on, tagged
 observed, documented or not observed, with the harness versions it was read from (Claude Code
 2.1.224 to 2.1.286).

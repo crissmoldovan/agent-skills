@@ -3,13 +3,15 @@
  * WHAT A PERSON SAID IN AN AGENT SESSION, found in the harness's own transcripts without printing them.
  *
  *   node transcripts.mjs find       [selection]
- *   node transcripts.mjs messages   [selection] [--since ISO] [--until ISO]
- *   node transcripts.mjs locate     [selection] --phrase "<fixed phrase>" [--ignore-case]
+ *   node transcripts.mjs messages   [selection] [window]
+ *   node transcripts.mjs locate     [selection] [window] --phrase "<fixed phrase>" [--ignore-case]
  *   node transcripts.mjs show       --file <transcript> --line <n> [--terms-file <file>] [--history <dir>]
- *   node transcripts.mjs documented [selection] --corpus <dir> --control "<sentence>" [...]
+ *   node transcripts.mjs documented [selection] [window] --corpus <dir> --control "<sentence>" [...]
+ *   node transcripts.mjs --help, or <command> --help, for every option
  *
  *   selection: [--repo <path>] [--worktree <path>]... [--no-worktrees] [--history <dir>]
  *              [--include-headless] [--zone <IANA zone>]... [--json]
+ *   window:    [--since ISO] [--until ISO]
  *
  * A transcript is one JSON record per line, written by the harness as the session runs. It holds
  * everything: the person's words, the agent's, every tool result, the skill bodies and summaries
@@ -163,7 +165,10 @@ function contentOf(content) {
 }
 
 /** The tags the harness wraps its own text in: slash commands, command output, shell mode, notices. */
-const HARNESS_TAG = /^<(?:command-|local-command-|bash-|system-reminder|user-prompt-submit-hook|user-memory-input|task-notification|ide_)/;
+const HARNESS_TAG_NAMES = '(?:command-|local-command-|bash-|system-reminder|user-prompt-submit-hook|user-memory-input|task-notification|ide_)';
+const HARNESS_TAG = new RegExp(`^<${HARNESS_TAG_NAMES}`);
+/** One element in those tags, from its opening tag to its closing one, wherever it sits in a turn. */
+const HARNESS_ELEMENT = new RegExp(`<(${HARNESS_TAG_NAMES}[A-Za-z0-9_-]*)(?:\\s[^>]*)?>[\\s\\S]*?</\\1>`, 'g');
 
 /**
  * Harness markup, the interruption marker, a preamble, or a slash command whose arguments are words.
@@ -172,6 +177,10 @@ const HARNESS_TAG = /^<(?:command-|local-command-|bash-|system-reminder|user-pro
  * prompt). Such a turn can be pasted HTML or XML, or can open with words a preamble also opens with
  * ("Continue from where you left off."), so only the harness's own tags and the interruption marker
  * are screened out of it. A turn with no mark rests on the fallback, and is screened for all of them.
+ *
+ * The harness's own elements are screened out wherever they sit, not only when they are the whole
+ * turn: an editor selection or a reminder can share a record with the words the person typed, and
+ * neither is theirs. What was screened out comes back as `screened`, to be counted, never shown.
  */
 function screenText(text, { marked = false, attached = [] } = {}) {
   const trimmed = text.trim();
@@ -182,11 +191,14 @@ function screenText(text, { marked = false, attached = [] } = {}) {
     if (args && args[1].trim() !== '') {
       return { person: 'command-args', text: args[1].trim(), command: trimmed.match(/<command-name>([^<]*)<\/command-name>/)?.[1] ?? null };
     }
-    if (!marked || HARNESS_TAG.test(trimmed)) return { kind: 'harness-markup' };
   }
-  if (/^\[Request interrupted by user/.test(trimmed)) return { kind: 'interruption' };
-  if (!marked && HARNESS_TEXT.some((marker) => trimmed.startsWith(marker))) return { kind: 'harness-text' };
-  return { person: true, text };
+  const screened = trimmed.match(HARNESS_ELEMENT) ?? [];
+  const words = screened.length ? trimmed.replace(HARNESS_ELEMENT, '').trim() : trimmed;
+  if (words === '') return { kind: attached.length ? 'attachment-only' : 'harness-markup' };
+  if (words.startsWith('<') && words.endsWith('>') && (!marked || HARNESS_TAG.test(words))) return { kind: 'harness-markup' };
+  if (/^\[Request interrupted by user/.test(words)) return { kind: 'interruption' };
+  if (!marked && HARNESS_TEXT.some((marker) => words.startsWith(marker))) return { kind: 'harness-text' };
+  return { person: true, text: screened.length ? words : text, screened };
 }
 
 /**
@@ -203,7 +215,7 @@ export function classify(record, { subagent = false } = {}) {
     const { text, attached } = contentOf(attachment.prompt);
     const screened = screenText(text, { marked: true, attached });
     if (!screened.person) return { kind: `queued:${screened.kind}` };
-    return { person: screened.person === true ? 'queued' : screened.person, text: screened.text, attached, command: screened.command ?? null };
+    return { person: screened.person === true ? 'queued' : screened.person, text: screened.text, attached, command: screened.command ?? null, screened: screened.screened ?? [] };
   }
   if (record.type === 'queue-operation') return { kind: 'queue-bookkeeping' };
   if (record.type !== 'user') return { kind: `record:${record.type ?? 'untyped'}` };
@@ -220,7 +232,7 @@ export function classify(record, { subagent = false } = {}) {
     if (subagent || record.isSidechain) return { kind: 'dispatch' };
     if (typeof record.entrypoint === 'string' && record.entrypoint.startsWith('sdk')) {
       const screened = screenText(text, { attached });
-      return screened.person ? { kind: 'headless', text: screened.text, attached } : { kind: screened.kind };
+      return screened.person ? { kind: 'headless', text: screened.text, attached, screened: screened.screened ?? [] } : { kind: screened.kind };
     }
   }
   const screened = screenText(text, { marked: origin === 'human', attached });
@@ -230,6 +242,7 @@ export function classify(record, { subagent = false } = {}) {
     text: screened.text,
     attached,
     command: screened.command ?? null,
+    screened: screened.screened ?? [],
     // Command arguments are known by their markup; only a plain unmarked turn rests on the fallback.
     fallback: origin === undefined && screened.person === true,
   };
@@ -447,11 +460,13 @@ export function formatTimes(timestamp, zones = []) {
 
 /**
  * Every person's message in the transcripts found, and every other record counted by kind.
- * `visit(message)` sees each message with its file, line, time, session and kind; `visitOther`
- * sees every other record's kind and the record, for a caller that counts where else a phrase occurs.
+ * `visit(message)` sees each message in the window with its file, line, time, session and kind;
+ * `visitOutside(message)` each message outside it, for a caller that must know what came after the
+ * window too; `visitOther(kind, record, at)` every other record's kind, the record and its file and
+ * line, for a caller that counts where else a phrase occurs.
  */
-export async function readMessages(found, { since = null, until = null, includeHeadless = false, visit = () => {}, visitOther = null } = {}) {
-  const totals = { messages: {}, fallback: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
+export async function readMessages(found, { since = null, until = null, includeHeadless = false, visit = () => {}, visitOutside = null, visitOther = null } = {}) {
+  const totals = { messages: {}, fallback: 0, screened: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
   const exclude = (kind) => { totals.exclusions[kind] = (totals.exclusions[kind] ?? 0) + 1; };
   const seenUuids = new Set();
   const sinceMs = since ? Date.parse(since) : null;
@@ -461,10 +476,12 @@ export async function readMessages(found, { since = null, until = null, includeH
     const at = Date.parse(message.timestamp ?? '');
     if ((sinceMs !== null && !(at >= sinceMs)) || (untilMs !== null && !(at <= untilMs))) {
       totals.outsideWindow += 1;
+      if (visitOutside) visitOutside(message);
       return;
     }
     totals.messages[message.kind] = (totals.messages[message.kind] ?? 0) + 1;
     if (message.fallback) totals.fallback += 1;
+    totals.screened += message.screened.length;
     if (message.timestamp && (!totals.first || message.timestamp < totals.first)) totals.first = message.timestamp;
     if (message.timestamp && (!totals.last || message.timestamp > totals.last)) totals.last = message.timestamp;
     visit(message);
@@ -480,21 +497,22 @@ export async function readMessages(found, { since = null, until = null, includeH
       const result = classify(record, { subagent });
       let kind = result.person;
       if (!kind && result.kind === 'headless' && includeHeadless) kind = 'headless';
+      const at = { file, line: number };
       if (!kind) {
         exclude(result.kind);
-        if (visitOther) visitOther(result.kind, record);
+        if (visitOther) visitOther(result.kind, record, at);
         continue;
       }
       if (record.uuid && seenUuids.has(record.uuid)) {
         exclude('duplicate-record');
-        if (visitOther) visitOther('duplicate-record', record);
+        if (visitOther) visitOther('duplicate-record', record, at);
         continue;
       }
       if (record.uuid) seenUuids.add(record.uuid);
       const hash = hashOf(result.text);
       if (subagent && parentHashes.has(hash)) {
         exclude('relayed-copy');
-        if (visitOther) visitOther('relayed-copy', record);
+        if (visitOther) visitOther('relayed-copy', record, at);
         continue;
       }
       hashes.add(hash);
@@ -509,6 +527,8 @@ export async function readMessages(found, { since = null, until = null, includeH
         attached: result.attached ?? [],
         command: result.command ?? null,
         text: result.text,
+        // The harness's own elements screened out of the turn: counted, and never printed.
+        screened: result.screened ?? [],
         hash,
       });
     }
@@ -557,7 +577,8 @@ function parseArgs(argv) {
   const repeatable = new Set(['worktree', 'zone', 'control', 'exclude', 'relay-name']);
   const flags = new Set(['json', 'ignore-case', 'include-headless', 'no-worktrees', 'all', 'help']);
   const valued = new Set(['repo', 'history', 'since', 'until', 'phrase', 'file', 'line', 'terms-file', 'corpus', 'max-file-bytes', 'out']);
-  const [command, ...rest] = argv;
+  // `--help` alone, or any option before the command, is read as options with no command.
+  const [command, ...rest] = argv[0]?.startsWith('--') ? [undefined, ...argv] : argv;
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
     if (!token.startsWith('--')) throw new Error(`unexpected argument ${JSON.stringify(token)}`);
@@ -579,15 +600,18 @@ function parseArgs(argv) {
 
 const USAGE = `usage:
   transcripts.mjs find       [selection]
-  transcripts.mjs messages   [selection] [--since ISO] [--until ISO]
-  transcripts.mjs locate     [selection] --phrase "<fixed phrase>" [--ignore-case]
+  transcripts.mjs messages   [selection] [window]
+  transcripts.mjs locate     [selection] [window] --phrase "<fixed phrase>" [--ignore-case]
   transcripts.mjs show       --file <transcript> --line <n> [--terms-file <file>] [--zone <zone>]
                              [--history <dir>] [--include-headless]
-  transcripts.mjs documented [selection] --corpus <dir> --control "<sentence of 8+ words>"...
+  transcripts.mjs documented [selection] [window] --corpus <dir> --control "<sentence of 8+ words>"...
                              [--exclude <path prefix>]... [--max-file-bytes <n>] [--relay-name <name>]...
                              [--all] [--out <file>]
 selection: [--repo <path>] [--worktree <path>]... [--no-worktrees] [--history <dir>] [--include-headless]
-           [--zone <IANA zone>]... [--json]`;
+           [--zone <IANA zone>]... [--json]
+window:    [--since <ISO time>] [--until <ISO time>]: only the messages sent in it are counted or judged
+documented: --relay-name marks a message that relays that person's words; --all lists every message,
+           not only the ones not written down; --out writes the register (positions and counts) to a file`;
 
 function validateZones(zones) {
   for (const zone of zones) {
@@ -665,6 +689,7 @@ async function commandMessages(options, out) {
   out(`a person's messages: ${total}`);
   for (const [kind, n] of sorted(totals.messages)) out(`  ${String(n).padStart(6)}  ${kind}`);
   out(`  of which taken by the fallback (no origin marked): ${totals.fallback}`);
+  out(`  harness elements screened out of those turns (an editor selection, a reminder): ${totals.screened}`);
   out('left out, by kind:');
   for (const [kind, n] of sorted(totals.exclusions)) out(`  ${String(n).padStart(6)}  ${kind}`);
   for (const line of coverageLines(found, totals)) out(line);
@@ -683,28 +708,64 @@ async function commandLocate(options, out) {
   const hits = [];
   // Where else the phrase occurs, by kind: a summary or a tool result repeats words, and a reader
   // told only that no person's message holds the phrase should know whether it is there at all.
+  // The harness's own elements screened out of a person's turn count here too, as `harness-segment`.
   const elsewhere = {};
+  const count = (kind) => { elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; };
+  // A message typed while a turn runs is enqueued first and delivered later, as a queued prompt or
+  // as the next turn. An enqueued copy of the phrase that no person's message of the same session
+  // holds, at or after it, is a message that never reached the session. Delivery is looked for
+  // past the window as well, since a message enqueued inside it can arrive after it.
+  const delivered = [];
+  const enqueued = [];
+  const sinceMs = options.since ? Date.parse(options.since) : null;
+  const untilMs = options.until ? Date.parse(options.until) : null;
+  const inWindow = (timestamp) => {
+    const at = Date.parse(timestamp ?? '');
+    return !((sinceMs !== null && !(at >= sinceMs)) || (untilMs !== null && !(at <= untilMs)));
+  };
+  const seeMessage = (message, { inside }) => {
+    if (has(message.text)) {
+      delivered.push(message);
+      if (inside) hits.push(message);
+    } else if (message.screened.some(has)) {
+      count('harness-segment');
+    }
+  };
   const totals = await readMessages(found, {
     since: options.since,
     until: options.until,
     includeHeadless: options.includeHeadless,
-    visit: (message) => { if (has(message.text)) hits.push(message); },
-    visitOther: (kind, record) => { if (stringsOf(record).some(has)) elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; },
+    visit: (message) => seeMessage(message, { inside: true }),
+    visitOutside: (message) => seeMessage(message, { inside: false }),
+    visitOther: (kind, record, at) => {
+      if (!stringsOf(record).some(has)) return;
+      count(kind);
+      if (record.type === 'queue-operation' && record.operation === 'enqueue' && stringsOf(record.content).some(has) && inWindow(record.timestamp)) {
+        enqueued.push({ file: at.file, line: at.line, timestamp: record.timestamp ?? null, session: record.sessionId ?? path.basename(at.file, '.jsonl') });
+      }
+    },
   });
+  const undelivered = enqueued.filter((entry) => !delivered.some((message) => message.session === entry.session
+    && (!entry.timestamp || !message.timestamp || Date.parse(message.timestamp) >= Date.parse(entry.timestamp))));
   if (options.json) {
     out(JSON.stringify({
-      hits: hits.map(({ text, hash, ...rest }) => ({ ...rest, chars: text.length })),
+      hits: hits.map(({ text, hash, screened, ...rest }) => ({ ...rest, chars: text.length })),
       elsewhere,
+      queued: { enqueued: enqueued.length, undelivered: undelivered.map((entry) => ({ ...entry, file: path.relative(found.history, entry.file) })) },
       coverage: coverageLines(found, totals),
     }, null, 1));
     return 0;
   }
-  out(`${hits.length} message${hits.length === 1 ? '' : 's'} from a person contain the phrase`);
+  out(`${hits.length} message${hits.length === 1 ? ' from a person contains' : 's from a person contain'} the phrase`);
   for (const message of hits) {
     out(`  ${where(found, message)}  ${formatTimes(message.timestamp, options.zone)}  session ${message.session}  ${message.kind}${message.where === 'subagent' ? ' (in a subagent)' : ''}`);
   }
   const other = sorted(elsewhere);
   if (other.length) out(`the phrase also occurs in records that are not a person's: ${other.map(([kind, n]) => `${n} ${kind}`).join(', ')}`);
+  if (enqueued.length) {
+    out(`enqueued while a turn was running: ${enqueued.length}; ${undelivered.length ? `${undelivered.length} never reached that session as a person's message:` : "each reached that session as a person's message"}`);
+    for (const entry of undelivered) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, not delivered`);
+  }
   for (const line of coverageLines(found, totals)) out(line);
   return 0;
 }
@@ -752,7 +813,12 @@ async function commandShow(options, out) {
       out(`line ${wantedLine} holds ${hits.join(', ')}; nothing shown. The person may read that line themselves; an agent does not open the transcript.`);
       return 3;
     }
-    out(`${options.file}:${wantedLine}  ${formatTimes(record.timestamp, options.zone)}  session ${record.sessionId ?? '?'}  ${kind}${result.attached?.length ? `  (also attached: ${result.attached.join(', ')})` : ''}`);
+    const screened = result.screened?.length ?? 0;
+    const notes = [
+      result.attached?.length ? `also attached: ${result.attached.join(', ')}` : null,
+      screened ? `${screened} harness element${screened === 1 ? '' : 's'} screened out, not shown` : null,
+    ].filter(Boolean);
+    out(`${options.file}:${wantedLine}  ${formatTimes(record.timestamp, options.zone)}  session ${record.sessionId ?? '?'}  ${kind}${notes.map((note) => `  (${note})`).join('')}`);
     out('');
     out(result.text);
     return 0;
@@ -937,7 +1003,7 @@ export async function main(argv = process.argv.slice(2), out = (line) => process
   const { command, options } = parsed;
   if (!command || options.help) {
     out(USAGE);
-    return command ? 0 : 1;
+    return options.help ? 0 : 1;
   }
   const commands = { find: commandFind, messages: commandMessages, locate: commandLocate, show: commandShow, documented: commandDocumented };
   if (!commands[command]) {

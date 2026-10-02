@@ -24,7 +24,8 @@ import { tempDir } from './helpers/temp-dir.mjs';
  * the traps the skill exists for: a queued message, a slash command's arguments, an older harness
  * with no origin marks, a subagent's dispatch and a relayed copy, a workflow journal, a lossy
  * directory name shared with another checkout, a session that moved into a worktree, a sibling
- * repository, and messages that hold secrets.
+ * repository, messages that hold secrets, an editor selection sharing a turn with the person's
+ * words, and a message enqueued while a turn ran that never reached the session.
  */
 const SCRIPT = fileURLToPath(new URL('../skills/mine-session-transcripts/scripts/transcripts.mjs', import.meta.url));
 const HISTORY = fileURLToPath(new URL('./fixtures/mine-session-transcripts/history/', import.meta.url));
@@ -46,6 +47,10 @@ const MESSAGE_TEXTS = [
   'ship the release notes after lunch',
   'keep CSV as the default format too',
   'the launch moves to the second week of March',
+  'Why does the export label still not change',
+  // Not a person's words, and never printed either: an editor selection, and an undelivered enqueue.
+  'const label',
+  'rename the export tab to Downloads',
 ];
 function assertNoMessageText(output, where) {
   for (const text of MESSAGE_TEXTS) assert.ok(!output.includes(text), `${where} printed message text: ${text}`);
@@ -119,8 +124,9 @@ test('a repository with no history directory exits 2 and says unknown, never a c
 test("messages counts typed, queued and slash-command words, and every other record by its kind", async () => {
   const found = await findTranscripts({ repo: REPO, history: HISTORY });
   const totals = await readMessages(found);
-  assert.deepEqual(totals.messages, { typed: 14, queued: 1, 'command-args': 1 });
+  assert.deepEqual(totals.messages, { typed: 15, queued: 1, 'command-args': 1 });
   assert.equal(totals.fallback, 1, 'the older harness turn with no origin is taken, and counted as a fallback');
+  assert.equal(totals.screened, 1, "the editor selection beside a person's words is screened out, and counted");
   assert.equal(totals.unparsable, 1);
   assert.equal(totals.files, 7);
   assert.equal(totals.subagentFiles, 2);
@@ -138,7 +144,7 @@ test("messages counts typed, queued and slash-command words, and every other rec
     'harness-markup': 1,
     'harness-text': 1,
     interruption: 1,
-    'queue-bookkeeping': 2,
+    'queue-bookkeeping': 3,
     'record:last-prompt': 1,
     'relayed-copy': 1,
     'duplicate-record': 1,
@@ -165,7 +171,7 @@ test('a headless prompt is left out unless asked for, and the window applies to 
   assert.equal(withHeadless.messages.headless, 1);
 
   const windowed = await readMessages(found, { since: '2030-01-08T00:00:00Z' });
-  assert.equal(Object.values(windowed.messages).reduce((sum, n) => sum + n, 0), 9);
+  assert.equal(Object.values(windowed.messages).reduce((sum, n) => sum + n, 0), 10);
   assert.equal(windowed.outsideWindow, 7);
   assert.equal(windowed.first, '2030-01-08T10:00:00.000Z');
 });
@@ -173,8 +179,9 @@ test('a headless prompt is left out unless asked for, and the window applies to 
 test('the messages command prints counts and coverage, and no message text', () => {
   const result = run('messages', ...selection);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /a person's messages: 16/);
+  assert.match(result.stdout, /a person's messages: 17/);
   assert.match(result.stdout, /of which taken by the fallback \(no origin marked\): 1/);
+  assert.match(result.stdout, /harness elements screened out of those turns \(an editor selection, a reminder\): 1/);
   assert.match(result.stdout, /left out, by kind:/);
   assert.match(result.stdout, /unparsable lines: 1/);
   assert.match(result.stdout, /left out: 1 transcript in -srv-example-repo-two/);
@@ -193,7 +200,39 @@ test('locate gives the line, time, session and kind of each hit, never the text,
   assert.match(result.stdout, /also occurs in records that are not a person's: .*1 compact-summary/);
   assert.match(result.stdout, /1 queue-bookkeeping/);
   assert.match(result.stdout, /1 relayed-copy/);
+  assert.match(result.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
   assertNoMessageText(result.stdout, 'locate');
+});
+
+test('locate says when a message enqueued while a turn ran never reached its session', () => {
+  const lost = run('locate', ...selection, '--phrase', 'rename the export tab');
+  assert.equal(lost.status, 0, lost.stderr);
+  assert.match(lost.stdout, /^0 messages from a person contain the phrase$/m);
+  assert.match(lost.stdout, /^enqueued while a turn was running: 1; 1 never reached that session as a person's message:$/m);
+  assert.match(lost.stdout, /^ {2}-srv-example-repo\/00000000-0000-4000-8000-0000000000d4\.jsonl:6 {2}2030-01-08T10:05:00Z {2}session 00000000-0000-4000-8000-0000000000d4 {2}enqueued, not delivered$/m);
+  assertNoMessageText(lost.stdout, 'locate');
+  const json = JSON.parse(run('locate', ...selection, '--phrase', 'rename the export tab', '--json').stdout);
+  assert.deepEqual(json.queued, {
+    enqueued: 1,
+    undelivered: [{ file: '-srv-example-repo/00000000-0000-4000-8000-0000000000d4.jsonl', line: 6, timestamp: '2030-01-08T10:05:00.000Z', session: '00000000-0000-4000-8000-0000000000d4' }],
+  });
+  // Delivered one second after the window closes: still delivered, since delivery is looked for past it.
+  const late = run('locate', ...selection, '--phrase', 'keep CSV as the default format', '--until', '2030-01-07T09:01:29.500Z');
+  assert.equal(late.status, 0, late.stderr);
+  assert.match(late.stdout, /^0 messages from a person contain the phrase$/m);
+  assert.match(late.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+});
+
+test("an editor selection or a reminder that shares a turn with the person's words is not theirs", () => {
+  const located = run('locate', ...selection, '--phrase', 'const label');
+  assert.equal(located.status, 0, located.stderr);
+  assert.match(located.stdout, /^0 messages from a person contain the phrase$/m);
+  assert.match(located.stdout, /also occurs in records that are not a person's: 1 harness-segment$/m);
+  const shown = run('show', '--file', SESSION('d4'), '--line', '5');
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.match(shown.stdout, / {2}typed {2}\(1 harness element screened out, not shown\)$/m);
+  assert.match(shown.stdout, /^Why does the export label still not change after the edit\?$/m);
+  assert.doesNotMatch(shown.stdout, /const label|ide_selection|export\.js/);
 });
 
 test('where else a phrase occurs is read from the values a record holds, never its keys or its escaping', () => {
@@ -210,6 +249,7 @@ test('where else a phrase occurs is read from the values a record holds, never i
 test('the file locate prints is the file show reads, with the same --history', () => {
   const located = run('locate', ...selection, '--phrase', 'ship the release notes after lunch');
   assert.equal(located.status, 0, located.stderr);
+  assert.match(located.stdout, /^1 message from a person contains the phrase$/m);
   const [, file, line] = located.stdout.match(/^ {2}(\S+\.jsonl):(\d+) /m);
   assert.ok(!path.isAbsolute(file), 'locate prints a path relative to the history directory');
   const shown = run('show', '--file', file, '--line', line, '--history', HISTORY);
@@ -439,6 +479,30 @@ test("the harness's own mark is trusted: a marked turn keeps pasted markup and p
   const queuedImage = { type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: [{ type: 'image' }] } };
   assert.equal(classify(queuedImage).kind, 'queued:attachment-only');
   assert.equal(classify(marked('   ')).kind, 'empty');
+
+  // The harness's own elements are screened out wherever they sit, and only the person's words stay.
+  const selected = classify(marked([{ type: 'text', text: '<ide_selection>const apiUrl = "x"</ide_selection>' }, { type: 'text', text: 'why does this fail?' }]));
+  assert.equal(selected.person, 'typed');
+  assert.equal(selected.text, 'why does this fail?');
+  assert.equal(selected.screened.length, 1);
+  assert.equal(classify(marked('<system-reminder>note</system-reminder>\nplease rename it')).text, 'please rename it');
+  assert.equal(classify(unmarked('please rename it\n<system-reminder>note</system-reminder>')).text, 'please rename it');
+  const queuedWithReminder = { type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: 'and the footer too <system-reminder>note</system-reminder>' } };
+  assert.equal(classify(queuedWithReminder).text, 'and the footer too');
+  assert.equal(classify(marked([{ type: 'image' }, { type: 'text', text: '<system-reminder>note</system-reminder>' }])).kind, 'attachment-only');
+  assert.equal(classify(marked('<system-reminder>note</system-reminder>')).kind, 'harness-markup');
+  // Pasted markup that is not the harness's own is still the person's.
+  assert.equal(classify(marked('<table><tr><td>x</td></tr></table> and this')).person, 'typed');
+});
+
+test('--help alone or after a command prints every option, the window and the documented ones included', () => {
+  for (const args of [['--help'], ['locate', '--help']]) {
+    const help = run(...args);
+    assert.equal(help.status, 0, `${args.join(' ')}: ${help.stderr}`);
+    for (const option of ['--since', '--until', '--relay-name', '--all', '--out', '--terms-file']) assert.ok(help.stdout.includes(option), `${args.join(' ')} does not name ${option}`);
+    assert.match(help.stdout, /locate {5}\[selection\] \[window\]/);
+  }
+  assert.equal(run().status, 1, 'no command is still a usage error');
 });
 
 test('bad arguments exit 1: an unknown option, an unknown zone, an unknown command', () => {

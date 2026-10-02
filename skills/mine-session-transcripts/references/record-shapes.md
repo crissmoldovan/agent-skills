@@ -49,14 +49,24 @@ and counts only.
 The harness's own mark is trusted. A turn marked `origin.kind: "human"`, or a queued prompt, is
 the person's even when it is wholly markup, such as pasted HTML or XML, or opens with words a
 harness preamble opens with ("Continue from where you left off."). Only the harness's own tags
-(`command-`, `local-command-`, `bash-`, `system-reminder` and the others the script lists) and the
-interruption marker are screened out of it. A turn with no mark rests on the fallback, so any text
-that is wholly markup and every known preamble are screened out of it as well. (This is a guard,
-not an observation: whether the history read holds marked turns of either kind was not checked.)
+(`command-`, `local-command-`, `bash-`, `system-reminder`, `ide_` and the others the script lists)
+and the interruption marker are screened out of it. A turn with no mark rests on the fallback, so
+any text that is wholly markup and every known preamble are screened out of it as well. (This is a
+guard, not an observation: whether the history read holds marked turns of either kind was not
+checked.)
+
+An element in the harness's own tags is screened out wherever it sits in a turn, not only when it
+is the whole turn: an editor selection (`<ide_selection>…</ide_selection>`) or a reminder can share
+a record with the words the person typed, as a block of its own or inside the same string. The
+element is taken out, from its opening tag to its closing one, and what is left is the message. A
+turn left with no words is counted as `harness-markup`, or as `attachment-only` when an image or a
+document is attached. The elements screened out of messages are counted, and never shown.
+(Guarded: the script was built against a constructed record, and how often real transcripts mix the
+two was not measured.)
 
 How much this matters, as anonymous facts from the history read: in one two-day session 157 of the
-369 messages a person sent were queued; across all the sessions of one checkout, 127 of 542. A count
-of user records alone would have missed every one of them.
+369 messages a person sent were queued; across all the sessions of another checkout, 127 of 542. A
+count of user records alone would have missed every one of them.
 
 ## Records that are not, and the kind each is counted under
 
@@ -72,12 +82,14 @@ of user records alone would have missed every one of them.
 | `dispatch` | in a subagent's transcript, a user record with no origin: the prompt its parent or a script sent. `isSidechain: true` | OBSERVED |
 | `headless` | a user record with no origin in a session whose `entrypoint` starts `sdk`: a prompt passed to a non-interactive run, written by a program or typed on a command line. Left out unless `--include-headless` | OBSERVED (`sdk-cli`) |
 | `harness-markup` | a user record that is wholly markup, such as `<local-command-stdout>…</local-command-stdout>`, or a slash command with no arguments. On a turn marked human, only the harness's own tags count here | OBSERVED |
+| `harness-segment` | an element in the harness's own tags inside a person's turn, beside their words, such as an editor selection or a reminder. It is screened out of the message, not counted as a record: `messages` gives how many were screened out, and `locate` counts a phrase found only there under this kind | guarded |
 | `harness-markup` (shell mode) | `<bash-input>…</bash-input>`: a command the person ran in the harness's shell mode. It is theirs, but a command and not words to the agent, so it is counted here and not as a message | NOT OBSERVED |
 | `interruption` | `[Request interrupted by user]` | OBSERVED |
 | `harness-text` | a user record with no origin mark and no flag that opens with a known harness preamble ("This session is being continued from a previous conversation", "Caveat: The messages below were generated", and others the script lists). Every such preamble seen was flagged `isMeta` or `isCompactSummary`; the screen is a guard for one that is not, and never applies to a turn marked human | NOT OBSERVED unflagged |
 | `attachment-only`, `queued:attachment-only` | a person's turn or queued prompt with an `image` or `document` block and no text: an image sent alone. Counted under its own kind and not as a message, since there are no words to locate, show or check; add it to a count of messages sent when images count as messages | NOT OBSERVED alone |
 | `empty`, `queued:empty` | a user record or queued prompt with no text and nothing attached | guarded |
 | `queue-bookkeeping` | `type: "queue-operation"` with `operation` `enqueue` (holding the text as `content`), `dequeue`, or `remove` (with `reason` `absorbed_mid_turn` or `delivered_to_agent`). It repeats a queued message; the delivered message is the `queued_command` | OBSERVED |
+| enqueued, never delivered | an `enqueue` whose text no person's message of the same session holds, at or after it: a message sent while a turn was running that never reached the session, as a queued prompt or as the next turn. `locate` lists each one that holds its phrase, by file, line and time, and looks for the delivery past the window too. Delivery is matched by the phrase, so the same words delivered later in that session hide an earlier enqueue that was lost | NOT OBSERVED |
 | `record:last-prompt` | `type: "last-prompt"` with `lastPrompt`: a copy of the latest prompt | OBSERVED |
 | `record:<type>`, `attachment:<type>` | every other record: `assistant`, `system`, `ai-title`, `custom-title`, `mode`, `file-history-snapshot`, `worktree-state`, and attachments such as `file`, `edited_text_file`, `hook_success`, `skill_listing`, `total_tokens_reminder` | OBSERVED |
 | `unparsable` | a line that is not JSON, such as a line cut off when a session ended. Counted, never fatal | guarded |

@@ -67,11 +67,12 @@ measure nothing. Bind such files in B4, with the reason.
 ## Relays
 
 A typed message proves who pasted it and when, not who wrote the words. A message that relays
-someone else ("Dana said the launch moves", a forwarded block) is marked when a name bound in B7
-stands within a few characters of a verb of speaking (said, wrote, asked, sent, replied, from,
-message and the like), in either order, or appears inside a fenced block. Both orders matter: a
-pattern that matched only "message from Dana" missed a third of the relays it was meant to find.
-With no names bound, relays are not checked, and the output says so.
+someone else ("Dana said the launch moves", a forwarded block) is marked when a name bound in B7,
+passed as `--relay-name <name>` once per name, stands within a few characters of a verb of speaking
+(said, wrote, asked, sent, replied, from, message and the like), in either order, or appears inside
+a fenced block. Both orders matter: a pattern that matched only "message from Dana" missed a third
+of the relays it was meant to find. With no names bound, relays are not checked, and the output
+says so.
 
 ## What a match proves, and what it does not
 
@@ -84,6 +85,10 @@ With no names bound, relays are not checked, and the output says so.
   with what came before them, and their share would be noise.
 
 ## The register
+
+The output gives the count in each bucket and lists the messages not written down, each by its
+file, line, time, kind, length and share. `--all` lists every message instead, and `--json` prints
+the register below.
 
 `--out <file>` writes the result as JSON: the method, the corpus counts, the controls, the buckets,
 and one row per message with its file, line, time, session, kind, length, runs, runs found, share and
