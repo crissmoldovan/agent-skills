@@ -16,7 +16,8 @@
  *
  * WHAT IT NEVER TOUCHES: CLAUDE.md, AGENTS.md, and any context file another tool generates. The
  * routing lives in its own generated rules file, which is why nothing it writes can be clobbered
- * by a regeneration somebody else owns.
+ * by a regeneration somebody else owns. Nor does it touch an adapted copy of a skill: it reads the
+ * copy's lock to know which skill the copy stands in for, and `update-agent-skills` owns the rest.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -28,6 +29,9 @@ import { historyCounts } from './history.mjs';
 import {
   PROFILE_VERSION,
   RULES_RELATIVE,
+  adaptedCopies,
+  adaptedRecord,
+  changedAdaptedCopies,
   fingerprintOf,
   installedSkills,
   localProfilePath,
@@ -45,16 +49,18 @@ import {
 
 const PACK_ROOT = resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 const PACK_SOURCE = 'crissmoldovan/agent-skills';
-const VERSION = '1.0.1';
+const VERSION = '1.1.0';
 
 const USAGE = `Usage: onboard.mjs plan  [--repo <path>] [--json] [--weak <names>] [--drop <names>] [--decline <names>]
        onboard.mjs apply [--repo <path>] [--yes] [--weak <names>] [--drop <names>] [--decline <names>]
        onboard.mjs check [--repo <path>] [--hook]
 
-plan   print the change list and write nothing.
+plan   print the change list and write nothing. A skill this repository holds an adapted copy of
+       is present: it gets no install command, and the routing names the copy.
 apply  write the files the plan named, on --yes, and print the commands to run next. Stops at the
        first write that fails, and then prints no install or hook command at all.
-check  say nothing unless a required skill is missing, the repository's evidence moved, or the
+check  say nothing unless a required skill is neither installed nor adapted here, the
+       repository's evidence moved, an adapted copy was added, removed or re-pinned, or the
        generated rules file no longer matches its profile. --hook wraps that line in the
        SessionStart envelope. This command never reads session history.
 
@@ -222,6 +228,21 @@ function removeCommand(name, placement) {
   return `npx skills remove ${name} ${placement === 'committed' ? '--project' : '--global'}`;
 }
 
+/** "cut-a-release at v1.4.0 and ship-notes at v1.4.0 from references/pack.md" */
+function describeCopies(copies) {
+  return copies
+    .map((copy) => `${copy.name} at ${copy.ref}${copy.entry === 'SKILL.md' ? '' : ` from ${copy.entry}`}`)
+    .join(' and ');
+}
+
+/** The row note for a skill this repository has adapted, which nothing needs to install. */
+function adaptedNote(copies, installedScope) {
+  const routed = copies.length === 1 ? 'the adapted copy' : 'the adapted copies';
+  return installedScope
+    ? `adapted here as ${describeCopies(copies)}, and also installed (${installedScope}) — the routing names ${routed}`
+    : `adapted here as ${describeCopies(copies)} — nothing to install; the routing names ${routed}`;
+}
+
 /**
  * The change list: every skill row, every file the apply would write, and every hook it would
  * arm — each carrying its undo, because a change nobody can take back is not a change anybody
@@ -232,11 +253,34 @@ function removeCommand(name, placement) {
  * vanished from the profile and the routing file, with no row and no word in the apply report.
  * Now it stays, with a `-` row saying its evidence is gone and how to remove it (`--drop`), or a
  * `?` row when its evidence could not be read here at all.
+ *
+ * A SKILL THIS REPOSITORY HAS ADAPTED IS ALREADY HERE. Its adapted copy, under a name of its own,
+ * stands in for it: no install command, a `=` row naming the copy, and a routing line that names
+ * the copy. Before this, a repository that had adapted `release-notes` was offered `release-notes`
+ * again, and its check reported it missing beside the copies that do its job. A skill the scan did
+ * not match is listed anyway, as `adapted`: the copy is the evidence that the project uses it.
  */
 export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak = [], drop = [], decline = [] } = {}) {
   const root = resolve(repoRoot);
   const counts = historyCounts(root, { home });
   const { catalogue, matches, fingerprint, repoOnlyTrue, evidence, repoUnknown, unmatchedUnknown } = scan(root, { home, counts, pack });
+  const { byBase: adaptedHere, unreadable: unreadableCopies } = adaptedCopies(root);
+  for (const [base, copies] of adaptedHere) {
+    if (!catalogue.has(base) || matches.has(base)) continue;
+    matches.set(base, {
+      match: 'adapted',
+      evidence: [`adapted here as ${copies.map((copy) => copy.name).join(', ')}`],
+      useWhen: catalogue.get(base).useWhen,
+      trueSignals: [],
+      unknownSignals: [],
+    });
+  }
+  const adaptedNotes = [
+    ...unreadableCopies.map((problem) => `${problem} — so it stands in for no skill here`),
+    ...[...adaptedHere]
+      .filter(([base]) => !catalogue.has(base))
+      .map(([base, copies]) => `${copies.map((copy) => copy.name).join(', ')} ${copies.length === 1 ? 'adapts' : 'adapt'} ${base}, which this catalogue does not carry — recorded in the profile, not routed`),
+  ];
   const existing = readProfile(root, { home });
   const fresh = resolvePlacement(root, { home });
   const placement = existing?.placement ?? fresh.placement;
@@ -258,7 +302,10 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
     handled.add(name);
     const own = ownFingerprint(name);
     const wasDeclined = declined[name]?.fingerprint === own;
-    const scope = installed.get(name) ?? (placement === 'committed' ? 'project' : 'global');
+    const copies = adaptedHere.get(name) ?? [];
+    const present = installed.has(name) || copies.length > 0;
+    // An adapted copy lives in this repository, whatever the placement of the profile.
+    const scope = installed.get(name) ?? (copies.length > 0 || placement === 'committed' ? 'project' : 'global');
     const required = match.match === 'strong';
     if (drop.includes(name) && !wasDeclined) {
       rows.push({
@@ -272,15 +319,17 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
       skills[name] = { match: match.match, evidence: match.evidence, useWhen: match.useWhen, required, scope };
     }
     rows.push({
-      kind: wasDeclined ? 'declined' : installed.has(name) ? '=' : '+',
+      kind: wasDeclined ? 'declined' : present ? '=' : '+',
       name,
       match: match.match,
       evidence: match.evidence,
-      scope: installed.get(name) ?? null,
+      scope: installed.get(name) ?? (copies.length > 0 ? 'project' : null),
       required,
       fingerprint: own,
-      install: installed.has(name) || wasDeclined ? null : installCommand(name, placement),
-      undo: installed.has(name) || wasDeclined ? null : removeCommand(name, placement),
+      ...(copies.length > 0 ? { adapted: copies } : {}),
+      ...(copies.length > 0 && !wasDeclined ? { note: adaptedNote(copies, installed.get(name)) } : {}),
+      install: present || wasDeclined ? null : installCommand(name, placement),
+      undo: present || wasDeclined ? null : removeCommand(name, placement),
     });
   }
 
@@ -300,6 +349,11 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
     skills[name] = entry;
     if (entry.match === 'weak') {
       rows.push({ ...base, kind: '=', note: 'kept from the profile: suggested from its description, not checked' });
+      continue;
+    }
+    // Listed only because the repository had adapted it, and no adapted copy of it is here now.
+    if (entry.match === 'adapted' && catalogue.has(name)) {
+      rows.push({ ...base, kind: '-', note: `its adapted copy is gone — kept; pass --drop ${name} to remove it` });
       continue;
     }
     // Unreadable only when the KIND of evidence that put it in the profile cannot be read now: a
@@ -334,6 +388,9 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
     fingerprint,
     evidence,
     skills,
+    // Every adapted copy here, whether or not this catalogue carries its skill: the check compares
+    // the whole map, so a catalogue update never reads as this repository changing.
+    adapted: adaptedRecord(adaptedHere),
     declined,
   };
 
@@ -387,13 +444,14 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
     });
   }
 
-  return { repo: root, placement, why, rows, profile, fingerprint, counts: counts.known ? (counts.truncated ? 'partial' : 'read') : 'unknown' };
+  return { repo: root, placement, why, rows, profile, fingerprint, adaptedNotes, counts: counts.known ? (counts.truncated ? 'partial' : 'read') : 'unknown' };
 }
 
 function renderPlan(plan) {
   const lines = [`onboard-project: ${plan.repo}`, `placement: ${plan.placement} — ${plan.why}`];
   if (plan.counts === 'unknown') lines.push('session history: none on this machine, so history signals are unknown rather than unmet');
   if (plan.counts === 'partial') lines.push('session history: read only in part, so a history signal short of its threshold is unknown rather than unmet');
+  for (const note of plan.adaptedNotes ?? []) lines.push(`adapted copy: ${note}`);
   lines.push('');
   for (const row of plan.rows) {
     if (row.kind === '+') {
@@ -488,7 +546,10 @@ export function checkRepository(repoRoot, { home = homedir(), pack = PACK_ROOT }
   const problems = [];
   const required = Object.entries(profile.skills ?? {}).filter(([, entry]) => entry?.required).map(([name]) => name);
   const installed = installedSkills({ repoRoot: root, home });
-  const missing = required.filter((name) => !installed.has(name)).sort();
+  // An adapted copy here stands in for the skill it adapts. What is on disk decides, not what the
+  // profile recorded: a copy deleted since the scan leaves its skill missing, and says so.
+  const { byBase: adaptedHere } = adaptedCopies(root);
+  const missing = required.filter((name) => !installed.has(name) && !adaptedHere.get(name)?.length).sort();
   if (missing.length > 0) problems.push(`${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} listed for this project but not installed`);
 
   // A profile written before per-skill evidence existed has nothing this check can compare fairly:
@@ -508,6 +569,13 @@ export function checkRepository(repoRoot, { home = homedir(), pack = PACK_ROOT }
       .map(([name]) => name)
       .sort();
     if (moved.length > 0) problems.push(`the evidence for ${moved.join(', ')} has changed since the profile was written`);
+  }
+
+  // A copy added, removed or re-pinned since the scan: the routing names copies from the profile,
+  // so until a refresh it can send a session to a copy that is gone, or past one that is new.
+  const changedCopies = changedAdaptedCopies(profile.adapted, adaptedHere);
+  if (changedCopies.length > 0) {
+    problems.push(`the adapted ${changedCopies.length === 1 ? 'copy' : 'copies'} ${changedCopies.join(', ')} ${changedCopies.length === 1 ? 'has' : 'have'} changed since the profile was written`);
   }
 
   if (rulesDrifted(root, profile)) problems.push(`${RULES_RELATIVE.split('\\').join('/')} no longer matches the profile`);
