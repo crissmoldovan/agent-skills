@@ -7,6 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 import { localProfilePath } from '../skills/onboard-project/scripts/profile.mjs';
+import { EXIT_OK, LOCK_FILE, parseArguments, runCompose } from '../skills/update-agent-skills/scripts/adapt.mjs';
 
 const packRoot = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(packRoot, 'skills', 'onboard-project', 'scripts', 'onboard.mjs');
@@ -728,4 +729,83 @@ test('a profile written before adapted copies were read is told about the copies
 
   await adaptedCopy(repo, 'cut-a-release', 'release-notes');
   assert.match((await run(['check', '--repo', repo], { home })).stdout, /the adapted copy cut-a-release has changed since the profile was written/);
+});
+
+// The contract with update-agent-skills. Every lock above is written by hand, in the shape its
+// composer writes, so a change to that shape would leave them all green while this skill read
+// every real copy as unreadable, and offered the skill it adapts for install again. Here the
+// composer itself writes the copies, from a synthetic pack, and this skill is held to what it reads.
+const COMPOSED_SKILL = `---
+name: request-answers
+description: Ask a person the questions that block the work, and keep what comes back.
+license: MIT
+compatibility: "Any agent that reads Agent Skills."
+allowed-tools: Read Write
+---
+
+# Ask for answers
+
+Ask once, and keep the answer. For a question about a screen, see [showing it](references/screens.md).
+`;
+
+function gitIn(cwd, ...args) {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Example Author',
+    GIT_AUTHOR_EMAIL: 'author@example.com',
+    GIT_COMMITTER_NAME: 'Example Author',
+    GIT_COMMITTER_EMAIL: 'author@example.com',
+    GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z',
+    GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete env[name];
+  const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'init.defaultBranch=main', ...args], { cwd, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+test('copies the composer writes stand in for the skill they adapt, from its SKILL.md or a reference file', async () => {
+  const pack = await scratch('onboard-adapted-composed-pack');
+  const skill = path.join(pack, 'skills', 'request-answers');
+  await mkdir(path.join(skill, 'references'), { recursive: true });
+  await writeFile(path.join(skill, 'SKILL.md'), COMPOSED_SKILL);
+  await writeFile(path.join(skill, 'references', 'screens.md'), '# Showing the screen\n\nBox the part of the screen the question is about.\n');
+  gitIn(pack, 'init', '--quiet', '.');
+  gitIn(pack, 'add', '-A');
+  gitIn(pack, 'commit', '--quiet', '-m', 'one');
+  gitIn(pack, 'tag', 'v1.0.0');
+  const tree = gitIn(pack, 'rev-parse', 'v1.0.0:skills/request-answers');
+
+  const repo = await repository('onboard-adapted-composed');
+  const home = await scratch('onboard-adapted-composed-home');
+  for (const [name, entry] of [['ask-here', undefined], ['ask-with-screens', 'references/screens.md']]) {
+    const folder = path.join(repo, '.claude', 'skill-adapters', name);
+    await mkdir(folder, { recursive: true });
+    const base = { source: pack, skill: 'request-answers', ref: 'v1.0.0', ...(entry ? { entry } : {}) };
+    await writeFile(path.join(folder, 'adapter.json'), `${JSON.stringify({ version: 1, name, description: `Ask a person here (${name}).`, base }, null, 2)}\n`);
+    await writeFile(path.join(folder, 'overlay.md'), '');
+  }
+  const said = [];
+  const composed = runCompose(parseArguments(['compose', '--repo', repo, '--write']), { out: (line) => said.push(line) });
+  assert.equal(composed, EXIT_OK, said.join('\n'));
+  for (const name of ['ask-here', 'ask-with-screens']) assert.ok(existsSync(path.join(repo, '.claude', 'skills', name, LOCK_FILE)), `the composer wrote no lock for ${name}`);
+
+  const plan = await planJson(repo, home);
+  assert.deepEqual(plan.adaptedNotes, [], 'a lock the composer wrote was not read');
+  const row = plan.rows.find((entry) => entry.name === 'request-answers');
+  assert.equal(row.kind, '=');
+  assert.equal(row.install, null);
+  assert.deepEqual(row.adapted, [
+    { name: 'ask-here', entry: 'SKILL.md', ref: 'v1.0.0', tree },
+    { name: 'ask-with-screens', entry: 'references/screens.md', ref: 'v1.0.0', tree },
+  ]);
+
+  const applied = await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.doesNotMatch(applied.stdout, /--skill request-answers /);
+  assert.match(await routing(repo), /→ `ask-here` or `ask-with-screens` \(from references\/screens\.md\), this repository's adapted copies of `request-answers`$/m);
+  await installRequired(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')));
+  const quiet = await run(['check', '--repo', repo], { home });
+  assert.equal(quiet.stdout, '', `the check spoke about copies the composer wrote: ${quiet.stdout}`);
 });
