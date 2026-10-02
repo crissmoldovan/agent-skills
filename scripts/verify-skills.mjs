@@ -176,10 +176,20 @@ function validateFit(skillDirectory, file) {
   }
 }
 
+// Every link in a Markdown file a skill carries resolves from that file, fenced code included, read
+// as project adaptation's composer reads one (skills/update-agent-skills/scripts/adapt.mjs, check 10):
+// a destination after every `](`, so an image inside a link (a badge) gives both, in angle brackets
+// or with its parentheses balanced, after spaces or a line ending; and a link definition after any
+// quote or list markers, at any indent. A link from a reference file resolves from references/, not
+// from the skill's root, and a copy of the skill a project composes carries that file as it is.
+const LINK_GAP = String.raw`[ \t]*(?:\r?\n(?:[ \t]*>){0,16}[ \t]*)?`;
+const LINK_TITLE = String.raw`"[^"\n]{0,2000}"|'[^'\n]{0,2000}'|\([^()\n]{0,2000}\)`;
+const INLINE_LINK = new RegExp(String.raw`\]\(${LINK_GAP}(<[^<>\n]*>|(?!<)(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+)(?:${LINK_GAP}(?:${LINK_TITLE}))?${LINK_GAP}\)`, 'g');
+const LINK_DEFINITION = new RegExp(String.raw`^(?:[ \t]*(?:>|[-+*](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*\[(?:[^\[\]\\\n]|\\.){1,999}\]:${LINK_GAP}(<[^<>\n]*>|\S+)`, 'gm');
+
 function validateLinks(source, file, skillDirectory) {
-  const markdownLink = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+['"][^)]*['"])?\)/g;
-  for (const match of source.matchAll(markdownLink)) {
-    const target = match[1].replace(/^<|>$/g, '');
+  for (const match of [...source.matchAll(INLINE_LINK), ...source.matchAll(LINK_DEFINITION)]) {
+    const target = match[1].replace(/^<(.*)>$/, '$1');
     if (!target || target.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
     const pathname = target.split('#', 1)[0].split('?', 1)[0];
     if (!pathname) continue;
@@ -344,11 +354,12 @@ for (const file of skillFiles) {
   }
   validateFit(skillDirectory, file);
   validateAdaptation(skillDirectory, shipped);
-  validateLinks(source, file, skillDirectory);
   for (const carried of walk(skillDirectory)) {
     const extension = carried.slice(carried.lastIndexOf('.')).toLowerCase();
     if (!['.md', '.mdx', '.txt'].includes(extension)) continue;
-    validateCarriedFiles(readFileSync(carried, 'utf8'), carried, skillDirectory);
+    const text = readFileSync(carried, 'utf8');
+    validateCarriedFiles(text, carried, skillDirectory);
+    if (extension !== '.txt') validateLinks(text, carried, skillDirectory);
   }
 }
 

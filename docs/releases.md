@@ -184,6 +184,16 @@ lists a copy of another source as not compared, and exits 2 when a pin moved or 
 names one in its update command, so an armed auto hook never touches one, and it is refused with
 `--hook`, whose silence means current.
 
+The pack's verifier, `scripts/verify-skills.mjs`, now resolves the links in every Markdown file a
+skill carries, not only in its `SKILL.md`, read as the composer reads them, fenced code and link
+definitions included. It found one file: `references/documenting-the-run.md`, which
+`investigate-codebase`, `blast-area`, `visualise-blast-area`, `land-complex-change`,
+`resolve-problem-report` and `new-ux-discovery` each carry byte for byte, showed the sentence a
+`SKILL.md` points to it with as a fenced example, link included, and from `references/` that link
+names nothing, so no copy of those six skills could be composed. The file now says to write that
+sentence word for word, linking its words to the path, and gives the path as code. No `SKILL.md`
+changes, and the wording keeps its meaning, so this is a patch for those six skills.
+
 **Who should update.** Anyone adapting a pack skill to a project. The skill's description gains
 the symptom "adapt a pack skill to this project", and its `compatibility` names Node.js 22 and git
 for the composer. Nothing installed changes behaviour: the freshness check without `--repo`

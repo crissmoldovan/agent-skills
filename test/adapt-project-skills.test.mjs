@@ -1265,6 +1265,53 @@ test('a hard line that names a bound slot in underscore emphasis is listed for r
 // SKILL.md, or shows the markers that fence a copy's skill text, was not written to be taken as the
 // entry, and is refused as one by design (the guide says why); it is set aside here, unless it
 // declares `## Bindings`, which says it was.
+/** Whether a file declares `## Bindings` outside fenced code, as the pack's verifier reads it. */
+function declaresBindings(text) {
+  let fence = null;
+  for (const line of text.split('\n')) {
+    if (fence === null) {
+      const open = line.match(/^\s*(`{3,}|~{3,})/);
+      if (open) fence = open[1];
+      else if (/^##\s+Bindings\s*$/.test(line)) return true;
+      continue;
+    }
+    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+  }
+  return false;
+}
+
+test('every skill in this pack composes as a base, from SKILL.md and from each Markdown file it carries, with an empty overlay', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const failures = [];
+  const setAside = [];
+  let compositions = 0;
+  for (const skill of readdirSync(path.join(root, 'skills')).filter((name) => existsSync(path.join(root, 'skills', name, 'SKILL.md'))).sort()) {
+    const entries = folderReader(root).listFolder('', `skills/${skill}`).map((entry) => entry.path).filter((file) => /\.mdx?$/i.test(file)).sort();
+    for (const entry of entries) {
+      compositions += 1;
+      let errors;
+      try {
+        ({ errors } = composeFrom(root, skill, { entry }));
+      } catch (error) {
+        failures.push(`${skill} from ${entry}: ${error.message}`);
+        continue;
+      }
+      const ownText = (error) => entry !== 'SKILL.md' && (
+        (error.check === 10 && (error.message.startsWith(`${entry} links to its skill's SKILL.md`) || /^SKILL\.md links to \.\.\/SKILL\.md,/.test(error.message)))
+        || (error.check === 2 && error.message.startsWith(`${entry} contains "<!-- base:`)));
+      if (errors.some(ownText)) {
+        setAside.push(`${skill}/${entry}`);
+        if (declaresBindings(readFileSync(path.join(root, 'skills', skill, entry), 'utf8'))) failures.push(`${skill} from ${entry}: it declares ## Bindings, and cannot be taken as the entry: ${errors.filter(ownText).map((error) => error.message).join('; ')}`);
+      }
+      for (const error of errors.filter((candidate) => !ownText(candidate))) failures.push(`${skill} from ${entry}: [${error.check || 'adapter'}] ${error.message}`);
+    }
+  }
+  assert.ok(compositions > 100, `only ${compositions} compositions`);
+  assert.ok(setAside.length < compositions / 4, `${setAside.length} entries set aside: ${setAside.join(', ')}`);
+  assert.deepEqual(failures, []);
+});
+
 test('an adapter folder with no adapter.json, or one that does not parse, is refused, and so is an unknown --adapter or --pack', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack });

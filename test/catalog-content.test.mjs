@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { posix, sep } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
 
@@ -472,9 +473,77 @@ function fencedBlockAfter(source, marker, label) {
   return source.slice(start, close);
 }
 
+// A RELATIVE LINK RESOLVES FROM THE FILE THAT HOLDS IT, FENCED CODE INCLUDED.
+//
+// scripts/verify-skills.mjs resolves the links in each SKILL.md, and nothing resolved the links in
+// the other Markdown files a skill carries. The run-record convention showed the sentence a
+// SKILL.md links to it with, link included, in a fence in references/, where
+// `references/documenting-the-run.md` names nothing. Project adaptation refuses a copy of a skill
+// in which a relative link does not resolve, and a check that reads every link, fenced or not,
+// refused every copy that carried the file. No reading of fences by hand matches CommonMark, so
+// links are read everywhere, as inline links, images and link definitions, and an example that
+// shows a path writes it as code.
+const INLINE_LINK = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+['"][^)]*['"])?\)/g;
+const LINK_DEFINITION = /^ {0,3}\[[^\]]+\]:[ \t]*(\S+)/gm;
+
+function relativeLinkPaths(text) {
+  const paths = [];
+  for (const match of [...text.matchAll(INLINE_LINK), ...text.matchAll(LINK_DEFINITION)]) {
+    const target = match[1].replace(/^<(.*)>$/, '$1');
+    if (!target || target.startsWith('#') || target.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+    const pathname = target.split(/[#?]/, 1)[0];
+    if (pathname) paths.push(pathname);
+  }
+  return paths;
+}
+
+/** The links in one carried file that do not reach a file or folder of its skill from its own folder. */
+function unresolvedLinks(text, file, carried) {
+  const problems = [];
+  for (const pathname of relativeLinkPaths(text)) {
+    const resolved = posix.normalize(posix.join(posix.dirname(file), pathname)).replace(/\/$/, '');
+    if (resolved === '..' || resolved.startsWith('../')) problems.push(`${file} links to ${pathname}, outside its skill`);
+    else if (resolved !== '.' && !carried.has(resolved)) problems.push(`${file} links to ${pathname}, which does not resolve from ${posix.dirname(file)}/`);
+  }
+  return problems;
+}
+
+test('the carried-link reading finds a link in fenced code, and passes the path written as code', () => {
+  const carried = new Set(['SKILL.md', 'references', 'references/notes.md']);
+  const fenced = 'Follow it with:\n\n```markdown\nSee [the notes](references/notes.md).\n```\n';
+  assert.deepEqual(unresolvedLinks(fenced, 'references/notes.md', carried), [
+    'references/notes.md links to references/notes.md, which does not resolve from references/',
+  ]);
+  assert.deepEqual(unresolvedLinks(fenced, 'SKILL.md', carried), []);
+  const asCode = 'Follow it with the sentence below, linking the words `the notes` to `references/notes.md`:\n\n```markdown\nSee the notes.\n```\n';
+  assert.deepEqual(unresolvedLinks(asCode, 'references/notes.md', carried), []);
+  assert.deepEqual(unresolvedLinks('    [n]: ../other/SKILL.md\n[m]: missing.md\n', 'SKILL.md', carried), [
+    'SKILL.md links to missing.md, which does not resolve from ./',
+  ]);
+  assert.deepEqual(unresolvedLinks('[n]: ../other/SKILL.md\n', 'SKILL.md', carried), ['SKILL.md links to ../other/SKILL.md, outside its skill']);
+  assert.deepEqual(unresolvedLinks('[a](#top) [b](https://example.com/c.md) [c](<notes.md#top> "title") ![d](../SKILL.md)', 'references/notes.md', carried), []);
+});
+
+test('every relative link in a Markdown file a skill carries resolves from that file, fenced code included', async () => {
+  const problems = [];
+  const read = new Set();
+  const skills = (await readdir(new URL('skills/', root), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  for (const skill of skills) {
+    const folder = new URL(`skills/${skill}/`, root);
+    const carried = new Set((await readdir(folder, { recursive: true })).map((file) => file.split(sep).join('/')).filter((file) => !file.split('/').includes('node_modules')));
+    for (const file of [...carried].filter((name) => /\.mdx?$/i.test(name)).sort()) {
+      problems.push(...unresolvedLinks(await readFile(new URL(file, folder), 'utf8'), file, carried).map((problem) => `${skill}/${problem}`));
+      read.add(`${skill}/${file}`);
+    }
+  }
+  for (const skill of documentingRunCarriers) assert.ok(read.has(`${skill}/references/documenting-the-run.md`), `${skill}'s run-record reference was not read`);
+  assert.deepEqual(problems, []);
+});
+
 const runRecordConvention = await read('skills/investigate-codebase/references/documenting-the-run.md');
 const inBodyCoreTemplate = fencedBlockAfter(runRecordConvention, '## In-body core (copy verbatim)', 'in-body core');
-const runRecordPointer = fencedBlockAfter(runRecordConvention, 'Follow it, in the same section, with this sentence exactly:', 'pointer sentence');
+const pointerMarker = 'Follow it, in the same section, with the sentence below, word for word,';
+const runRecordPointer = fencedBlockAfter(runRecordConvention, pointerMarker, 'pointer sentence');
 
 test('every --document skill embeds the verbatim in-body core and the exact pointer sentence', () => {
   assert.ok(inBodyCoreTemplate.includes('<skill-name>'), 'the in-body core template lost its <skill-name> placeholder');
@@ -490,11 +559,23 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
   ]);
   assert.deepEqual([...sources.keys()], documentingRunCarriers);
 
+  // The convention gives the sentence's words in the fence and names, as code, the words that link
+  // and the path they link to from the skill's root: a link written in the fence would resolve from
+  // references/, where that path names nothing.
+  assert.deepEqual(relativeLinkPaths(runRecordPointer), [], 'the pointer sentence in documenting-the-run.md is written as a link, which resolves from references/');
+  const anchor = runRecordConvention.indexOf(pointerMarker);
+  const lead = runRecordConvention.slice(anchor, runRecordConvention.indexOf('```markdown\n', anchor));
+  const named = lead.match(/linking the words\s+`([^`]+)`\s+to\s+`([^`]+)`/);
+  assert.ok(named, 'documenting-the-run.md does not say to link, naming as code, the words of the pointer sentence that link and the path they link to');
+  const [, words, target] = named;
+  assert.equal(runRecordPointer.split(words).length, 2, `the pointer sentence holds "${words}" exactly once`);
+  const pointer = runRecordPointer.replace(words, `[${words}](${target})`);
+
   for (const [name, source] of sources) {
     const expected = inBodyCoreTemplate.replaceAll('<skill-name>', name);
     assert.ok(source.includes(expected), `${name}/SKILL.md does not embed the verbatim in-body core block from documenting-the-run.md`);
     assert.ok(!source.includes(inBodyCoreTemplate), `${name}/SKILL.md left the <skill-name> placeholder unsubstituted`);
-    assert.ok(source.includes(runRecordPointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence`);
+    assert.ok(source.includes(pointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence, ${pointer}`);
   }
 });
 
