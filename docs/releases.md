@@ -149,24 +149,27 @@ updates that stop without anyone noticing, so the reader has to ask after all.
 A report can now open with an optional **head line**, under its first line and above the three
 sections: the percentage, counted from a named register just before writing, in one unit, with
 work blocked on a person in the denominator and never in the numerator, and the ceiling without
-them; and the ETA in agent-hours, then wall-clock at the agents actually running, then a clock
-time in each reader's zone, pasted from a command and labelled as an estimate with its basis. A
-new reference, [`percentage-eta-cadence.md`](../skills/report-progress/references/percentage-eta-cadence.md),
+them; and the ETA in agent-hours, then wall-clock at the agents the running section counts, then
+a clock time in each reader's zone, pasted from a command, dated when it is not today there, and
+labelled as an estimate with its basis. A new reference,
+[`percentage-eta-cadence.md`](../skills/report-progress/references/percentage-eta-cadence.md),
 has the shape, the arithmetic, the clock commands, and what keeps updates on a cadence coming:
 a tick strictly inside the harness's cap on background time, re-armed before each update is
 written, a standing order written where a context compaction cannot take it, and a last update
 that says the updates stop. It also says that a status question sent while a fan-out runs may
 reach every agent in it. Two hard lines come with the head line: a figure nobody measured is
-reported as not measured, never as 0, and an ETA is labelled as an estimate with its basis, so
-it is never the forecast in the grammar of an observation that rule 5 forbids.
+reported as not measured, never as 0, and that includes a percentage with no register to count;
+and an ETA is labelled as an estimate with its basis, so it is never the prediction of a pending
+result that rule 5 forbids. Rule 5, the checklist and the step that splits verified from claimed
+now say as much, and a labelled ETA passes all three.
 
-Nothing a report owed before is dropped. The three sections are still owed, a report nobody asked
-for a percentage or an ETA carries no head line, and the head line's "in flight" is task
-metadata that never stands in for the running section, which still comes from lifecycle evidence
-alone. So a report written to the old shape is still complete, and this is new guidance, a minor
-change under [Versioning](#versioning). The description gains the new triggers: a request for a
-percentage, an ETA or updates at a set interval. The `report-progress` gate is unchanged: it
-reads the three section labels, and a head line is not one of them.
+Nothing a report owed before is dropped. The three sections are still owed; outside a cadence, a
+report nobody asked for a percentage or an ETA carries no head line; and the head line's "in
+flight" is task metadata that never stands in for the running section, which still comes from
+lifecycle evidence alone. So a report written to the old shape is still complete, and this is new
+guidance, a minor change under [Versioning](#versioning). The description gains the new triggers:
+a request for a percentage, an ETA or updates at a set interval. The `report-progress` gate is
+unchanged: it reads the three section labels, and a head line is not one of them.
 
 The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
 describes: nine slots, B1 to B9 (the cadence, the zones a clock time is given in, the register a

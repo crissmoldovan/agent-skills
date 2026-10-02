@@ -7,10 +7,10 @@ they ask a third thing too: to be told at a set interval without having to ask. 
 updates that arrive on a cadence.
 
 The head line adds to the report and replaces nothing in it. The three sections (what is done,
-what is running, what is next) are still owed, and a report that nobody asked for a percentage or
-an ETA carries none. This file names the skill's slots and hard lines by their ids, B1 to B7, H7
-and H8; it declares none of its own, so a project adapts all of this through the skill's
-`SKILL.md`.
+what is running, what is next) are still owed, and outside a cadence, a report that nobody asked
+for a percentage or an ETA carries none. This file names the skill's slots and hard lines by
+their ids (B1, B2, B3, B5, B6, B7, H7 and H8); it declares none of its own, so a project adapts
+all of this through the skill's `SKILL.md`.
 
 ## The head line
 
@@ -20,7 +20,7 @@ basis.
 
 ```text
 Progress NN%: D of N <unit> in <register>, counted HH:MM <zone> (done D · in flight F · to do T · blocked on a person B); ceiling without them CC%. Denominator N, unchanged since HH:MM (or: up from M at HH:MM, because <what found the new work>, which took the percentage from P% to NN%).
-ETA, an estimate: A–B agent-hours, about W wall-clock at the K agents running; done HH:MM–HH:MM <zone>, and the same range in each other reader's zone. Basis: <the items and what each was costed at, the review rounds, what does not divide>. Not in it: <any part left out, with its own number>.
+ETA, an estimate: A–B agent-hours, about W wall-clock at the K agents running; done HH:MM–HH:MM <zone>, with its date when that is not today there, and the same range in each other reader's zone. Basis: <the items and what each was costed at, the review rounds, what does not divide>. Not in it: <any part left out, with its own number>.
 ```
 
 - **Keep the counts inside the percentage line.** A line that opens with "done", "in flight" or
@@ -48,23 +48,30 @@ ETA, an estimate: A–B agent-hours, about W wall-clock at the K agents running;
   register, or remaining fixes in place of items), give the old basis and the new one, and say
   that the two numbers do not compare. One report read "95% (31 of 33 items)"; after a context
   compaction the next read "about 60%", now counting remaining fixes, and nothing joined the two.
+- **No register, no number.** With nothing that lists the work and each item's state (B3 unbound
+  and no phase list), the line reads `Progress not measured: no register of the work` (H7). A
+  percentage guessed from how the work feels is the invention the skill forbids.
 
 ## The ETA: agent-hours, then wall-clock, then a clock time
 
 1. **Agent-hours.** The honest unit when work runs in parallel: the sum of what is left,
    itemised, so that the items add up to the headline.
 2. **Wall-clock.** Agent-hours divided by the number of agents actually running now, not the
-   number that could run. Work that has to go one step after another, such as a review, a fix
-   and a re-review of one change, does not divide.
+   number that could run. That number is the count of rows in the running section, which come
+   from lifecycle evidence (B7). With no evidence there is no such count: divide by the agents
+   dispatched and say so ("at the 2 agents dispatched, not observed running"), or give
+   agent-hours alone. Work that has to go one step after another, such as a review, a fix and a
+   re-review of one change, does not divide.
 3. **A clock time, in each reader's zone (B2).** The only one of the three a reader can act on.
    Give it as a range, start to end.
 
 Then:
 
 - **It is an estimate, and it says so (H8).** Label it, and give its basis: the items, the time
-  each was costed at, and the number of agents. Rule 5 of the skill forbids a forecast written in
-  the grammar of an observation. "Done 16:00–16:35 UTC" with no label is that forecast. "ETA, an
-  estimate: … Basis: …" is a forecast presented as one.
+  each was costed at, and the number of agents. Rule 5 of the skill forbids predicting a pending
+  result, and an unlabelled ETA is one: a forecast written in the grammar of an observation.
+  "Done 16:00–16:35 UTC" with no label is that forecast. "ETA, an estimate: … Basis: …" is a
+  forecast presented as one.
 - **The headline covers all the work up to the goal.** One report headlined "3–6 agent-hours"
   and said a few lines further down that three more passes were "another 4–8 agent-hours on
   top". The reader planned around the headline. A part left out gets its own number beside the
@@ -80,14 +87,17 @@ that keeps summer time, and a template that spells one out goes wrong on the day
 change. One such template had the wrong offset from the day it was written.
 
 ```bash
-date -u '+%H:%M %Z'                                     # now, in UTC
-TZ="$READER_ZONE" date '+%H:%M %Z (UTC%z)'              # now, in a reader's zone (B2)
-date -u -v+95M '+%H:%M %Z'                              # 95 minutes from now: BSD and macOS date
-date -u -d '+95 minutes' '+%H:%M %Z'                    # 95 minutes from now: GNU date
+date -u '+%H:%M %Z'                             # now, in UTC
+TZ="$READER_ZONE" date '+%H:%M %Z (UTC%z)'      # now, in a reader's zone (B2)
+date -u -v+95M '+%a %d %b %H:%M %Z'             # 95 minutes from now: BSD and macOS date
+date -u -d '+95 minutes' '+%a %d %b %H:%M %Z'   # 95 minutes from now: GNU date
 ```
 
 `READER_ZONE` is the IANA name of a zone bound as B2. Run one command for each end of the range
-and each zone, and paste what they print. With B2 unbound, every time is in UTC.
+and each zone, and paste what they print. With B2 unbound, every time is in UTC. A time ahead is
+printed with its date: keep the date wherever it is not today's in that zone, because a range
+that runs past midnight, or a reader whose zone is already on the next day, reads as today
+without it.
 
 ## A figure that was not measured
 
@@ -98,8 +108,8 @@ that never ran tells the reader the opposite of the truth.
 
 ## Updates that come without being asked
 
-When the reader sets a cadence (B1), such as every 20 minutes until a goal is met, each tick is a
-point at which a report is owed. If the reader has to ask "eta?", the update was already late.
+When a cadence runs (B1), such as every 20 minutes until a goal is met, set by the reader or bound
+by the project, each tick is a point at which a report is owed. If the reader has to ask "eta?", the update was already late.
 
 - **Tick strictly inside the harness's cap (B5).** A background command, a watcher or a timer
   usually has a limit on how long it may run. A tick timed to land exactly on that limit races

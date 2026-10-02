@@ -2,7 +2,7 @@
 name: report-progress
 description: "Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn, or when the reader asks for a percentage, an ETA, or updates at a set interval."
 license: MIT
-compatibility: "Any agent that writes prose to a user; nothing to install, plus an optional user-installed Claude Code Stop-hook gate. A count is verified only where the agent can run the command that produces it — elsewhere it is labelled as someone else's claim. The running section is sourced from agent-lifecycle evidence where that exists, and carries the lifecycle skill's no-evidence sentence where it does not. Output is the report itself plus the checklist run over it before sending."
+compatibility: "Any agent that writes prose to a user; nothing to install, plus an optional user-installed Claude Code Stop-hook gate. A count is verified only where the agent can run its command; elsewhere it is labelled as someone else's claim. Running rows come from agent-lifecycle evidence, or its no-evidence sentence stands in. Output is the report, checked against its checklist; on a cadence the agent also arms a timed tick and writes a standing order into the file the work is tracked in."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
@@ -129,7 +129,8 @@ the skill may make one stricter, never looser.
 5. **H5. Nothing-to-report is a valid report; invention never is.** "No commits landed yet;
    the build is still running" is complete and useful. Predicting a pending result, or
    describing what a still-running agent "should have" produced by now, is the failure this
-   rule exists to stop.
+   rule exists to stop. An ETA labelled as an estimate with its basis (H8) is not that failure:
+   it says when the work may end, never what it will have produced.
 
 ### Where "what is running" comes from
 
@@ -148,13 +149,14 @@ silence, which is what makes it worse.
 
 ### A percentage, an ETA, and updates nobody has to ask for
 
-When the reader has asked how far along the work is, when it will be finished, or to be told at
-a set interval, the report carries a **head line**, directly under its first line and above
+When the reader has asked how far along the work is or when it will be finished, or updates run
+on a cadence (B1), the report carries a **head line**, directly under its first line and above
 the three sections: the percentage with its basis, then the ETA as a clock time with its basis.
-It adds to the shape and changes nothing in it. The three sections are still owed, and a report
-nobody asked for a percentage or an ETA carries no head line. The percentage counts a register
-of the work (B3) in one unit, and its "in flight" is that register's count of items started:
-task metadata, never a running row, which still comes from lifecycle evidence alone (B7).
+It adds to the shape and changes nothing in it. The three sections are still owed, and outside a
+cadence, a report nobody asked for a percentage or an ETA carries no head line. The percentage
+counts a register of the work (B3) in one unit, and its "in flight" is that register's count of
+items started: task metadata, never a running row, which still comes from lifecycle evidence
+alone (B7).
 `references/percentage-eta-cadence.md` has the head line's shape, the arithmetic, the clock
 commands and the cadence.
 
@@ -164,8 +166,8 @@ about the future.
 - **H7. A figure nobody measured is reported as not measured, with its reason, never as 0.**
   Zero is a measurement. Written for a figure nobody took, it reads as a result.
 - **H8. An ETA is an estimate, and says so.** It is labelled as one and carries its basis: the
-  items, what each was costed at, and the agents actually running. Rule 5 forbids a forecast
-  written in the grammar of an observation, and an unlabelled ETA is exactly that.
+  items, what each was costed at, and the agents it is divided by (S3). Unlabelled, an ETA is a
+  forecast written in the grammar of an observation, the prediction rule 5 forbids.
 
 Updates on a cadence (B1) come without being asked: a reader who has to ask "eta?" was owed one
 already. S1 keeps the ticks coming, and S8 gives the next one's time or says they stop.
@@ -192,8 +194,8 @@ impressive to say:
   that four agents are still running.
 - **Whenever the user asks any form of "status"** — "where are we", "how's it going", "what's
   left", "did that finish", "eta?", "how far along is it".
-- **At every tick of a cadence the reader set (B1)**, without being asked, and once more at the
-  end to say the ticks stop.
+- **At every tick of a cadence (B1)**, whether the reader set it or the project binds it,
+  without being asked, and once more at the end to say the ticks stop.
 - **Immediately on discovering that something already reported was wrong.** Not at the next
   boundary. The reader may already be acting on it.
 - **At a handover** — to another session, another agent, or a human — where the receiver has
@@ -217,7 +219,7 @@ describes. A slot nobody binds keeps its default.
 |---|---|---|---|
 | B1 | the cadence: how often an update is sent without being asked, and until what | value | none: a report at each point "When to Use" names, and a timed cadence only when the reader asks for one, at the interval they asked for |
 | B2 | the zones a clock time is given in, one per reader | value | UTC only |
-| B3 | the register a percentage is counted from: the file or command that lists the work and each item's state | value | the phase list Prerequisite 1 asks for; with none, no percentage |
+| B3 | the register a percentage is counted from: the file or command that lists the work and each item's state | value | the phase list Prerequisite 1 asks for; with none, the percentage is reported as not measured (H7) |
 | B4 | the command that measures the figures an update quotes | value | the command behind each number, found as Prerequisite 2 says |
 | B5 | how a timed tick is raised in this harness, and the harness's cap on how long it may run | value | found in the harness's own documentation of background commands; with no such mechanism, no timed cadence is promised, and the reader is told so |
 | B6 | where the standing order for a cadence is written, so that it outlives a context compaction | value | the file the work is tracked in; with none, ask once |
@@ -250,10 +252,10 @@ describes. A slot nobody binds keeps its default.
 
 ## Procedure
 
-1. **S1. On a cadence, re-arm the next tick before anything else.** When updates run at an
-   interval the reader set (B1), arm the next tick first, strictly inside the harness's cap on
-   background time (B5), so a long turn cannot lose it. The first time, write the standing
-   order where the work is tracked (B6).
+1. **S1. On a cadence, re-arm the next tick before anything else.** When updates run on a
+   cadence (B1), arm the next tick first, strictly inside the harness's cap on background time
+   (B5), so a long turn cannot lose it. The first time, write the standing order where the work
+   is tracked (B6).
    **Complete when:** the next tick is armed and the standing order is written, or no cadence is
    running.
 
@@ -266,11 +268,14 @@ describes. A slot nobody binds keeps its default.
    percentage or an ETA, and carries what they asked for; on a cadence it carries both. Count
    the register (B3) by state just before you write, in one unit, with work blocked on a person
    in the denominator and never in the numerator, and give the ceiling without them; when the
-   denominator moved, say what moved it and give both percentages. Give the ETA in agent-hours,
-   then wall-clock at the agents actually running, then a clock time in each reader's zone (B2),
-   every time and zone label pasted from a command. Label it an estimate with its basis (H8),
-   and make it cover all the work to the goal, with a fix round for each review still to come.
-   `references/percentage-eta-cadence.md` has the shape and the commands.
+   denominator moved, say what moved it and give both percentages. With no register, it reads
+   "Progress not measured: no register of the work" (H7). Give the ETA in agent-hours, then
+   wall-clock at the agents actually running, as the running section counts them (B7), then a
+   clock time in each reader's zone (B2), every time and zone label pasted from a command. With
+   no lifecycle evidence, divide by the agents dispatched and say they were not observed. Label
+   it an estimate with its basis (H8), and make it cover all the work to the goal, with a fix
+   round for each review still to come. `references/percentage-eta-cadence.md` has the shape
+   and the commands.
    **Complete when:** the head line sits under the first line and each number in it states its
    basis, or the report has none because nobody asked for either and no cadence runs.
 
@@ -291,7 +296,8 @@ describes. A slot nobody binds keeps its default.
    hedged sentence. "Verified here: `npm test` at 9f0a1b2, 812 passing." versus "Claimed by the
    child agent, not verified here: the Windows path is fixed."
    **Complete when:** every number in the report is either adjacent to the command that
-   produced it, or attributed to whoever claimed it and marked unverified.
+   produced it, or attributed to whoever claimed it and marked unverified, or part of an ETA
+   labelled as an estimate with its basis (H8).
 
 7. **S7. Translate each done item into its user-facing consequence.** What could the user not
    do, or was wrongly told, that is now different? One clause is usually enough.
@@ -411,13 +417,6 @@ agent whose state was never observed (rule 5). Nothing anywhere says what a user
   observed 40 minutes ago render identically without it, and only one of them is alive.
 - **Reporting only at the end.** A single report after two hours cannot be acted on: every
   decision it would have informed has already been taken by someone waiting in the dark.
-- **A tick timed to land on the cap.** Two 15-minute ticks under a 30-minute cap put the second
-  exactly on the cap, where it races the kill and is usually lost. The updates then come half as
-  often as promised, and nothing says so.
-- **A clock typed from memory.** A zone label written from memory is wrong for half of every
-  year wherever the clocks change, and the reader plans around it. Paste what `date` prints.
-- **A headline ETA for part of the work.** The reader plans around the headline, and the extra
-  hours a few lines further down are the ones that decide when the work is really finished.
 - **A status block over a one-step answer.** Ceremony where there is no state to report trains
   the reader to skim, and the skimming carries over to the report that mattered.
 - **Counting effort instead of outcomes.** "17 files changed, 6 agents dispatched" measures
@@ -441,7 +440,8 @@ Run this over the text you have written, before it is sent.
 - [ ] On a cadence, the next section gives the next update's time, or the last update says the
       updates stop.
 - [ ] Every number is adjacent to the command that produced it here, or is attributed to
-      whoever claimed it and marked unverified.
+      whoever claimed it and marked unverified, or is part of an ETA labelled as an estimate
+      with its basis (H8).
 - [ ] No child-agent claim is restated as a result of this run.
 - [ ] "What is running" came from lifecycle evidence, or the exact no-evidence sentence stands
       alone in its place.
@@ -449,7 +449,8 @@ Run this over the text you have written, before it is sent.
 - [ ] At least one line names a user-facing consequence rather than a code change.
 - [ ] Every earlier statement now known to be wrong carries a one-sentence correction here,
       and no corrected claim is silently restated.
-- [ ] Nothing in the report describes a result that has not happened yet.
+- [ ] Nothing in the report describes a result that has not happened yet; an ETA labelled as an
+      estimate says when the work may end, never what it will have produced.
 - [ ] An empty section says it is empty rather than being omitted or padded.
 - [ ] A reader who has seen nothing else can answer: what is done, what is running, what is
       next.

@@ -249,24 +249,36 @@ test('the head line is optional, sits above the three sections, and replaces non
   const headFlat = head.replace(/\s+/g, ' ');
   assert.match(headFlat, /directly under its first line and above the three sections/);
   assert.match(headFlat, /The three sections are still owed/);
-  assert.match(headFlat, /a report nobody asked for a percentage or an ETA carries no head line/);
+  // A cadence owes a head line whoever set it, the reader or a project binding B1.
+  assert.match(headFlat, /or updates run on a cadence \(B1\), the report carries a \*\*head line\*\*/);
+  assert.match(headFlat, /outside a cadence, a report nobody asked for a percentage or an ETA carries no head line/);
   // A register's in-flight count is task metadata; the running rows stay lifecycle evidence.
   assert.match(headFlat, /task metadata, never a running row/);
   assert.match(headFlat, /references\/percentage-eta-cadence\.md/);
   assert.match(headFlat, /H7\. A figure nobody measured is reported as not measured, with its reason, never as 0/);
   assert.match(headFlat, /H8\. An ETA is an estimate, and says so/);
-  // H8 is what keeps an ETA from being the forecast rule 5 forbids.
-  assert.match(headFlat, /Rule 5 forbids a forecast written in the grammar of an observation/);
+  // H8 is what keeps an ETA from being the prediction rule 5 forbids, and rule 5 says so itself.
+  assert.match(headFlat, /Unlabelled, an ETA is a forecast written in the grammar of an observation, the prediction rule 5 forbids/);
+  assert.match(flat, /\*\*H5\. [^*]+\*\*[^*]*?An ETA labelled as an estimate with its basis \(H8\) is not that failure/);
   const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
   assert.match(procedure, /S1\. On a cadence, re-arm the next tick before anything else/);
   assert.match(procedure, /S3\. Write the head line when one is owed/);
   assert.match(procedure, /in the denominator and never in the numerator/);
   assert.match(procedure, /every time and zone label pasted from a command/);
+  // The wall-clock divides by the running section's count, never by a number nobody observed.
+  assert.match(procedure, /wall-clock at the agents actually running, as the running section counts them \(B7\)/);
+  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched and say they were not observed/);
+  assert.match(procedure, /With no register, it reads "Progress not measured: no register of the work" \(H7\)/);
+  // A labelled ETA is the third kind of number S6 allows, so S6 cannot strip what S3 requires.
+  assert.match(procedure, /or part of an ETA labelled as an estimate with its basis \(H8\)/);
   assert.match(procedure, /next update's clock time beside the acts, or, in the last update, says the updates stop/);
   const when = section(skill, 'When to Use');
   assert.match(when, /"eta\?"/);
-  assert.match(when, /tick of a cadence the reader set \(B1\)/);
+  assert.match(when.replace(/\s+/g, ' '), /tick of a cadence \(B1\)\*\*, whether the reader set it or the project binds it/);
   const verification = section(skill, 'Verification');
+  const verificationFlat = verification.replace(/\s+/g, ' ');
+  assert.match(verificationFlat, /or is part of an ETA labelled as an estimate with its basis \(H8\)/);
+  assert.match(verificationFlat, /has not happened yet; an ETA labelled as an estimate says when the work may end/);
   assert.match(verification, /an ETA labelled as an estimate/);
   assert.match(verification, /"not measured", never 0/);
   assert.match(verification, /the last update says the\s+updates stop/);
@@ -284,6 +296,9 @@ test('the reference carries each lesson the head line and the cadence rest on', 
     /the two numbers do not compare/,
     /Agent-hours\.[\s\S]*Wall-clock\.[\s\S]*A clock time, in each reader's zone \(B2\)/,
     /actually running now, not the number that could run/,
+    /That number is the count of rows in the running section, which come from lifecycle evidence \(B7\)/,
+    /not observed running/,
+    /No register, no number/,
     /does not divide/,
     /It is an estimate, and it says so \(H8\)/,
     /The headline covers all the work up to the goal/,
@@ -310,6 +325,9 @@ test('the reference prints its clock from a command and keeps every zone out but
   assert.match(commands[1], /TZ="\$READER_ZONE" date/);
   assert.match(commands[1], /-v\+95M/, 'the BSD form is missing');
   assert.match(commands[1], /-d '\+95 minutes'/, 'the GNU form is missing');
+  // A time ahead is printed with its date, so a range past midnight does not read as today.
+  for (const line of commands[1].split('\n').filter((l) => /95/.test(l))) assert.match(line, /'\+%a %d %b %H:%M %Z'/);
+  assert.match(cadenceFlat, /keep the date wherever it is not today's in that zone/);
   for (const text of [skill, cadence]) {
     assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
     assert.doesNotMatch(text, /\b(?:[A-Z][A-Z]?[SD]T),? ?UTC ?[+-]\d/, 'a zone label typed into the text');
