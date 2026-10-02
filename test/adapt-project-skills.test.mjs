@@ -1145,6 +1145,32 @@ test('a GitHub source: a pin is fetched by tag or full sha, a branch or a missin
   assert.match(report.stdout, /verify: every carried file is the upstream bytes at [0-9a-f]{12}/);
 });
 
+test('a GitHub source rewritten to ssh by a git setting is refused with its cause, and a local clone still composes', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack, adapter: adapterJson(GITHUB_PACK) });
+  assert.equal(overGithub(pack, ['compose', '--repo', project, '--write']).status, EXIT_OK);
+
+  // A common setting sends every GitHub address over ssh. git refuses the transport before it
+  // connects, so nothing here reaches a network.
+  const env = { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'url.ssh://git@example.com/example-owner/example-pack.insteadOf', GIT_CONFIG_VALUE_0: GITHUB_PACK };
+  const run = (args) => spawnSync(process.execPath, [ADAPT, ...args], { encoding: 'utf8', env });
+  const cause = /transport 'ssh' not allowed\. A git setting \(url\.<base>\.insteadOf\) rewrites the https address to ssh, and the composer reads a remote over https only/;
+
+  const refused = run(['compose', '--repo', project]);
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout + refused.stderr);
+  assert.match(refused.stdout, /\[pin\] cannot read https:\/\/github\.com\/example-owner\/example-pack: /);
+  assert.match(refused.stdout, cause);
+  assert.match(refused.stdout, /compose from a clone of the pack with --pack/);
+
+  const unknown = run(['outdated', '--repo', project]);
+  assert.equal(unknown.status, EXIT_ATTENTION, unknown.stdout + unknown.stderr);
+  assert.match(unknown.stdout, cause);
+  assert.match(unknown.stdout, /Unknown is not current\./);
+
+  const fromClone = run(['compose', '--repo', project, '--pack', pack]);
+  assert.equal(fromClone.status, EXIT_OK, fromClone.stdout + fromClone.stderr);
+});
+
 test('a long composed SKILL.md is a warning, never a failure', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const rows = Array.from({ length: 520 }, (_, index) => `| trap ${index + 1} | so ${index + 1} |`).join('\n');

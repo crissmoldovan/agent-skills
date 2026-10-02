@@ -233,10 +233,22 @@ export class GitReader {
   }
 }
 
+/**
+ * git's own message for a remote call that failed, and, when git refused a transport, the cause:
+ * a `url.<base>.insteadOf` setting, often an ssh rewrite of every GitHub address, has turned the
+ * https source into one the composer does not allow.
+ */
+export function remoteFailure(stderr, fallback) {
+  const message = stderr || fallback;
+  const refused = message.match(/transport '([^']+)' not allowed/);
+  if (!refused) return message;
+  return `${message.replace(/\.+$/, '')}. A git setting (url.<base>.insteadOf) rewrites the https address to ${refused[1]}, and the composer reads a remote over https only: run it with that setting left out (for one in the global configuration, GIT_CONFIG_GLOBAL naming an empty file), or compose from a clone of the pack with --pack`;
+}
+
 /** `<tag> -> <commit>` for every tag the source has, peeled to the commit an annotated tag names. */
 export function listRemoteTags(source) {
   const result = runGit(['ls-remote', '--tags', source], { timeout: 60_000 });
-  if (result.status !== 0) throw new AdaptError(`cannot list the tags of ${source}: ${result.stderr || 'git ls-remote failed'}`);
+  if (result.status !== 0) throw new AdaptError(`cannot list the tags of ${source}: ${remoteFailure(result.stderr, 'git ls-remote failed')}`);
   const tags = new Map();
   const peeled = new Map();
   for (const line of utf8(result.stdout).split('\n')) {
@@ -251,7 +263,7 @@ export function listRemoteTags(source) {
 
 function remoteHeads(source, ref) {
   const result = runGit(['ls-remote', source, `refs/tags/${ref}`, `refs/heads/${ref}`], { timeout: 60_000 });
-  if (result.status !== 0) throw new AdaptError(`cannot read ${source}: ${result.stderr || 'git ls-remote failed'}`);
+  if (result.status !== 0) throw new AdaptError(`cannot read ${source}: ${remoteFailure(result.stderr, 'git ls-remote failed')}`);
   const names = new Set(utf8(result.stdout).split('\n').map((line) => line.split('\t')[1]).filter(Boolean));
   return { tag: names.has(`refs/tags/${ref}`), branch: names.has(`refs/heads/${ref}`) };
 }
@@ -309,7 +321,7 @@ export function openSource(base, { repo, pack } = {}) {
     const reader = new GitReader(scratch);
     const refspec = FULL_SHA.test(base.ref) ? base.ref : `+refs/tags/${base.ref}:refs/tags/${base.ref}`;
     const fetch = reader.run(['fetch', '--quiet', '--depth', '1', '--no-tags', base.source, refspec], { timeout: 300_000 });
-    if (fetch.status !== 0) throw new AdaptError(`cannot fetch ${base.ref} from ${sourceLabel(base.source)}: ${fetch.stderr || 'git fetch failed'}`);
+    if (fetch.status !== 0) throw new AdaptError(`cannot fetch ${base.ref} from ${sourceLabel(base.source)}: ${remoteFailure(fetch.stderr, 'git fetch failed')}`);
     return { reader, cleanup, origin: sourceLabel(base.source) };
   } catch (error) {
     cleanup();
@@ -1565,7 +1577,7 @@ export function runOutdated(options, io) {
     const fetchRef = (reader, refspec) => {
       if (!isGithubSource(pinned.source) || fetchedRefs.has(refspec)) return;
       const fetched = reader.run(['fetch', '--quiet', '--depth', '1', '--no-tags', pinned.source, refspec], { timeout: 300_000 });
-      if (fetched.status !== 0) throw new AdaptError(`cannot fetch ${refspec} from ${sourceLabel(pinned.source)}: ${fetched.stderr || 'git fetch failed'}`);
+      if (fetched.status !== 0) throw new AdaptError(`cannot fetch ${refspec} from ${sourceLabel(pinned.source)}: ${remoteFailure(fetched.stderr, 'git fetch failed')}`);
       fetchedRefs.add(refspec);
     };
     try {
