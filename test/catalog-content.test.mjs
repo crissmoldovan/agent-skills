@@ -328,13 +328,19 @@ test('release-notes versions a product with no API, treats a bump judge as advic
   assert.match(releaseNotes, /references\/versioning-a-product\.md/);
   // The slots, hard lines and steps a project's overlay cites, each under its id.
   assert.match(releaseNotes, /^## Bindings$/m);
-  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']) assert.match(releaseNotes, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7']) assert.match(releaseNotes, new RegExp(`^\\| ${id} \\|`, 'm'));
   for (const id of ['H1', 'H2', 'H3', 'H4']) assert.match(releaseNotes, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
   for (const id of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']) assert.match(releaseNotes, new RegExp(`^\\d+\\. \\*\\*${id}\\. `, 'm'));
   assert.match(releaseNotes, /\| B6 \|[^\n]*\| skill \| `describe-changes` \|/);
-  // A number ruled against the impact analysis ships with both readings, never unexplained.
-  assert.match(releaseNotes, /records both readings and the\s+ruling/);
+  assert.match(releaseNotes, /\| B7 \|[^\n]*\| skill \| `release-ledger` \|/);
+  // A number ruled against the impact analysis ships with both readings, never unexplained, and
+  // only a person a project names may rule it: unbound, the analysis alone sets the number.
+  assert.match(releaseNotes, /\| B5 \|[^\n]*\| value \| nobody: the impact analysis alone sets the number/);
+  assert.match(releaseNotes, /records both readings and the\s+ruling of the person bound as B5/);
   assert.match(releaseNotes, /judge \(B4\) is advice/);
+  // Untrue words are corrected on the record; words are never reworded to move the number.
+  assert.match(releaseNotes, /never reworded to move its number/);
+  assert.match(versioning, /A\s+correction makes the words true; a rewording only makes the judge agree/);
   assert.match(versioning, /what does a reader rely on/i);
   assert.match(versioning, /false, broken or never\s+seen/);
   assert.match(versioning, /Write the ledger first, as was and now/);

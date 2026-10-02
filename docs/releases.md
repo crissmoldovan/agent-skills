@@ -153,19 +153,25 @@ uncommitted change, so `git status` is read first.
 
 Some projects run a tool that proposes the level. The skill now treats it as advice: read the
 words it quotes, then fix the number or overrule the tool on the record, and never reword a change
-until it agrees. One rule changes meaning. The skill said that shipping a number the impact
-analysis does not support makes the note dishonest. When the person who rules the number departs
-from the analysis, the number is now theirs, and the note is honest when it records both readings
-and the ruling; a mismatch shipped without them is still dishonest. The procedure's third step,
-its pitfalls and its third verification check say the same.
+until it agrees. A change's words that are untrue are still corrected, on the record with the
+reason, even when the correction moves the number.
+
+A project can now name the person who rules the number. When that person departs from the
+impact analysis, the number is theirs, and the note is honest when it records both readings and
+the ruling; a mismatch shipped without them, or on the agent's own say-so, is still dishonest. A
+project that names nobody keeps the rule as it was: the impact analysis sets the number, and when
+it disagrees with the plan, the bump changes or the release does. So no existing guidance changes
+meaning, and this is new guidance, a minor change under [Versioning](#versioning). The procedure's
+third and fifth steps, its pitfalls and its third verification check say the same.
 
 The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
-describes: six slots, B1 to B6 (where the version is read from, the destinations, the release
-checklist, the bump judge, who rules the number, and the skill that describes a change that
-already landed, `describe-changes` by default), four hard lines, H1 to H4, and its seven steps as
-S1 to S7. Every slot's default is what the skill already did, apart from the ruled number above, so
-a project that binds nothing gets the same procedure. Nothing needs migrating: no project could
-adapt the skill before it declared these ids. The `release-notes` gate is unchanged.
+describes: seven slots, B1 to B7 (where the version is read from, the destinations, the release
+checklist, the bump judge, who rules the number, and the two sibling skills it hands work to:
+`describe-changes` for a change that already landed and `release-ledger` for a what's-new feature
+inside a product), four hard lines, H1 to H4, and its seven steps as S1 to S7. Every slot's
+default is what the skill already did, so a project that binds nothing gets the same procedure.
+Nothing needs migrating: no project could adapt the skill before it declared these ids. The
+`release-notes` gate is unchanged.
 
 ## Release checklist
 

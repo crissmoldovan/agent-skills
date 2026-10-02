@@ -74,9 +74,9 @@ The trigger is the release action, not whether there is anything impressive to s
   and 3, not to find a way around it.
 
 Do not use it to describe a change that already landed — one commit, one PR, one tag range:
-`describe-changes` reads the diff and anchors every claim to a hunk, and its output is the
+`describe-changes` (B6) reads the diff and anchors every claim to a hunk, and its output is the
 *what* you hand to this skill. Do not use it to build a what's-new feature inside a product;
-that is `release-ledger`, which is a system you install rather than a note you write. And do
+that is `release-ledger` (B7), which is a system you install rather than a note you write. And do
 not use it for an internal branch merge nobody outside the repository can observe.
 
 ## Bindings
@@ -91,8 +91,9 @@ nobody binds keeps its default.
 | B2 | every destination the note goes to | value | discovered at run time, as "Where the note lands" says |
 | B3 | the project's own release checklist | value | the one a search of the repository finds, such as a release section in `CONTRIBUTING.md` or a release document; with none, this file's procedure alone |
 | B4 | the bump judge: a command or tool that proposes a level from the change | value | none: the impact analysis alone sets the level |
-| B5 | who rules the number: the person whose word sets the version when it departs from the impact analysis | value | the person who asked for the release, when they name the number themselves |
+| B5 | who rules the number: the person whose word sets the version when it departs from the impact analysis | value | nobody: the impact analysis alone sets the number, as S3 says |
 | B6 | where the description of a change that already landed comes from | skill | `describe-changes` |
+| B7 | where a what's-new feature inside a product is built, a request this skill sends on | skill | `release-ledger` |
 
 ## Hard lines
 
@@ -101,10 +102,11 @@ nobody binds keeps its default.
   generator produced or a gate let through.
 - **H2. A number that departs from the impact analysis never ships unexplained.** Either the bump
   matches the analysis, or the note records both readings and the ruling of the person bound as
-  B5.
-- **H3. The words describing a change are never edited to move its number.** When a bump judge
-  disagrees, fix the number or overrule the judge on the record
-  (`references/versioning-a-product.md`).
+  B5. A ruling is that person's word, never the agent's own.
+- **H3. The words describing a change are never reworded to move its number.** When a bump judge
+  disagrees, fix the number or overrule the judge on the record. Words that are untrue are
+  corrected, even when the correction moves the number, and the correction is recorded with its
+  reason (`references/versioning-a-product.md`).
 - **H4. Nothing in this skill installs or arms the gate.** The user runs its installer, or
   nobody does.
 
@@ -171,19 +173,20 @@ part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* a
    surface that moved.
 2. **S2. Run the impact analysis above, in writing.** For a product with no API, write the
    ledger first: one was-and-now entry per change a reader can reach. Complete when every
-   bullet has an answer, including the explicit "none"s.
+   bullet has an answer, including the explicit "none"s, and, for a product with no API, every
+   change a reader can reach has its ledger entry.
 3. **S3. Settle the semver bump against that answer, not against the plan.** If they disagree,
    change the bump or change the release, unless the person bound as B5 rules a number that
-   departs from the analysis: then stamp theirs, and the note records both readings and the
-   ruling (H2). A bump judge (B4) is advice: read the words it quotes, then fix the number or
+   departs from the analysis: then stamp theirs, and write down both readings and the ruling for
+   the note (H2). A bump judge (B4) is advice: read the words it quotes, then fix the number or
    overrule the judge on the record, never by rewording a change (H3). Complete when the
-   version in the manifest matches the impact you just wrote down, or the note records the
-   ruling that departs from it.
+   version in the manifest matches the impact you just wrote down, or both readings and the
+   ruling are written down for S5 to carry into the note.
 4. **S4. Discover every destination.** Complete when you have a list, and each item is a path or a
    URL rather than a category.
 5. **S5. Write the note once**, in the three parts, and adapt it per destination without letting
    the versions drift apart. Complete when the changelog entry and the Release body say the
-   same thing.
+   same thing, and the Impact part carries both readings and the ruling when S3 wrote them down.
 6. **S6. Score it with the sell-test.** Complete when it scores 3 or better, or you have rewritten
    it.
 7. **S7. Place it, then release.** The note goes in *before* the publish, the tag and the Release.
@@ -251,8 +254,8 @@ case the gate is a floor for rather than a grade.
 - **"The changelog is auto-generated from the diff."** That is the *what* only. Add the *why*
   and the *impact*.
 - **"I flagged the semver mismatch, then shipped it as a patch anyway."** Either bump to match
-  the impact analysis, or put the ruling that departs from it in the note beside both readings
-  (H2). Shipped without them, the note is dishonest.
+  the impact analysis, or put the ruling of the person bound as B5 in the note beside both
+  readings (H2). Shipped without them, or on your own say-so, the note is dishonest.
 - **"The bump tool says patch, so it is a patch."** A judge is advice. Read the words it quoted:
   a phrase it has never seen falls through to its default. And do not reword the change until
   it agrees (H3).
@@ -271,7 +274,7 @@ Before the publish, the tag or the Release — not after:
 1. The note has all three parts, in order, and the *why* is not a restatement of the *what*.
 2. Every impact bullet was answered, with explicit "none"s where that is the answer.
 3. The version bump matches the impact analysis, or the note records both readings and the
-   ruling that departs from it.
+   ruling of the person bound as B5 (H2).
 4. Every destination discovered in S4 has the note, and they agree with each other.
 5. The sell-test scores 3 or better.
 6. For a monorepo: one entry per bumped package, each naming its own version.

@@ -14,7 +14,7 @@ cite, a screen they go to, a file they download, a link they keep.
 
 | level | means | for example |
 |---|---|---|
-| **patch** | a correction: nothing a reader relies on moves | a total that counted refunds twice now counts them once; an upload limit is raised; a link that never worked is taken out (see below) |
+| **patch** | a correction: nothing a reader relies on moves | a total that counted refunds twice now counts them once; an upload limit set below its documented size is raised to it; a link that never worked is taken out (see below) |
 | **minor** | a new capability, with nothing removed or redefined | a new chart type; a table can now be exported; a saved filter |
 | **major** | something a reader relied on is removed, reversed or redefined | a figure's definition changes (revenue is now net of returns); a screen is replaced by another; an item already delivered is taken back out |
 
@@ -62,6 +62,9 @@ check, never a ruling.
      the note that says why the number is right, where review will see it.
 4. Never reword the ledger to move the number (hard line H3). The ledger's words reach readers. A
    judge satisfied by changed words is now reading something untrue, and so is everyone after it.
+   An entry that is untrue is another matter: correct it, even when the correction moves the
+   number, and record what it said, what it says now and why, where review will see it. A
+   correction makes the words true; a rewording only makes the judge agree.
 
 A judge that warns and lets the release go on fits this. One that refuses by default turns advice
 into a ruling nobody made, so make refusal something a person asks for. High confidence from a
@@ -83,6 +86,10 @@ The Impact part then reads, for example: *"Released as a patch on the release ma
 The impact analysis reads it as a minor, because tables can now be exported."* A reader deciding
 whether to adopt the version sees both. A mismatch shipped without these lines is the dishonest
 note the skill warns about.
+
+A ruling is that person's word, never the agent's own reading. Where the project binds nobody,
+nobody rules: the impact analysis sets the number, and when it disagrees with the plan, the bump
+changes or the release does.
 
 ## Pre-release numbers name the number they become
 
