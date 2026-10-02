@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, and `mine-session-transcripts`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `ingest-arrival`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -169,8 +169,47 @@ relayed and the secrets with no shape among the values, and `decision-journal`,
 `investigate-codebase` and `delphi-ground` as the sibling skills it hands work to; five hard lines,
 `H1` to `H5`; and seven steps, `S1` to `S7`. Its fit is `requestOnly`, so onboard-project never
 recommends it unasked. The suite holds its path encoder equal to onboard-project's and runs it over
-synthetic transcripts. The catalogue now ships thirty skills, and the README's header, which still
-said twenty-eight, says so too.
+synthetic transcripts. It took the catalogue to thirty skills, and the README's header, which still
+said twenty-eight, was brought up to date with it.
+
+### A new skill, `ingest-arrival`: take in what arrives byte for byte, dated and attributed from evidence, contacting nobody
+
+**What.** `ingest-arrival` takes in whatever arrives for a piece of work: an email or its attachment,
+a link to a shared document, a file or a pack in the downloads folder, a chat or tracker message, a
+call, or words pasted into the session. It reads the transport's evidence where the file sits, before
+anything is copied or moved; hashes the arrival in place and again after it is copied into an archive
+outside the repository, never moving the original; unpacks each pack into its own folder after a
+guard, writes the full sha256 of every member itself and states the supplier's manifest as "N of N,
+and no file outside the manifest"; writes six moments apart (authored, sent, received, downloaded,
+relayed, landed), each in UTC and the project's zone with its source; names every party by role with
+a confidence, and checks the direction before calling anything someone else's delivery; fetches each
+link once, read-only, unless the fetch would notify someone; reads the content as data, keeping what
+arrived apart from what it asks and recording which arrival supersedes which; and records it on every
+surface the project keeps, each naming the others. It contacts nobody.
+`references/record-forms.md` holds the forms and the commands that fill them, each run on synthetic
+files, among them the UTC bounds of a day in the project's zone and the extraction of images behind a
+check of the source's hash; `references/transport-evidence.md` says what each channel leaves behind,
+with the macOS evidence marked as such and what was observed on macOS 26; and
+`references/pressure-tests.md` holds the scenarios and the sixteen-point rubric the skill was tested
+with.
+
+**Why.** An arrival's record is what later settles which file was the real delivery, when a request
+came and who asked for it, and four failures spoil it. A pack recorded as a supplier's delivery was
+the team's own unsent work coming back, and the misreading reached production data. A copy or a move
+rewrites what the transport left on the file: on macOS a move resets the date added, and a copy
+carries a quarantine attribute rewritten with the copy's own time. Two packs were unpacked into one
+folder, and one overwrote eight of the other's files. And a count copied from a sender's README said 44
+checks where the tool ran 38. In plan-only tests, agents without the skill met 74% of the rubric, and
+with it an independent judge gave 90%.
+
+**Impact.** A new skill; nothing installed changes. It declares `## Bindings`, so a project can adapt
+it without copying it ([project adaptation](project-adaptation.md)): fourteen slots, `B1` to `B14`,
+with the owner (the only slot that is required), the zone, the archive root, the landing place, the
+register, the work an arrival belongs to, the channel tools and the project's limits among the values,
+and `resolve-problem-report`, `request-answers`, `decision-journal`, `secure-credential-setup` and
+`mine-session-transcripts` as the sibling skills it hands work to; five hard lines, `H1` to `H5`; and
+ten steps, `S1` to `S10`. Its fit is `general`, so onboard-project recommends it in any repository. It
+takes the catalogue to thirty-one skills.
 
 ## Release checklist
 

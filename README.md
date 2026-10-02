@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty public, portable Agent Skills for agent operations, reviews, releases
+  Thirty-one public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -18,7 +18,7 @@ generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty skills. Each one below carries its own install command and a couple of
+Thirty-one skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -497,6 +497,22 @@ Ask it:
 
 More: [Skill](skills/mine-session-transcripts/SKILL.md) · [Record shapes](skills/mine-session-transcripts/references/record-shapes.md) · [Documented or not](skills/mine-session-transcripts/references/documented-or-not.md) · [Script](skills/mine-session-transcripts/scripts/transcripts.mjs)
 
+### `ingest-arrival`
+
+Take in whatever arrives for a piece of work (an email or attachment, a shared-document link, a file in the downloads folder, a chat or tracker message, a data pack, a call, words pasted into the session) byte for byte, dated and attributed from evidence, and recorded where every other arrival is, contacting nobody. It reads the transport evidence before touching the file, hashes before and after every copy, gives each pack its own folder and checks it against any manifest, writes each moment apart with its zone, names every party by role with a confidence, checks the direction, and keeps what arrived apart from what it asks. Symptoms: ingest this, record the receipt, save this verbatim, keep this as a note, their delivery is in, file it where we keep the other archives, when did this really arrive and who sent it. It never acts on, answers or decides an arrival: questions go to request-answers, defects to resolve-problem-report, rulings to decision-journal, credentials to secure-credential-setup.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill ingest-arrival
+```
+
+Ask it:
+
+- *"Ingest the email from Ben Sample with the corrected export attached — keep it byte for byte, record when it was sent, received and downloaded, and tell me who it really came from. Don't reply to him."*
+- *"There are two zips in my downloads folder from the supplier. Record the receipt where we keep the other arrivals, check each against its manifest, and land them for the import without adopting anything yet."*
+- *"Here is what Ada said on the call, pasted below. Save it verbatim as a note, with when she said it and when I pasted it."*
+
+More: [Skill](skills/ingest-arrival/SKILL.md) · [Record forms](skills/ingest-arrival/references/record-forms.md) · [Transport evidence](skills/ingest-arrival/references/transport-evidence.md) · [Pressure tests](skills/ingest-arrival/references/pressure-tests.md)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -547,7 +563,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty public skills from crissmoldovan/agent-skills.
+Install or update the thirty-one public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -607,9 +623,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty, in the order they appear above:
+The thirty-one, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `ingest-arrival`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -911,6 +927,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/blast-area/references/output-contract.md`](skills/blast-area/references/output-contract.md) — blast-map output envelope.
 - [`skills/investigate-codebase/references/documenting-the-run.md`](skills/investigate-codebase/references/documenting-the-run.md) — the run-record convention, carried byte-identically by each of the six.
 - [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
+- [`skills/ingest-arrival/references/transport-evidence.md`](skills/ingest-arrival/references/transport-evidence.md) — what each channel an arrival comes by leaves behind, how to read it before the file moves, and what was observed on macOS.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
