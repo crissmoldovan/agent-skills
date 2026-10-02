@@ -41,17 +41,18 @@ const FIT_KINDS = new Set(['signals', 'general', 'requestOnly']);
 // `## Bindings` table, and names its hard lines and steps with ids that a project's overlay cites.
 // Any file of a skill may declare the section — a reference a project adapts as much as SKILL.md —
 // so every such file is read, and its ids are held unique across all of them, because "S4" has to
-// mean one step wherever the skill or an overlay cites it. Fenced code is not read: an example of
-// a table is not a declaration.
+// mean one step wherever the skill or an overlay cites it. Fenced code is not read, at any
+// indentation, so a fence nested in a list item counts: an example of a table is not a declaration.
 const BINDINGS_COLUMNS = ['id', 'slot', 'kind', 'default'];
 const WELL_FORMED_ID = /^[A-Z][1-9][0-9]*$/;
 const SLOT_KIND = /^(?:value|skill)(?:, required)?$/;
 const NO_DEFAULT = /^(?:|[-–—]+|tbd|todo|n\/a|\?)$/i;
 // A hard line (H) or a step (S) is declared by a list item that opens with its id in bold, or by a
-// heading that opens with it: `- **H1. Contacts nobody.**`, `1. **S2. Hash it.**`, `### S3 — Keep it`.
-// The candidate is read wider than the form, so a malformed id (`S04`, `H2a`) fails rather than
-// passing unread.
-const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{2,6}\s+)([HS][0-9][0-9A-Za-z]*)/;
+// heading of any level that opens with it: `- **H1. Contacts nobody.**`, `1. **S2. Hash it.**`,
+// `### S3 — Keep it`. The candidate is read wider than the form, so a malformed id (`S04`, `H2a`)
+// fails rather than passing unread. So is a citation written as a bold lead-in (`- **S2 skipped:**`),
+// which the page tells authors not to write: it fails as a second declaration.
+const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HS][0-9][0-9A-Za-z]*)/;
 const LINE_ID_KIND = { H: 'hard-line', S: 'step' };
 const LINE_ID_NAMES = { H: 'hard lines', S: 'steps' };
 const ignoredDirectories = new Set(['.git', '.cache', '.next', '.superpowers', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
@@ -191,17 +192,21 @@ function validateLinks(source, file, skillDirectory) {
   }
 }
 
-/** The file's lines with every fenced code block blanked, so line numbers still match. */
+/**
+ * The file's lines with every fenced code block blanked, so line numbers still match. A fence is
+ * read at any indentation, because one nested in a list item sits past the three spaces a fence at
+ * the top level may have, and is code all the same.
+ */
 function unfencedLines(source) {
   let fence = null;
   return source.split('\n').map((line) => {
     if (fence === null) {
-      const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      const open = line.match(/^\s*(`{3,}|~{3,})/);
       if (!open) return line;
       fence = open[1];
       return '';
     }
-    const close = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
     if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
     return '';
   });

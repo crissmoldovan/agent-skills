@@ -562,3 +562,35 @@ test('verifier refuses a file that declares Bindings twice, and a slot that does
   assert.equal(result.status, 1);
   assert.match(result.stderr, /slot B1 does not say what it holds/);
 });
+
+// A fence nested in a list item is indented past three spaces and is still code, so an example
+// step inside it declares nothing; and a heading at any level declares, level one included.
+test('verifier leaves out a fence nested in a list item, and reads a level-one heading', async () => {
+  const nested = adaptableBody(goodRows, [
+    '- A pitfall with an example:',
+    '  - The example, in a nested list:',
+    '',
+    '     ```markdown',
+    '     1. **S1. An example step inside a nested fence.**',
+    '     ```',
+    '',
+  ].join('\n'));
+  let result = await verify(await adaptableFixture(nested));
+  assert.equal(result.status, 0, result.stderr);
+
+  result = await verify(await adaptableFixture(adaptableBody(goodRows, '# S2 — The same step, at level one\n')));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /id S2 is declared twice in this skill/);
+});
+
+// Only a declaration opens a list item with an id in bold. A citation written as a bold lead-in
+// is read as a declaration, which is why the page tells authors to cite an id inside the sentence.
+test('verifier reads a bold lead-in that opens with an id as declaring it', async () => {
+  const leadIn = adaptableBody(goodRows, '## Pitfalls\n\n- **S2 skipped:** the evidence was never read.\n');
+  const result = await verify(await adaptableFixture(leadIn));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /id S2 is declared twice in this skill/);
+
+  const inSentence = adaptableBody(goodRows, '## Pitfalls\n\n- **Evidence skipped:** if S2 was skipped, the evidence was never read.\n');
+  assert.equal((await verify(await adaptableFixture(inSentence))).status, 0);
+});
