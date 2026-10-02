@@ -9,7 +9,8 @@ clarifications, missing facts. Replace the bracketed parts; keep the order.
 # [N] things I need from you — [what this is about]
 
 **[N] asks · depth: [brief | normal | deep]** — [what that means here: sheet only /
-detail under each / detail plus attached files.]
+detail under each / detail plus attached files; and which questions carry shots: every
+one about a screen.]
 
 [One or two sentences: where the asks came from, what is already settled, and that
 nothing else waits on this reader.]
@@ -40,10 +41,11 @@ Q7  why is [the thing] done this way? ............................. WHY: .......
 ## The detail
 
 Each item: what it looks like today, the options, our recommendation in **bold**,
-and [the per-item file / where the evidence sits].
+[the per-item file / where the evidence sits], and its shot when it is about a screen.
 
 ### Q1 · [title] — **YES/NO** *([item file numbers])*
 [What a reader sees today, quoted and measured.]
+[When it is about a screen: *Shot:* `Q1-[variant].png` and its overview — what the box holds.]
 [Whose request this answers, in their words.]
 **We recommend:** [one sentence.]
 [On silence: we do this / this one blocks.]
@@ -75,6 +77,22 @@ Proposed: "[your draft, in full — this is what they are approving.]"
 
 ---
 
+## Already settled — nothing here needs an answer
+
+[Every closed ledger row that concerns this reader, so nothing is asked twice. A closed
+question keeps the number it was asked by; one answered here before it was ever asked has
+no number and goes by its title; a new question takes the next unused number.]
+
+- **Q[n] · [title]** — answered by you, [date]: "[your words]". [What it released.]
+- **Q[n] · [title]** — answered by [person], [date]: "[their words]".
+- **Q[n] · [title]** — decided under [the ruling, who gave it, and when]: [the decision].
+- **Q[n] · [title]** — moved to [person], who holds it now.
+- **[title]** — answered here, not asked: [the evidence, in one line].
+
+[With nothing closed yet, keep the heading and write: nothing yet.]
+
+---
+
 ## Not for you, but worth raising
 
 - **[Person]:** [the question, one sentence, and what it blocks.]
@@ -93,7 +111,7 @@ and screens below are invented; the shape is what matters.
 ````markdown
 # 16 asks — [product] review
 
-**16 asks · depth: normal** — detail under each, no attached files.
+**16 asks · depth: normal** — detail under each; the eleven about a screen carry their shots.
 
 Two reviewers left 38 notes on production last week. Five are already fixed.
 **Sixteen need your answer** — nothing else is waiting on you; the rest is either
@@ -120,6 +138,7 @@ Q16 ship the annotation fix ahead of the data refresh .............. YES / NO
 ### Q5 · Order of recommended items — **CHOOSE** *(07)*
 They are alphabetical within each count today, so an item scoring 33.6 sits above
 one scoring 64.2.
+*Shot:* `Q5-results.png` and its overview — the first eight results boxed, scores visible.
 1. **Best rank first, then score**
 2. Score alone
 3. Number of new opportunities, then score
@@ -127,6 +146,7 @@ On silence: we build option 1.
 
 ### Q7 · "Active" in the card titles — **WHICH** *(26)*
 A reviewer flagged the title "[care by concern and active]" as unclear.
+*Shots:* `Q7-wide.png` and `Q7-narrow.png` — the title boxed in each layout it appears in.
 1. **"Active" means the active ingredient — we would retitle to "…and active ingredient"**
 2. "Active" means an active user segment — a different title entirely
 **We read it as 1.** Confirm, or point at the other.
@@ -136,6 +156,15 @@ Production is held for a data refresh, so the two reviewers who asked for
 box-level notes still cannot leave them. Two changes are ready and tested.
 **We recommend:** ship those ahead of the data.
 This one blocks: we will not push to production without a yes.
+
+## Already settled — nothing here needs an answer
+
+*Two of the nine rows are shown here. Neither was ever asked, so neither has a number.*
+
+- **Can the reseller rows be told apart from ours?** — answered here, not asked: the
+  export's channel column marks every one, so Q3 asks only how to count them.
+- **Why is the regional row missing?** — answered here, not asked: it is absent from
+  every version of the export, so it is a scope question for the data team.
 
 ## Not for you, but worth raising
 

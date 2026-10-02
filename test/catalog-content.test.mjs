@@ -632,6 +632,85 @@ test('onboard-project states its boundaries, its consent rule, and what it never
   assert.match(onboardProjectWrites, /Undo/);
 });
 
+test('request-answers shows the screen each question is about, gives the reader the settled rows, and can be adapted', async () => {
+  const requestAnswers = await read('skills/request-answers/SKILL.md');
+  const screens = await read('skills/request-answers/references/pointing-at-the-screen.md');
+  const answerSheet = await read('skills/request-answers/references/answer-sheet.md');
+  const itemFile = await read('skills/request-answers/references/item-file.md');
+  assert.ok(requestAnswers.includes('references/pointing-at-the-screen.md'), 'SKILL.md does not link the screen reference');
+  // The slots, hard lines and steps a project's overlay cites, each under its id.
+  assert.match(requestAnswers, /^## Bindings$/m);
+  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8']) assert.match(requestAnswers, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['H1', 'H2', 'H3', 'H4', 'H5']) assert.match(requestAnswers, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
+  for (const id of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']) assert.match(requestAnswers, new RegExp(`^\\d+\\. \\*\\*${id}\\. `, 'm'));
+  // Who sends, who may be messaged and how a screen is rendered are the project's to bind; every
+  // sibling the skill sends a request on to is a skill slot defaulting to the pack skill.
+  assert.match(requestAnswers, /^\| B2 \| who sends an ask to a person/m);
+  assert.match(requestAnswers, /^\| B3 \| who may be messaged at all \|/m);
+  assert.match(requestAnswers, /^\| B4 \| how a screen is rendered and shot \|/m);
+  assert.match(requestAnswers, /^\| B8 \| where a round's files are kept/m);
+  assert.match(requestAnswers, /\| B5 \|[^\n]*\| skill \| `decision-journal` \|/);
+  assert.match(requestAnswers, /\| B6 \|[^\n]*\| skill \| `report-progress` \|/);
+  assert.match(requestAnswers, /\| B7 \|[^\n]*\| skill \| `delphi-ground` \|/);
+  // An installed copy carries no docs/, so the guide is cited by a URL that resolves anywhere.
+  assert.match(requestAnswers, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+  // Nothing goes to a person on the run's own word, whatever a project binds.
+  assert.match(requestAnswers, /\*\*H3\. Nothing reaches a person on the run's own word\.\*\*/);
+  // The base change: a question about a screen carries its shot at every depth, brief and normal
+  // included, and the header example no longer promises a transcript-only brief.
+  assert.match(requestAnswers, /A question about something on a screen carries its shot\*\*, attached as a file at\s+every depth, brief and normal included/);
+  assert.doesNotMatch(requestAnswers, /no attached files/);
+  assert.match(requestAnswers, /With no renderer here/);
+  // The hunt-down pass: a decision with no standing ruling is a proposal, every claim that takes a
+  // question off is refuted first, and a question the recipient asked is not one for them.
+  assert.match(requestAnswers, /^- \*\*decided here\*\* — a judgement a standing ruling already settles/m);
+  assert.match(requestAnswers, /the decision you would take is a proposal to the person bound as B1/);
+  // While it waits on that ruling, the proposal is in neither part of the recipient's brief.
+  assert.match(requestAnswers, /in neither\s+the recipient's open lines nor their settled rows/);
+  assert.match(requestAnswers, /\*\*Every claim that takes a question off goes past a refuter\.\*\*/);
+  assert.match(requestAnswers, /A question they asked\s+you is not a question for them/);
+  // The reader gets the settled rows beside the open ones, and a question's number never moves.
+  assert.match(requestAnswers, /^Five parts, in this order\.$/m);
+  const parts = [...requestAnswers.matchAll(/^### (\d)\. (.+)$/gm)].map(([, number, title]) => `${number} ${title.split(' —')[0]}`);
+  assert.deepEqual(parts, ['1 The header', '2 The answer sheet', '3 The detail', '4 Already settled', '5 Not for you']);
+  assert.match(requestAnswers, /\*\*Ids never move\*\*/);
+  for (const [where, from] of [['template', answerSheet.indexOf('## Template')], ['worked example', answerSheet.indexOf('## Worked example')]]) {
+    const settled = answerSheet.indexOf('## Already settled — nothing here needs an answer', from);
+    const notForYou = answerSheet.indexOf('## Not for you', from);
+    assert.ok(from !== -1 && settled !== -1 && notForYou !== -1 && settled < notForYou, `the ${where} puts the settled rows before "Not for you"`);
+  }
+  assert.match(itemFile, /the shot by file name when the item is about a screen/);
+  // How a shot is taken, checked, and left out.
+  for (const lesson of [
+    /\*\*Two images per target\.\*\*/,
+    /\*\*Drawn by the renderer, in the page, before the capture\.\*\*/,
+    /\*\*Serve its data here too\.\*\*/,
+    /\*\*Pin the build the reader will look at\*\*/,
+    /\*\*Block every other host\.\*\*/,
+    /## When the target is not found, the shot fails/,
+    /\*\*Never a whole-screen\s+stand-in\*\*/,
+    /## Open every image/,
+    /## Every variant the question applies to/,
+    /\*\*A state only a signed-in reader sees\*\*/,
+    /\*\*Anything, when there is no renderer\.\*\*/,
+    /\*\*A screen there is no build of here\*\*/,
+    /## What the shooting reveals/,
+  ]) assert.match(screens, lesson);
+  // The same organisation markers as onboard-project's block above, read from that block so the
+  // two cannot drift and a new line need not restate them.
+  const ownSource = await read('test/catalog-content.test.mjs');
+  const markerSource = ownSource.match(/assert\.doesNotMatch\(onboardProject, \/(.+?)\/\);/);
+  assert.ok(markerSource, "onboard-project's block no longer checks for organisation markers");
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
+  const organisationMarkers = new RegExp(markerSource[1]);
+  for (const text of [requestAnswers, screens, answerSheet, itemFile]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
 // "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
 // the example would invoke a sibling skill they may not have. Nothing failed, because the tests

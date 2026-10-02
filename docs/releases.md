@@ -135,6 +135,58 @@ the catalogue's, and a per-skill tag's where the skill has one, with a major cha
 middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
 removing an id is major among its pitfalls, which is the only change to an installed skill.
 
+### `request-answers` shows the screen each question is about, gives the reader the answered rows, and can be adapted
+
+A question about something a reader sees, put in words alone ("the second sentence under the
+chart"), names a different sentence for every reader, and the answer comes back about the wrong
+one. `request-answers` now shows it. A question about a sentence, a tile, a row or a control
+carries two images at every depth: an overview of the screen with the thing boxed, so the reader
+can find it, and a close-up with the same box and a label naming the question. Brief and normal
+depth were transcript-only, so this changes the skill's base text, and the header now says which
+questions carry shots. A new reference,
+[`pointing-at-the-screen.md`](../skills/request-answers/references/pointing-at-the-screen.md),
+says how shots are taken and checked. The build is pinned to the commit the reader saw and
+rendered on the machine, with any data service it reads running there too, seeded locally, and
+every other host blocked. A live site, a hosted data service or a signed-in session is never
+shot. The renderer draws the box and the label in the page before the capture, and no image is
+changed afterwards. A target that is not found fails its shot rather than being replaced by a
+whole screen. Every image is opened before it goes, and every variant the question applies to is
+shot. A state only a signed-in reader sees, and a screen there is no build of here, are described
+in words. In an environment with no renderer,
+each question says in words where to look and the header says no shots travel, so the brief
+works there as it did. When the shooting shows something that disagrees with a record, it goes
+to the person the run answers to as a question, with its evidence. Nobody fixes it, and no
+question is quietly rewritten around it.
+
+The ledger kept the answered questions, but only for the asker, so the reader could be asked
+again what they had already answered. Every brief now carries a fourth part, "Already settled",
+before "Not for you". It lists the closed rows that concern this reader, each with how it
+closed, by whom, and the words or the evidence. Ids never move: a question keeps its number in
+every later brief, and a closed number is never used again, so a reply's "Q7" means one question
+for good. The brief's template and worked example carry both changes, and the per-item contract
+names the shot of an item about a screen.
+
+The hunt-down pass gains three rules. A judgement that a standing ruling already settles is
+"decided here", and leaves the ask with the ruling cited. Without such a ruling, the decision the
+run would take is a proposal to the person it answers to, and stays off the brief, as settled
+and as open, until they rule. Every claim that takes a question off goes past an independent refuter first.
+A question the recipient asked is not a question for them.
+
+The skill now says who sends an ask to a person. The run prepares the ask and never sends it on
+its own word: the person bound to send it sends it, or approves its exact text, recipients and
+attachments for sending. Unbound, that is whoever asked for the ask, and an ask to another agent
+is delivered by the run as before.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: eight slots, B1 to B8 (who the run answers to, who sends, who may be messaged, how a
+screen is rendered, the three sibling skills it points elsewhere to, `decision-journal`,
+`report-progress` and `delphi-ground`, and where a round's files are kept), five hard lines, H1 to
+H5, and its procedure as seven steps, S1 to S7. Every slot's default is what the skill does on its
+own. The shots and the settled rows add to what a brief carries, and drop nothing it carried
+before; in an environment with no renderer, brief and normal depth still attach no files. So this
+is new guidance, a minor change under [Versioning](#versioning). Nothing needs migrating: no
+project could adapt the skill before it declared these ids.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
