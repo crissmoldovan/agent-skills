@@ -128,8 +128,8 @@ that defaults to a skill this catalogue ships. No skill declares the section yet
 passed before fails now.
 
 The pins rely on a tag policy that had never been written down, and this file now carries it under
-[Tags](#tags): a published tag is never moved or deleted, and per-skill tags `<skill>-vX.Y.Z` may
-sit beside catalogue tags. Renaming or removing a declared id is a major change for that skill. The
+[Tags](#tags): a published tag is never moved or deleted, unless it carries personal or client
+data that has to be withdrawn, and per-skill tags `<skill>-vX.Y.Z` may sit beside catalogue tags. Renaming or removing a declared id is a major change for that skill. The
 page classes every change to a declared id as major, minor or patch, and says which number moves:
 the catalogue's, and a per-skill tag's where the skill has one, with a major change moving the
 middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
@@ -167,14 +167,21 @@ A tag is what a pinned install and an adapted project skill point at, so it is a
 
 - **A published tag is never moved or deleted.** Once pushed, a tag names the same commit for
   good. A release that turns out wrong is followed by a new version, never re-tagged, and the new
-  release's notes say what it corrects.
+  release's notes say what it corrects. The one exception is personal or client data, below.
 - **Catalogue tags** are `vX.Y.Z` and name a catalogue release. **Per-skill tags**
   `<skill>-vX.Y.Z` name one skill's release, where `<skill>` is the skill's directory name, and may
-  sit on the same commit as a catalogue tag; `workspace-governance-v0.1.0` and
-  `workspace-governance-v0.3.0` are such tags.
+  sit on the same commit as a catalogue tag. `workspace-governance-v0.1.0` and
+  `workspace-governance-v0.3.0` are per-skill tags; the second sits on the same commit as `v0.26.0`,
+  and the first on a commit of its own.
 - **A branch is never a release identity**, because it moves.
-- An accidental disclosure in a tagged commit is handled under [SECURITY.md](../SECURITY.md). The
-  credential is revoked, which is the only remedy once a tag has been fetched, and the tag stays.
+- **An accidental disclosure in a tagged commit** is reported and handled under
+  [SECURITY.md](../SECURITY.md).
+  - A credential is revoked, which is the only remedy once a tag has been fetched, and the tag
+    stays.
+  - Personal or client data cannot be revoked, so the tag that carries it may have to be deleted
+    and the data taken out of what the repository publishes, as that handling decides. A
+    replacement release then follows, and its notes say which tag was withdrawn and which version
+    replaces it, so a project pinned to the withdrawn tag knows to re-pin.
 
 ## Changelog and update communication
 

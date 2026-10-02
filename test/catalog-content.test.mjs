@@ -461,6 +461,9 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   const tags = section(releases, 'Tags');
   assert.match(tags, /A published tag is never moved or deleted/);
   assert.match(tags, /`<skill>-vX\.Y\.Z`/);
+  // A credential is revoked and the tag stays; personal or client data cannot be revoked.
+  assert.match(tags, /A credential is revoked[\s\S]*the tag\s+stays/);
+  assert.match(tags, /Personal or client data cannot be revoked[\s\S]*deleted/);
   assert.match(section(releases, 'Versioning'), /renaming or removing one of their ids is a major change for that skill/);
   assert.match(section(releases, 'Versioning'), /below 1\.0\.0, a major change moves its middle number/);
 

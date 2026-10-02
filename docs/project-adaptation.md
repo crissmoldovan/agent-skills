@@ -233,7 +233,8 @@ An adapted copy names the skill it came from by three identities:
 | the **sha256 of every file** carried | the bytes in the project | checked offline |
 
 - Record the commit a tag named, as well as the tag. [The tag policy](releases.md#tags) says a
-  published tag never moves; the recorded commit is how a project would notice if one did.
+  published tag never moves, and names the one case in which a tag is withdrawn; the recorded
+  commit is how a project would notice if one moved.
 - Checking the carried bytes against the record needs no network. Only checking that the tag still
   names the recorded commit, or looking for newer tags, does.
 - Moving a pin is a review. With the same tree there is nothing to read. With a changed tree, read
