@@ -104,6 +104,33 @@ worktrees. CONTRIBUTING asks for it before every push.
 
 Nothing installed changes. Both scripts are contributor tooling and ship in no skill.
 
+### A project can adapt a skill without forking it: binding slots, stable ids and the merge rules
+
+A project that uses a skill often needs it to carry its own values, hand work to its own skills
+and add the steps it has learned. Until now the only way to do that was to copy the skill and edit
+the copy, which then stops receiving fixes. [`docs/project-adaptation.md`](project-adaptation.md)
+is the contract for adapting a skill instead. A skill declares its **binding slots** in a
+`## Bindings` table, each with a kind (`value`, or `skill` for every handoff to a sibling skill) and
+a default, of which "ask once" is one. It names its **hard lines** `H1`, `H2` … and its **steps**
+`S1`, `S2` …, and these ids are names rather than positions, so they never move. A project's overlay
+binds slots, adds to steps by id and lists its own traps. The merge rules say what wins: a binding
+replaces a default and nothing else, an addition extends a step, and a hard line is never relaxed.
+The one override, `replaces:`, is explicit, says where its decision is recorded, and is refused on a
+hard line. The page also says how an adapted copy pins the skill it came from: a tag or a full commit
+sha, the skill folder's git tree, and the sha256 of every file. This change ships no composer; the
+page is the contract that any composer follows.
+
+`scripts/verify-skills.mjs` now checks every file under `skills/` that declares `## Bindings`, a
+reference file as much as `SKILL.md`. It requires well-formed ids, unique across the skill, one
+letter for all of a skill's slots, a known kind and a default for every slot, and a `skill` slot
+that defaults to a skill this catalogue ships. No skill declares the section yet, so nothing that
+passed before fails now.
+
+The pins rely on a tag policy that had never been written down, and this file now carries it under
+[Tags](#tags): a published tag is never moved or deleted, and per-skill tags `<skill>-vX.Y.Z` may
+sit beside catalogue tags. Renaming or removing a declared id is a major change for that skill.
+`publish-agent-skill` now says so among its pitfalls, which is the only change to an installed skill.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
@@ -123,6 +150,9 @@ Nothing installed changes. Both scripts are contributor tooling and ship in no s
 The repository version records public catalog releases. Use semantic impact:
 major for broken existing guidance/contracts, minor for new skills or substantive
 new guidance, and patch for corrections within an already-correct contract.
+The binding slots, hard lines and steps a skill declares for projects to adapt are such a
+contract: renaming or removing one of their ids is a major change for that skill, because
+every overlay that cites it stops composing ([project adaptation](project-adaptation.md#changing-a-skill-that-projects-adapt)).
 
 ## Tags
 

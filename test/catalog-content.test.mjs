@@ -182,6 +182,8 @@ test('publish-agent-skill is generic and external targets are explicit opt-ins',
   assert.match(publishAgentSkill, /explicitly (?:asks|requested|mentions)|opt[- ]in/i);
   assert.match(publishAgentSkill, /must not infer|do not infer|never infer/i);
   assert.match(publishAgentSkill, /repository policy.*(?:cannot|must not).*(?:select|authorize)|(?:cannot|must not).*(?:select|authorize).*repository policy/is);
+  // Projects adapt a skill by citing its ids, so moving one breaks them (docs/project-adaptation.md).
+  assert.match(publishAgentSkill, /binding-slot, hard-line and step\s+ids[\s\S]{0,80}renaming or removing one is a major\s+change for that skill/i);
   assert.doesNotMatch(publishAgentSkill, /cueplusplus\/skills|crissmoldovan\/agent-skills|cue:/i);
 });
 
@@ -432,6 +434,44 @@ test('a released version leaves no prose staged as unreleased', async () => {
     + `${entries.join(' | ')}. Move them into the release notes, or clear them if they already shipped.`,
   )
 })
+
+// A project adapts a skill by citing its ids and pinning it by tag, so the page that defines the
+// ids and the merge rules, the tag policy the pins rely on, and the rule that moving an id is a
+// major change have to stay written down, and the page has to stay free of a machine path, a real
+// address or a real zone. The verifier's half of the contract is in verify-skills.test.mjs.
+test('project adaptation: the ids, the merge rules and the tag policy stay written down', async () => {
+  const adaptation = await read('docs/project-adaptation.md');
+  const contributing = await read('CONTRIBUTING.md');
+
+  for (const id of ['`B1`', '`H1`', '`S1`']) assert.ok(adaptation.includes(id), `the page does not name ${id}`);
+  assert.match(adaptation, /^\| id \| slot \| kind \| default \|$/m);
+  assert.match(adaptation, /Every handoff to a sibling skill is a slot\s+of kind `skill`/);
+  assert.match(adaptation, /\*\*ask once\*\*/);
+  assert.match(adaptation, /An id is a name, not a position/);
+
+  const rules = section(adaptation, 'The merge rules');
+  assert.match(rules, /A binding replaces the default, and nothing else/);
+  assert.match(rules, /An addition extends its step/);
+  assert.match(rules, /A hard line is never relaxed/);
+  assert.match(rules, /`replaces:`[\s\S]*It is refused on an `H` id/);
+  assert.match(rules, /never takes its skill's name/);
+
+  assert.match(adaptation, /A branch is refused, because it moves/);
+  assert.match(adaptation, /\]\(releases\.md#tags\)/);
+  const tags = section(releases, 'Tags');
+  assert.match(tags, /A published tag is never moved or deleted/);
+  assert.match(tags, /`<skill>-vX\.Y\.Z`/);
+  assert.match(section(releases, 'Versioning'), /renaming or removing one of their ids is a major change for that skill/);
+
+  for (const [where, text] of [['CONTRIBUTING.md', contributing], ['README.md', readme], ['docs/architecture.md', architecture]]) {
+    assert.match(text, /project-adaptation\.md/, `${where} does not point at docs/project-adaptation.md`);
+  }
+
+  // Names have no shape a public test can hold; scripts/scan-denylist.mjs reads for those.
+  assert.doesNotMatch(adaptation, /~\/work\//);
+  for (const address of adaptation.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+  assert.doesNotMatch(adaptation, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+});
 
 test('layer-repository-docs carries no organisation marks and states what it does not own', () => {
   assert.doesNotMatch(layerRepositoryDocs, /\bCUE\b|\bRGC\b/);

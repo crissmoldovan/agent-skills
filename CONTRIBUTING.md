@@ -65,6 +65,17 @@ description: Use when the agent needs to perform a specific, reusable workflow.
 
 Keep local links relative to the skill directory. Do not link to files outside that directory. Do not include absolute local paths, tokens, private endpoints, or secrets.
 
+### A skill a project can adapt
+
+A project can adapt a skill instead of forking it: it binds the skill's slots and adds to its
+steps, and the skill's own text reaches it unchanged. A skill that allows this declares a
+`## Bindings` table of slots, each with a default, makes every handoff to a sibling skill a slot
+of kind `skill`, and gives its hard lines `H` ids and its steps `S` ids, as
+[project adaptation](docs/project-adaptation.md) describes. `scripts/verify-skills.mjs` checks
+every file that declares the section. An id is a name, not a position: renaming or removing one
+is a major change for that skill, and a published tag is never moved or deleted
+([Tags](docs/releases.md#tags)).
+
 ## Adapters and hooks
 
 `adapters/` holds harness-specific code that runs outside the conversation — today

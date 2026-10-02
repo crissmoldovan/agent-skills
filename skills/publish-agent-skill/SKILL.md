@@ -246,6 +246,9 @@ each release independently, and do not infer any additional mirror or sidecar.
   actual multi-skill layout.
 - **Description drift:** package README/catalog copy must match frontmatter where
   the target enforces it.
+- **Id renamed in a minor release:** a skill's binding-slot, hard-line and step
+  ids are what projects adapt it by, so renaming or removing one is a major
+  change for that skill.
 - **README/changelog treated as cleanup:** catalogue README, human release notes,
   and actionable update guidance are release artifacts, not optional follow-up.
 - **Review of stale head:** only current-head evidence satisfies the gate.

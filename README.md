@@ -887,6 +887,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 
 - [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership, where progress reports draw their evidence, and where external-repository work sits.
 - [`docs/blocks.md`](docs/blocks.md) — Blocks REST/GitHub separation.
+- [`docs/project-adaptation.md`](docs/project-adaptation.md) — adapting a skill to one project without forking it: binding slots, hard-line and step ids, the merge rules, and how the adapted copy pins its skill.
 - [`skills/release-ledger/references/system-model.md`](skills/release-ledger/references/system-model.md) — release-ledger system model.
 - [`skills/github-webhooks/references/event-types.md`](skills/github-webhooks/references/event-types.md) — webhook event reference.
 - [`skills/describe-changes/references/output-contract.md`](skills/describe-changes/references/output-contract.md) — change-description contract.

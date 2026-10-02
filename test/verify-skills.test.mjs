@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
@@ -522,6 +522,33 @@ test('verifier ignores fenced examples and files that declare no Bindings', asyn
   const result = await verify(root);
 
   assert.equal(result.status, 0, result.stderr);
+});
+
+// The page that defines the convention shows a skill declaring it, and lists the placeholders the
+// verifier refuses as a default. Its example has to pass the verifier inside this catalogue, and
+// each placeholder it names has to be refused, so the page and the check cannot drift apart.
+test('the project-adaptation page: its example passes in this catalogue, and every placeholder it names is refused', async () => {
+  const page = await readFile(path.join(repository, 'docs', 'project-adaptation.md'), 'utf8');
+  const example = page.slice(page.indexOf('## Declaring them')).match(/```markdown\n([\s\S]*?)\n```/)[1];
+  const withExample = (fallback) => `---\nname: valid-skill\ndescription: Valid fixture\n---\n\n${example.replace('| value | UTC only |', `| value | ${fallback} |`)}\n`;
+  const root = await fixture();
+  await cp(path.join(repository, 'skills'), path.join(root, 'skills'), { recursive: true });
+  const skill = path.join(root, 'skills', 'valid-skill', 'SKILL.md');
+
+  await writeFile(skill, withExample('UTC only'));
+  const passed = await verify(root);
+  assert.equal(passed.status, 0, passed.stderr);
+
+  const listed = page.match(/a slot has no default \(([^)]*)\)/);
+  assert.ok(listed, 'the page lists the placeholders it says are refused');
+  const placeholders = [...listed[1].matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+  assert.ok(placeholders.length >= 4, `too few placeholders read from the page: ${placeholders.join(', ')}`);
+  for (const placeholder of [...placeholders, '', '-']) {
+    await writeFile(skill, withExample(placeholder));
+    const refused = await verify(root);
+    assert.equal(refused.status, 1, `the page says "${placeholder}" is refused as a default, and it passed`);
+    assert.match(refused.stderr, /slot B2 has no default/);
+  }
 });
 
 test('verifier refuses a file that declares Bindings twice, and a slot that does not say what it holds', async () => {
