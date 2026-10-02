@@ -2,7 +2,7 @@
 name: request-answers
 description: "The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth."
 license: MIT
-compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item; brief and normal are transcript-only but for the shot each question about a screen carries, taken with a local browser. Output is the brief, optional item files and shots, and a ledger row per question."
+compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item; brief and normal are transcript-only but for the images a question about a screen carries, rendered on this machine. Output is the brief, optional item files and shots, and a ledger row per question."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
@@ -48,6 +48,7 @@ describes. A slot nobody binds keeps its default.
 | B5 | where the reasons behind a decision that comes back are recorded | skill | `decision-journal` |
 | B6 | where a reader is told how long-running work stands | skill | `report-progress` |
 | B7 | where a briefing of verified facts is built before anyone reasons about an artefact | skill | `delphi-ground` |
+| B8 | where a round's files are kept: the item files, index and ledger of deep depth, and the shots with their specifications and render record | value | a folder of the round's own, beside the work the asks are about; never a temporary folder |
 
 ## Hard lines
 
@@ -60,19 +61,20 @@ describes. A slot nobody binds keeps its default.
   text, those recipients and those attachments for sending, and only to recipients B3 allows;
   nobody else is copied in. An ask changed after the approval is approved again.
 - **H4. A shot shows exactly what its question is about, or there is no shot.** Never a
-  whole-screen stand-in for a target that was not found, never an edited image, and never a
+  whole-screen stand-in for a target that was not found, never an image changed after it was
+  taken (the renderer draws the box and label in the page, before the capture), and never a
   live site or a signed-in session.
 - **H5. What the run decides or finds on its own is a proposal.** A question decided here
   without a standing ruling, and anything the shooting shows that disagrees with a record, go
-  to the person bound as B1 with their evidence. Neither is fixed, or written into a brief as
-  settled, until that person rules.
+  to the person bound as B1 as a question, with their evidence. Neither is fixed, or written
+  into a brief as settled, until that person rules.
 
 ## Procedure
 
 1. **S1. Collect the candidates.** Every question the work waits on, each with where it came
    from. Split a point with several parts into one question per part. A question they asked
-   you is not a question for them: it is yours to answer, or someone else's. When an
-   instruction could mean either, ask the person bound as B1.
+   you is not a question for them: it is yours to answer, or someone else's. When it is unclear
+   whether a question is one for them or one they asked, ask the person bound as B1.
 2. **S2. Hunt each one down and sort it**, as the iron rule below says. Every claim that takes
    a question off the list goes past an independent refuter first.
 3. **S3. Pick the depth** from what the recipient needs to answer.
@@ -102,21 +104,25 @@ Sort each candidate into one of five:
 - **decided here** — a judgement a standing ruling already settles: cite the ruling, who gave
   it and for what, and it leaves the ask. A ruling covers only what it was given for. With
   none, the decision you would take is a proposal to the person bound as B1 (H5), and the
-  question leaves the ask only when they rule
+  question leaves the ask only when they rule. Until then it waits in the ledger, in neither
+  the recipient's open lines nor their settled rows, and if they rule that it is the
+  recipient's to answer, it joins the open ones
 - **needs their judgement** — a preference, a name, a trade-off, a sign-off
 - **needs their access** — a truth only their system, scrape or inbox holds
 - **needs their intent** — why they did it this way, or which of two readings is meant
 
-Only the last three reach the recipient. Keep the answered and decided ones in the ledger:
-that is the record that a question was closed rather than forgotten, and it stops the same
-question being asked next week.
+Only the last three reach the recipient as questions. The answered and decided ones reach
+them only as settled rows, and a proposal waiting on B1 not at all. Keep all of them in the
+ledger: that is the record that a question was closed rather than forgotten, and it stops the
+same question being asked next week.
 
 **Every claim that takes a question off goes past a refuter.** Give each "answered here" and
 "decided here" claim, with its evidence, to an independent refuter: another agent, or a person,
 who did not make it and is asked to break it. Re-check every claim yourself as well, upheld or
 not, and when a refuter overturns one, re-run its evidence before believing either side. With
-no refuter available, the claims go to the person bound as B1 marked unrefuted. In one run,
-forty-nine open questions came to forty open, six answered and three decidable, and a refuter
+no refuter available, the claims go to the person bound as B1 marked unrefuted. A person used
+as a refuter is being messaged, so B3 and H3 apply to them as to any recipient. In one run,
+forty-nine open questions came to forty open, six answered and three decided here, and a refuter
 caught the run's own claim that a colleague's mapping was wrong — it agreed on every row —
 before the claim reached them.
 
@@ -183,7 +189,7 @@ Three things, in two lines. The depth line is a required slot: agents given this
 skill wrote the brief correctly and silently dropped the depth, so it is a field to
 fill in rather than a rule to remember.
 
-> **16 asks · depth: normal** — detail under each; the eleven about a screen carry a shot.
+> **16 asks · depth: normal** — detail under each; the eleven about a screen carry their shots.
 >
 > Nothing else is waiting on you. **Nine are a yes/no**; **five need you to choose
 > or write something**; **two are readings to confirm.**
@@ -223,10 +229,11 @@ Keep a section to what fits on a phone screen. Longer belongs in the item file.
 ### 4. Already settled
 
 The ledger's closed rows that concern this reader, headed *"nothing here needs an
-answer"*: each with the number it was asked by, how it closed — their answer, someone
-else's, a ruling, evidence found here, or a move to someone else — by whom and when,
-and the words or the evidence quoted. It stops them being asked twice, and shows them
-that what they said landed. With nothing closed yet, write the one line —
+answer"*: each under the number it was asked by (one closed here before it was ever
+asked has none, and goes by its title), how it closed — their answer, someone else's, a
+ruling, evidence found here, or a move to someone else — by whom and when, and the words
+or the evidence quoted. It stops them being asked twice, and shows them that what they
+said landed. With nothing closed yet, write the one line —
 *"Already settled: nothing yet."*
 
 ### 5. Not for you
@@ -263,9 +270,9 @@ in a second, the first is homework.
 
 ## Deep depth: a file per item
 
-Every file follows one contract, the brief links each item to its file, and an index
-beside them carries a row per item — number, title, state, owner — with a tally of
-where things stand. The contract and a template are in
+Every file follows one contract and sits in the round's folder (B8), the brief links
+each item to its file, and an index beside them carries a row per item — number, title,
+state, owner — with a tally of where things stand. The contract and a template are in
 [references/item-file.md](references/item-file.md); the brief's own template and a
 worked example are in [references/answer-sheet.md](references/answer-sheet.md).
 
@@ -280,9 +287,11 @@ still open after S2, with the renderer B4 names:
 
 - **Two images per target**, attached at every depth: an overview of the screen with a
   box around the thing, so the reader can find it, and a close-up with the same box and
-  a label naming the question by its number.
-- **A pinned build of what the reader will look at**, rendered on this machine with
-  every other host blocked. Never a live site, and never a signed-in session.
+  a label naming the question by its number. The renderer draws both in the page before
+  the capture; nothing is added to an image afterwards.
+- **A pinned build of what the reader will look at**, rendered on this machine, with any
+  data it reads served here too, and every other host blocked. Never a live site, and never
+  a signed-in session.
 - **A target that is not found fails the shot.** No image, and never a whole-screen
   stand-in: a missing image reads as no evidence, a whole screen as evidence of the
   wrong thing.
@@ -290,13 +299,13 @@ still open after S2, with the renderer B4 names:
   label names the right question.
 - **Every variant the question applies to** is shot: each layout, category or role it
   covers.
-- **A state only a signed-in reader sees** is described in words, saying why there is
-  no shot.
+- **A state only a signed-in reader sees**, or a screen there is no build of to serve here,
+  is described in words, saying why there is no shot.
 - **With no renderer here**, and none named when asked (B4), each question says in words
   where to look, and the header says that no shots travel.
 - **What the shooting shows that disagrees with a record** goes to the person bound as
-  B1 as a finding, with its evidence (H5): not fixed, and not written into a question as
-  settled.
+  B1 as a question, with the finding's evidence (H5): not fixed, and not written into a
+  question as settled.
 
 The method, and what is recorded beside each image, are in
 [references/pointing-at-the-screen.md](references/pointing-at-the-screen.md).
@@ -346,7 +355,7 @@ one question for good.
 
 - [ ] Every item needs someone: none is answerable from the system
 - [ ] Every claim that took a question off went past an independent refuter, and was re-checked
-- [ ] Nothing decided here without a standing ruling is in the brief as settled
+- [ ] Nothing decided here without a standing ruling is in the brief, as settled or as open, before the person bound as B1 rules
 - [ ] The header's depth slot is filled in, and matches what the recipient needs
 - [ ] The answer sheet can be answered without the detail
 - [ ] Every line has one question and one place to answer
@@ -355,7 +364,7 @@ one question for good.
 - [ ] Every item has one recommendation, or is honestly marked CHOOSE, WRITE, WHICH or EXPLAIN
 - [ ] No WRITE line asks for something you could have drafted
 - [ ] The header's count matches the sheet's lines
-- [ ] The settled part lists every closed row that concerns this reader, under its number
+- [ ] The settled part lists every closed row that concerns this reader, under the number it was asked by where it had one
 - [ ] The closing section exists — with the other owners named, or the one line saying there are none
 - [ ] Silence has a stated consequence for every item
 - [ ] At deep depth: every item links to a file, and the index lists them all

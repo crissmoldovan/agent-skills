@@ -640,7 +640,7 @@ test('request-answers shows the screen each question is about, gives the reader 
   assert.ok(requestAnswers.includes('references/pointing-at-the-screen.md'), 'SKILL.md does not link the screen reference');
   // The slots, hard lines and steps a project's overlay cites, each under its id.
   assert.match(requestAnswers, /^## Bindings$/m);
-  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7']) assert.match(requestAnswers, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8']) assert.match(requestAnswers, new RegExp(`^\\| ${id} \\|`, 'm'));
   for (const id of ['H1', 'H2', 'H3', 'H4', 'H5']) assert.match(requestAnswers, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
   for (const id of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']) assert.match(requestAnswers, new RegExp(`^\\d+\\. \\*\\*${id}\\. `, 'm'));
   // Who sends, who may be messaged and how a screen is rendered are the project's to bind; every
@@ -648,6 +648,7 @@ test('request-answers shows the screen each question is about, gives the reader 
   assert.match(requestAnswers, /^\| B2 \| who sends an ask to a person/m);
   assert.match(requestAnswers, /^\| B3 \| who may be messaged at all \|/m);
   assert.match(requestAnswers, /^\| B4 \| how a screen is rendered and shot \|/m);
+  assert.match(requestAnswers, /^\| B8 \| where a round's files are kept/m);
   assert.match(requestAnswers, /\| B5 \|[^\n]*\| skill \| `decision-journal` \|/);
   assert.match(requestAnswers, /\| B6 \|[^\n]*\| skill \| `report-progress` \|/);
   assert.match(requestAnswers, /\| B7 \|[^\n]*\| skill \| `delphi-ground` \|/);
@@ -664,6 +665,8 @@ test('request-answers shows the screen each question is about, gives the reader 
   // question off is refuted first, and a question the recipient asked is not one for them.
   assert.match(requestAnswers, /^- \*\*decided here\*\* — a judgement a standing ruling already settles/m);
   assert.match(requestAnswers, /the decision you would take is a proposal to the person bound as B1/);
+  // While it waits on that ruling, the proposal is in neither part of the recipient's brief.
+  assert.match(requestAnswers, /in neither\s+the recipient's open lines nor their settled rows/);
   assert.match(requestAnswers, /\*\*Every claim that takes a question off goes past a refuter\.\*\*/);
   assert.match(requestAnswers, /A question they asked\s+you is not a question for them/);
   // The reader gets the settled rows beside the open ones, and a question's number never moves.
@@ -680,6 +683,8 @@ test('request-answers shows the screen each question is about, gives the reader 
   // How a shot is taken, checked, and left out.
   for (const lesson of [
     /\*\*Two images per target\.\*\*/,
+    /\*\*Drawn by the renderer, in the page, before the capture\.\*\*/,
+    /\*\*Serve its data here too\.\*\*/,
     /\*\*Pin the build the reader will look at\*\*/,
     /\*\*Block every other host\.\*\*/,
     /## When the target is not found, the shot fails/,
@@ -688,6 +693,7 @@ test('request-answers shows the screen each question is about, gives the reader 
     /## Every variant the question applies to/,
     /\*\*A state only a signed-in reader sees\*\*/,
     /\*\*Anything, when there is no renderer\.\*\*/,
+    /\*\*A screen there is no build of here\*\*/,
     /## What the shooting reveals/,
   ]) assert.match(screens, lesson);
   // The same organisation markers as onboard-project's block above, read from that block so the

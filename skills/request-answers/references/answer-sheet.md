@@ -9,8 +9,8 @@ clarifications, missing facts. Replace the bracketed parts; keep the order.
 # [N] things I need from you — [what this is about]
 
 **[N] asks · depth: [brief | normal | deep]** — [what that means here: sheet only /
-detail under each / detail plus attached files; and how many shots travel, one for each
-question about a screen.]
+detail under each / detail plus attached files; and which questions carry shots: every
+one about a screen.]
 
 [One or two sentences: where the asks came from, what is already settled, and that
 nothing else waits on this reader.]
@@ -80,7 +80,8 @@ Proposed: "[your draft, in full — this is what they are approving.]"
 ## Already settled — nothing here needs an answer
 
 [Every closed ledger row that concerns this reader, so nothing is asked twice. A closed
-question keeps the number it was asked by; a new question takes the next unused one.]
+question keeps the number it was asked by; one answered here before it was ever asked has
+no number and goes by its title; a new question takes the next unused number.]
 
 - **Q[n] · [title]** — answered by you, [date]: "[your words]". [What it released.]
 - **Q[n] · [title]** — answered by [person], [date]: "[their words]".
@@ -110,7 +111,7 @@ and screens below are invented; the shape is what matters.
 ````markdown
 # 16 asks — [product] review
 
-**16 asks · depth: normal** — detail under each; the eleven about a screen carry a shot.
+**16 asks · depth: normal** — detail under each; the eleven about a screen carry their shots.
 
 Two reviewers left 38 notes on production last week. Five are already fixed.
 **Sixteen need your answer** — nothing else is waiting on you; the rest is either
@@ -158,7 +159,7 @@ This one blocks: we will not push to production without a yes.
 
 ## Already settled — nothing here needs an answer
 
-*Two of the nine rows are shown here.*
+*Two of the nine rows are shown here. Neither was ever asked, so neither has a number.*
 
 - **Can the reseller rows be told apart from ours?** — answered here, not asked: the
   export's channel column marks every one, so Q3 asks only how to count them.
