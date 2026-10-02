@@ -82,8 +82,9 @@ not use it for an internal branch merge nobody outside the repository can observ
 ## Bindings
 
 A project can adapt this skill without copying it: it binds these slots and adds to the steps by
-their ids, as the pack's project-adaptation guide (`docs/project-adaptation.md`) describes. A slot
-nobody binds keeps its default.
+their ids, as the pack's
+[project-adaptation guide](https://github.com/crissmoldovan/agent-skills/blob/main/docs/project-adaptation.md)
+describes. A slot nobody binds keeps its default.
 
 | id | slot | kind | default |
 |---|---|---|---|
@@ -94,6 +95,7 @@ nobody binds keeps its default.
 | B5 | who rules the number: the person whose word sets the version when it departs from the impact analysis | value | nobody: the impact analysis alone sets the number, as S3 says |
 | B6 | where the description of a change that already landed comes from | skill | `describe-changes` |
 | B7 | where a what's-new feature inside a product is built, a request this skill sends on | skill | `release-ledger` |
+| B8 | where a product with no API keeps its was-and-now ledger | value | the one the project keeps, found by reading its changelog source, a table of changes the product renders or its release record; with none, the draft of the note |
 
 ## Hard lines
 
@@ -104,9 +106,9 @@ nobody binds keeps its default.
   matches the analysis, or the note records both readings and the ruling of the person bound as
   B5. A ruling is that person's word, never the agent's own.
 - **H3. The words describing a change are never reworded to move its number.** When a bump judge
-  disagrees, fix the number or overrule the judge on the record. Words that are untrue are
-  corrected, even when the correction moves the number, and the correction is recorded with its
-  reason (`references/versioning-a-product.md`).
+  disagrees, correct the analysis and the number, or overrule the judge on the record. Words that
+  are untrue are corrected, even when the correction moves the number, and the correction is
+  recorded with its reason (`references/versioning-a-product.md`).
 - **H4. Nothing in this skill installs or arms the gate.** The user runs its installer, or
   nobody does.
 
@@ -117,7 +119,7 @@ nobody binds keeps its default.
    judgement computed from the working tree counts every uncommitted change, and another session
    may be writing in the same checkout: read `git status` before trusting it.
 2. **The change itself, in enough detail to state an impact.** A diff, a PR, or a
-   `describe-changes` output. A note written from a branch name is a guess.
+   `describe-changes` (B6) output. A note written from a branch name is a guess.
 3. **The destinations this project uses**, discovered rather than assumed — see below.
 4. **The previous note for this project**, so the new one matches its shape and does not
    contradict it.
@@ -137,7 +139,8 @@ Answer each before writing the Impact part. State "none" explicitly for the load
   broken or never seen. `references/versioning-a-product.md` has the levels, the was-and-now
   ledger they are read from, pre-release numbers and a renumbering restart.
 - **Migration** — if anything breaks, the exact steps a consumer takes. If nothing breaks, say
-  "no migration, existing call sites are unchanged."
+  "no migration, existing call sites are unchanged." With no API, the steps are a reader's: where
+  a moved screen or figure is now, and what replaces what was removed.
 - **Blast radius** — who is affected: downstream packages in this repo, external consumers, a
   specific adopter. Name them.
 - **Dependency / distribution effects** — peer-dep range changes, a new required peer, npm
@@ -172,17 +175,19 @@ part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* a
    `describe-changes` output (B6). Complete when you can name the package, the version, and the
    surface that moved.
 2. **S2. Run the impact analysis above, in writing.** For a product with no API, write the
-   ledger first: one was-and-now entry per change a reader can reach. Complete when every
+   ledger first (B8): one was-and-now entry per change a reader can reach. Complete when every
    bullet has an answer, including the explicit "none"s, and, for a product with no API, every
    change a reader can reach has its ledger entry.
 3. **S3. Settle the semver bump against that answer, not against the plan.** If they disagree,
    change the bump or change the release, unless the person bound as B5 names a number that
    departs from the analysis: show them what the analysis found, and if they keep their number,
-   stamp theirs and write down both readings and the ruling for the note (H2). A bump judge (B4)
-   is advice: read the words it quotes, then fix the number or overrule the judge on the record,
-   never by rewording a change (H3). Complete when the version in the manifest matches the impact
-   you just wrote down, or both readings and the ruling are written down for S5 to carry into
-   the note.
+   stamp theirs and write down both readings and the ruling for the note (H2). If they cannot be
+   shown it before the release, the release waits for their answer: stamping either number
+   without it would be the agent's ruling, not theirs. A bump judge (B4) is advice: read the
+   words it quotes, then correct the analysis and the number, or overrule the judge on the
+   record, never by rewording a change (H3). Complete when the version in the manifest matches
+   the impact you just wrote down, or both readings and the ruling are written down for S5 to
+   carry into the note.
 4. **S4. Discover every destination.** Complete when you have a list, and each item is a path or a
    URL rather than a category.
 5. **S5. Write the note once**, in the three parts, and adapt it per destination without letting

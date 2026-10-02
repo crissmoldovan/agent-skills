@@ -42,9 +42,10 @@ because a judge, if the project runs one, reads them. A change no reader could r
 entry. One they could reach needs an entry even when it was never linked or never noticed, and the
 entry says so: without those words, a removal reads as a major.
 
-Where the ledger lives is the project's: a changelog source file, a table of changes the product
-renders, a section of the release record. A project that keeps none writes it into the draft of
-the note, and its was and now pairs become the Impact part.
+Where the ledger lives is the project's, and `release-notes` takes it as the slot B8: a changelog
+source file, a table of changes the product renders, a section of the release record. A project
+that keeps none writes it into the draft of the note, and its was and now pairs become the Impact
+part.
 
 ## A bump judge is advice
 
@@ -56,10 +57,15 @@ check, never a ruling.
 1. Run it, and read the words it quotes for each change, not only the level it prints.
 2. When it agrees with the impact analysis, it has added a check and nothing else.
 3. When it disagrees, decide which of the two is wrong, and do exactly one of these:
-   - **the number is wrong**: fix it everywhere it is stamped: the manifest, the release record,
-     the note's heading, and any file named after the version;
+   - **the analysis is wrong**: correct it, then fix the number everywhere it is stamped: the
+     manifest, the release record, the note's heading, and any file named after the version;
    - **the judgement is wrong**: overrule it on the record, with a line in the release record or
-     the note that says why the number is right, where review will see it.
+     the note that says why the analysis is right, where review will see it.
+
+   Compare the judge with the analysis, never with a number the person bound as B5 has ruled.
+   Where such a ruling stands, a corrected analysis does not move their number: show it to them
+   again, as the section below says. A judge that agrees with the analysis and not with the ruled
+   number is step 2, and its words go beside the two readings the ruling records (below).
 4. Never reword the ledger to move the number (hard line H3). The ledger's words reach readers. A
    judge satisfied by changed words is now reading something untrue, and so is everyone after it.
    An entry that is untrue is another matter: correct it, even when the correction moves the
@@ -77,8 +83,10 @@ A project may say who decides the version: a maintainer, a release manager, the 
 is cut for. `release-notes` takes that person as the slot B5. When they name a number that departs
 from what the impact analysis found, show them what it found, and the words a judge quoted if one
 ran: a number named before the analysis existed may not survive reading it. If they keep their
-number, that is their ruling, and it is the number stamped. The note still tells the truth,
-because it records both readings (hard line H2):
+number, that is their ruling, and it is the number stamped. If they cannot be shown it before the
+release, because they are away or cannot be reached, the release waits for their answer: stamping
+their number unseen, or the analysis's instead, would be the agent's ruling, not theirs. The note
+still tells the truth, because it records both readings (hard line H2):
 
 - the level the impact analysis found, and the change it was found from;
 - the number ruled, who ruled it, their words, and when;
