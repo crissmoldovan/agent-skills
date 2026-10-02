@@ -219,14 +219,22 @@ const CHECK_10_WORDS = [
   "A link inside fenced code is checked like any other, as the pack's verifier checks a skill's files",
   'a link the check skipped would be checked by nothing, and no reading of fences by hand matches CommonMark',
   'An example that shows a path writes it as code, such as `docs/guide.md`, not as a link',
+  'A link written from the root, such as `/docs/guide.md`, is refused: it is written from the file that holds it',
 ];
 const NO_FENCE_EXEMPTION = /is an example and is not checked|so it is not\s+checked|skipped only when every reading|read every way it could\s+be meant|carried as written/;
 // Check 5's heading rule, as both documents state it: outside the addition to a hard line, no
-// heading in any shape opens with its id, fenced or not; one that only names it is for review.
+// heading in any shape names its id, wherever it sits and however far it is indented, fenced or
+// not, and no line opens with one in bold. Nothing about a heading is left to review alone.
 const CHECK_5_HEADING_WORDS = [
-  'in any shape Markdown gives a heading: a `#` heading at any level, in a quote or a list item, an underlined line, a line that is only bold, or an HTML heading, indented up to three columns, fenced or not',
-  'A heading that names a hard line further in, or is indented four columns or more, is listed for review, and refused when it or the paragraph under it is written in the words of an exception',
+  'wherever the id sits in it, in any shape Markdown gives a heading: a `#` heading at any level, in a quote or a list item, an underlined paragraph, a paragraph that is only bold, or an HTML heading, at any indent, fenced or not',
+  'opens with one in bold, the form a skill declares it in',
 ];
+// What check 5 reads an id and an exception in: a sentence whole, as a reader sees it.
+const CHECK_5_READING_WORDS = [
+  'in the same sentence, read whole over the lines it wraps across, or opening the sentence after it',
+  'read as a reader sees them: through emphasis, character references, invisible characters and markup between letters',
+];
+const CHECK_5_NO_REVIEW_ONLY = /listed for review, and refused when it or the paragraph under it|indented up to three columns|opens a heading with one|every heading that names one/;
 const wrapped = (words) => new RegExp(words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+'));
 // The overlay rules both documents state: a fence closes inside its part, or the overlay is
 // refused, and an addition's heading starts at the left margin.
@@ -258,8 +266,10 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
   // Check 10 reads every link, fenced code included, and says why. Check 5 reads an addition's
   // heading with its text.
-  assert.match(checks.match(/^\| 5 \|.*$/m)?.[0] ?? '', /no addition to a hard line, its heading included, or overlay line naming one/);
-  for (const words of CHECK_5_HEADING_WORDS) assert.ok((checks.match(/^\| 5 \|.*$/m)?.[0] ?? '').includes(words), `check 5 in the guide does not say: ${words}`);
+  const fifth = checks.match(/^\| 5 \|.*$/m)?.[0] ?? '';
+  assert.match(fifth, /no addition to a hard line, its heading included, or paragraph naming one/);
+  for (const words of [...CHECK_5_HEADING_WORDS, ...CHECK_5_READING_WORDS]) assert.ok(fifth.includes(words), `check 5 in the guide does not say: ${words}`);
+  assert.doesNotMatch(adapting, CHECK_5_NO_REVIEW_ONLY);
   const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
   for (const words of CHECK_10_WORDS) assert.ok(linkCheck.includes(words), `check 10 in the guide does not say: ${words}`);
   assert.doesNotMatch(adapting, NO_FENCE_EXEMPTION);
@@ -574,8 +584,9 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   for (const words of [OVERLAY_FENCE_WORDS, OVERLAY_HEADING_WORDS]) {
     assert.match(adaptation, new RegExp(words.replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
   }
-  assert.match(adaptation, /adds to one in the words of an exception,\s+in its heading or under it,\s+opens a heading with one outside the addition to it,/);
+  assert.match(adaptation, wrapped('adds to one in the words of an exception, in its heading or under it, names one in a heading or opens a line with one in bold outside the addition to it,'));
   for (const words of CHECK_5_HEADING_WORDS) assert.match(rules, wrapped(words), `the merge rules do not say: ${words}`);
+  assert.doesNotMatch(adaptation, CHECK_5_NO_REVIEW_ONLY);
   assert.match(adaptation, /or\s+leaves\s+a\s+fence\s+open\s+past\s+the\s+addition\s+or\s+section\s+it\s+opens\s+in\./);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
   assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);

@@ -12,10 +12,13 @@ import {
   EXIT_OK,
   LOCK_FILE,
   PACK_COMPOSER_PATH,
+  composeAdapted,
   headingsIn,
+  linkProblems,
   newerTags,
   parseArguments,
   parseOverlay,
+  readBase,
   relativeLinks,
   rewriteEntryLinks,
   runCheck,
@@ -547,26 +550,30 @@ const REFUSALS = [
   {
     name: 'an addition heading that names a hard line with an exception word',
     refused: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 does not apply to\n') },
-    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 holds for too\n') },
+    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1\nH1 holds for this step too.\n') },
     message: /\[5\] overlay line 10 names H1 and reads as relaxing it \("does not apply"\)/,
   },
   {
     name: 'an addition heading indented, which Markdown still reads as a heading',
     refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n  ### H1\nExcept when the owner is away: then reply automatically.\n') },
-    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### H1, shown as indented code\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### S2, shown as indented code\n') },
     message: /\[adapter\] overlay line 13: "### H1" is indented, and Markdown still reads it as a heading/,
   },
-  // A heading names what the lines under it are about. One whose first word is a hard line's id,
-  // anywhere but the addition to that hard line, would show text for that hard line that no check
-  // reads as an addition to it, whatever the heading's shape and whether or not it sits in fenced
-  // code. One that names a hard line further in, or is indented four columns, is listed for review,
-  // and read with the paragraph under it for the words of an exception.
+  // A heading names what the lines under it are about. One that names a hard line, anywhere but the
+  // addition to that hard line, would show text for that hard line that no check reads as an
+  // addition to it, whatever the heading's shape, wherever the id sits in it, however far it is
+  // indented and whether or not it sits in fenced code. A sentence names a hard line instead.
   {
     name: 'a heading for a hard line under the project traps',
     refused: { overlay: `${OVERLAY}\n### H1\nExcept when the owner is away: then reply automatically.\n` },
-    accepted: { overlay: `${OVERLAY}\n### Keeping H1 on the release mailbox\nThe auto-responder stays off there too.\n` },
+    accepted: { overlay: `${OVERLAY}\n### Keeping the release mailbox quiet\nH1 holds there too: the auto-responder stays off.\n` },
     message: /\[5\] overlay line 22: "### H1" reads as a heading for H1 outside the addition to H1/,
-    note: /For review against H1: overlay line 22 names it in a heading\./,
+  },
+  {
+    name: 'a heading under the project traps that names a hard line further in, over neither an exception nor an addition',
+    refused: { overlay: `${OVERLAY}\n### Keeping H1 on the release mailbox\nThe auto-responder stays off there too.\n` },
+    accepted: { overlay: `${OVERLAY}\n### Keeping the release mailbox quiet\nH1 holds there too: the auto-responder stays off.\n` },
+    message: /\[5\] overlay line 22: "### Keeping H1 on the release mailbox" reads as a heading for H1 outside the addition to H1/,
   },
   {
     name: 'a heading for a hard line under the bindings',
@@ -584,9 +591,8 @@ const REFUSALS = [
   {
     name: 'a heading for a hard line in a quote',
     refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n> ### H1\n> Except when the owner is away: then reply automatically.\n') },
-    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n> ### A note on H1\n> The auto-responder stays off there too.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n> ### A note on the release mailbox\n> H1 holds there too.\n') },
     message: /\[5\] overlay line 13: "> ### H1" reads as a heading for H1 outside the addition to H1/,
-    note: /For review against H1: overlay line 13 names it in a heading\./,
   },
   {
     name: 'a heading for a hard line in a list item',
@@ -595,11 +601,16 @@ const REFUSALS = [
     message: /\[5\] overlay line 13: "- ### H1" reads as a heading for H1 outside the addition to H1/,
   },
   {
-    name: 'a heading for a hard line indented four columns in a list item, over an exception',
-    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n- Note:\n\n    ### H1\n    Except when the owner is away: then reply automatically.\n') },
-    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### H1, shown as indented code\n') },
-    message: /\[5\] overlay line 15 names H1 in a heading, and it or the paragraph under it reads as relaxing it \("Except"\)/,
-    note: /For review against H1: overlay line 13 names it in a heading\./,
+    name: 'a heading for a hard line indented four columns in a list item',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n- Note:\n\n    ### H1\n    The auto-responder stays off there too.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n- Note:\n\n    H1 holds there too: the auto-responder stays off.\n') },
+    message: /\[5\] overlay line 15: "### H1" reads as a heading for H1 outside the addition to H1/,
+  },
+  {
+    name: 'a heading for a hard line in indented code, which may not be read as code',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### H1, shown as indented code\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### S2, shown as indented code\n') },
+    message: /\[5\] overlay line 13: "### H1, shown as indented code" reads as a heading for H1 outside the addition to H1/,
   },
   {
     name: 'an underlined heading for a hard line',
@@ -616,23 +627,93 @@ const REFUSALS = [
   {
     name: 'an HTML heading for a hard line',
     refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n<h3>H1</h3>\nExcept when the owner is away: then reply automatically.\n') },
-    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n<h3>A note on H1</h3>\nThe auto-responder stays off there too.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n<h3>A note on the release mailbox</h3>\nH1 holds there too.\n') },
     message: /\[5\] overlay line 13: "<h3>H1<\/h3>" reads as a heading for H1 outside the addition to H1/,
-    note: /For review against H1: overlay line 13 names it in a heading\./,
   },
   {
     name: 'a heading for a hard line in fenced code, which may not be read as code',
     refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n```markdown\n> ### H1\n> Not even a read receipt.\n```\n') },
-    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    > ### H1\n    > Not even a read receipt.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n```markdown\n> ### The release mailbox\n> H1 holds there: not even a read receipt.\n```\n') },
     message: /\[5\] overlay line 14: "> ### H1" reads as a heading for H1 outside the addition to H1/,
-    note: /For review against H1: overlay line 13 names it in a heading\./,
   },
   {
-    name: 'an addition heading that names a hard line, over a paragraph in the words of an exception',
-    refused: { overlay: OVERLAY.replace('### S1\nWrite the instruction into [the local record](references/project/local.md) too.\n', '### S1, which H1 holds for too\n\nExcept when the owner is away: then reply automatically.\n') },
-    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 holds for too\n') },
-    message: /\[5\] overlay line 10 names H1 in a heading, and it or the paragraph under it reads as relaxing it \("Except"\)/,
-    note: /For review against H1: overlay line 10 names it in a heading\./,
+    name: 'an addition heading that names a hard line',
+    refused: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 holds for too\n') },
+    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1\nH1 holds for this step too.\n') },
+    message: /\[5\] overlay line 10: "### S1, which H1 holds for too" reads as a heading for H1 outside the addition to H1/,
+  },
+  // An id is found wherever a reader sees one: emphasis around it, a character reference or an
+  // invisible character inside it, or markup between its letter and its number. So are the words
+  // of an exception. An underscore is no part of a word to a reader, so `_H1_` names H1.
+  {
+    name: 'an overlay line that names a hard line in underscore emphasis with an exception word',
+    refused: { overlay: `${OVERLAY}\n_H1_ does not apply to the weekly digest.\n` },
+    accepted: { overlay: `${OVERLAY}\n_H1_ holds for the weekly digest too.\n` },
+    message: /\[5\] overlay line 22 names H1 and reads as relaxing it \("does not apply"\)/,
+  },
+  {
+    name: 'a line in the addition to a step that names a hard line in underscore emphasis with an exception word',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n_H1_ does not apply to the weekly digest.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n_H1_ holds for the weekly digest too.\n') },
+    message: /\[5\] overlay line 13 names H1 and reads as relaxing it \("does not apply"\)/,
+  },
+  {
+    name: 'an overlay line that names a hard line in strong underscore emphasis with an exception word',
+    refused: { overlay: `${OVERLAY}\nThe weekly digest: __H1__ is lifted for it.\n` },
+    accepted: { overlay: `${OVERLAY}\nThe weekly digest: __H1__ holds for it too.\n` },
+    message: /\[5\] overlay line 22 names H1 and reads as relaxing it \("is lifted"\)/,
+  },
+  {
+    name: 'an exception word in underscore emphasis',
+    refused: { overlay: `${OVERLAY}\nH1 holds, _except_ for the weekly digest.\n` },
+    accepted: { overlay: `${OVERLAY}\nH1 holds, _even_ for the weekly digest.\n` },
+    message: /\[5\] overlay line 22 names H1 and reads as relaxing it \("except"\)/,
+  },
+  {
+    name: 'a heading for a hard line in underscore emphasis',
+    refused: { overlay: `${OVERLAY}\n### _H1_ is lifted for the weekly digest\n` },
+    accepted: { overlay: `${OVERLAY}\n### The weekly digest\n_H1_ holds for it too.\n` },
+    message: /\[5\] overlay line 22: "### _H1_ is lifted for the weekly digest" reads as a heading for H1 outside the addition to H1/,
+  },
+  {
+    name: 'an underlined heading for a hard line in underscore emphasis',
+    refused: { overlay: `${OVERLAY}\n_H1_ in this repository\n---\n\nExcept the weekly digest, which goes out.\n` },
+    accepted: { overlay: `${OVERLAY}\n_H1_ holds in this repository.\n\n---\n\nThe weekly digest stays in.\n` },
+    message: /\[5\] overlay line 22: "_H1_ in this repository" reads as a heading for H1 outside the addition to H1/,
+  },
+  // A sentence is read whole: an exception on the line under the one that names a hard line relaxes
+  // it as much as one beside it, and so does a sentence that opens with one. A paragraph that names
+  // a hard line in one sentence and holds the words of an exception in another is listed for review.
+  {
+    name: 'a sentence that names a hard line on one line and makes an exception on the next',
+    refused: { overlay: `${OVERLAY}\nH1 holds in this repository,\nexcept for the weekly digest, which goes out.\n` },
+    accepted: { overlay: `${OVERLAY}\nH1 holds in this repository,\nthe weekly digest included.\n\nThe build retries unless told not to.\n` },
+    message: /\[5\] overlay line 22 names H1, and line 23 reads as relaxing it \("except"\) in the same sentence/,
+  },
+  {
+    name: 'a sentence that opens with an exception, after one that names a hard line',
+    refused: { overlay: `${OVERLAY}\nH1 holds in this repository.\nExcept the weekly digest, which goes out.\n` },
+    accepted: { overlay: `${OVERLAY}\nH1 holds in this repository.\nThe weekly digest stays in too.\n` },
+    message: /\[5\] overlay line 22 names H1, and line 23 reads as relaxing it \("Except"\) in the sentence after it/,
+  },
+  {
+    name: 'a sentence that names a hard line and makes an exception, in a paragraph of other sentences',
+    refused: { overlay: `${OVERLAY}\n**Leave out:** a commentary on what is in progress, and the rows H1 keeps\nunless they changed. Every update carries the rows.\n` },
+    accepted: { overlay: `${OVERLAY}\n**Leave out:** a commentary on what is in progress unless it changed.\nThe rows are state, and every update carries them (H1).\n` },
+    message: /\[5\] overlay line 22 names H1, and line 23 reads as relaxing it \("unless"\) in the same sentence/,
+    note: /For review against H1: overlay lines 22 to 23 name it in a paragraph that holds the words of an exception \("unless"\)\./,
+  },
+  {
+    name: 'a list item that opens with a hard line\'s id in bold, as the skill declares one',
+    refused: { overlay: `${OVERLAY}\n- **H1.** In this repository the auto-responder stays off too.\n` },
+    accepted: { overlay: `${OVERLAY}\n- In this repository **H1** holds too: the auto-responder stays off.\n` },
+    message: /\[5\] overlay line 22: "- \*\*H1\.\*\* In this repository the auto-responder stays off too\." opens with H1 in bold, as a skill declares a hard line, outside the addition to H1/,
+  },
+  {
+    name: 'a list item that opens with a hard line\'s id in bold, over an exception on its next line',
+    refused: { overlay: `${OVERLAY}\n- **H1.** In this repository:\n  except the weekly digest, which goes out.\n` },
+    accepted: { overlay: `${OVERLAY}\n- In this repository **H1** holds:\n  the weekly digest stays in.\n` },
+    message: /\[5\] overlay line 22 names H1, and line 23 reads as relaxing it \("except"\) in the same sentence/,
   },
   {
     name: 'a skill slot bound to prose rather than a skill',
@@ -759,6 +840,18 @@ const REFUSALS = [
     refused: { overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S2. The build server records instructions. Decided in records/decisions.md.\n') },
     accepted: { overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S1. The build server records instructions. Decided in records/decisions.md.\n') },
     message: /\[5\] overlay line \d+: a replacement opens "replaces: S1\." and then says why/,
+  },
+  {
+    name: 'a link in the overlay written from the root, not from the file',
+    refused: { overlay: `${OVERLAY}| see [the local record](/references/project/local.md) | nothing |\n` },
+    accepted: { overlay: `${OVERLAY}| see [the local record](references/project/local.md) | nothing |\n` },
+    message: /\[10\] SKILL\.md links to \/references\/project\/local\.md, a path from the root rather than from SKILL\.md/,
+  },
+  {
+    name: 'a link around a badge image, whose target does not resolve',
+    refused: { overlay: `${OVERLAY}| see [![the record](references/project/local.md)](references/project/missing.md) | nothing |\n` },
+    accepted: { overlay: `${OVERLAY}| see [![the record](references/project/local.md)](references/project/local.md) | nothing |\n` },
+    message: /\[10\] SKILL\.md links to references\/project\/missing\.md, which does not resolve/,
   },
   {
     name: 'a link in the overlay that leaves the repository',
@@ -1012,41 +1105,52 @@ for (const refusal of REFUSALS) {
   });
 }
 
-// Every shape a heading for H1 can take in Markdown, each in the addition to S1 with an exception
-// on the line under it; a `###` heading at the margin there is an addition of its own. One whose first word is H1, indented three columns or fewer, is a heading
-// for it; the rest name it, and the exception under them is read with them.
-const H1_HEADINGS = {
-  'a heading for it': [
-    '#### H1', '###### H1', '# H1', '  #### H1', '   # H1', '#### H1 ####', '#### **H1**', '#### H1: the release mailbox',
-    '> ### H1', '>> ### H1', '> - ### H1', '- ### H1', '* ### H1', '1. ### H1', '2) ### H1',
-    'H1\n===', 'H1\n---', 'H1 on the release mailbox\n---', '> H1\n> ---',
-    '**H1.**', '__H1__', '***H1***', '**H1**:', '<b>H1</b>', '<strong>H1</strong>',
-    '<h3>H1</h3>', '<H2 class="note">H1</H2>', '<h4>\nH1\n</h4>',
-  ],
-  'a heading that names it': [
-    '    ### H1', '\t### H1', '#### On H1', '> ### On H1', '**On H1**', '<h3>On H1</h3>', 'On H1\n---',
-  ],
-};
+// Every shape a heading that names H1 can take in Markdown, each in the addition to S1 over a
+// paragraph that is no exception; a `###` heading at the margin there is an addition of its own. Each is
+// refused wherever H1 sits in it, at any indent, fenced or not: the copy would show the line under
+// it as text for H1 that no check reads as an addition to it.
+const H1_HEADINGS = [
+  '#### H1', '###### H1', '# H1', '  #### H1', '   # H1', '#### H1 ####', '#### **H1**', '#### H1: the release mailbox',
+  '> ### H1', '>> ### H1', '> - ### H1', '- ### H1', '* ### H1', '1. ### H1', '2) ### H1',
+  'H1\n===', 'H1\n---', 'H1 on the release mailbox\n---', '> H1\n> ---',
+  '**H1.**', '__H1__', '***H1***', '**H1**:', '<b>H1</b>', '<strong>H1</strong>', '<b class="lead">On H1</b>',
+  '<h3>H1</h3>', '<H2 class="note">H1</H2>', '<h4>\nH1\n</h4>',
+  // Indented four columns or more, where it may be code, or a heading in a list item.
+  '    ### H1', '\t### H1', '- A trap\n\n    ### H1 in this repository', '1. A trap\n\n    ### H1 in this repository',
+  '- H1 in this repository\n    ---',
+  // The id further in.
+  '#### On H1', '> ### On H1', '**On H1**', '<h3>On H1</h3>', 'On H1\n---', '### About H1',
+  // The id with something attached, or inside markup.
+  '### H1—local', '### H1/H2 in this repository', '### H1–H2 in this repository', "### H1's reach here",
+  '### “H1” in this repository', '### ~~H1~~ in this repository', '### [H1](#h1) in this repository',
+  '### <span>H1</span> in this repository', '### <!-- x -->H1 in this repository', '### _H1_ is lifted',
+  '_H1_ in this repository\n---', '### H<span></span>1 in this repository', '### H*1* in this repository',
+  // The id written as a character reference, split by an invisible character, or in another form.
+  '### &#72;1 in this repository', '### H&#49; in this repository', '### H&#x31; in this repository',
+  '### H​1 in this repository', '### H&shy;1 in this repository', '### H&ZeroWidthSpace;1 in this repository',
+  '### Ｈ1 in this repository',
+  // An HTML heading whose opening tag runs over a line, or holds a ">" in an attribute.
+  '<h3\n>H1 in this repository</h3>', '<h3 title="a>b">H1 in this repository</h3>',
+  // A paragraph that is only bold, over two lines.
+  '**H1 in this\nrepository**', '**In this repository,\nH1**',
+];
 
-for (const [kind, shapes] of Object.entries(H1_HEADINGS)) {
-  for (const shape of shapes) {
-    test(`check 5 refuses ${kind} over an exception: ${JSON.stringify(shape)}`, async () => {
-      const pack = await buildPack({ upTo: 'v1.0.0' });
-      const overlay = OVERLAY.replace('too.\n', `too.\n\n${shape}\nExcept when the owner is away: then reply automatically.\n`);
-      const project = await addAdapter({ pack, overlay });
+for (const shape of H1_HEADINGS) {
+  test(`check 5 refuses a heading that names a hard line outside its addition: ${JSON.stringify(shape)}`, async () => {
+    const pack = await buildPack({ upTo: 'v1.0.0' });
+    const overlay = OVERLAY.replace('too.\n', `too.\n\n${shape}\n\nThe auto-responder stays off there too.\n`);
+    const project = await addAdapter({ pack, overlay });
 
-      const refused = compose(project, '--write');
-      assert.equal(refused.status, EXIT_FAILED, refused.stdout);
-      if (kind === 'a heading for it') assert.match(refused.stdout, /\[5\] overlay line 13: ".+" reads as a heading for H1 outside the addition to H1/);
-      else assert.match(refused.stdout, /\[5\] overlay line 13 names H1 in a heading, and it or the paragraph under it reads as relaxing it \("Except"\)/);
-      assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
-    });
-  }
+    const refused = compose(project, '--write');
+    assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+    assert.match(refused.stdout, /\[5\] overlay line \d+: ".+" reads as a heading for H1 outside the addition to H1/);
+    assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+  });
 }
 
 test('inside the addition to its own hard line, any heading for it composes, listed for review with the addition', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
-  const shapes = ['#### H1 on the release mailbox', '> ### H1', 'H1, again\n---', '**H1.**', '<h4>H1</h4>'];
+  const shapes = ['#### H1 on the release mailbox', '> ### H1', 'H1, again\n---', '**H1.**', '<h4>H1</h4>', '- **H1.** The release mailbox too.', '#### _H1_ on the release mailbox'];
   const overlay = OVERLAY.replace('stays off.\n', `stays off.\n\n${shapes.join('\nThe auto-responder stays off there too.\n\n')}\nThe auto-responder stays off there too.\n`);
   const project = await addAdapter({ pack, overlay });
 
@@ -1062,7 +1166,9 @@ test('inside the addition to its own hard line, any heading for it composes, lis
 test('check 5 reads the headings of a long overlay in linear time', () => {
   const texts = {
     'one line of HTML heading tags that never end': '<h3 '.repeat(40000),
+    'lines of HTML heading tags that never end': '<h3\n'.repeat(40000),
     'lines that are only bold': Array.from({ length: 100000 }, () => '**H1.**').join('\n'),
+    'a paragraph of bold that never closes': Array.from({ length: 100000 }, () => '**H1 text').join('\n'),
     'a paragraph before its underline': `${Array.from({ length: 100000 }, () => 'H1 text').join('\n')}\n---\n`,
   };
   for (const [what, text] of Object.entries(texts)) {
@@ -1071,9 +1177,94 @@ test('check 5 reads the headings of a long overlay in linear time', () => {
     const took = Number(process.hrtime.bigint() - started) / 1e6;
     assert.ok(took < 1500, `${what} took ${took.toFixed(0)} ms`);
   }
-  assert.deepEqual(headingsIn('Text\n\n<h3 class="x">H1</h3>\n\n> - ### H1\n\nH1\n===\n').map(({ line, leads, plain }) => [line, leads, plain]), [[3, ['H1'], true], [5, ['H1'], true], [7, ['H1'], true]]);
+  assert.deepEqual(
+    headingsIn('Text\n\n<h3 class="x">H1</h3>\n\n> - ### H1\n\nH1\n===\n\n<h4\n>On H1</h4>\n\n**H1 in\ntwo lines**\n').map(({ line, last }) => [line, last]),
+    [[3, 3], [5, 5], [7, 8], [10, 11], [13, 14]],
+  );
 });
 
+/** A reader over a folder of skills, as readBase reads a pinned commit: every file, LICENSE at the root. */
+function folderReader(root) {
+  return {
+    listFolder(commit, folder) {
+      const entries = [];
+      const walk = (relative) => {
+        for (const entry of readdirSync(path.join(root, folder, relative), { withFileTypes: true })) {
+          if (entry.name === 'node_modules' || entry.name === '.DS_Store') continue;
+          const child = relative ? `${relative}/${entry.name}` : entry.name;
+          const full = path.join(root, folder, child);
+          if (entry.isDirectory()) walk(child);
+          else if (entry.isSymbolicLink()) entries.push({ path: child, mode: '120000', type: 'blob', object: full });
+          else entries.push({ path: child, mode: statSync(full).mode & 0o111 ? '100755' : '100644', type: 'blob', object: full });
+        }
+      };
+      walk('');
+      return entries;
+    },
+    blob: (object) => readFileSync(object),
+    fileAt: (commit, file) => readFileSync(path.join(root, file)),
+  };
+}
+
+/** One composition with no git: a skill under `root`, an overlay, and nothing else. */
+function composeFrom(root, skill, { entry = 'SKILL.md', overlay = '' } = {}) {
+  const base = readBase(folderReader(root), { source: root, skill, entry, ref: 'v0.0.0', commit: '0'.repeat(40), tree: '0'.repeat(40) });
+  return composeAdapted({
+    adapter: { name: `${skill}-here`, description: 'An adapted copy.', base: {}, widenTools: [], overlay: 'overlay.md', projectFiles: [], names: {}, raw: '{}' },
+    overlay: Buffer.from(overlay),
+    base,
+    composer: { sha256: '0'.repeat(64) },
+    layout: { adaptersRel: ADAPTERS, skillsRel: SKILLS, exists: () => false },
+  });
+}
+
+// The rest of check 5 reads an overlay a paragraph at a time, each in every way a reader might
+// join what markup splits, and none of it is read again for each hard line it names.
+test('check 5 reads a long overlay in linear time', async () => {
+  const root = await tempDir('adapt-check5-');
+  write(root, 'LICENSE', LICENSE);
+  write(root, 'skills/notes/SKILL.md', NOTES_SKILL);
+  write(root, 'skills/notes/references/guide.md', '# Guide\n\nBack to the steps.\n');
+  write(root, 'skills/notes/references/part.md', PART);
+  write(root, 'skills/notes/scripts/count.mjs', 'console.log("count");\n');
+  const head = OVERLAY.slice(0, OVERLAY.indexOf('## Project traps'));
+  const texts = {
+    'a paragraph that names a hard line on every line': Array.from({ length: 50000 }, () => 'H1 holds here too.').join('\n'),
+    'comments that never close': Array.from({ length: 50000 }, () => '<!-- H1 <span').join('\n'),
+    'character references by the thousand': Array.from({ length: 50000 }, () => 'H&#49; &amp; H&shy;2 &#x48;1').join('\n'),
+    'lines that open with bold that never closes': Array.from({ length: 50000 }, () => '- **H1 holds').join('\n'),
+    'a paragraph of sentences that name a hard line and make an exception': Array.from({ length: 50000 }, () => 'H1 holds, unless told.').join('\n'),
+    'one sentence over many lines, with an exception at its end': `${Array.from({ length: 50000 }, () => 'H1 holds here and').join('\n')}\nunless told`,
+  };
+  for (const [what, text] of Object.entries(texts)) {
+    const started = process.hrtime.bigint();
+    composeFrom(root, 'notes', { overlay: `${head}## Project traps\n\n${text}\n` });
+    const took = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.ok(took < 3000, `${what} took ${took.toFixed(0)} ms`);
+  }
+});
+
+// A hard line names a slot the overlay binds: the note that says so finds the slot's id however it
+// is emphasised, since an underscore is no part of a word to a reader.
+test('a hard line that names a bound slot in underscore emphasis is listed for review against it', async () => {
+  const root = await tempDir('adapt-bound-');
+  write(root, 'LICENSE', LICENSE);
+  write(root, 'skills/notes/SKILL.md', NOTES_SKILL.replace('B1 decides what is sent', '_B1_ decides what is sent'));
+  write(root, 'skills/notes/references/guide.md', '# Guide\n\nBack to the steps.\n');
+  write(root, 'skills/notes/references/part.md', PART);
+  write(root, 'skills/notes/scripts/count.mjs', 'console.log("count");\n');
+  const composed = composeFrom(root, 'notes', { overlay: OVERLAY.replace('references/project/local.md', 'references/guide.md') });
+  assert.deepEqual(composed.errors, []);
+  assert.ok(composed.notes.includes('For review against H1: it names B1, which the overlay binds.'), composed.notes.join('\n'));
+});
+
+// Every skill this pack ships is a base a project may adapt, from its SKILL.md or from a Markdown
+// file it carries. A link a carried file holds that does not resolve from that file, fenced or not,
+// refuses every copy of the skill at check 10, so each composes here with an empty overlay, as a
+// project that binds nothing would compose it. A reference file that links back to its skill's
+// SKILL.md, or shows the markers that fence a copy's skill text, was not written to be taken as the
+// entry, and is refused as one by design (the guide says why); it is set aside here, unless it
+// declares `## Bindings`, which says it was.
 test('an adapter folder with no adapter.json, or one that does not parse, is refused, and so is an unknown --adapter or --pack', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack });
@@ -1407,7 +1598,7 @@ for (const [where, opened] of Object.entries(FENCE_LEFT_OPEN)) {
 test('an overlay fence that does not close is refused naming where it opened, why it ends, and how to close it', () => {
   const close = 'close it with a bare line of at least 3 backticks, indented as far as the fence, or it hides the headings after it from the checks';
   const atMargin = parseOverlay(`${OVERLAY_HEAD}${FENCE_LEFT_OPEN['at the left margin']}${HIDDEN_AFTER_IT[0][1]}${OVERLAY_TRAPS}`);
-  assert.deepEqual(atMargin.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 opens ### H1 first); ${close}; to show such a heading in an example, indent the fence and its lines four spaces`]);
+  assert.deepEqual(atMargin.problems, [`overlay line 13: the fence opened in the addition to S1 does not close there (line 16 opens ### H1 first); ${close}; a heading for H1, a hard line, is shown only in the addition to H1 (check 5)`]);
   assert.deepEqual(atMargin.additions.map((addition) => addition.id), ['S1', 'H1'], 'the addition after the fence is still read');
   // A section the overlay does not have opens no part of it, so the fence runs on to the next one
   // that does; the fence is named first, since it is why the rest is read as it is.
@@ -1431,6 +1622,15 @@ test('an overlay fence that does not close is refused naming where it opened, wh
   const inBindings = parseOverlay(OVERLAY.replace('\n## Additions', '\n```text\nan example\n\n## Additions'));
   assert.deepEqual(inBindings.problems, [`overlay line 8: the fence opened under ## Bindings does not close there (line 11 opens ## Additions first); ${close}; to show such a heading in an example, indent the fence and its lines four spaces`]);
   assert.deepEqual(inBindings.additions.map((addition) => addition.id), ['S1', 'H1']);
+});
+
+// Check 5 refuses a heading for a hard line anywhere but the addition to it, indented code included,
+// so the overlay's own refusals never offer an example indented four spaces as the remedy for one.
+test('the remedy the overlay names for a hard line\'s heading is one check 5 accepts', () => {
+  const indented = parseOverlay(OVERLAY.replace('too.\n', 'too.\n\n  ### H1\nThe auto-responder stays off there too.\n'));
+  assert.match(indented.problems[0], /start it at the left margin to add to H1; a heading for a hard line is shown only in the addition to it$/);
+  const indentedStep = parseOverlay(OVERLAY.replace('too.\n', 'too.\n\n  ### S2\nRead the headers first.\n'));
+  assert.match(indentedStep.problems[0], /start it at the left margin to add to S2, or indent it four spaces to show it as an example$/);
 });
 
 test('a fenced example in an addition may show headings that open no part of the overlay, and one indented four spaces may show one that does', async () => {
@@ -1535,6 +1735,70 @@ for (const [shape, shown] of Object.entries(FENCED_LINK_SHAPES)) {
     assert.equal(rewriteEntryLinks(text, 'references/part.md').text, text.replace('(guide.md)', '(references/guide.md)'));
   });
 }
+
+// Links CommonMark renders that a scan of one bracket pair and one word missed: an image inside a
+// link (a badge), brackets or an escaped bracket in the text, space or a line ending before the
+// destination, a title in parentheses or holding them, a destination in angle brackets or holding
+// balanced parentheses, and a definition in a quote, a list item, indented, or with its destination
+// on the next line. Each is read and moved like any other.
+const LINK_TARGET_SHAPES = {
+  'an image inside a link, as a badge is written': ['[![badge](guide.md)](missing.md)', ['guide.md', 'missing.md']],
+  'link text that holds brackets': ['[see [the guide]](missing.md)', ['missing.md']],
+  'link text that holds an escaped bracket': ['[a\\]b](missing.md)', ['missing.md']],
+  'a space before the destination': ['[x]( missing.md )', ['missing.md']],
+  'the destination on the next line': ['[x](\nmissing.md)', ['missing.md']],
+  'a title that holds parentheses': ['[x](missing.md "see (below)")', ['missing.md']],
+  'a title in parentheses': ['[x](missing.md (title))', ['missing.md']],
+  'a destination in angle brackets that holds a space': ['[x](<missing file.md>)', ['missing file.md']],
+  'a destination that holds balanced parentheses': ['[x](guide(1).md)', ['guide(1).md']],
+  'a definition in a quote': ['> [r]: missing.md', ['missing.md']],
+  'a definition in a list item': ['- [r]: missing.md', ['missing.md']],
+  'a definition whose destination is on the next line': ['[r]:\n  missing.md', ['missing.md']],
+  'a definition indented four columns in a list item': ['- item\n\n    [r]: missing.md', ['missing.md']],
+  'a title on the next line of a quote': ['> [x](<missing file.md>\n> "see it")', ['missing file.md']],
+  'a destination on the next line of a quote': ['> [x](\n> missing.md)', ['missing.md']],
+  'a definition whose destination is on the next line of a quote': ['> [r]:\n> missing.md', ['missing.md']],
+};
+
+for (const [shape, [text, targets]] of Object.entries(LINK_TARGET_SHAPES)) {
+  test(`the link scan and the link rewriter read ${shape}`, () => {
+    assert.deepEqual(relativeLinks(text).map((link) => link.pathname), targets);
+    const moved = targets.reduce((result, target) => result.replace(target, `references/${target}`), text);
+    assert.deepEqual(rewriteEntryLinks(text, 'references/part.md'), { text: moved, problems: [] });
+  });
+}
+
+// The link scan and the rewriter read a text in linear time, whatever it holds: they run in a child
+// process with a deadline, so a pattern that backtracks fails here instead of hanging the suite.
+test('the link scan and the link rewriter read a long text in linear time', () => {
+  const texts = {
+    'many openings that never close': "'](a'.repeat(100000)",
+    'one long destination that never closes': "'](' + 'a'.repeat(300000) + ' '.repeat(300000) + 'x'",
+    'many angle brackets that never close': "'](<a '.repeat(100000)",
+    'many titles that never close': "'](a \"'.repeat(100000)",
+    'parentheses that never close': "'](' + '('.repeat(100000)",
+    'definitions in quotes and list items': "'> - [r]: x\\n'.repeat(100000)",
+    'quote markers after a line ending': "'](\\n' + '>'.repeat(300000)",
+    'quote markers after a line ending in a definition': "'[r]:\\n' + '> '.repeat(150000)",
+    'a label that never closes': "'[' + 'a'.repeat(300000)",
+  };
+  for (const [what, text] of Object.entries(texts)) {
+    const script = `import { relativeLinks, rewriteEntryLinks } from ${JSON.stringify(ADAPT)}; const text = ${text}; const started = process.hrtime.bigint(); relativeLinks(text); rewriteEntryLinks(text, 'references/part.md'); console.log(Number(process.hrtime.bigint() - started) / 1e6);`;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(result.status, 0, `${what} did not finish: ${result.signal ?? result.stderr}`);
+    assert.ok(Number(result.stdout) < 1500, `${what} took ${Number(result.stdout).toFixed(0)} ms`);
+  }
+});
+
+test('a link written from the root is read, never moved, and refused at [10] wherever it sits', () => {
+  assert.deepEqual(relativeLinks('[a](/guide.md) [b](//example.com/x.md)').map(({ pathname, rooted }) => [pathname, Boolean(rooted)]), [['/guide.md', true]]);
+  assert.equal(rewriteEntryLinks('[a](/guide.md)', 'references/part.md').text, '[a](/guide.md)');
+  const files = new Map([['SKILL.md', { bytes: Buffer.from('[a](/guide.md)\n') }], ['guide.md', { bytes: Buffer.from('# Guide\n') }], ['references/part.md', { bytes: Buffer.from('```\n[b]: /guide.md\n```\n') }]]);
+  assert.deepEqual(linkProblems(files, { folder: '.claude/skills/x', exists: () => true }), [
+    'SKILL.md links to /guide.md, a path from the root rather than from SKILL.md; write it relative to the file',
+    'references/part.md links to /guide.md, a path from the root rather than from references/part.md; write it relative to the file',
+  ]);
+});
 
 const LINK_SHAPES = { ...LIVE_LINK_SHAPES, ...Object.fromEntries(Object.entries(FENCED_LINK_SHAPES).map(([shape, shown]) => [`inside ${shape}`, shown])) };
 

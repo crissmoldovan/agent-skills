@@ -156,9 +156,10 @@ personal copy of the generic one.
   tree runs. It prints what it would add, change or remove, what moved in the pin, and every
   addition to a hard line for review, and writes nothing without `--write`. It refuses a branch, an
   abbreviated sha, a tag that now names another commit, a binding or addition to an id no carried
-  file declares, an unbound required slot, `replaces:` on a hard line, an addition to one in the
-  words of an exception, a handoff to a skill the project also adapts that is not mapped to the
-  adapter, a link that does not resolve, and a copy edited by hand unless told
+  file declares, an unbound required slot, `replaces:` on a hard line, an addition to one or a
+  sentence naming one in the words of an exception, a heading that names one outside the addition
+  to it, a handoff to a skill the project also adapts that is not mapped to the adapter, a link
+  that does not resolve or is written from the root, and a copy edited by hand unless told
   `--discard-hand-edits`. With `--write` it vendors itself beside the adapters. It never runs a
   composer it fetched, so it says when the pinned release ships another composer than the one
   running; the composer moves with a pin when a person runs the release's own.

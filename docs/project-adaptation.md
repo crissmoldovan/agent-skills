@@ -148,8 +148,9 @@ left open, the fence would swallow every heading after it, and with them every c
 headings face. A line that opens another part of the overlay, one of its sections or a `###`
 heading whose first word is an id, ends a fence open across it, and so does such a heading
 indented one to three spaces, which Markdown still reads as a heading; an example that shows one
-indents the fence and its lines four spaces. An addition's heading starts at the left margin, so
-an indented one outside fenced code is refused too.
+for a step indents the fence and its lines four spaces, and one for a hard line is shown only in
+the addition to that hard line. An addition's heading starts at the left margin, so an indented
+one outside fenced code is refused too.
 
 ## The merge rules
 
@@ -168,13 +169,14 @@ an indented one outside fenced code is refused too.
    prose, so review holds this rule: an overlay that adds to a hard line, or binds a slot a hard line
    names, is read against that hard line.
 
-   An overlay puts a hard line's id at the head of a heading only in the addition to it. Anywhere
-   else, a heading that opens with one is refused, in any shape Markdown gives a heading: a `#`
-   heading at any level, in a quote or a list item, an underlined line, a line that is only bold, or
-   an HTML heading, indented up to three columns, fenced or not. The copy would show the text under
-   it as text for that hard line, which no check reads as an addition to it. A heading that names a
-   hard line further in, or is indented four columns or more, is listed for review, and refused
-   when it or the paragraph under it is written in the words of an exception.
+   An overlay names a hard line in a heading only in the addition to it. Anywhere else, a heading
+   that names one is refused, wherever the id sits in it, in any shape Markdown gives a heading: a
+   `#` heading at any level, in a quote or a list item, an underlined paragraph, a paragraph that is
+   only bold, or an HTML heading, at any indent, fenced or not. So is a line that opens with one in
+   bold, the form a skill declares it in. The copy would show the text under it as text for that
+   hard line, which no check reads as an addition to it. Anywhere else, an overlay names a hard line
+   in a sentence, and a sentence that names one is refused when it is written in the words of an
+   exception, or the sentence after it opens with them.
 5. **`replaces:` is explicit, and rare.** An addition whose first line starts with `replaces:`
    supersedes its step instead of extending it. It is refused on an `H` id, and on a slot, which is
    bound and never replaced. The line says why, and where the decision is recorded:
@@ -227,8 +229,9 @@ Every relative link in the adapted copy resolves, and a copy in which one does n
 link inside fenced code is checked like any other, as the pack's verifier checks a skill's files: a
 link the check skipped would be checked by nothing, and no reading of fences by hand matches
 CommonMark. An example that shows a path writes it as code, such as `docs/guide.md`, not as a link.
-Composing joins texts at fixed points and asks no model to merge them, so the result can be
-compared byte for byte, and composing again catches a hand edit or a stale copy.
+A link written from the root, such as `/docs/guide.md`, is refused: it is written from the file
+that holds it. Composing joins texts at fixed points and asks no model to merge them, so the result
+can be compared byte for byte, and composing again catches a hand edit or a stale copy.
 
 ### When the entry is a reference file
 
@@ -314,5 +317,5 @@ It does not check that the prose cites only declared ids, that a removed id's nu
 again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
 for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
 required slot unbound, writes `replaces:` on a hard line, adds to one in the words of an exception,
-in its heading or under it, opens a heading with one outside the addition to it, or leaves a fence
-open past the addition or section it opens in.
+in its heading or under it, names one in a heading or opens a line with one in bold outside the
+addition to it, or leaves a fence open past the addition or section it opens in.
