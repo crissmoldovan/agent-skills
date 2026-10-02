@@ -39,6 +39,8 @@ additions together.
 
 `--adapters-dir` and `--skills-dir` move the two folders for a harness that reads skills from
 somewhere else; pass the same values to every command, because the lock records them.
+`onboard-project` looks for adapted copies only in `.claude/skills/` and `.agents/skills/`, so a
+copy composed anywhere else does not stand in for its skill there.
 
 ### `adapter.json`
 
@@ -228,6 +230,9 @@ file, and that is what proves it.
    If `compose` notes that the new ref ships another composer, compose again with the one from a
    clone of the pack at that ref, so the vendored composer moves with the pin.
 5. Run `check` and whatever scenarios the project keeps for the skill, and commit it as one change.
+   In a repository onboarded with `onboard-project`, refresh its profile in that same change: its
+   session-start check compares each copy's ref and tree with the profile, so a re-pin it has not
+   recorded is reported at every session start, a same-tree re-pin included.
 
 `check-pack-freshness.mjs --repo <project>` lists the same pins against the latest release, beside
 the global installs, as part of an inventory; a copy of another source is listed as not compared,
