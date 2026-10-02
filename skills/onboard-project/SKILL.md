@@ -103,7 +103,9 @@ work should be reported; it recommends the skills that own those jobs and owns n
    of its own, and its `adapted.lock.json` names the skill it adapts. The plan counts that skill as
    present: a `=` row naming the copy, no install command, and a routing line that names the copy
    instead of the skill. A skill the scan did not match is listed anyway, as `adapted`, because the
-   copy is the evidence that the project uses it.
+   copy is the evidence that the project uses it. A line `adapted copy: <folder>: <problem>` names a
+   copy whose lock cannot be read, and its skill is planned as if no copy were there: hand it to
+   `update-agent-skills`, whose adapter `check` says what is wrong, and never edit the lock by hand.
    **Complete when:** the change list exists, and no file in the repository has changed.
 
 4. **Add the weak matches yourself, if any.** The scan is deliberately narrow: it recommends only

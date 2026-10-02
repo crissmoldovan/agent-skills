@@ -209,8 +209,9 @@ not routed.
 **Who should update.** Anyone whose repository holds an adapted copy of a pack skill. A routing file
 written by 1.0.1 renders byte for byte the same under 1.1.0 until the repository holds a copy, so
 nothing reads as drift on upgrade. A profile written by 1.0.1 has no `adapted` map; in a repository
-that already holds copies, the armed check names them once, and a refresh records them and routes
-to them.
+that already holds copies, the armed check names them at every session start until a refresh
+records them and routes to them. Moving a copy's pin is reported the same way, so refresh in the
+change that moves it.
 
 ## Release checklist
 

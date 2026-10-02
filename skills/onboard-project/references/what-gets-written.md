@@ -78,18 +78,20 @@ skill list, and the marker never does. Only the check reads the marker.
   neither installed nor adapted here, and says nothing about the others.
 - `scope` records where the skill is installed, or where the plan would install it: `project` for a
   committed placement, `global` for a local one. A skill with an adapted copy is `project`, because
-  the copy lives in this repository whatever the placement.
+  the copy lives in this repository whatever the placement, unless the skill is also installed, when
+  it records where that install is.
 - `adapted` records every adapted copy in this repository, keyed by the skill it adapts. An adapted
   copy is a folder under `.claude/skills/` or `.agents/skills/` whose `adapted.lock.json`, written
-  by `update-agent-skills`' composer, names the pack skill it adapts. Each entry gives the copy's
-  name, its `entry` (the skill's `SKILL.md`, or the one reference file of it the copy adapts), and
-  the pinned `ref` and `tree`. A skill with a copy here is present: the plan offers no install for
-  it, the check does not call it missing, and the routing names the copy. Two copies can adapt one
-  skill, each from its own entry, and both are listed. A copy of a skill this catalogue does not
-  carry is recorded and not routed, and the check compares the whole map, so a catalogue update
-  never reads as this repository changing. A lock this skill cannot read stands in for nothing and
-  is named in the plan. A profile written before 1.1.0 has no `adapted` map, and reads as one that
-  recorded none.
+  by `update-agent-skills`' composer, names the pack skill it adapts. No other folder is read, so a
+  copy composed elsewhere with the composer's `--skills-dir` does not stand in for its skill. Each
+  entry gives the copy's name, its `entry` (the skill's `SKILL.md`, or the one reference file of it
+  the copy adapts), and the pinned `ref` and `tree`. A skill with a copy here is present: the plan
+  offers no install for it, the check does not call it missing, and the routing names the copy. Two
+  copies can adapt one skill, each from its own entry, and both are listed. A copy of a skill this
+  catalogue does not carry is recorded and not routed, and the check compares the whole map, so a
+  catalogue update never reads as this repository changing. A lock this skill cannot read stands in
+  for nothing and is named in the plan. A profile written before 1.1.0 has no `adapted` map, and
+  reads as one that recorded none.
 - `evidence` is what the session-start check compares: for each skill that was in the catalogue at
   scan time, the repository signals it was evaluated on and the ones that were true. The check
   compares only signals that both the profile and the installed fit define, and that it could read
