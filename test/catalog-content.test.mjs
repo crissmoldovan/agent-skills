@@ -243,6 +243,8 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   assert.match(checks, /`\[adapter\]`, an adapter\s+folder that does not read as one/);
   assert.match(checks, /`\[pin\]`, a pin\s+that cannot be taken/);
   assert.match(adapting, /\*\*Which composer is vendored\.\*\*/);
+  // A git setting that rewrites GitHub addresses to ssh is common, and the composer refuses it.
+  assert.match(section(adapting, 'Failure modes'), /`url\.<base>\.insteadOf`.*`--pack`/);
 
   assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
   assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);

@@ -117,7 +117,10 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 
 ```bash
 # The first time, and when a pin moves to a ref that ships another composer: run the composer
-# from a clone of the pack checked out at the pinned ref.
+# from a clone of the pack checked out at the pinned ref, a tag or a full commit sha.
+git clone https://github.com/<owner>/<pack> <pack clone>
+git -C <pack clone> fetch origin <ref>    # only for a commit that no branch or tag holds
+git -C <pack clone> checkout --detach <ref>
 node <pack clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <pack clone>
 node <pack clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <pack clone> --write
 
@@ -241,11 +244,12 @@ and the run exits 2 when a pin moved or differs. Neither it nor `skills update` 
 
 | what goes wrong | what happens | what to do |
 |---|---|---|
-| someone edits the generated folder | `check` fails at 1 or 2; `compose` refuses to overwrite it | move the change into the overlay, then compose with `--discard-hand-edits` |
+| someone edits the generated folder | `check` fails at 1, and for an edit to `SKILL.md` at 3 as well: at 2 too inside the base markers, and at 9 in the frontmatter; `compose` refuses to overwrite it | move the change into the overlay, then compose with `--discard-hand-edits` |
 | a folder of the same name was written by hand | `compose` refuses: it has no lock | move its project text into the overlay, then `--discard-hand-edits` |
 | a pinned tag is moved or deleted upstream | `outdated` raises an alarm; `compose` refuses the moved tag; the committed copy and the offline check are unaffected | read why; re-pin to a full sha or a new tag, or record the new commit in `base.commit` on purpose |
 | a newer release renames an id the overlay cites | `compose` refuses and names it | fix the overlay in the same change as the pin |
 | no network | only `compose` (without `--pack`) and `outdated` stop | nothing else needs it |
+| a git setting (`url.<base>.insteadOf`) rewrites GitHub addresses to ssh | `compose` without `--pack` refuses the pin, and `outdated` reports unknown: the composer allows a remote over https only, and the message names the setting | run the command with that setting left out (for one in the global configuration, `GIT_CONFIG_GLOBAL` naming an empty file), or compose from a clone with `--pack` |
 | the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |

@@ -268,7 +268,9 @@ from a clone of the pack checked out at the pinned ref; it vendors itself into t
 project, and the vendored copy runs from then on.
 
 ```bash
-# The first time: prints the change, then writes it and vendors the composer.
+# The first time: a clone at the pinned tag or full sha (the guide says how for a
+# sha); compose prints the change, then writes it and vendors the composer.
+git clone https://github.com/<owner>/<pack> <clone> && git -C <clone> checkout --detach <ref>
 node <clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo <project> --pack <clone>
 node <clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo <project> --pack <clone> --write
 # From then on, the vendored copy.

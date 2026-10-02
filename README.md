@@ -139,7 +139,7 @@ Update installed Agent Skills wherever they live — project, global, plugin and
 ```bash
 npx skills add crissmoldovan/agent-skills --skill update-agent-skills
 node <skill-folder>/scripts/install-freshness-hook.mjs   # optional: check freshness each session
-node <skill-folder>/scripts/adapt.mjs compose --repo .   # optional: adapt a pack skill to this project
+node <clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <clone>   # optional: adapt a pack skill to this project
 ```
 
 Ask it:
@@ -149,7 +149,7 @@ Ask it:
 - *"Prepare the update communication only."*
 - *"Adapt this pack skill to the project: compose it from the pinned release and our overlay, show me the change, and check it."*
 
-An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
+An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). The first compose runs from a clone of the pack checked out at the pinned tag or full sha, so the composer the project vendors is that release's; [the guide](skills/update-agent-skills/references/adapting.md#commands) says how to make one. `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
 
 More: [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs) · [Composer](skills/update-agent-skills/scripts/adapt.mjs) · [Adapting a pack skill](skills/update-agent-skills/references/adapting.md)
 
