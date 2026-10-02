@@ -43,7 +43,16 @@ and counts only.
 | typed | `type: "user"`, `origin.kind: "human"`, and `message.content` as a string or an array of blocks; the words are the `text` blocks, and `image` or `document` blocks may sit beside them | OBSERVED from 2.1.234 |
 | typed, no origin mark | the same, with no `origin` at all. On 2.1.224 no record carried an origin. On 2.1.258 a turn stored as a plain string carried none, while turns stored as arrays did. The script takes a user record with no origin when it is not in a subagent, not `isMeta`, not `isCompactSummary`, holds no `tool_result`, and is not harness markup, the interruption marker or a known harness preamble, and counts it as a fallback | OBSERVED |
 | queued | `type: "attachment"`, `attachment.type: "queued_command"`, `attachment.commandMode: "prompt"`, the words in `attachment.prompt` (a string, or an array of blocks with `text` and sometimes `image`). Typed while a turn was running; it never appears as a user record | OBSERVED from 2.1.234 |
+| queued, before 2.1.234 | The earliest version a `queued_command` record was seen on is 2.1.234. How 2.1.224 to 2.1.233 stored a message typed while a turn was running, in another shape or not at all, was not seen. A count over sessions those versions wrote may be short by every such message: read the `record:<type>` and `attachment:<type>` exclusions for one first | NOT OBSERVED |
 | slash command arguments | `type: "user"`, no origin, content `<command-message>…</command-message>` `<command-name>/name</command-name>` `<command-args>…</command-args>`. The arguments are the person's words; the command's name is reported beside them | OBSERVED |
+
+The harness's own mark is trusted. A turn marked `origin.kind: "human"`, or a queued prompt, is
+the person's even when it is wholly markup, such as pasted HTML or XML, or opens with words a
+harness preamble opens with ("Continue from where you left off."). Only the harness's own tags
+(`command-`, `local-command-`, `bash-`, `system-reminder` and the others the script lists) and the
+interruption marker are screened out of it. A turn with no mark rests on the fallback, so any text
+that is wholly markup and every known preamble are screened out of it as well. (This is a guard,
+not an observation: whether the history read holds marked turns of either kind was not checked.)
 
 How much this matters, as anonymous facts from the history read: in one two-day session 157 of the
 369 messages a person sent were queued; across all the sessions of one checkout, 127 of 542. A count
@@ -62,9 +71,12 @@ of user records alone would have missed every one of them.
 | `origin:coordinator`, `queued:coordinator` | in a subagent's transcript: a coordinator's message, as a user record with `origin.kind: "coordinator"`, or as a `queued_command` with no `commandMode` whose `attachment.origin.kind` is `coordinator` | OBSERVED |
 | `dispatch` | in a subagent's transcript, a user record with no origin: the prompt its parent or a script sent. `isSidechain: true` | OBSERVED |
 | `headless` | a user record with no origin in a session whose `entrypoint` starts `sdk`: a prompt passed to a non-interactive run, written by a program or typed on a command line. Left out unless `--include-headless` | OBSERVED (`sdk-cli`) |
-| `harness-markup` | a user record that is wholly markup, such as `<local-command-stdout>…</local-command-stdout>`, or a slash command with no arguments | OBSERVED |
+| `harness-markup` | a user record that is wholly markup, such as `<local-command-stdout>…</local-command-stdout>`, or a slash command with no arguments. On a turn marked human, only the harness's own tags count here | OBSERVED |
+| `harness-markup` (shell mode) | `<bash-input>…</bash-input>`: a command the person ran in the harness's shell mode. It is theirs, but a command and not words to the agent, so it is counted here and not as a message | NOT OBSERVED |
 | `interruption` | `[Request interrupted by user]` | OBSERVED |
-| `harness-text` | a user record with no flag that opens with a known harness preamble ("This session is being continued from a previous conversation", "Caveat: The messages below were generated", and others the script lists). Every such preamble seen was flagged `isMeta` or `isCompactSummary`; the screen is a guard for one that is not | NOT OBSERVED unflagged |
+| `harness-text` | a user record with no origin mark and no flag that opens with a known harness preamble ("This session is being continued from a previous conversation", "Caveat: The messages below were generated", and others the script lists). Every such preamble seen was flagged `isMeta` or `isCompactSummary`; the screen is a guard for one that is not, and never applies to a turn marked human | NOT OBSERVED unflagged |
+| `attachment-only`, `queued:attachment-only` | a person's turn or queued prompt with an `image` or `document` block and no text: an image sent alone. Counted under its own kind and not as a message, since there are no words to locate, show or check; add it to a count of messages sent when images count as messages | NOT OBSERVED alone |
+| `empty`, `queued:empty` | a user record or queued prompt with no text and nothing attached | guarded |
 | `queue-bookkeeping` | `type: "queue-operation"` with `operation` `enqueue` (holding the text as `content`), `dequeue`, or `remove` (with `reason` `absorbed_mid_turn` or `delivered_to_agent`). It repeats a queued message; the delivered message is the `queued_command` | OBSERVED |
 | `record:last-prompt` | `type: "last-prompt"` with `lastPrompt`: a copy of the latest prompt | OBSERVED |
 | `record:<type>`, `attachment:<type>` | every other record: `assistant`, `system`, `ai-title`, `custom-title`, `mode`, `file-history-snapshot`, `worktree-state`, and attachments such as `file`, `edited_text_file`, `hook_success`, `skill_listing`, `total_tokens_reminder` | OBSERVED |

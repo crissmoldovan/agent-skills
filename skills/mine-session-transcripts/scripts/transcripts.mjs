@@ -5,7 +5,7 @@
  *   node transcripts.mjs find       [selection]
  *   node transcripts.mjs messages   [selection] [--since ISO] [--until ISO]
  *   node transcripts.mjs locate     [selection] --phrase "<fixed phrase>" [--ignore-case]
- *   node transcripts.mjs show       --file <transcript> --line <n> [--terms-file <file>]
+ *   node transcripts.mjs show       --file <transcript> --line <n> [--terms-file <file>] [--history <dir>]
  *   node transcripts.mjs documented [selection] --corpus <dir> --control "<sentence>" [...]
  *
  *   selection: [--repo <path>] [--worktree <path>]... [--no-worktrees] [--history <dir>]
@@ -72,17 +72,57 @@ export const HARNESS_TEXT = [
   'Continue from where you left off.',
 ];
 
+/**
+ * The words that make a name a credential's: `DB_PASSWORD`, `GITHUB_TOKEN`, `client_secret`,
+ * `AWS_SECRET_ACCESS_KEY`, an npm `_authToken`. A name is split at `_`, `.`, `-` and lower-to-upper
+ * case changes, and one of its parts must be a word below. `key`, `pat`, `pass` and `auth` count
+ * only as the last part of a longer name (`SERVICE_ROLE_KEY`, `apiKey`, `GH_PAT`, `DB_PASS`,
+ * `NPM_AUTH`, `_auth`), so "key: ..." or "first pass: ..." in a sentence is not read as one, and a
+ * database's `primary_key` or `sort_key` is not either.
+ */
+const CREDENTIAL_WORDS = new Set(['password', 'passwd', 'passphrase', 'pwd', 'secret', 'secrets', 'token', 'apikey', 'authtoken', 'credential', 'credentials']);
+const CREDENTIAL_LAST_WORDS = new Set(['key', 'pat', 'pass', 'auth']);
+const NOT_A_SECRET_KEY = new Set(['primary', 'foreign', 'sort', 'partition', 'unique', 'composite', 'cache', 'idempotency', 'public', 'routing', 'hash', 'lookup']);
+function namesCredential(name) {
+  const parts = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (parts.some((part) => CREDENTIAL_WORDS.has(part))) return true;
+  const last = parts.at(-1);
+  if (!CREDENTIAL_LAST_WORDS.has(last)) return false;
+  if (parts.length === 1) return /^[_.]/.test(name);
+  return !(last === 'key' && NOT_A_SECRET_KEY.has(parts.at(-2)));
+}
+
+/**
+ * A name a credential goes by, given a value of eight or more characters: `NAME=value`,
+ * `"name": "value"`, `name: value`, `--name=value` or `--name value`. Not one regular expression
+ * with `\b` before the name: `_` is a word character, so `\b` misses every prefixed environment
+ * variable. The value is only looked ahead at, so a name inside another value is still read.
+ */
+const credentialAssignment = {
+  test(text) {
+    for (const [, name] of text.matchAll(/([A-Za-z0-9_.-]+)['"]?\s*[:=]\s*(?=['"]?[^\s'"]{8,})/g)) {
+      if (namesCredential(name)) return true;
+    }
+    for (const [, name] of text.matchAll(/(?:^|\s)--([A-Za-z0-9_.-]+)\s+(?=['"]?[^\s'"-][^\s'"]{7,})/g)) {
+      if (namesCredential(name)) return true;
+    }
+    return false;
+  },
+};
+
 /** Shapes a secret has. A transcript can hold one in a command's output, a paste or a pasted URL. */
 export const SECRET_PATTERNS = [
   ['a hex run of 32 or more characters', /[0-9a-fA-F]{32,}/],
   ['a JSON web token', /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
   ['a provider API key', /\bsk-[A-Za-z0-9_-]{20,}/],
+  ['a live or test secret key', /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/],
   ['a GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/],
   ['a Slack token', /\bxox[abposr]-[A-Za-z0-9-]{10,}/],
   ['an AWS access key id', /\bAKIA[0-9A-Z]{16}\b/],
   ['a Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/],
   ['a private key block', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
-  ['a credential assignment', /\b(?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['"]?[^\s'"]{8,}/i],
+  ['an authorization header', /\bauthorization\s*[:=]\s*['"]?(?:bearer|basic|token)\s+[^\s'"]{8,}|\bbearer\s+[A-Za-z0-9._~+/-]{20,}/i],
+  ['a credential assignment', credentialAssignment],
   ['a URL with a password in it', /[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i],
 ];
 
@@ -122,19 +162,30 @@ function contentOf(content) {
   return { text, attached };
 }
 
-/** Harness markup, the interruption marker, a preamble, or a slash command whose arguments are words. */
-function screenText(text) {
+/** The tags the harness wraps its own text in: slash commands, command output, shell mode, notices. */
+const HARNESS_TAG = /^<(?:command-|local-command-|bash-|system-reminder|user-prompt-submit-hook|user-memory-input|task-notification|ide_)/;
+
+/**
+ * Harness markup, the interruption marker, a preamble, or a slash command whose arguments are words.
+ *
+ * `marked` says the harness itself marked the turn as a person's (`origin.kind: "human"`, or a queued
+ * prompt). Such a turn can be pasted HTML or XML, or can open with words a preamble also opens with
+ * ("Continue from where you left off."), so only the harness's own tags and the interruption marker
+ * are screened out of it. A turn with no mark rests on the fallback, and is screened for all of them.
+ */
+function screenText(text, { marked = false, attached = [] } = {}) {
   const trimmed = text.trim();
-  if (trimmed === '') return { kind: 'empty' };
+  // An image or a document sent with no words: counted, but there is nothing to locate or check.
+  if (trimmed === '') return { kind: attached.length ? 'attachment-only' : 'empty' };
   if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
     const args = trimmed.match(/<command-args>([\s\S]*?)<\/command-args>/);
     if (args && args[1].trim() !== '') {
       return { person: 'command-args', text: args[1].trim(), command: trimmed.match(/<command-name>([^<]*)<\/command-name>/)?.[1] ?? null };
     }
-    return { kind: 'harness-markup' };
+    if (!marked || HARNESS_TAG.test(trimmed)) return { kind: 'harness-markup' };
   }
   if (/^\[Request interrupted by user/.test(trimmed)) return { kind: 'interruption' };
-  if (HARNESS_TEXT.some((marker) => trimmed.startsWith(marker))) return { kind: 'harness-text' };
+  if (!marked && HARNESS_TEXT.some((marker) => trimmed.startsWith(marker))) return { kind: 'harness-text' };
   return { person: true, text };
 }
 
@@ -150,7 +201,7 @@ export function classify(record, { subagent = false } = {}) {
     // A coordinator's message to a subagent is queued too, with no mode and its own origin.
     if (attachment.commandMode !== 'prompt') return { kind: `queued:${attachment.commandMode ?? attachment.origin?.kind ?? 'unmarked'}` };
     const { text, attached } = contentOf(attachment.prompt);
-    const screened = screenText(text);
+    const screened = screenText(text, { marked: true, attached });
     if (!screened.person) return { kind: `queued:${screened.kind}` };
     return { person: screened.person === true ? 'queued' : screened.person, text: screened.text, attached, command: screened.command ?? null };
   }
@@ -168,11 +219,11 @@ export function classify(record, { subagent = false } = {}) {
     // In a subagent's transcript, an unmarked user turn is the prompt its parent or a script sent.
     if (subagent || record.isSidechain) return { kind: 'dispatch' };
     if (typeof record.entrypoint === 'string' && record.entrypoint.startsWith('sdk')) {
-      const screened = screenText(text);
+      const screened = screenText(text, { attached });
       return screened.person ? { kind: 'headless', text: screened.text, attached } : { kind: screened.kind };
     }
   }
-  const screened = screenText(text);
+  const screened = screenText(text, { marked: origin === 'human', attached });
   if (!screened.person) return { kind: screened.kind };
   return {
     person: screened.person === true ? 'typed' : screened.person,
@@ -185,6 +236,18 @@ export function classify(record, { subagent = false } = {}) {
 }
 
 const hashOf = (text) => createHash('sha256').update(normalise(text)).digest('hex');
+
+/**
+ * Every string value a record holds, decoded, and none of its keys. A phrase is looked for in these
+ * and not in the raw line: there a quote, a backslash or a newline is escaped and never matches, and
+ * a key name or a scrap of JSON syntax matches every record.
+ */
+export function stringsOf(value, into = []) {
+  if (typeof value === 'string') into.push(value);
+  else if (Array.isArray(value)) for (const item of value) stringsOf(item, into);
+  else if (value && typeof value === 'object') for (const item of Object.values(value)) stringsOf(item, into);
+  return into;
+}
 
 /**
  * Streams one transcript, a record at a time, with its 1-based line number and the raw line. Never
@@ -385,7 +448,7 @@ export function formatTimes(timestamp, zones = []) {
 /**
  * Every person's message in the transcripts found, and every other record counted by kind.
  * `visit(message)` sees each message with its file, line, time, session and kind; `visitOther`
- * sees every other record's kind and raw line, for a caller that counts where else a phrase occurs.
+ * sees every other record's kind and the record, for a caller that counts where else a phrase occurs.
  */
 export async function readMessages(found, { since = null, until = null, includeHeadless = false, visit = () => {}, visitOther = null } = {}) {
   const totals = { messages: {}, fallback: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
@@ -409,7 +472,7 @@ export async function readMessages(found, { since = null, until = null, includeH
 
   const readOne = async (file, { subagent, parentHashes }) => {
     const hashes = new Set();
-    for await (const { number, record, line } of recordsOf(file)) {
+    for await (const { number, record } of recordsOf(file)) {
       if (record === undefined) {
         totals.unparsable += 1;
         continue;
@@ -419,19 +482,19 @@ export async function readMessages(found, { since = null, until = null, includeH
       if (!kind && result.kind === 'headless' && includeHeadless) kind = 'headless';
       if (!kind) {
         exclude(result.kind);
-        if (visitOther) visitOther(result.kind, line);
+        if (visitOther) visitOther(result.kind, record);
         continue;
       }
       if (record.uuid && seenUuids.has(record.uuid)) {
         exclude('duplicate-record');
-        if (visitOther) visitOther('duplicate-record', line);
+        if (visitOther) visitOther('duplicate-record', record);
         continue;
       }
       if (record.uuid) seenUuids.add(record.uuid);
       const hash = hashOf(result.text);
       if (subagent && parentHashes.has(hash)) {
         exclude('relayed-copy');
-        if (visitOther) visitOther('relayed-copy', line);
+        if (visitOther) visitOther('relayed-copy', record);
         continue;
       }
       hashes.add(hash);
@@ -519,6 +582,7 @@ const USAGE = `usage:
   transcripts.mjs messages   [selection] [--since ISO] [--until ISO]
   transcripts.mjs locate     [selection] --phrase "<fixed phrase>" [--ignore-case]
   transcripts.mjs show       --file <transcript> --line <n> [--terms-file <file>] [--zone <zone>]
+                             [--history <dir>] [--include-headless]
   transcripts.mjs documented [selection] --corpus <dir> --control "<sentence of 8+ words>"...
                              [--exclude <path prefix>]... [--max-file-bytes <n>] [--relay-name <name>]...
                              [--all] [--out <file>]
@@ -532,6 +596,25 @@ function validateZones(zones) {
     } catch {
       throw new Error(`--zone ${JSON.stringify(zone)} is not a time zone this Node knows`);
     }
+  }
+}
+
+/**
+ * A window that does not parse would put every message outside it and print a count of 0, which is
+ * the one answer this script must never give for "not read". So it is refused, as a bad zone is.
+ */
+function validateOptions(options) {
+  validateZones(options.zone);
+  for (const name of ['since', 'until']) {
+    if (options[name] !== undefined && Number.isNaN(Date.parse(options[name]))) {
+      throw new Error(`--${name} ${JSON.stringify(options[name])} is not a time; give one in ISO 8601, such as 2030-01-08T00:00:00Z`);
+    }
+  }
+  if (options.since !== undefined && options.until !== undefined && Date.parse(options.since) > Date.parse(options.until)) {
+    throw new Error('--since is later than --until, so the window holds nothing');
+  }
+  if (options.maxFileBytes !== undefined && !(Number.isInteger(Number(options.maxFileBytes)) && Number(options.maxFileBytes) > 0)) {
+    throw new Error('--max-file-bytes must be a whole number of bytes above 0');
   }
 }
 
@@ -606,7 +689,7 @@ async function commandLocate(options, out) {
     until: options.until,
     includeHeadless: options.includeHeadless,
     visit: (message) => { if (has(message.text)) hits.push(message); },
-    visitOther: (kind, line) => { if (has(line)) elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; },
+    visitOther: (kind, record) => { if (stringsOf(record).some(has)) elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; },
   });
   if (options.json) {
     out(JSON.stringify({
@@ -626,6 +709,20 @@ async function commandLocate(options, out) {
   return 0;
 }
 
+/**
+ * The transcript `show` reads. `locate` and `documented` print a file relative to the history
+ * directory, so a relative path is looked for there first (`--history`, or the default), and in the
+ * working directory only when the history directory has no such file.
+ */
+export function transcriptPath(file, history) {
+  if (path.isAbsolute(file)) return file;
+  const underHistory = path.join(history, file);
+  if (existsSync(underHistory)) return underHistory;
+  const fromHere = path.resolve(file);
+  if (existsSync(fromHere)) return fromHere;
+  throw new Error(`no transcript ${JSON.stringify(file)} in the history directory ${history} or the working directory`);
+}
+
 async function commandShow(options, out) {
   if (!options.file || !options.line) throw new Error('show needs --file <transcript> and --line <n>');
   const wantedLine = Number(options.line);
@@ -633,8 +730,9 @@ async function commandShow(options, out) {
   const terms = options.termsFile
     ? readFileSync(options.termsFile, 'utf8').split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('#'))
     : [];
-  const subagent = /[\\/]subagents[\\/]/.test(options.file);
-  for await (const { number, record } of recordsOf(options.file)) {
+  const file = transcriptPath(options.file, options.history ?? path.join(homedir(), '.claude', 'projects'));
+  const subagent = /[\\/]subagents[\\/]/.test(file);
+  for await (const { number, record } of recordsOf(file)) {
     if (number < wantedLine) continue;
     if (number > wantedLine) break;
     if (record === undefined) {
@@ -642,14 +740,16 @@ async function commandShow(options, out) {
       return 3;
     }
     const result = classify(record, { subagent });
-    const kind = result.person ?? (result.kind === 'headless' ? 'headless' : null);
+    // A headless prompt is left out unless asked for, here as in every count.
+    const kind = result.person ?? (result.kind === 'headless' && options.includeHeadless ? 'headless' : null);
     if (!kind) {
-      out(`line ${wantedLine} is a ${result.kind} record, not a person's message; nothing shown`);
+      const hint = result.kind === 'headless' ? ' (a headless prompt is shown only with --include-headless)' : '';
+      out(`line ${wantedLine} is a ${result.kind} record, not a person's message; nothing shown${hint}`);
       return 3;
     }
     const hits = scanSecrets(result.text, terms);
     if (hits.length) {
-      out(`line ${wantedLine} holds ${hits.join(', ')}; nothing shown. Open the file yourself if you must read it.`);
+      out(`line ${wantedLine} holds ${hits.join(', ')}; nothing shown. The person may read that line themselves; an agent does not open the transcript.`);
       return 3;
     }
     out(`${options.file}:${wantedLine}  ${formatTimes(record.timestamp, options.zone)}  session ${record.sessionId ?? '?'}  ${kind}${result.attached?.length ? `  (also attached: ${result.attached.join(', ')})` : ''}`);
@@ -820,7 +920,7 @@ async function commandDocumented(options, out) {
   for (const row of listed) {
     out(`  ${row.file}:${row.line}  ${formatTimes(row.timestamp, options.zone)}  ${row.kind}  ${row.chars} chars  ${row.pct === null ? 'too short' : `${row.pct}%`}${row.relays ? '  relays' : ''}`);
   }
-  if (options.out) out(`register written to ${options.out} (positions and counts; no message text)`);
+  if (options.out) out(`register written to ${options.out} (positions and counts, no message text; it names this machine's paths and the sessions' ids)`);
   for (const line of coverageLines(found, totals)) out(line);
   return 0;
 }
@@ -829,7 +929,7 @@ export async function main(argv = process.argv.slice(2), out = (line) => process
   let parsed;
   try {
     parsed = parseArgs(argv);
-    validateZones(parsed.options.zone);
+    validateOptions(parsed.options);
   } catch (error) {
     process.stderr.write(`${error.message}\n${USAGE}\n`);
     return 1;

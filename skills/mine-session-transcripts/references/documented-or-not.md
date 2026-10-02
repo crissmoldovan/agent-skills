@@ -87,5 +87,11 @@ With no names bound, relays are not checked, and the output says so.
 
 `--out <file>` writes the result as JSON: the method, the corpus counts, the controls, the buckets,
 and one row per message with its file, line, time, session, kind, length, runs, runs found, share and
-relay mark. It holds no message text, so it may be committed where B5 says. Message text never
-reaches a file from this command.
+relay mark. Message text never reaches a file from this command.
+
+No message text does not make the register safe to publish. It names this machine: its `coverage`
+lines hold the history directory (under the home directory, so the user name) and the repository's
+absolute path; each row's `file` begins with a directory name that encodes the absolute path a
+session ran in; and each row carries the session's id. Write it only where B5 says, and commit it
+only to a repository whose readers may see those. Before it goes anywhere shared, replace the paths
+with placeholders and drop the session ids, or keep it on the machine.

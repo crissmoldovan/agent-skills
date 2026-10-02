@@ -196,6 +196,30 @@ test('locate gives the line, time, session and kind of each hit, never the text,
   assertNoMessageText(result.stdout, 'locate');
 });
 
+test('where else a phrase occurs is read from the values a record holds, never its keys or its escaping', () => {
+  // A key name is in every record's raw line, and in no value.
+  const key = run('locate', ...selection, '--phrase', 'parentUuid');
+  assert.equal(key.status, 0, key.stderr);
+  assert.match(key.stdout, /^0 messages from a person contain the phrase$/m);
+  assert.doesNotMatch(key.stdout, /also occurs/);
+  // A newline is escaped in the raw line, and found in the decoded value.
+  const newline = run('locate', ...selection, '--phrase', 'skills/example\n\n# Example skill');
+  assert.match(newline.stdout, /also occurs in records that are not a person's: 1 meta$/m);
+});
+
+test('the file locate prints is the file show reads, with the same --history', () => {
+  const located = run('locate', ...selection, '--phrase', 'ship the release notes after lunch');
+  assert.equal(located.status, 0, located.stderr);
+  const [, file, line] = located.stdout.match(/^ {2}(\S+\.jsonl):(\d+) /m);
+  assert.ok(!path.isAbsolute(file), 'locate prints a path relative to the history directory');
+  const shown = run('show', '--file', file, '--line', line, '--history', HISTORY);
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.match(shown.stdout, /ship the release notes after lunch/);
+  const lost = run('show', '--file', file, '--line', line, '--history', path.join(HISTORY, 'nowhere'));
+  assert.equal(lost.status, 1);
+  assert.match(lost.stderr, /no transcript .* in the history directory/);
+});
+
 test('locate matches a fixed phrase literally, not as a pattern', () => {
   const literal = run('locate', ...selection, '--phrase', 'status?');
   assert.match(literal.stdout, /^2 messages from a person contain the phrase$/m);
@@ -220,6 +244,18 @@ test('show refuses a message holding a shaped secret, names the kind, and prints
   assert.equal(jwt.status, 3);
   assert.match(jwt.stdout, /a JSON web token/);
   assert.doesNotMatch(jwt.stdout, /eyJ/);
+  // The refusal is addressed to the person, and gives an agent no leave to open the file.
+  assert.match(jwt.stdout, /The person may read that line themselves; an agent does not open the transcript\./);
+  assert.doesNotMatch(jwt.stdout, /yourself if you must/);
+});
+
+test('show leaves a headless prompt out unless asked for, as every count does', () => {
+  const refused = run('show', '--file', SESSION('c3'), '--line', '1');
+  assert.equal(refused.status, 3);
+  assert.match(refused.stdout, /is a headless record, not a person's message; nothing shown \(a headless prompt is shown only with --include-headless\)/);
+  const shown = run('show', '--file', SESSION('c3'), '--line', '1', '--include-headless');
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.match(shown.stdout, / {2}headless$/m);
 });
 
 test('show refuses an unshaped secret only when a terms file names it, and never prints the term', async () => {
@@ -258,6 +294,39 @@ test('the scan knows each secret shape, built here at run time so no fixture hol
     assert.deepEqual(scanSecrets(sample), [name], `${name} was not recognised`);
   }
   assert.deepEqual(scanSecrets('ship it after lunch'), []);
+});
+
+test('a credential under an environment variable, a header, a setting or a flag is refused too', () => {
+  const value = (seed, times) => seed.repeat(times);
+  const samples = [
+    [`DB_${'PASS'}WORD=${value('v', 12)}`, 'a credential assignment'],
+    [`export GITHUB_${'TOK'}EN=${value('Ab1', 5)}`, 'a credential assignment'],
+    [`AWS_SECRET_ACCESS_${'KEY'}=${value('Kq7/', 10)}`, 'a credential assignment'],
+    [`SERVICE_ROLE_${'KEY'}=${value('r', 20)}`, 'a credential assignment'],
+    [`GH_${'PAT'}=${value('z', 12)}`, 'a credential assignment'],
+    [`apiKey: ${value('k', 10)}`, 'a credential assignment'],
+    [`{"client_${'secret'}": "${value('c', 12)}"}`, 'a credential assignment'],
+    [`//registry.example.com/:_auth${'Token'}=${value('n', 16)}`, 'a credential assignment'],
+    [`run it with --pass${'word'} ${value('h', 10)}`, 'a credential assignment'],
+    [`FOO=bar,DB_${'PASS'}=${value('q', 10)}`, 'a credential assignment'],
+    [`PAYMENTS_SECRET_${'KEY'}=${'sk'}_${'live'}_${value('a1B2', 5)}`, 'a live or test secret key'],
+    [`Authorization: ${'Bearer'} ${value('Tk9', 8)}`, 'an authorization header'],
+  ];
+  for (const [sample, name] of samples) {
+    assert.ok(scanSecrets(sample).includes(name), `${name} was not recognised in ${sample.slice(0, 24)}…`);
+  }
+  // Words that only look like a credential's name are not one.
+  for (const plain of [
+    'first pass: reviewing everything today',
+    'author: somebodyelse',
+    'the tokenizer: sentencepiece',
+    'set the primary_key: account_identifier',
+    'key: something important',
+    'the bearer of bad news arrived',
+    'monkey=bananas_everywhere',
+  ]) {
+    assert.deepEqual(scanSecrets(plain), [], `${plain} was read as a secret`);
+  }
 });
 
 test('normalisation is one function for both sides, and runs are eight words', () => {
@@ -355,12 +424,40 @@ test('classification: a subagent turn with no origin is a dispatch, markup is no
   assert.equal(classify({ type: 'last-prompt', lastPrompt: 'status?' }).kind, 'record:last-prompt');
 });
 
+test("the harness's own mark is trusted: a marked turn keeps pasted markup and preamble-like words, an unmarked one is screened", () => {
+  const marked = (content) => ({ type: 'user', origin: { kind: 'human' }, message: { content } });
+  const unmarked = (content) => ({ type: 'user', message: { content } });
+  const pasted = '<table><tr><td>pasted from a page</td></tr></table>';
+  assert.equal(classify(marked(pasted)).person, 'typed');
+  assert.equal(classify(unmarked(pasted)).kind, 'harness-markup');
+  assert.equal(classify(marked('<bash-input>ls</bash-input>')).kind, 'harness-markup');
+  assert.equal(classify(marked('Continue from where you left off.')).person, 'typed');
+  assert.equal(classify(unmarked('Continue from where you left off.')).kind, 'harness-text');
+  assert.equal(classify(marked('[Request interrupted by user]')).kind, 'interruption');
+  // An image sent alone is counted under its own kind: there are no words to locate or check.
+  assert.equal(classify(marked([{ type: 'image' }])).kind, 'attachment-only');
+  const queuedImage = { type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: [{ type: 'image' }] } };
+  assert.equal(classify(queuedImage).kind, 'queued:attachment-only');
+  assert.equal(classify(marked('   ')).kind, 'empty');
+});
+
 test('bad arguments exit 1: an unknown option, an unknown zone, an unknown command', () => {
   assert.equal(run('messages', ...selection, '--phrse', 'x').status, 1);
   const zone = run('locate', ...selection, '--phrase', 'x', '--zone', 'Not/AZone');
   assert.equal(zone.status, 1);
   assert.match(zone.stderr, /is not a time zone/);
   assert.equal(run('print', ...selection).status, 1);
+});
+
+test('a window that does not parse exits 1, never a count of zero', () => {
+  const typo = run('messages', ...selection, '--since', 'last tuesday');
+  assert.equal(typo.status, 1);
+  assert.match(typo.stderr, /--since "last tuesday" is not a time/);
+  assert.doesNotMatch(typo.stdout, /a person's messages: 0/);
+  const backwards = run('messages', ...selection, '--since', '2030-01-09T00:00:00Z', '--until', '2030-01-01T00:00:00Z');
+  assert.equal(backwards.status, 1);
+  assert.match(backwards.stderr, /later than --until/);
+  assert.equal(run('documented', ...selection, '--corpus', '.', '--control', 'x', '--max-file-bytes', 'lots').status, 1);
 });
 
 test('the script has no dependency outside Node itself', async () => {
