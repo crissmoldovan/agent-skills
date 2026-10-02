@@ -210,3 +210,178 @@ test('the composition doc quotes the same lifecycle sentence, verbatim', async (
   );
   assert.ok(composition.includes('report-progress'), 'the composition doc does not place report-progress');
 });
+
+// The head line, the cadence and the bindings arrived together. Each block below holds one
+// claim the skill or its reference makes, so a reword that drops the claim fails by name.
+const cadence = await readOrEmpty('skills/report-progress/references/percentage-eta-cadence.md');
+const cadenceFlat = cadence.replace(/\s+/g, ' ');
+
+test('report-progress declares the slots, hard lines and steps a project adapts it by', () => {
+  assert.match(skill, /^## Bindings$/m);
+  for (let n = 1; n <= 9; n += 1) assert.match(skill, new RegExp(`^\\| B${n} \\|`, 'm'), `slot B${n} is not declared`);
+  for (let n = 1; n <= 8; n += 1) assert.match(skill, new RegExp(`^(?:- |\\d+\\. )\\*\\*H${n}\\. `, 'm'), `hard line H${n} is not declared`);
+  // Ids are names, and the text's order is the steps' order: S1 to S11, in that order.
+  let previous = -1;
+  for (let n = 1; n <= 11; n += 1) {
+    const at = skill.search(new RegExp(`^\\d+\\. \\*\\*S${n}\\. `, 'm'));
+    assert.notEqual(at, -1, `step S${n} is not declared`);
+    assert.ok(at > previous, `step S${n} is out of order`);
+    previous = at;
+  }
+  // The five rules are the first five hard lines, in their published order.
+  FIVE_RULES.forEach((rule, index) => {
+    assert.ok(flat.includes(`**H${index + 1}. ${rule}`), `rule ${index + 1} is not hard line H${index + 1}`);
+  });
+  // Every handoff to a sibling is a skill slot whose default is the pack skill.
+  assert.match(skill, /\| B7 \|[^\n]*\| skill \| `agent-lifecycle` \|/);
+  assert.match(skill, /\| B8 \|[^\n]*\| skill \| `describe-changes` \|/);
+  assert.match(skill, /\| B9 \|[^\n]*\| skill \| `request-blocks-review` \|/);
+  // Unbound, the skill does what it did before: no timed cadence, UTC only.
+  assert.match(skill, /\| B1 \|[^\n]*\| value \| none: a report at each point "When to Use" names/);
+  assert.match(skill, /\| B2 \|[^\n]*\| value \| UTC only \|/);
+  assert.match(skill, /H6\. Nothing in this skill installs or arms the gate/);
+  // An installed copy carries no docs/, so the guide is cited by a URL that resolves anywhere.
+  assert.match(skill, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+});
+
+test('the head line is optional, sits above the three sections, and replaces none of them', () => {
+  const head = subsection(skill, 'A percentage, an ETA, and updates nobody has to ask for');
+  const headFlat = head.replace(/\s+/g, ' ');
+  assert.match(headFlat, /directly under its first line and above the three sections/);
+  assert.match(headFlat, /The three sections are still owed/);
+  // A cadence owes a head line whoever set it, the reader or a project binding B1.
+  assert.match(headFlat, /or updates run on a cadence \(B1\), the report carries a \*\*head line\*\*/);
+  assert.match(headFlat, /outside a cadence, a report nobody asked for a percentage or an ETA carries no head line/);
+  // A register's in-flight count is task metadata; the running rows stay lifecycle evidence.
+  assert.match(headFlat, /task metadata, never a running row/);
+  assert.match(headFlat, /references\/percentage-eta-cadence\.md/);
+  assert.match(headFlat, /H7\. A figure nobody measured is reported as not measured, with its reason, never as 0/);
+  assert.match(headFlat, /H8\. An ETA is an estimate, and says so/);
+  // H8 is what keeps an ETA from being the prediction rule 5 forbids, and rule 5 says so itself.
+  assert.match(headFlat, /Unlabelled, an ETA is a forecast written in the grammar of an observation, the prediction rule 5 forbids/);
+  assert.match(flat, /\*\*H5\. [^*]+\*\*[^*]*?An ETA labelled as an estimate with its basis \(H8\) is not that failure/);
+  const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
+  assert.match(procedure, /S1\. On a cadence, re-arm the next tick before anything else/);
+  assert.match(procedure, /S3\. Write the head line when one is owed/);
+  assert.match(procedure, /in the denominator and never in the numerator/);
+  assert.match(procedure, /every time and zone label pasted from a command/);
+  // The wall-clock divides by the running section's count, never by a number nobody observed.
+  assert.match(procedure, /wall-clock at the agents actually running, as the running section counts them \(B7\)/);
+  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched and say they were not observed/);
+  assert.match(procedure, /With no register, it reads "Progress not measured: no register of the work" \(H7\)/);
+  // A labelled ETA is the third kind of number S6 allows, so S6 cannot strip what S3 requires.
+  assert.match(procedure, /or part of an ETA labelled as an estimate with its basis \(H8\)/);
+  assert.match(procedure, /next update's clock time beside the acts, or, in the last update, says the updates stop/);
+  const when = section(skill, 'When to Use');
+  assert.match(when, /"eta\?"/);
+  assert.match(when.replace(/\s+/g, ' '), /tick of a cadence \(B1\)\*\*, whether the reader set it or the project binds it/);
+  const verification = section(skill, 'Verification');
+  const verificationFlat = verification.replace(/\s+/g, ' ');
+  assert.match(verificationFlat, /or is part of an ETA labelled as an estimate with its basis \(H8\)/);
+  assert.match(verificationFlat, /has not happened yet; an ETA labelled as an estimate says when the work may end/);
+  assert.match(verification, /an ETA labelled as an estimate/);
+  assert.match(verification, /"not measured", never 0/);
+  assert.match(verification, /the last update says the\s+updates stop/);
+  assert.match(descriptionOf(skill), /a percentage, an ETA, or updates at a set interval/);
+});
+
+test('the reference carries each lesson the head line and the cadence rest on', () => {
+  assert.ok(cadence, 'skills/report-progress/references/percentage-eta-cadence.md does not exist');
+  for (const lesson of [
+    /count it just before you write/i,
+    /One unit, and the rows add up/,
+    /Work blocked on a person counts in the denominator and never in the numerator/,
+    /State the ceiling the work can reach without that person/,
+    /When the denominator moves, say what moved it, and give both percentages/,
+    /the two numbers do not compare/,
+    /Agent-hours\.[\s\S]*Wall-clock\.[\s\S]*A clock time, in each reader's zone \(B2\)/,
+    /actually running now, not the number that could run/,
+    /That number is the count of rows in the running section, which come from lifecycle evidence \(B7\)/,
+    /not observed running/,
+    /No register, no number/,
+    /does not divide/,
+    /It is an estimate, and it says so \(H8\)/,
+    /The headline covers all the work up to the goal/,
+    /Assume a review finds something/,
+    /printed and never typed/,
+    /"not measured" in the report, with that reason \(H7\)/,
+    /Tick strictly inside the harness's cap \(B5\)/,
+    /Re-arm before you write/,
+    /where a compaction cannot take it \(B6\)/,
+    /The last update says the updates stop/,
+    /into every running agent/,
+  ]) {
+    assert.match(cadenceFlat, lesson, `the reference has lost: ${lesson}`);
+  }
+  // It declares nothing of its own, so a project adapts all of it through SKILL.md.
+  assert.doesNotMatch(cadence, /^## Bindings$/m);
+  assert.doesNotMatch(cadence, /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)[BHS][1-9]/m);
+});
+
+test('the reference prints its clock from a command and keeps every zone out but UTC', () => {
+  const commands = cadence.match(/```bash\n([\s\S]*?)\n```/);
+  assert.ok(commands, 'the reference has no clock commands');
+  assert.match(commands[1], /^date -u '\+%H:%M %Z'/m);
+  assert.match(commands[1], /TZ="\$READER_ZONE" date/);
+  assert.match(commands[1], /-v\+95M/, 'the BSD form is missing');
+  assert.match(commands[1], /-d '\+95 minutes'/, 'the GNU form is missing');
+  // A time ahead is printed with its date, so a range past midnight does not read as today.
+  for (const line of commands[1].split('\n').filter((l) => /95/.test(l))) assert.match(line, /'\+%a %d %b %H:%M %Z'/);
+  assert.match(cadenceFlat, /keep the date wherever it is not today's in that zone/);
+  for (const text of [skill, cadence]) {
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+    assert.doesNotMatch(text, /\b(?:[A-Z][A-Z]?[SD]T),? ?UTC ?[+-]\d/, 'a zone label typed into the text');
+  }
+});
+
+// A claim a document makes about itself is checkable, so the specimen's numbers are checked:
+// a worked example whose rows do not add up teaches the failure it was written to prevent.
+test("the reference's specimen adds up, and the gate reads it as a complete report", async () => {
+  const specimen = section(cadence, 'A report with a head line, on a cadence').match(/```text\n([\s\S]*?)\n```/);
+  assert.ok(specimen, 'the reference has no specimen report');
+  const report = specimen[1];
+  // A missing figure fails by name, not as a TypeError on a null match.
+  const numbers = (pattern, what) => {
+    const match = report.match(pattern);
+    assert.ok(match, `the specimen no longer states ${what}`);
+    return match.slice(1).map(Number);
+  };
+  const [percent, done, total] = numbers(/Progress (\d+)%: (\d+) of (\d+) /, 'its percentage and basis');
+  const [d, f, t, b] = numbers(/done (\d+) · in flight (\d+) · to do (\d+) · blocked on a person (\d+)/, 'its rows');
+  assert.equal(d, done);
+  assert.equal(d + f + t + b, total, 'the rows do not add up to the denominator');
+  assert.equal(Math.round((100 * done) / total), percent);
+  const [ceiling] = numbers(/ceiling without that person (\d+)%/, 'its ceiling');
+  assert.equal(Math.floor((100 * (total - b)) / total), ceiling);
+  const [previous, before, after] = numbers(
+    /up from (\d+) at [^.]*? which took the percentage from (\d+)% to (\d+)%/,
+    'what moved its denominator, with both percentages',
+  );
+  assert.equal(Math.round((100 * done) / previous), before);
+  assert.equal(after, percent);
+
+  const gate = await import('../adapters/claude-code/report-progress-gate.mjs');
+  assert.deepEqual(gate.findReportFailures(report), []);
+  assert.deepEqual(gate.findReportFailures(report, { runningTaskCount: 2 }), []);
+  // The head line is not read as a section: only the three labelled lines below it are.
+  const headOnly = report.split('\n').slice(0, 3).join('\n');
+  for (const id of ['done', 'running', 'next']) {
+    assert.equal(gate.hasSectionLabel(headOnly, id), false, `the head line reads as the ${id} section`);
+  }
+});
+
+test('the reference keeps out what identifies a person, a client or a machine', async () => {
+  // The organisation markers are read from the block above that checks SKILL.md for them, so the
+  // two cannot drift and this block need not restate them.
+  const ownSource = await readOrEmpty('test/report-progress.test.mjs');
+  const markerSource = ownSource.match(/assert\.doesNotMatch\(skill, \/((?:\\b[A-Z]+\\b\|?)+)\/\);/);
+  assert.ok(markerSource, 'the block above no longer checks SKILL.md for organisation markers');
+  const organisationMarkers = new RegExp(markerSource[1]);
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
+  for (const text of [skill, cadence]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    assert.doesNotMatch(text, /(?:\/Users\/|\/home\/|C:\\Users\\)/);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+  }
+});
