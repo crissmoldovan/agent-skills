@@ -462,6 +462,23 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.match(tags, /A published tag is never moved or deleted/);
   assert.match(tags, /`<skill>-vX\.Y\.Z`/);
   assert.match(section(releases, 'Versioning'), /renaming or removing one of their ids is a major change for that skill/);
+  assert.match(section(releases, 'Versioning'), /below 1\.0\.0, a major change moves its middle number/);
+
+  // Which number a change to an id moves, and how each kind of change is classed.
+  const changing = section(adaptation, 'Changing a skill that projects adapt');
+  assert.match(changing, /The number that moves\*\* is the catalogue's version/);
+  assert.match(changing, /Below 1\.0\.0,\s+a major change moves the middle number/);
+  assert.match(changing, /adding a slot that is `required` from the\s+start/);
+  assert.match(changing, /changing what a step, a hard line or a slot means/);
+  assert.match(changing, /relaxing or dropping a hard line/);
+
+  // What the copy carries, a reference file as its entry, and how an id is cited rather than declared.
+  const copy = section(adaptation, 'The adapted copy');
+  assert.match(copy, /`LICENSE`, the MIT text/);
+  assert.match(copy, /### When the entry is a reference file/);
+  assert.match(copy, /relative link in it is rewritten for its new place/);
+  assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
+  assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);
 
   for (const [where, text] of [['CONTRIBUTING.md', contributing], ['README.md', readme], ['docs/architecture.md', architecture]]) {
     assert.match(text, /project-adaptation\.md/, `${where} does not point at docs/project-adaptation.md`);

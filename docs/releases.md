@@ -116,9 +116,10 @@ a default, of which "ask once" is one. It names its **hard lines** `H1`, `H2` â€
 binds slots, adds to steps by id and lists its own traps. The merge rules say what wins: a binding
 replaces a default and nothing else, an addition extends a step, and a hard line is never relaxed.
 The one override, `replaces:`, is explicit, says where its decision is recorded, and is refused on a
-hard line. The page also says how an adapted copy pins the skill it came from: a tag or a full commit
-sha, the skill folder's git tree, and the sha256 of every file. This change ships no composer; the
-page is the contract that any composer follows.
+hard line. The page also says what an adapted copy carries, the pack's MIT licence among it, how a
+project adapts a reference file of a skill rather than its `SKILL.md`, and how the copy pins the
+skill it came from: a tag or a full commit sha, the skill folder's git tree, and the sha256 of every
+file. This change ships no composer; the page is the contract that any composer follows.
 
 `scripts/verify-skills.mjs` now checks every file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It requires well-formed ids, unique across the skill, one
@@ -128,8 +129,11 @@ passed before fails now.
 
 The pins rely on a tag policy that had never been written down, and this file now carries it under
 [Tags](#tags): a published tag is never moved or deleted, and per-skill tags `<skill>-vX.Y.Z` may
-sit beside catalogue tags. Renaming or removing a declared id is a major change for that skill.
-`publish-agent-skill` now says so among its pitfalls, which is the only change to an installed skill.
+sit beside catalogue tags. Renaming or removing a declared id is a major change for that skill. The
+page classes every change to a declared id as major, minor or patch, and says which number moves:
+the catalogue's, and a per-skill tag's where the skill has one, with a major change moving the
+middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
+removing an id is major among its pitfalls, which is the only change to an installed skill.
 
 ## Release checklist
 
@@ -152,7 +156,10 @@ major for broken existing guidance/contracts, minor for new skills or substantiv
 new guidance, and patch for corrections within an already-correct contract.
 The binding slots, hard lines and steps a skill declares for projects to adapt are such a
 contract: renaming or removing one of their ids is a major change for that skill, because
-every overlay that cites it stops composing ([project adaptation](project-adaptation.md#changing-a-skill-that-projects-adapt)).
+every overlay that cites it stops composing ([project adaptation](project-adaptation.md#changing-a-skill-that-projects-adapt)
+classes the other changes to an id). It moves this version, and a per-skill tag's as well where
+the skill has one. While the version is below 1.0.0, a major change moves its middle number, and
+the release notes call it breaking.
 
 ## Tags
 

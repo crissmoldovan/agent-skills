@@ -34,7 +34,9 @@ What checks what today:
   `b1`, `B-1` or `S3a`.
 - **An id is a name, not a position.** It is never renumbered. A step written between `S3` and `S4`
   takes the next unused number, and the order of the text is the order of the steps. A removed id's
-  number is never used again, so an old overlay cannot cite it by mistake.
+  number is never used again, so an old overlay cannot cite it by mistake. The skill keeps no list
+  of retired numbers: the release note that removed one names it, and the skill's git history is
+  the record, so read `git log -p -- skills/<skill>` before giving a new id a number.
 - **Unique within the skill**, across every file of it that declares `## Bindings`, so `S4` means one
   step wherever the skill or an overlay cites it. A second adaptable file in one skill continues the
   numbering.
@@ -89,6 +91,12 @@ and gives each hard line and step its id where it is written:
   a template, declares that convention as a slot whose default is the search. An adapted copy then
   reads the answer from its overlay, and the skill on its own still searches.
 
+**Only a declaration opens with an id.** A list item that opens with an `H` or `S` id in bold, and
+a heading that opens with one, declare that id. Anywhere else, cite an id inside the sentence
+(`if S2 was skipped, …`), never as a bold lead-in such as `- **S2 skipped:**`. A lead-in declares
+`S2` a second time, which fails, or, where the skill has no `S2`, declares a step nobody wrote,
+which an overlay could then cite.
+
 **Why a sibling is a slot.** A project often has its own skill for a sibling's job: an older one of
 its own, or an adapted copy of the sibling. The skill's text names the pack skill, so without the
 slot the agent is sent to the generic copy while the project's own skill sits beside it.
@@ -132,15 +140,15 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 ## The merge rules
 
 1. **A binding replaces the default, and nothing else.** The bound value holds wherever the skill
-   cites the slot. Binding an id the skill does not declare is refused, and so is leaving a
-   `required` slot unbound.
+   cites the slot. Binding an id that no file in the adapted copy declares is refused, and so is
+   leaving a `required` slot unbound.
 2. **A skill slot maps a name; it never edits the text.** The adapted copy carries a short map:
    where the text names `resolve-problem-report`, use `triage-a-defect`. If the project adapts the
    default skill itself, the slot is bound to that adapted copy. Left unbound, it would send the
    agent to the generic one, so it is refused.
 3. **An addition extends its step.** It is written after the skill's text, under the step's id, and
-   adds to the step. It never removes, reorders or rewords anything. An addition keyed to an id the
-   skill does not declare is refused.
+   adds to the step. It never removes, reorders or rewords anything. An addition keyed to an id
+   that no file in the adapted copy declares is refused.
 4. **A hard line is never relaxed.** An addition to an `H` id may only narrow what is allowed, and
    no binding, addition or replacement may widen one. No script can tell stricter from looser in
    prose, so review holds this rule: an overlay that adds to a hard line, or binds a slot a hard line
@@ -179,12 +187,40 @@ In this order:
 2. one line saying the file is generated, from which skill at which pin, and what to edit instead;
 3. the names map, from the bound `skill` slots;
 4. the overlay's bindings;
-5. the skill's own text, byte for byte, between markers;
+5. the entry's text between markers, byte for byte but for the links a reference-file entry has
+   rewritten ([below](#when-the-entry-is-a-reference-file));
 6. the overlay's additions under their ids, then its traps.
 
-The skill's other files are carried byte for byte at their own paths, so its links still resolve.
+The **entry** is the file of the skill that the project adapts, and it is usually `SKILL.md`. Beside
+the adapted `SKILL.md`, the copy carries:
+
+- the skill's references, scripts and assets, byte for byte at their own paths, so the links
+  between them still resolve;
+- the project's own files, under `references/project/`;
+- this pack's `LICENSE`, the MIT text, because an adapted copy is a substantial portion of the
+  pack's work and the licence asks for its notice in every such copy;
+- the record of its pin (below), with the sha256 of every file it carries.
+
+Every relative link in the adapted copy resolves, and a copy in which one does not is refused.
 Composing joins texts at fixed points and asks no model to merge them, so the result can be
 compared byte for byte, and composing again catches a hand edit or a stale copy.
+
+### When the entry is a reference file
+
+A project may adapt one reference file of a skill instead of its `SKILL.md`, when that file holds
+the procedure it needs.
+
+- The entry's text becomes the body of the adapted `SKILL.md`, at the folder root, so every
+  relative link in it is rewritten for its new place. The entry is still carried at its own path
+  too, so the skill's other files still find it.
+- The skill's own `SKILL.md` is not carried, because the adapted `SKILL.md` takes its place. A file
+  written to be adapted on its own therefore names its skill in backticks, such as `release-notes`,
+  where it sends the reader to the rest of that skill, rather than linking to `../SKILL.md`, so the
+  names map can route the name.
+- The overlay binds and adds only to ids that a carried file declares. An id declared only in the
+  skill's `SKILL.md` is refused, because that text is not in the copy. A file written to be
+  adapted on its own therefore declares its own `## Bindings`, and ids for its own hard lines and
+  steps, continuing the skill's numbering, which stays unique across the skill.
 
 ## Pinning a skill
 
@@ -207,22 +243,36 @@ An adapted copy names the skill it came from by three identities:
 ## Changing a skill that projects adapt
 
 An overlay cites ids, so the ids are a contract, and a change to them is versioned like any other
-contract ([versioning](releases.md#versioning)):
+contract ([versioning](releases.md#versioning)).
 
-- **Major for that skill:** renaming or removing an id, changing a slot's kind, making a slot
-  `required`, or using a removed id's number again. Each one stops an existing overlay from
-  composing, or makes it compose wrong. The release note names every id that moved and what an
-  overlay cites instead.
+**The number that moves** is the catalogue's version, the one a `vX.Y.Z` tag names, because every
+skill is released under it. Where the skill also has tags of its own, `<skill>-vX.Y.Z`, its own
+number moves the same way. The `version=` in the skill's metadata is not that number. Below 1.0.0,
+a major change moves the middle number, as a minor one does, and its release note calls it
+breaking; from 1.0.0 it moves the first.
+
+- **Major for that skill:**
+  - renaming or removing an id, or using a removed id's number again;
+  - changing a slot's kind, making a slot `required`, or adding a slot that is `required` from the
+    start, because every overlay written before the change leaves it unbound;
+  - changing what a step, a hard line or a slot means. The changed rule takes a new id and the old
+    one is removed, so an overlay written for the old meaning stops composing instead of extending
+    a rule it was not written for;
+  - relaxing or dropping a hard line, even for an overlay that never cites it, because every
+    project that adapts the skill relied on it.
+
+  Each one stops an existing overlay from composing, or leaves a project with less than it relied
+  on. The release note names every id that moved and what an overlay cites instead.
 - **Minor:** a new slot that is not required, a new step, a new hard line, a stricter hard line, or a
-  changed default. A changed default changes what every project that left the slot unbound gets, so
-  the release note says so.
-- **Patch:** wording that keeps a step's meaning.
+  changed default. A changed default changes what every project that left the slot unbound gets,
+  and a new or stricter hard line may now forbid what an overlay adds, so the release note says so.
+- **Patch:** wording that keeps the meaning of every step, hard line and slot.
 
 ## What the verifier holds
 
 `scripts/verify-skills.mjs` reads every Markdown file under `skills/` that declares `## Bindings`, a
-reference file as much as `SKILL.md`. It leaves fenced code out, so an example such as the ones on
-this page declares nothing. It fails when:
+reference file as much as `SKILL.md`. It leaves fenced code out, at any indentation, so an example
+such as the ones on this page declares nothing. It fails when:
 
 - one file declares the section twice, or the section has no table, the table's columns are not
   `id | slot | kind | default`, or it declares no slot;
@@ -234,5 +284,6 @@ this page declares nothing. It fails when:
 - an id is declared twice in one skill, in one file or across two;
 - one skill's slots use more than one letter.
 
-It does not check that the prose cites only declared ids, that an overlay keeps the hard lines, or
-anything in a project. Those are for review, and for whatever composes the adapted copy.
+It does not check that the prose cites only declared ids, that a removed id's number is not used
+again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
+for whatever composes the adapted copy.
