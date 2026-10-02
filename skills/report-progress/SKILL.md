@@ -1,6 +1,6 @@
 ---
 name: report-progress
-description: "Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn."
+description: "Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn, or when the reader asks for a percentage, an ETA, or updates at a set interval."
 license: MIT
 compatibility: "Any agent that writes prose to a user; nothing to install, plus an optional user-installed Claude Code Stop-hook gate. A count is verified only where the agent can run the command that produces it — elsewhere it is labelled as someone else's claim. The running section is sourced from agent-lifecycle evidence where that exists, and carries the lifecycle skill's no-evidence sentence where it does not. Output is the report itself plus the checklist run over it before sending."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
@@ -51,6 +51,9 @@ re-running the installer to update keeps whatever level is already installed, so
 pack never changes that level. The paragraphs above are unchanged by it: this file
 still executes nothing, and nothing in this skill can install the gate or arm it on a user's
 behalf.
+
+- **H6. Nothing in this skill installs or arms the gate.** The user runs its installer, or
+  nobody does, and no project that adapts this skill adds a step that does it for them.
 
 **What arms it.** At coverage 1, one thing: a subagent dispatched through the `Agent` tool.
 At coverage 2, three things, and nothing else: a subagent started in this turn (any kind,
@@ -107,23 +110,26 @@ the resume, so the old process's work is not read as gone.
 
 ### The five rules
 
-1. **Verified and claimed are different words.** Every number in a report is one of two
+They are this skill's hard lines: rule 1 is H1, and so on to rule 5, H5. A project that adapts
+the skill may make one stricter, never looser.
+
+1. **H1. Verified and claimed are different words.** Every number in a report is one of two
    things: a result the reporter produced by running a command it can name, or a claim
    somebody else made. Never let the two share a sentence. A child agent's "all tests pass" is
    evidence that it said so; re-run at the boundary, or label it unverified and move on.
-2. **Report state, not activity.** Three sections, always: what is done, what is running, what
-   is next — each carrying a count or a concrete artefact. "Working on it" describes the
+2. **H2. Report state, not activity.** Three sections, always: what is done, what is running,
+   what is next — each carrying a count or a concrete artefact. "Working on it" describes the
    reporter's experience, not the system's state, and a reader cannot act on it.
-3. **Name the user-facing consequence, not the code change.** "Every correctly-installed Yarn 1
-   repository was reported broken" tells the reader how much to care. "Fixed the receipt path"
-   does not, and the reader has no way to recover the difference.
-4. **Corrections are first-class and plain.** When something already reported turns out to be
-   wrong, say so in one sentence, at the point it matters, and continue. Repairing it silently
-   spends the trust every other line in the report depends on.
-5. **Nothing-to-report is a valid report; invention never is.** "No commits landed yet; the
-   build is still running" is complete and useful. Predicting a pending result, or describing
-   what a still-running agent "should have" produced by now, is the failure this rule exists
-   to stop.
+3. **H3. Name the user-facing consequence, not the code change.** "Every correctly-installed
+   Yarn 1 repository was reported broken" tells the reader how much to care. "Fixed the receipt
+   path" does not, and the reader has no way to recover the difference.
+4. **H4. Corrections are first-class and plain.** When something already reported turns out to
+   be wrong, say so in one sentence, at the point it matters, and continue. Repairing it
+   silently spends the trust every other line in the report depends on.
+5. **H5. Nothing-to-report is a valid report; invention never is.** "No commits landed yet;
+   the build is still running" is complete and useful. Predicting a pending result, or
+   describing what a still-running agent "should have" produced by now, is the failure this
+   rule exists to stop.
 
 ### Where "what is running" comes from
 
@@ -140,14 +146,38 @@ Use it verbatim. A plausible-looking row about a child you cannot observe is the
 rule 5 forbids, wearing a status block's formatting — and it is more convincing than plain
 silence, which is what makes it worse.
 
+### A percentage, an ETA, and updates nobody has to ask for
+
+When the reader has asked how far along the work is, when it will be finished, or to be told at
+a set interval, the report carries a **head line**, directly under its first line and above
+the three sections: the percentage with its basis, then the ETA as a clock time with its basis.
+It adds to the shape and changes nothing in it. The three sections are still owed, and a report
+nobody asked for a percentage or an ETA carries no head line. The percentage counts a register
+of the work (B3) in one unit, and its "in flight" is that register's count of items started:
+task metadata, never a running row, which still comes from lifecycle evidence alone (B7).
+`references/percentage-eta-cadence.md` has the head line's shape, the arithmetic, the clock
+commands and the cadence.
+
+Two hard lines come with it, for the two numbers easiest to invent: one nobody measured, and one
+about the future.
+
+- **H7. A figure nobody measured is reported as not measured, with its reason, never as 0.**
+  Zero is a measurement. Written for a figure nobody took, it reads as a result.
+- **H8. An ETA is an estimate, and says so.** It is labelled as one and carries its basis: the
+  items, what each was costed at, and the agents actually running. Rule 5 forbids a forecast
+  written in the grammar of an observation, and an unlabelled ETA is exactly that.
+
+Updates on a cadence (B1) come without being asked: a reader who has to ask "eta?" was owed one
+already. S1 keeps the ticks coming, and S8 gives the next one's time or says they stop.
+
 ### What this skill does not own
 
 | The job | Whose it is | What this skill does with it |
 |---|---|---|
-| Child-agent state, freshness, stale-versus-lost | `agent-lifecycle` | Consumes its projection as the sole source of "what is running"; keeps no child bookkeeping of its own. |
-| What a landed diff actually did | `describe-changes` | Hands it the diff when a change needs describing; quotes its output rather than paraphrasing the work. |
+| Child-agent state, freshness, stale-versus-lost | `agent-lifecycle` (B7) | Consumes its projection as the sole source of "what is running"; keeps no child bookkeeping of its own. |
+| What a landed diff actually did | `describe-changes` (B8) | Hands it the diff when a change needs describing; quotes its output rather than paraphrasing the work. |
 | Deciding what to do next | the caller's own plan | Reports the next act; does not choose it or re-plan the work. |
-| Whether the work is any good | `request-blocks-review` and the repository's gates | Reports gate outcomes as results with their commands; passes no judgement of its own. |
+| Whether the work is any good | `request-blocks-review` (B9) and the repository's gates | Reports gate outcomes as results with their commands; passes no judgement of its own. |
 
 Install the companions with `npx skills add crissmoldovan/agent-skills`.
 
@@ -161,7 +191,9 @@ impressive to say:
   result arrived. The user is about to stop reading; this is the last moment they can learn
   that four agents are still running.
 - **Whenever the user asks any form of "status"** — "where are we", "how's it going", "what's
-  left", "did that finish".
+  left", "did that finish", "eta?", "how far along is it".
+- **At every tick of a cadence the reader set (B1)**, without being asked, and once more at the
+  end to say the ticks stop.
 - **Immediately on discovering that something already reported was wrong.** Not at the next
   boundary. The reader may already be acting on it.
 - **At a handover** — to another session, another agent, or a human — where the receiver has
@@ -171,17 +203,37 @@ Do not use it for a single-step answer, a conversational exchange, or work with 
 three-section status block over "yes, that file is in `src/` " is ceremony, not clarity, and it
 trains the reader to skim the ones that matter. Do not use it as a substitute for lifecycle
 telemetry — a post-run summary is not visibility, and `agent-lifecycle` says so first. Do not
-use it to describe a landed change in detail; `describe-changes` reads the diff and anchors
+use it to describe a landed change in detail; `describe-changes` (B8) reads the diff and anchors
 every claim in it.
+
+## Bindings
+
+A project can adapt this skill without copying it: it binds these slots and adds to the steps by
+their ids, as the pack's
+[project-adaptation guide](https://github.com/crissmoldovan/agent-skills/blob/main/docs/project-adaptation.md)
+describes. A slot nobody binds keeps its default.
+
+| id | slot | kind | default |
+|---|---|---|---|
+| B1 | the cadence: how often an update is sent without being asked, and until what | value | none: a report at each point "When to Use" names, and a timed cadence only when the reader asks for one, at the interval they asked for |
+| B2 | the zones a clock time is given in, one per reader | value | UTC only |
+| B3 | the register a percentage is counted from: the file or command that lists the work and each item's state | value | the phase list Prerequisite 1 asks for; with none, no percentage |
+| B4 | the command that measures the figures an update quotes | value | the command behind each number, found as Prerequisite 2 says |
+| B5 | how a timed tick is raised in this harness, and the harness's cap on how long it may run | value | found in the harness's own documentation of background commands; with no such mechanism, no timed cadence is promised, and the reader is told so |
+| B6 | where the standing order for a cadence is written, so that it outlives a context compaction | value | the file the work is tracked in; with none, ask once |
+| B7 | where "what is running" comes from | skill | `agent-lifecycle` |
+| B8 | where the description of a change that already landed comes from | skill | `describe-changes` |
+| B9 | where a judgement on whether the work is any good comes from | skill | `request-blocks-review` |
 
 ## Prerequisites
 
 1. **A phase list, or the admission that there is not one.** The denominator in "3 of 5" has
-   to come from somewhere the reader can trust.
+   to come from somewhere the reader can trust: the phase list, or the register a percentage is
+   counted from (B3).
    **Complete when:** the phases are written down with their order, or the report is prepared
    to say "no fixed phase list" rather than inventing a denominator.
-2. **The command behind every number you intend to give.** Test counts, commit counts, file
-   counts, durations.
+2. **The command behind every number you intend to give (B4).** Test counts, commit counts,
+   file counts, durations.
    **Complete when:** each number owed is paired with the command that produces it here, or is
    marked in advance as a claim to be attributed.
 3. **A lifecycle evidence source, located or declared absent.** Check before you write, not
@@ -198,53 +250,77 @@ every claim in it.
 
 ## Procedure
 
-1. **Name the boundary you are reporting at.** "Phase 3 of 5 complete", "background result
-   arrived", "handing over". A report with no stated position in the work reads as a mood.
+1. **S1. On a cadence, re-arm the next tick before anything else.** When updates run at an
+   interval the reader set (B1), arm the next tick first, strictly inside the harness's cap on
+   background time (B5), so a long turn cannot lose it. The first time, write the standing
+   order where the work is tracked (B6).
+   **Complete when:** the next tick is armed and the standing order is written, or no cadence is
+   running.
+
+2. **S2. Name the boundary you are reporting at.** "Phase 3 of 5 complete", "background result
+   arrived", "scheduled update", "handing over". A report with no stated position in the work
+   reads as a mood.
    **Complete when:** the first line says where in the work this report sits.
 
-2. **Collect "done" from artefacts, never from memory.** A commit sha, a merged PR number, a
-   file that exists, a command that exited zero in this checkout. Run the commands now; a
+3. **S3. Write the head line when one is owed.** It is owed when the reader asked for a
+   percentage or an ETA, and carries what they asked for; on a cadence it carries both. Count
+   the register (B3) by state just before you write, in one unit, with work blocked on a person
+   in the denominator and never in the numerator, and give the ceiling without them; when the
+   denominator moved, say what moved it and give both percentages. Give the ETA in agent-hours,
+   then wall-clock at the agents actually running, then a clock time in each reader's zone (B2),
+   every time and zone label pasted from a command. Label it an estimate with its basis (H8),
+   and make it cover all the work to the goal, with a fix round for each review still to come.
+   `references/percentage-eta-cadence.md` has the shape and the commands.
+   **Complete when:** the head line sits under the first line and each number in it states its
+   basis, or the report has none because nobody asked for either and no cadence runs.
+
+4. **S4. Collect "done" from artefacts, never from memory.** A commit sha, a merged PR number,
+   a file that exists, a command that exited zero in this checkout. Run the commands now; a
    result from twenty minutes and three edits ago is a claim about the past.
    **Complete when:** every done item names an artefact or a command with its result, and no
    done item rests on recollection.
 
-3. **Source "what is running" from lifecycle evidence.** Child ID, literal state, current
-   activity, freshness. If there is no evidence source, print the exact no-evidence sentence
-   in place of the section and stop — do not soften it, do not supplement it with an estimate.
+5. **S5. Source "what is running" from lifecycle evidence (B7).** Child ID, literal state,
+   current activity, freshness. If there is no evidence source, print the exact no-evidence
+   sentence in place of the section and stop — do not soften it, do not supplement it with an
+   estimate.
    **Complete when:** every running row traces to a lifecycle observation, or the exact
    sentence stands alone in place of the section.
 
-4. **Split verified from claimed, visibly, in the text.** Two labelled groups beat one hedged
-   sentence. "Verified here: `npm test` at 9f0a1b2, 812 passing." versus "Claimed by the child
-   agent, not verified here: the Windows path is fixed."
+6. **S6. Split verified from claimed, visibly, in the text.** Two labelled groups beat one
+   hedged sentence. "Verified here: `npm test` at 9f0a1b2, 812 passing." versus "Claimed by the
+   child agent, not verified here: the Windows path is fixed."
    **Complete when:** every number in the report is either adjacent to the command that
    produced it, or attributed to whoever claimed it and marked unverified.
 
-5. **Translate each done item into its user-facing consequence.** What could the user not do,
-   or was wrongly told, that is now different? One clause is usually enough.
+7. **S7. Translate each done item into its user-facing consequence.** What could the user not
+   do, or was wrongly told, that is now different? One clause is usually enough.
    **Complete when:** at least one line in the report states a consequence for a person rather
    than a change to a file.
 
-6. **State "what is next" as an act with its precondition.** "Re-run the installer on a clean
-   checkout; blocked until `child-7f2` reaches a terminal state." Not "continue with the
-   migration", which is a topic, not a next step.
-   **Complete when:** each next item names an act and what it waits on, if anything.
+8. **S8. State "what is next" as an act with its precondition.** "Re-run the installer on a
+   clean checkout; blocked until `child-7f2` reaches a terminal state." Not "continue with the
+   migration", which is a topic, not a next step. On a cadence, the section also gives the next
+   update's clock time beside the acts, or, in the last update, says the updates stop and why.
+   **Complete when:** each next item names an act and what it waits on, if anything, and on a
+   cadence the next update's time or the stop is stated.
 
-7. **Issue every correction you owe, in this report, in one sentence each.** Including
+9. **S9. Issue every correction you owe, in this report, in one sentence each.** Including
    corrections to a number you gave five minutes ago and corrections to something a child
    agent told you that you passed along.
    **Complete when:** no statement made earlier in this run and now known to be wrong stands
    uncorrected, and no corrected claim is quietly restated in its fixed form as though it had
    always read that way.
 
-8. **Say when a section is empty.** "Nothing running" and "no commits yet" are results. An
-   omitted section reads as an oversight and invites the reader to assume the good case.
-   **Complete when:** all three sections are present, each either populated or explicitly empty.
+10. **S10. Say when a section is empty.** "Nothing running" and "no commits yet" are results.
+    An omitted section reads as an oversight and invites the reader to assume the good case.
+    **Complete when:** all three sections are present, each either populated or explicitly
+    empty.
 
-9. **Run the Verification checklist over the text before sending it.** This is the step the
-   whole contract rests on, because it is the only one that inspects the artefact rather than
-   producing it.
-   **Complete when:** every box is ticked, or the report has been edited until they are.
+11. **S11. Run the Verification checklist over the text before sending it.** This is the step
+    the whole contract rests on, because it is the only one that inspects the artefact rather
+    than producing it.
+    **Complete when:** every box is ticked, or the report has been edited until they are.
 
 ## Usage Examples
 
@@ -265,6 +341,13 @@ visibility into them. Do not tell me what they are probably doing.
 The commit count you gave me earlier looks wrong. Correct it in one sentence, say what the
 right number is and how you got it, and carry on — no apology paragraph, and do not restate
 the old number as if it had been right.
+```
+
+```text
+Until the migration is merged, send me an update every 20 minutes without my asking. Open
+each one with the overall percentage and what it counts, and an ETA as a clock time in UTC,
+printed by date rather than typed, labelled as an estimate with what it rests on. Tell me in
+the last one that the updates stop.
 ```
 
 ## What it looks like
@@ -328,6 +411,13 @@ agent whose state was never observed (rule 5). Nothing anywhere says what a user
   observed 40 minutes ago render identically without it, and only one of them is alive.
 - **Reporting only at the end.** A single report after two hours cannot be acted on: every
   decision it would have informed has already been taken by someone waiting in the dark.
+- **A tick timed to land on the cap.** Two 15-minute ticks under a 30-minute cap put the second
+  exactly on the cap, where it races the kill and is usually lost. The updates then come half as
+  often as promised, and nothing says so.
+- **A clock typed from memory.** A zone label written from memory is wrong for half of every
+  year wherever the clocks change, and the reader plans around it. Paste what `date` prints.
+- **A headline ETA for part of the work.** The reader plans around the headline, and the extra
+  hours a few lines further down are the ones that decide when the work is really finished.
 - **A status block over a one-step answer.** Ceremony where there is no state to report trains
   the reader to skim, and the skimming carries over to the report that mattered.
 - **Counting effort instead of outcomes.** "17 files changed, 6 agents dispatched" measures
@@ -344,6 +434,12 @@ Run this over the text you have written, before it is sent.
 - [ ] All three sections are present: what is done, what is running, what is next.
 - [ ] Every item carries a count or a named artefact; none is an activity verb.
 - [ ] Every count that has a denominator shows it.
+- [ ] A head line, where there is one, names its register and counts in one unit, keeps work
+      blocked on a person out of the numerator, and gives an ETA labelled as an estimate with
+      its basis, covering all the work, its clock times pasted from a command.
+- [ ] A figure nobody measured says "not measured", never 0.
+- [ ] On a cadence, the next section gives the next update's time, or the last update says the
+      updates stop.
 - [ ] Every number is adjacent to the command that produced it here, or is attributed to
       whoever claimed it and marked unverified.
 - [ ] No child-agent claim is restated as a result of this run.
@@ -359,5 +455,5 @@ Run this over the text you have written, before it is sent.
       next.
 
 The report is finished when every line in it is either an artefact, a command with its
-result, or an attributed claim — and a reviewer holding only this checklist could tell which
-is which without asking you.
+result, an attributed claim, or an estimate labelled with its basis — and a reviewer holding
+only this checklist could tell which is which without asking you.
