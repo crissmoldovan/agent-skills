@@ -27,7 +27,7 @@ repository README and in [releases](releases.md).
 
 ## Verification boundary
 
-`scripts/verify-skills.mjs` is dependency-free and is run locally and in CI. It enforces discovery structure, minimal frontmatter, local-link containment, carried-file existence for every bare `references/`, `scripts/`, or `assets/` token, a 484-line cap on the `SKILL.md` body so detail lives in carried files, and likely-secret and local absolute-path detection in every text file, whatever its extension, outside `packages/agent-lifecycle` (a file with a NUL byte is binary, and the run names each one it did not scan). It intentionally does not claim to prove that content is safe; human review and the [public-content policy](public-content-policy.md) remain required.
+`scripts/verify-skills.mjs` is dependency-free and is run locally and in CI. It enforces discovery structure, minimal frontmatter, local-link containment, carried-file existence for every bare `references/`, `scripts/`, or `assets/` token, a 484-line cap on the `SKILL.md` body so detail lives in carried files, and likely-secret and local absolute-path detection in every text file, whatever its extension, outside `packages/agent-lifecycle` (a file with a NUL byte is binary, and the run names each one it did not scan). It intentionally does not claim to prove that content is safe; human review and the [public-content policy](public-content-policy.md) remain required. A name has no pattern a public validator could hold, so `scripts/scan-denylist.mjs` scans what a branch adds against a list of terms each contributor keeps outside every repository, and prints no term it matched unless asked to.
 
 ## Adapters and hooks
 

@@ -73,6 +73,30 @@ check is off until the user arms it.
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+### `verify-skills` reads every text file, and contributors get a private-denylist scan
+
+`scripts/verify-skills.mjs` looked for likely secrets and home-directory paths only in files
+with one of ten extensions. A `.toml` fixture, a `.sh` helper, a `.jsonl` capture or an
+extensionless config was never read, and this repository's own `Cargo.toml` fixture was one of
+them. It now reads every file that is text, whatever its name. A file counts as text when it
+has no NUL byte; it is decoded as UTF-8 with replacement, so a Latin-1 file is read too. A file
+with a NUL byte is binary, and the run names it as not scanned. A pass no longer suggests that
+a file was read when it was not.
+
+Most of what leaks from real work has no shape a public validator can hold: a client's name, a
+person's handle, an internal host, an account id. `scripts/scan-denylist.mjs` checks what a
+branch adds against a list of terms that each contributor keeps outside every repository and
+passes with `--denylist`. It reads every added line (fixtures included), every changed file's
+name, every commit message and the branch name. A term matches case-insensitively as a word,
+and an underscore, a hyphen or a camelCase hump counts as a word break. Binary files are
+searched as bytes and listed for a person to look at. Each hit is named by where it is and by
+its line in the list, never by the term itself. A term inside a printed path is masked, and
+`--show-matches` prints the matched text for a local terminal. The scan exits 2 instead of
+passing when the list is missing, empty or inside the repository. CONTRIBUTING asks for it
+before every push.
+
+Nothing installed changes. Both scripts are contributor tooling and ship in no skill.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.

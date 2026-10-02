@@ -114,6 +114,14 @@ the same command. Workspace governance keeps a locked runtime dependency closure
 its local stdio MCP uses the pinned official MCP server SDK and Zod, while YAML
 remains the catalog parser.
 
+Before you push, also scan what your branch adds against your own private list of
+terms that must never appear here — the clients, people, hosts, account ids and
+machine details from the work a contribution came out of — kept outside every
+repository:
+`node scripts/scan-denylist.mjs --denylist <your file> --base origin/main`. It reads
+every added line, fixtures included, every file name, every commit message and the
+branch name, and prints no term it matched unless you pass `--show-matches`.
+
 Workspace governance owns declared catalog/policy, read-only discovery, its local
 stdio MCP adapter, and guarded repository operations, not routing or agent lifecycle.
 The MCP server starts read-only and accepts one immutable configuration path; tool
