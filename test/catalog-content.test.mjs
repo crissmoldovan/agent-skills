@@ -381,6 +381,61 @@ test('release-notes versions a product with no API, treats a bump judge as advic
   }
 });
 
+test('release-notes sends a release to people as a document pack, pinned at both ends and checked before it goes', async () => {
+  const pack = await read('skills/release-notes/references/release-pack.md');
+  // A document pack is a destination, and the baseline is what the readers were last sent.
+  assert.match(releaseNotes, /\*\*A document pack\*\*[^\n]*\n[\s\S]*?references\/release-pack\.md/);
+  assert.match(releaseNotes, /baseline is the build they were last\s+sent/);
+  // Adaptable on its own: its own slots, hard lines and steps, continuing the skill's numbering
+  // (verify-skills holds them unique across both files), and its skill named in backticks rather
+  // than linked, so an adapted copy's names map can route it.
+  assert.match(pack, /^## Bindings$/m);
+  for (const id of ['B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16']) assert.match(pack, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['H5', 'H6', 'H7', 'H8']) assert.match(pack, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
+  for (let step = 8; step <= 18; step += 1) assert.match(pack, new RegExp(`^\\d+\\. \\*\\*S${step}\\. `, 'm'));
+  assert.match(pack, /\| B9 \|[^\n]*\| skill \| `release-notes` \|/);
+  assert.match(pack, /\| B16 \|[^\n]*\| skill \| `request-answers` \|/);
+  assert.match(pack, /\| B10 \|[^\n]*\| value \| ask once \|/);
+  assert.doesNotMatch(pack, /\]\([^)]*SKILL\.md/);
+  // An adapted copy of this file alone carries no SKILL.md and no docs/: it cites none of
+  // SKILL.md's ids, and the guide by a URL that resolves anywhere.
+  assert.doesNotMatch(pack, /\b(?:B[1-8]|H[1-4]|S[1-7])\b/);
+  assert.match(pack, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+  // One note in its three parts, plus companions, plus the message.
+  assert.match(pack, /One note, plus companions, plus the message that carries them/);
+  assert.match(pack, /opens with the three parts/);
+  // Pinned at both ends, sourced, checked three ways, the open list last, late arrivals in.
+  assert.match(pack, /Pin both ends\.\*\* The baseline is the build the readers were last sent/);
+  assert.match(pack, /source note that the\s+render strips/);
+  assert.match(pack, /three independent checkers/);
+  assert.match(pack, /\*\*evidence\*\*[\s\S]*\*\*consistency\*\*[\s\S]*\*\*as a recipient\*\*/);
+  assert.match(pack, /the list of what is open last, from the other two/);
+  assert.match(pack, /Take in late arrivals before the render/);
+  assert.match(pack, /never written up as approved/);
+  // The release record before any message, and the served commit read rather than assumed.
+  assert.match(pack, /record the release before any message/);
+  assert.match(pack, /\*\*who pushed it and\s+on whose word\*\*/);
+  assert.match(pack, /The commit served is not always the stamp/);
+  assert.match(pack, /## A release that carries an earlier one/);
+  assert.match(pack, /## Fixes merged after the stamp/);
+  // Nobody decides another's item; the agent never sends; what is sent is what is kept.
+  assert.match(pack, /Nobody is asked to decide what is someone else's/);
+  assert.match(pack, /never sends the message on its own word/);
+  assert.match(pack, /What is sent is what is kept, byte for byte/);
+  assert.match(pack, /the correction rides\s+in the next release's message/);
+  assert.match(pack, /The pack is sent whole/);
+  // The same organisation markers as release-notes' own block, read from it as the block above does.
+  const markerSource = (await read('test/catalog-content.test.mjs')).match(/assert\.doesNotMatch\(releaseNotes, \/(.+?)\/\);/);
+  assert.ok(markerSource, "release-notes' block no longer checks for organisation markers");
+  const organisationMarkers = new RegExp(markerSource[1]);
+  for (const text of [releaseNotes, pack]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
 
 async function assertRunRecordCopiesIdentical(directory) {

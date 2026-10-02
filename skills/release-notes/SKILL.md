@@ -70,6 +70,8 @@ The trigger is the release action, not whether there is anything impressive to s
 - **About to deploy an app** whose users can tell the difference afterwards.
 - **Writing a CHANGELOG entry, a changeset, or a release document** — including the one you
   are tempted to generate from `git log`.
+- **Sending a release to people as documents** — a note and its companions, carried by a
+  message to the people who approve or adopt it: `references/release-pack.md`.
 - **When the gate refuses a release.** It is telling you to come back here and write parts 2
   and 3, not to find a way around it.
 
@@ -122,7 +124,8 @@ describes. A slot nobody binds keeps its default.
    `describe-changes` (B6) output. A note written from a branch name is a guess.
 3. **The destinations this project uses**, discovered rather than assumed — see below.
 4. **The previous note for this project**, so the new one matches its shape and does not
-   contradict it.
+   contradict it. When the note is sent to people, its baseline is the build they were last
+   sent, not the previous note (`references/release-pack.md`).
 
 ## Impact analysis: run it, do not guess
 
@@ -164,6 +167,10 @@ them (B2); do not assume one. `ls CHANGELOG.md docs/releases.md`, `ls .changeset
   story once, beyond the mechanical per-package entries.
 - **Downstream surfacing** — if the release changes a public doc or site claim, the note names
   that follow-up; it is part of the impact.
+- **A document pack** — a release sent to people is a destination too: one note plus companion
+  documents, carried by a message, pinned at both ends, sourced and checked before anyone reads
+  it, sent byte for byte as kept, and the message prepared for a person to send:
+  `references/release-pack.md`.
 
 Never auto-generate the changelog from `git log` and call it done. The generator gives you
 part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* and the
