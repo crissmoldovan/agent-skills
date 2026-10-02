@@ -169,8 +169,8 @@ them (B2); do not assume one. `ls CHANGELOG.md docs/releases.md`, `ls .changeset
   that follow-up; it is part of the impact.
 - **A document pack** — a release sent to people is a destination too: one note plus companion
   documents, carried by a message, pinned at both ends, sourced and checked before anyone reads
-  it, sent byte for byte as kept, and the message prepared for a person to send:
-  `references/release-pack.md`.
+  it, sent byte for byte as kept, and the message prepared for a person to send once the release
+  is recorded: `references/release-pack.md`.
 
 Never auto-generate the changelog from `git log` and call it done. The generator gives you
 part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* and the
@@ -203,7 +203,8 @@ part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* a
 6. **S6. Score it with the sell-test.** Complete when it scores 3 or better, or you have rewritten
    it.
 7. **S7. Place it, then release.** The note goes in *before* the publish, the tag and the Release.
-   Complete when every destination on the list from S4 has it.
+   Complete when every destination on the list from S4 has it, apart from a document pack's
+   message, which goes only after the release is recorded (`references/release-pack.md`).
 
 ## Sell-test: score before you ship
 

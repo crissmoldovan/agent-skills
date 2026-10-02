@@ -7,7 +7,7 @@ note. This file covers what sending adds: the pack is pinned at both ends, every
 sourced and checked before anyone reads it, what is sent is byte for byte what is kept, and the
 message is prepared for a person to send.
 
-A project can adapt this file on its own, as the pack's
+A project can adapt this file on its own, as the agent-skills
 [project-adaptation guide](https://github.com/crissmoldovan/agent-skills/blob/main/docs/project-adaptation.md)
 describes for a reference file. Its ids continue the numbering of the skill's `SKILL.md`, and it
 cites none of that file's ids, so it reads the same with or without it.
@@ -35,11 +35,14 @@ cites none of that file's ids, so it reads the same with or without it.
   exact text, those recipients and those attachments for sending. A message changed after the
   approval is approved again.
 - **H7. What is sent is what is kept, byte for byte.** Every file attached is one rendered for the
-  release, every rendered text file is identical to the copy committed, and every copy as sent is
-  compared with the file rendered before the send is recorded.
+  release, every rendered text file is identical to its copy last committed, and every copy as
+  sent is compared with the file rendered before the send is recorded.
 - **H8. Nobody is asked to decide what is someone else's.** Every open decision names who approves
   it, from the records. The recipients are asked only about what is theirs, and are told that their
   approval does not replace the owner's.
+- **H9. The pack is sent whole.** Never one document now and the rest "to follow". If the renderer
+  cannot run, dry-run the drafts, hold the message, and ask the person bound as B11 for what the
+  render needs.
 
 ## What a pack is
 
@@ -62,15 +65,12 @@ reader could wonder about, the unchanged ones included. Every document the pack 
 is in it, attached by name, never a path in a repository the reader cannot open. A superseded draft
 is never attached; the pack names what replaced it.
 
-**The pack is sent whole.** If the renderer cannot run, dry-run the drafts, hold the message, and
-ask the person bound as B11 for what the render needs. Never send part of a pack with the rest "to
-follow".
-
 ## Procedure
 
 1. **S8. Pin both ends.** The baseline is the build the readers were last sent: the last pack sent
    to them, or, if they were sent none, what the environment they use serves. The build is the
-   commit that will be served. Name both by deployment and commit, in the note's header. Write
+   commit that will be served. In the note's header, name the baseline by deployment and commit,
+   and the build by that commit; its deployment joins it when S14 records the release. Write
    "sent", not "seen", unless the readers said they looked. The previous note is not the baseline:
    a build can be sent without a note, and a note can describe a build nobody was sent.
 2. **S9. Gather the differences, then their reasons.** List the commits from the baseline to the
@@ -81,8 +81,8 @@ follow".
    merge caused is a difference like any other, and putting it back needs its owner's word for that
    item alone.
 3. **S10. Draft with a source on every claim.** Write the note first (B9), then the companions, and
-   the list of what is open last, from the other two. Every sentence carries a source note that the
-   render strips: `<!-- src: path:line | commit | capture -->`. Follow "Writing it", below.
+   the list of what is open last, from the other documents. Every sentence carries a source note
+   that the render strips: `<!-- src: path:line | commit | capture -->`. Follow "Writing it", below.
 4. **S11. Check with three independent checkers,** each given the drafts and the evidence, and none
    another's findings:
    - **evidence**: every passage against its source, every attribution and name included;
@@ -96,25 +96,32 @@ follow".
    wait for their word. A change goes back through S10 and S11.
 6. **S13. Number and stamp the release through B9, then dry-run the render** (B13): the source notes
    stripped, none left, and no scratch or machine path in any file. Commit the files the dry run
-   wrote, and keep the drafts with their source notes in the archive (B14). A time the render
-   prints, such as when the pack was composed, is fixed, never "now": with "now", the dry run and
-   the render differ, and the comparison in S16 fails.
+   wrote, and keep the drafts with their source notes in the archive (B14). Whenever a document
+   changes after this (in the sweep of S14, for a late arrival in S15, or for a fix in S20),
+   dry-run it again and commit what it writes: S16 compares against the files last committed. A
+   changed document does not stamp the release again; only a changed number does (S15). A time the
+   render prints, such as when the pack was composed, is fixed, never "now": with "now", the dry
+   run and the render differ, and the comparison in S16 fails.
 7. **S14. Ship it, and record the release before any message.** The record says where it went, the
    deployment, the commit served, the time in UTC and in the zone bound as B15, **who pushed it and
-   on whose word**, and how to roll it back. Take the push from its record, such as the remote's
-   reflog or the deploy log, never from memory. **The commit served is not always the stamp.**
-   Where a merge carries the release to an environment, the merge is served: check that the stamp
-   is its ancestor (`git merge-base --is-ancestor <stamp> <served>`) and record both. Then sweep
-   every document for what the push answered ("not yet", "not pushed", "nobody has checked"): the
-   message never contradicts its attachments.
+   on whose word**, and how to roll it back. Take the push from its record, such as the reflog of
+   the local remote-tracking branch, the deploy log or the forge's record of pushes, never from
+   memory. **The commit served is not always the stamp.** Where a merge carries the release to an
+   environment, the merge is served: check that the stamp is its ancestor
+   (`git merge-base --is-ancestor <stamp> <served>`) and record both. Put the deployment and the
+   commit served in every header that names the build. Then sweep every document for what the
+   push answered ("not yet", "not pushed", "nobody has checked"), so the message never contradicts
+   its attachments, and commit what changed as S13 says.
 8. **S15. Take in late arrivals before the render.** Since the drafts began, has anyone ruled on the
    number, the route or the scope, or replied to the last pack? Each one goes in first: a ruling on
    the number through B9, a ruling on the route into the baseline and the environments named, a
-   reply into the open list and whatever it changes in the note. If someone is still editing a
-   draft, the render waits for them. Then run the consistency checker again over what changed.
+   reply into the open list and whatever it changes in the note. A ruling that changes the number
+   or the route of what S14 shipped goes back to S13: stamp, ship and record again. If someone is
+   still editing a draft, the render waits for them. Then run the consistency checker again over
+   what changed, and commit it as S13 says.
 9. **S16. Render and archive** (B13, B14): the drafts with their source notes, the checks with their
    logs, and the files rendered. Search the rendered files for tokens and machine paths first.
-   Compare every rendered text file, byte for byte, with the committed file from S13 (H7).
+   Compare every rendered text file, byte for byte, with its copy last committed, as S13 says (H7).
 10. **S17. Prepare the message** to the recipients bound as B10, with the files rendered in S16
     attached from the archive, not from a scratch directory. If a document changed after the person
     bound as B11 read it, show them the difference first. Show them the prepared message verbatim,
@@ -128,7 +135,7 @@ follow".
     the message to the release record in the next commit. When something a sent pack said proves
     wrong, the correction rides in the next release's message, which names what it corrects.
 
-## A release that carries an earlier one
+## S19. A release that carries an earlier one
 
 A release that was sent but never reached an environment can travel inside a later one instead of
 going on its own.
@@ -144,7 +151,7 @@ going on its own.
   it carries, directly or inside another, gets the same time in its release record, with "inside
   release <later>", so a reader of either note can tell.
 
-## Fixes merged after the stamp
+## S20. Fixes merged after the stamp
 
 A check after the stamp can find problems, and their fixes can merge before the release moves on.
 
@@ -155,7 +162,7 @@ A check after the stamp can find problems, and their fixes can merge before the 
   check found it. The commit list is updated, and so is a bump judge's reading, if one runs.
 - The commit served is now the one carrying the fixes. S14's check and record use it, with the
   stamp as its ancestor.
-- Run S11, S15 and S16 again.
+- Run S11 again over the changed documents, commit them as S13 says, then run S15 and S16 again.
 - **If nobody has ruled,** ask once: in this version, or in the next patch.
 
 ## Writing it
@@ -167,8 +174,8 @@ A check after the stamp can find problems, and their fixes can merge before the 
 - **Attribute exactly.** Say who raised what, in their own words. Unsure of a name, such as one
   taken down from speech, use the role instead.
 - **Every open decision names who approves it**, from the records (H8). When no record does, write
-  "no record names who decides", and say whose it would be. Give a recommendation only when one is
-  on record, and cite that record.
+  "no record names who decides". Say whose it would be only when a record names who owns that
+  area, and cite it. Give a recommendation only when one is on record, and cite that record.
 - **Work that has not merged** goes in as "work in progress, not merged", with its branch and head.
 - **Write "not yet", never "never",** and say where the work goes next.
 - **A note about a pre-production environment says so at its top.** It is not the production
@@ -185,9 +192,9 @@ A check after the stamp can find problems, and their fixes can merge before the 
 | A count made by a pattern missed a quarter of the items | Count from the build ("Writing it") |
 | "That view is unchanged", but one route to it still showed the old version | Capture every route to a view (S9) |
 | The open list offered a recommendation nobody had recorded | Cite the record's own lean, or give none |
-| Three documents counted the open items three ways | Draft the open list last, from the other two, and let the consistency checker compare all three |
+| Three documents counted the open items three ways | Draft the open list last, from the other documents, and let the consistency checker compare them all |
 | The message asked the recipients to approve another person's items | Say whose each item is, and that their approval does not replace the owner's (H8) |
-| One document went in one format, with the rest "to follow" | The pack is sent whole, or it waits |
+| One document went in one format, with the rest "to follow" | The pack is sent whole, or it waits (H9) |
 | The note as sent said "not released yet" beside a message saying it was live | The release record, then the sweep, before any message (S14) |
 | A ruling on the number waited behind a running job, and the pack was rendered without it | The render waits for the ruling (S15) |
 | A reply to the last pack lay unread, and the new draft contradicted it | Replies are sources (S9, S15) |
@@ -206,9 +213,10 @@ Before the message goes:
 5. The release record, who pushed it and on whose word included, was committed before the message,
    and no document contradicts it.
 6. Every ruling and reply that arrived while the pack was drafted is in the render.
-7. Every rendered text file is byte-identical to the copy committed (H7).
+7. Every rendered text file is byte-identical to its copy last committed (H7).
 8. Every open decision names who approves it, and the recipients are asked only about what is
    theirs (H8).
+9. Every document of the pack is rendered and attached, and none is "to follow" (H9).
 
 After it goes: the message went only as H6 says, the sent folder was read before it was reported
 sent, and every copy as sent is byte-identical to the file rendered.
