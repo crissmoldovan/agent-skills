@@ -68,10 +68,11 @@ every session in it. Each skill declares its own fit in `references/fit.json`, w
 `verify-skills` now requires; the scan evaluates those declarations against the repository's files
 and, for onboard and refresh only, against this machine's session history for it; and one yes
 writes a profile beside the Skills CLI's lock file plus a generated
-`.claude/rules/skill-routing.md`, the file every session already loads. It installs nothing itself
-— `update-agent-skills` owns that, and the user runs it — writes no context file
-(`derive-codebase-context`) and no documentation (`layer-repository-docs`), and its session-start
-check is off until the user arms it.
+`.claude/rules/skill-routing.md`, the file every session already loads. A skill the repository
+holds an adapted copy of counts as present, and the routing names the copy. It installs nothing
+itself — `update-agent-skills` owns that, and composes the adapted copies too, and the user runs it —
+writes no context file (`derive-codebase-context`) and no documentation (`layer-repository-docs`),
+and its session-start check is off until the user arms it.
 
 ## Unreleased
 
@@ -185,6 +186,31 @@ names one in its update command, so an armed auto hook never touches one, and it
 the symptom "adapt a pack skill to this project", and its `compatibility` names Node.js 22 and git
 for the composer. Nothing installed changes behaviour: the freshness check without `--repo`
 behaves as before.
+
+### `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy
+
+A repository that had adapted a pack skill with `update-agent-skills` was still treated as if it
+had not. The plan offered to install the skill the copy adapts; the session-start check, once armed,
+reported that skill missing at every session start whenever its fit was a strong match, beside the
+copies doing its job; and the routing file sent every session to the generic skill, which carries
+none of the project's values.
+
+onboard-project 1.1.0 reads each adapted copy's `adapted.lock.json` in the repository's own skill
+folders and records them in the profile's new `adapted` map: the skill each copy adapts, the copy's
+name, the file of the skill it adapts, and its pinned ref and tree. A skill with a copy is present:
+the plan gives it a `=` row naming the copy and no install command, and lists it as `adapted` when
+the scan alone would not have matched it. Its routing line names the copy, or both copies when two
+adapt one skill, so a session is sent to the project's text by name rather than by a description a
+long skill listing may drop. The check counts a copy on disk as its skill, and says one line when a
+copy was added, removed or re-pinned since the profile was written. A lock it cannot read stands in
+for nothing and is named in the plan. A copy of a skill the catalogue does not carry is recorded and
+not routed.
+
+**Who should update.** Anyone whose repository holds an adapted copy of a pack skill. A routing file
+written by 1.0.1 renders byte for byte the same under 1.1.0 until the repository holds a copy, so
+nothing reads as drift on upgrade. A profile written by 1.0.1 has no `adapted` map; in a repository
+that already holds copies, the armed check names them once, and a refresh records them and routes
+to them.
 
 ## Release checklist
 

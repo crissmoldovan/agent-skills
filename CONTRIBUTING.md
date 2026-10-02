@@ -41,8 +41,9 @@ the physically separate lane, the hash-pinned source identity, the gates the par
 itself rather than believing a builder's report, and the handoff bundle the run is
 transferred in; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
-Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, while installing
-nothing itself. A new skill must state which of these it does not duplicate.
+Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, which names a
+project's adapted copy of a skill rather than the skill it adapts — while installing nothing
+itself. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

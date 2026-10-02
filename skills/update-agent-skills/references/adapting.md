@@ -242,7 +242,7 @@ and the run exits 2 when a pin moved or differs. Neither it nor `skills update` 
 | a pinned tag is moved or deleted upstream | `outdated` raises an alarm; `compose` refuses the moved tag; the committed copy and the offline check are unaffected | read why; re-pin to a full sha or a new tag, or record the new commit in `base.commit` on purpose |
 | a newer release renames an id the overlay cites | `compose` refuses and names it | fix the overlay in the same change as the pin |
 | no network | only `compose` (without `--pack`) and `outdated` stop | nothing else needs it |
-| the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions |
+| the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions; `onboard-project`'s routing file does that for a repository it onboards |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |
 | a pin moved with the old composer | the copies are composed, vendored and checked by the old composer; nothing offline disagrees | `compose` notes it and `outdated` flags it; compose again with the composer from a clone at the pinned ref |
