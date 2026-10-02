@@ -55,6 +55,60 @@ test('verifier rejects public machine-specific absolute paths', async () => {
   assert.match(result.stderr, /README\.md: contains a machine-specific absolute path/);
 });
 
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The scan used to read ten extensions and nothing else, so a machine path in a .toml fixture,
+// a .sh helper, a .jsonl capture or an extensionless config passed in silence. A file that is
+// text is now read whatever its name.
+test('verifier scans every text file for machine paths and secrets, whatever its extension', async () => {
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  const names = [
+    'fixture.toml', 'helper.py', 'run.sh', 'page.html', 'style.css', 'capture.jsonl',
+    'message.eml', 'table.csv', 'feed.xml', 'icon.svg', 'Dockerfile', '.npmrc', 'notes.unknownext',
+  ];
+  for (const name of names) await writeFile(path.join(root, name), `see ${personalPath}\n`);
+  const assignment = ['to', 'ken'].join('');
+  const realisticToken = ['prod', 'token', 'value', '1234567890'].join('-');
+  await writeFile(path.join(root, 'settings.py'), `${assignment} = "${realisticToken}"\n`);
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  for (const name of names) {
+    assert.match(result.stderr, new RegExp(`- ${escapeRegExp(name)}: contains a machine-specific absolute path`));
+  }
+  assert.match(result.stderr, /- settings\.py: contains a likely secret/);
+});
+
+// A file that is not UTF-8 is still text when it holds no NUL byte, and the two patterns are
+// ASCII, so a Latin-1 file is read rather than waved through as binary.
+test('verifier reads a text file that is not valid UTF-8', async () => {
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  await writeFile(path.join(root, 'latin1.txt'), Buffer.concat([Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20]), Buffer.from(personalPath)]));
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /- latin1\.txt: contains a machine-specific absolute path/);
+});
+
+// A file with a NUL byte is binary: neither pattern can be read in it, so it is not scanned —
+// and the run says which files it did not look at, rather than letting a pass imply it did.
+test('verifier skips a binary file and names every file it did not scan', async () => {
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  await mkdir(path.join(root, 'assets'), { recursive: true });
+  await writeFile(path.join(root, 'assets', 'shot.png'), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]), Buffer.from(` ${personalPath}`)]));
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /text files scanned for secrets and machine paths/);
+  assert.match(result.stdout, new RegExp(`1 binary file not scanned: ${escapeRegExp(path.join('assets', 'shot.png'))}`));
+});
+
 test('verifier accepts neutral credential fixtures', async () => {
   const root = await fixture();
   const assignment = ['to', 'ken'].join('');

@@ -7,9 +7,16 @@ import { resolve, relative, dirname, sep } from 'node:path';
 
 const root = process.cwd();
 const skillsRoot = resolve(root, 'skills');
+// The one tree the scan below skips. Its tests write lock files with `token: '<owner>'` fields,
+// which read as a likely secret and are none; the package carries its own verify.
 const runtimeRoot = resolve(root, 'packages', 'agent-lifecycle');
 const failures = [];
-const textExtensions = new Set(['.md', '.mdx', '.txt', '.json', '.yml', '.yaml', '.js', '.mjs', '.cjs', '.ts']);
+// Every file that is text is scanned for secrets and machine paths, whatever its name. An
+// extension list used to decide, and it missed what nobody listed: a .toml fixture, a .sh
+// helper, a .jsonl capture, an extensionless config. Text means no NUL byte; the bytes are read
+// as UTF-8 with replacement, so a Latin-1 file is still read, since both patterns are ASCII.
+// A file with a NUL byte is binary, cannot be read for either pattern, and is named in the
+// output as not scanned, so a pass never implies a file was looked at when it was not.
 // A SKILL.md body — everything after the frontmatter — is capped so that detail lives in
 // carried reference files instead of the always-loaded instruction file.
 const MAX_BODY_LINES = 484;
@@ -206,23 +213,36 @@ for (const file of skillFiles) {
   }
 }
 
+const notScanned = [];
+let scanned = 0;
 for (const file of walk(root)) {
   const relativeFile = relative(root, file);
   if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
   if (isWithin(file, runtimeRoot)) continue;
-  const extension = relativeFile.slice(relativeFile.lastIndexOf('.')).toLowerCase();
-  if (!textExtensions.has(extension) && !['README', 'LICENSE', 'CONTRIBUTING', 'SECURITY'].includes(relativeFile)) continue;
-  const source = readFileSync(file, 'utf8');
+  const bytes = readFileSync(file);
+  if (bytes.includes(0)) {
+    notScanned.push(relativeFile);
+    continue;
+  }
+  scanned += 1;
+  const source = bytes.toString('utf8');
   const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
   if (secret.test(source)) fail(`${relativeFile}: contains a likely secret`);
   const absolutePath = /(?:^|[\s'"`(])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)]+/m;
   if (absolutePath.test(source)) fail(`${relativeFile}: contains a machine-specific absolute path`);
 }
 
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+let coverage = `${plural(scanned, 'text file')} scanned for secrets and machine paths`;
+if (notScanned.length) {
+  coverage += `; ${plural(notScanned.length, 'binary file')} not scanned: ${notScanned.sort().join(', ')}`;
+}
+
 if (failures.length) {
   console.error(`Skill verification failed (${failures.length} issue${failures.length === 1 ? '' : 's'}):`);
   for (const message of failures) console.error(`- ${message}`);
+  console.log(`${coverage}.`);
   process.exitCode = 1;
 } else {
-  console.log(`Skill verification passed: ${skillFiles.length} skill${skillFiles.length === 1 ? '' : 's'} discovered.`);
+  console.log(`Skill verification passed: ${plural(skillFiles.length, 'skill')} discovered; ${coverage}.`);
 }
