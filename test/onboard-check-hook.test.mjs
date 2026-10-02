@@ -104,6 +104,22 @@ test('install then remove leaves the rest of the settings file exactly as it was
   assert.equal(await readFile(file, 'utf8'), before, 'removing did not restore the file it found');
 });
 
+// Arming printed "one of three things", with a skill counted missing when it was not installed,
+// after the check had learned that an adapted copy stands in for its skill and that a copy added,
+// removed or re-pinned is a fourth reason to speak. What the user is told on arming is what the
+// check does.
+test('arming the hook names the four things the check speaks on, adapted copies included', async () => {
+  const home = await scratch('onboard-hook-arming');
+  const file = path.join(home, '.claude', 'settings.json');
+  const armed = await run(process.execPath, [installer, '--settings', file], { home });
+  assert.equal(armed.status, 0, armed.stderr);
+  const said = armed.stdout.replace(/\s+/g, ' ');
+  assert.match(said, /one of four things is true/);
+  assert.match(said, /neither installed nor adapted here/);
+  assert.match(said, /an adapted copy of a skill was added, removed or re-pinned/);
+  assert.doesNotMatch(said, /one of three things/);
+});
+
 test('the hook command runs under /bin/sh and under dash, printing nothing in a repository with no profile', async () => {
   const home = await scratch('onboard-hook-shell');
   const repo = await scratch('onboard-hook-repo');

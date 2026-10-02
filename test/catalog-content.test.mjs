@@ -706,6 +706,11 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
   assert.match(contributing, /which names a\s+project's adapted copy of a skill rather than the skill it adapts/);
   assert.match(releases, /### `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy/);
   assert.match(adaptation, /A repository onboarded with `onboard-project` counts the adapted copy as the skill\s+it adapts/);
+  // The check compares each copy's ref and tree, so a pin moved without a refresh is reported at
+  // every session start; the procedure that moves a pin has to say so, not only this skill.
+  const adapting = await read('skills/update-agent-skills/references/adapting.md');
+  assert.match(section(adapting, 'Moving a pin'), /In a repository onboarded with `onboard-project`, refresh its profile in that same change/);
+  assert.match(releases, /names them at every session start until a refresh\s+records them/);
 
   for (const [where, text] of [['SKILL.md', onboardProject], ['references/what-gets-written.md', onboardProjectWrites]]) {
     assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);
