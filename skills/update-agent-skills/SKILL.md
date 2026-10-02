@@ -260,11 +260,15 @@ The contract is the pack's `docs/project-adaptation.md`; the files, the ten chec
 and the failure modes are in [adapting a pack skill](references/adapting.md).
 
 `scripts/adapt.mjs` is the composer: dependency-free Node plus git, reading the pack
-with git plumbing only, so nothing in a fetched tree runs.
+with git plumbing only, so nothing in a fetched tree runs. Run it the first time
+from a clone of the pack checked out at the pinned ref; it vendors itself into the
+project, and the vendored copy runs from then on.
 
 ```bash
-node scripts/adapt.mjs compose --repo <project> --pack <pack clone>          # prints the change
-node scripts/adapt.mjs compose --repo <project> --pack <pack clone> --write  # writes it, vendors itself
+# The first time: prints the change, then writes it and vendors the composer.
+node <clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo <project> --pack <clone>
+node <clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo <project> --pack <clone> --write
+# From then on, the vendored copy.
 node <project>/.claude/skill-adapters/.tool/adapt.mjs check --repo <project>     # offline
 node <project>/.claude/skill-adapters/.tool/adapt.mjs outdated --repo <project>  # online, reads only
 ```
@@ -282,6 +286,11 @@ node <project>/.claude/skill-adapters/.tool/adapt.mjs outdated --repo <project> 
   else.
 - **A moved tag stops the line.** `outdated` raises an alarm, and `compose` refuses
   until the new commit is recorded on purpose.
+- **The composer moves with the pin only when a person runs the new one.** The
+  vendored composer is whichever ran `compose --write`, and check 7 holds every copy
+  to it; `compose` never runs one it fetched. When the pinned ref ships another
+  composer, `compose` notes it and `outdated` flags it: compose again with the one
+  from a clone at that ref.
 - **`skills update` never moves an adapted copy.** Inventory adapted copies with
   `check-pack-freshness.mjs --repo <project>`; move one by moving its pin and composing.
 

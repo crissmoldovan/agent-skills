@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import {
   EXIT_FAILED,
   EXIT_OK,
   LOCK_FILE,
+  PACK_COMPOSER_PATH,
   newerTags,
   parseArguments,
   parseOverlay,
@@ -21,7 +22,6 @@ import {
   sha256,
   sourceProblem,
   splitFrontmatter,
-  validateAdapter,
   yamlString,
 } from '../skills/update-agent-skills/scripts/adapt.mjs';
 
@@ -84,6 +84,7 @@ Record what arrived. See [the guide](references/guide.md) and run \`scripts/coun
 | B1 | who the run answers to | value, required | ask once |
 | B2 | the zone times are written in, beside UTC | value | UTC only |
 | B3 | where a question for a person goes | skill | \`helper\` |
+| B5 | where a follow-up question goes | skill | \`helper\` |
 
 ## Hard lines
 
@@ -119,11 +120,13 @@ const LICENSE = 'MIT License\n\nCopyright (c) Example Author\n\nPermission is he
 /**
  * A pack with four releases: v1.0.0; v1.1.0 (annotated) changes only `helper`; v1.2.0 changes
  * `notes`, with the per-skill tag notes-v1.1.0 beside it; v2.0.0 removes step S3 for S5. A branch
- * `release-line` exists so a branch ref can be refused. `upTo` stops after that tag.
+ * `release-line` exists so a branch ref can be refused. `upTo` stops after that tag. `composer`
+ * puts those bytes where the pack keeps its composer, as a release of the pack would.
  */
-async function buildPack({ upTo = 'v2.0.0' } = {}) {
+async function buildPack({ upTo = 'v2.0.0', composer = null } = {}) {
   const root = await tempDir('adapt-pack-');
   write(root, 'LICENSE', LICENSE);
+  if (composer) write(root, PACK_COMPOSER_PATH, composer);
   write(root, 'skills/notes/SKILL.md', NOTES_SKILL);
   write(root, 'skills/notes/references/guide.md', '# Guide\n\nBack to [the steps](../SKILL.md).\n');
   write(root, 'skills/notes/references/part.md', PART);
@@ -287,6 +290,8 @@ test('the composed copy carries the skill byte for byte, under the project name,
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, 'the sections are out of order');
   assert.match(body, /\| `helper` \| `ask-here` \|/);
   assert.match(body, /Nothing here relaxes a hard line\./);
+  assert.doesNotMatch(body, /supersedes that step/, 'a copy that replaces nothing says that something wins');
+  assert.doesNotMatch(result.stdout, /links to \.\.\/SKILL\.md/, 'over SKILL.md, a link back to it reaches the skill text');
 
   const baseBody = splitFrontmatter(NOTES_SKILL).body;
   const segment = body.slice(body.indexOf('\n', body.indexOf('<!-- base:begin')) + 1, body.indexOf('<!-- base:end -->'));
@@ -464,6 +469,17 @@ test('a hand-written folder of the same name is replaced only with --discard-han
   assert.equal(check(project).status, EXIT_OK);
 });
 
+/** A release v2.0.1 of the pack with one change, pinned by the adapter; v2.0.0 is the accepted pin. */
+const releaseWith = (change) => async (pack) => {
+  change(pack);
+  git(pack, 'add', '-A');
+  git(pack, 'commit', '--quiet', '-m', 'v2.0.1');
+  git(pack, 'tag', 'v2.0.1');
+  return { adapter: { base: { ref: 'v2.0.1' } } };
+};
+const AT_V2 = { adapter: { base: { ref: 'v2.0.0' } } };
+const PART_OVERLAY = '## Bindings\n\n| id | value |\n|---|---|\n| B4 parts | `parts/` |\n';
+
 // Every refusal, both ways: the input that is refused, and the nearest input that is accepted.
 const REFUSALS = [
   {
@@ -542,7 +558,7 @@ const REFUSALS = [
     name: 'the marker that fences the skill text, inside the overlay',
     refused: { overlay: `${OVERLAY}| a trap that says <!-- base:end --> | nothing |\n` },
     accepted: {},
-    message: /\[3\] the overlay contains "<!-- base:end -->"/,
+    message: /\[2\] the overlay contains "<!-- base:end -->"/,
   },
   {
     name: 'a link in the overlay that does not resolve',
@@ -572,7 +588,7 @@ const REFUSALS = [
     name: 'a branch as the pin',
     refused: { adapter: { base: { ref: 'release-line' } } },
     accepted: { adapter: { base: { ref: 'v1.0.0' } } },
-    message: /\[4\] ref release-line is a branch; a branch is refused, because it moves/,
+    message: /\[pin\] ref release-line is a branch; a branch is refused, because it moves/,
   },
   {
     name: 'an abbreviated sha as the pin',
@@ -584,13 +600,262 @@ const REFUSALS = [
     name: 'a recorded commit that the tag no longer names',
     refused: async (pack) => ({ adapter: { base: { commit: git(pack, 'rev-parse', 'v1.2.0^{commit}') } } }),
     accepted: async (pack) => ({ adapter: { base: { commit: git(pack, 'rev-parse', 'v1.0.0^{commit}'), tree: git(pack, 'rev-parse', 'v1.0.0:skills/notes') } } }),
-    message: /\[4\] adapter\.json records commit [0-9a-f]{12} for v1\.0\.0, which now names [0-9a-f]{12}/,
+    message: /\[pin\] adapter\.json records commit [0-9a-f]{12} for v1\.0\.0, which now names [0-9a-f]{12}/,
   },
   {
     name: 'a step the overlay cites that a newer release removed',
     refused: { adapter: { base: { ref: 'v2.0.0' } }, overlay: OVERLAY.replace('### S1', '### S3') },
     accepted: { adapter: { base: { ref: 'v2.0.0' } }, overlay: OVERLAY.replace('### S1', '### S5') },
     message: /\[4\] overlay line \d+ adds to S3, which no carried file of notes declares/,
+  },
+  {
+    name: 'an adapted copy that takes its skill\'s name',
+    refused: { adapter: { name: 'notes' }, folder: 'notes' },
+    accepted: {},
+    message: /\[6\] the adapted copy takes the name of its skill, notes/,
+  },
+  {
+    name: 'a slot bound twice',
+    refused: { overlay: OVERLAY.replace('| B3 questions', '| B1 again | Someone else. |\n| B3 questions') },
+    accepted: {},
+    message: /\[4\] overlay line \d+ binds B1 a second time/,
+  },
+  {
+    name: 'a value slot bound to nothing',
+    refused: { overlay: OVERLAY.replace('| B3 questions', '| B2 zone |  |\n| B3 questions') },
+    accepted: { overlay: OVERLAY.replace('| B3 questions', '| B2 zone | UTC only |\n| B3 questions') },
+    message: /\[4\] overlay line \d+ binds B2 to nothing; leave the row out to keep its default/,
+  },
+  {
+    name: 'two additions to one step',
+    refused: { overlay: OVERLAY.replace('### H1\n', '### S1\nAnd keep a second record.\n\n### H1\n') },
+    accepted: { overlay: OVERLAY.replace('### H1\n', '### S2\nAnd keep a second record.\n\n### H1\n') },
+    message: /\[4\] overlay line \d+ adds to S1 a second time; one addition per id/,
+  },
+  {
+    name: 'an empty addition',
+    refused: { overlay: OVERLAY.replace('### H1\n', '### S2\n\n### H1\n') },
+    accepted: { overlay: OVERLAY.replace('### H1\n', '### S2\nRead the headers first.\n\n### H1\n') },
+    message: /\[4\] overlay line \d+: the addition to S2 is empty/,
+  },
+  {
+    name: 'two skill slots that map one skill to two',
+    refused: { overlay: OVERLAY.replace("this repository's own skill |\n", "this repository's own skill |\n| B5 follow-ups (skill) | `ask-elsewhere` |\n") },
+    accepted: { overlay: OVERLAY.replace("this repository's own skill |\n", "this repository's own skill |\n| B5 follow-ups (skill) | `ask-here` |\n") },
+    message: /\[4\] slot B5 maps `helper` to `ask-elsewhere`, and slot B3 maps it to `ask-here`; the names map can say one thing/,
+  },
+  {
+    name: 'a names entry for a skill a slot hands work to',
+    refused: { adapter: { names: { helper: 'ask-here' } } },
+    accepted: { adapter: { names: { notes: 'notes-here' } } },
+    message: /\[4\] adapter\.json names maps `helper`, which a skill slot hands work to; bind that slot instead/,
+  },
+  {
+    name: 'a names entry for a skill the carried text never names',
+    refused: { adapter: { names: { 'never-named': 'ours' } } },
+    accepted: { adapter: { names: { notes: 'notes-here' } } },
+    message: /\[4\] adapter\.json names maps `never-named`, which the carried text never names/,
+  },
+  {
+    name: 'replaces: naming another step than its own',
+    refused: { overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S2. The build server records instructions. Decided in records/decisions.md.\n') },
+    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S1. The build server records instructions. Decided in records/decisions.md.\n') },
+    message: /\[5\] overlay line \d+: a replacement opens "replaces: S1\." and then says why/,
+  },
+  {
+    name: 'a link in the overlay that leaves the repository',
+    refused: { overlay: `${OVERLAY}| see [the shared notes](../../../../shared/notes.md) | nothing |\n` },
+    accepted: { overlay: `${OVERLAY}| see [the overlay](../../skill-adapters/notes-here/overlay.md) | nothing |\n` },
+    message: /\[10\] SKILL\.md links to \.\.\/\.\.\/\.\.\/\.\.\/shared\/notes\.md, outside the repository/,
+  },
+  {
+    name: 'a project file that collides with a file of the skill',
+    refused: async (pack) => {
+      write(pack, 'skills/notes/references/project/local.md', '# Shipped by the skill\n');
+      git(pack, 'add', '-A');
+      git(pack, 'commit', '--quiet', '-m', 'a project folder in the skill');
+      git(pack, 'tag', 'v2.0.1');
+      return { adapter: { base: { ref: 'v2.0.1' } } };
+    },
+    accepted: { adapter: { base: { ref: 'v2.0.0' } } },
+    message: /\[adapter\] project file references\/project\/local\.md collides with a file of notes/,
+  },
+  {
+    name: 'an entry the ref does not have',
+    refused: { adapter: { base: { entry: 'references/missing.md' } } },
+    accepted: { adapter: { base: { entry: 'references/part.md' } }, overlay: PART_OVERLAY },
+    message: /\[pin\] skills\/notes has no references\/missing\.md at v1\.0\.0/,
+  },
+  {
+    name: 'a skill the ref does not have',
+    refused: { adapter: { base: { skill: 'absent' } } },
+    accepted: {},
+    message: /\[pin\] the pack has no skills\/absent at v1\.0\.0/,
+  },
+  {
+    name: 'a recorded tree the ref no longer gives',
+    refused: async (pack) => ({ adapter: { base: { tree: git(pack, 'rev-parse', 'v1.2.0:skills/notes') } } }),
+    accepted: async (pack) => ({ adapter: { base: { tree: git(pack, 'rev-parse', 'v1.0.0:skills/notes') } } }),
+    message: /\[pin\] adapter\.json records tree [0-9a-f]{12} for skills\/notes, but v1\.0\.0 has [0-9a-f]{12}/,
+  },
+  {
+    name: 'a full sha the pack does not have',
+    refused: { adapter: { base: { ref: 'f'.repeat(40) } } },
+    accepted: async (pack) => ({ adapter: { base: { ref: git(pack, 'rev-parse', 'v1.0.0^{commit}') } } }),
+    message: /\[pin\] the pack has no commit f{40}/,
+  },
+  {
+    name: 'a local source that is not a git repository',
+    refused: async () => ({ adapter: { base: { source: await tempDir('adapt-not-a-pack-') } } }),
+    accepted: {},
+    message: /\[pin\] base\.source .+ is not a git repository/,
+  },
+  // The pack itself, when a release of it is malformed: what verify-skills holds there, compose holds again.
+  {
+    name: 'a pack skill that names itself otherwise',
+    refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', readText(pack, 'skills/notes/SKILL.md').replace('name: notes', 'name: other'))),
+    accepted: AT_V2,
+    message: /\[pin\] skills\/notes\/SKILL\.md names itself other, not notes/,
+  },
+  {
+    name: 'a pack skill with no frontmatter',
+    refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', splitFrontmatter(readText(pack, 'skills/notes/SKILL.md')).body)),
+    accepted: AT_V2,
+    message: /\[pin\] skills\/notes\/SKILL\.md has no frontmatter/,
+  },
+  {
+    name: 'a pack skill that carries a symbolic link',
+    refused: releaseWith((pack) => symlinkSync('count.mjs', path.join(pack, 'skills', 'notes', 'scripts', 'linked.mjs'))),
+    accepted: AT_V2,
+    message: /\[pin\] skills\/notes\/scripts\/linked\.mjs is a symbolic link; the composer carries files only/,
+  },
+  {
+    name: 'a pack skill that declares one id twice',
+    refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', `${readText(pack, 'skills/notes/SKILL.md')}4. **S1. Again.** A second step under one id.\n`)),
+    accepted: AT_V2,
+    message: /\[4\] SKILL\.md declares S1 a second time/,
+  },
+  {
+    name: 'a pack skill whose text holds the marker that fences it',
+    refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', `${readText(pack, 'skills/notes/SKILL.md')}\n<!-- base:end -->\n`)),
+    accepted: AT_V2,
+    message: /\[2\] SKILL\.md contains "<!-- base:end -->"/,
+  },
+  // The adapter folder's own shape: refused before the pack is read.
+  {
+    name: 'an adapter.json of another version',
+    refused: { adapter: { version: 2 } },
+    accepted: {},
+    message: /\[adapter\] adapter\.json version must be 1/,
+  },
+  {
+    name: 'a name that is not a skill name',
+    refused: { adapter: { name: 'Notes_here' }, folder: 'Notes_here' },
+    accepted: {},
+    message: /\[adapter\] name must be a skill name/,
+  },
+  {
+    name: 'a name that is not its folder\'s',
+    refused: { adapter: { name: 'notes-there' } },
+    accepted: {},
+    message: /\[adapter\] name notes-there differs from its folder notes-here/,
+  },
+  {
+    name: 'an empty description',
+    refused: { adapter: { description: ' ' } },
+    accepted: {},
+    message: /\[adapter\] description must be the project's own trigger text/,
+  },
+  {
+    name: 'an unknown key in base',
+    refused: { adapter: { base: { branch: 'main' } } },
+    accepted: {},
+    message: /\[adapter\] base has an unknown key "branch"/,
+  },
+  {
+    name: 'an entry outside the skill',
+    refused: { adapter: { base: { entry: '../SKILL.md' } } },
+    accepted: { adapter: { base: { entry: 'references/part.md' } }, overlay: PART_OVERLAY },
+    message: /\[adapter\] base\.entry must be SKILL\.md or the relative path of a Markdown file inside the skill/,
+  },
+  {
+    name: 'a ref shaped like an option',
+    refused: { adapter: { base: { ref: '--upload-pack=touch' } } },
+    accepted: {},
+    message: /\[adapter\] base\.ref must be a tag or a full commit sha/,
+  },
+  {
+    name: 'an abbreviated recorded commit',
+    refused: { adapter: { base: { commit: 'abc1234' } } },
+    accepted: async (pack) => ({ adapter: { base: { commit: git(pack, 'rev-parse', 'v1.0.0^{commit}') } } }),
+    message: /\[adapter\] base\.commit, when given, is the full commit sha/,
+  },
+  {
+    name: 'widenTools as one string',
+    refused: { adapter: { widenTools: 'Grep' } },
+    accepted: { adapter: { widenTools: ['Grep'] } },
+    message: /\[adapter\] widenTools must be a list of tool names, each one word/,
+  },
+  {
+    name: 'an overlay outside the adapter folder',
+    refused: { adapter: { overlay: '../overlay.md' } },
+    accepted: { adapter: { overlay: 'overlay.md' } },
+    message: /\[adapter\] overlay must name a Markdown file in the adapter folder/,
+  },
+  {
+    name: 'an overlay that is not there',
+    refused: { adapter: { overlay: 'missing.md' } },
+    accepted: {},
+    message: /\[adapter\] the overlay missing\.md is missing; an empty file is a valid overlay/,
+  },
+  {
+    name: 'a project file listed twice',
+    refused: { adapter: { projectFiles: ['references/project/local.md', 'references/project/local.md'] } },
+    accepted: {},
+    message: /\[adapter\] project file references\/project\/local\.md is listed twice/,
+  },
+  {
+    name: 'a project file listed and not there',
+    refused: { adapter: { projectFiles: ['references/project/local.md', 'references/project/absent.md'] } },
+    accepted: {},
+    message: /\[adapter\] project file references\/project\/absent\.md is missing or is not a regular file/,
+  },
+  {
+    name: 'a names entry that is not a skill name',
+    refused: { adapter: { names: { notes: 'Notes Here' } } },
+    accepted: { adapter: { names: { notes: 'notes-here' } } },
+    message: /\[adapter\] names maps "notes" to "Notes Here"; both must be skill names, and different/,
+  },
+  // The overlay's own shape.
+  {
+    name: 'an overlay section given twice',
+    refused: { overlay: `${OVERLAY}\n## Bindings\n\n| id | value |\n|---|---|\n| B2 zone | UTC only |\n` },
+    accepted: {},
+    message: /\[adapter\] overlay line \d+: ## Bindings appears twice/,
+  },
+  {
+    name: 'a bindings table with other columns',
+    refused: { overlay: OVERLAY.replace('| id | value |', '| slot | value |') },
+    accepted: {},
+    message: /\[adapter\] overlay line \d+: the ## Bindings table has the columns \| id \| value \|/,
+  },
+  {
+    name: 'a bindings row that does not open with its id',
+    refused: { overlay: OVERLAY.replace('| B1 owner |', '| owner B1 |') },
+    accepted: {},
+    message: /\[adapter\] overlay line \d+: a ## Bindings row is \| <slot id> \[label\] \| <value> \|, and this one is not/,
+  },
+  {
+    name: 'an addition heading that does not open with an id',
+    refused: { overlay: OVERLAY.replace('### S1', '### Step one') },
+    accepted: {},
+    message: /\[adapter\] overlay line \d+: an addition's heading opens with the id it adds to \(### S3\), not "Step"/,
+  },
+  {
+    name: 'text under the additions that no heading holds',
+    refused: { overlay: OVERLAY.replace('## Additions\n\n', '## Additions\n\nA stray line.\n\n') },
+    accepted: {},
+    message: /\[adapter\] overlay line \d+: text under ## Additions sits under a ### <id> heading/,
   },
 ];
 
@@ -599,10 +864,10 @@ for (const refusal of REFUSALS) {
     const pack = await buildPack();
     const build = async (variant) => {
       const spec = typeof variant === 'function' ? await variant(pack) : variant;
-      const { adapter: overrides = {}, overlay = OVERLAY, files } = spec;
+      const { adapter: overrides = {}, overlay = OVERLAY, files, folder } = spec;
       const merged = { ...overrides, base: overrides.base };
       if (!merged.base) delete merged.base;
-      return addAdapter({ pack, adapter: adapterJson(pack, merged), overlay, ...(files ? { files } : {}) });
+      return addAdapter({ pack, adapter: adapterJson(pack, merged), overlay, ...(files ? { files } : {}), ...(folder ? { folder } : {}) });
     };
     const refused = compose(await build(refusal.refused));
     assert.equal(refused.status, EXIT_FAILED, `expected a refusal:\n${refused.stdout}`);
@@ -612,10 +877,26 @@ for (const refusal of REFUSALS) {
   });
 }
 
-test('the adapted copy never takes its skill\'s name', () => {
-  const { problems } = validateAdapter(adapterJson('../pack', { name: 'notes' }), 'notes');
-  assert.ok(problems.some((problem) => /takes the name of its skill, notes/.test(problem)), problems.join('\n'));
-  assert.deepEqual(validateAdapter(adapterJson('../pack'), 'notes-here').problems, []);
+test('an adapter folder with no adapter.json, or one that does not parse, is refused, and so is an unknown --adapter or --pack', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack });
+  assert.equal(compose(project).status, EXIT_OK);
+  assert.throws(() => compose(project, '--adapter', 'nowhere'), /no adapter folder named nowhere/);
+  const notAPack = await tempDir('adapt-not-a-pack-');
+  const noPack = compose(project, '--pack', notAPack);
+  assert.equal(noPack.status, EXIT_FAILED);
+  assert.match(noPack.stdout, /\[pin\] --pack .+ is not a git repository/);
+
+  mkdirSync(path.join(project, ADAPTERS, 'empty-here'), { recursive: true });
+  const empty = compose(project);
+  assert.equal(empty.status, EXIT_FAILED);
+  assert.match(empty.stdout, /\[adapter\] \.claude\/skill-adapters\/empty-here has no adapter\.json/);
+  write(project, `${ADAPTERS}/empty-here/adapter.json`, '{ "version": 1, ');
+  const broken = compose(project);
+  assert.equal(broken.status, EXIT_FAILED);
+  assert.match(broken.stdout, /\[adapter\] adapter\.json does not parse/);
+  rmSync(path.join(project, ADAPTERS, 'empty-here'), { recursive: true });
+  assert.equal(compose(project).status, EXIT_OK);
 });
 
 test('a source is a GitHub https URL or a local clone, and nothing else', () => {
@@ -668,7 +949,13 @@ test('a reference file as the entry: its links move with it, and only ids a carr
   // The entry is still carried at its own path, unchanged, and the skill's SKILL.md is not.
   assert.ok(read(project, `${folder}/references/part.md`).equals(read(pack, 'skills/notes/references/part.md')));
   assert.doesNotMatch(skill, /Record what arrived\./);
-  assert.equal(check(project).status, EXIT_OK);
+  // references/guide.md links back to ../SKILL.md, which in this copy holds part.md's text. It is
+  // carried byte for byte, so it is named rather than refused, at compose and at check.
+  const linkBack = /Warning: references\/guide\.md links to \.\.\/SKILL\.md, notes's own SKILL\.md; it is carried byte for byte, so in this copy that link reaches the text of references\/part\.md/;
+  assert.match(result.stdout, linkBack);
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_OK, checked.stdout);
+  assert.match(checked.stdout, linkBack);
 
   // B1 is declared in notes' SKILL.md only, which this copy does not carry.
   write(project, `${ADAPTERS}/parts-here/overlay.md`, partOverlay.replace('| B4 parts |', '| B1 owner | Ada Example |\n| B4 parts |'));
@@ -701,6 +988,125 @@ test('link rewriting refuses a link to the skill\'s own SKILL.md and one that le
 
   assert.match(rewriteEntryLinks('[back](../SKILL.md)', 'references/part.md').problems.join('\n'), /links to its skill's SKILL\.md/);
   assert.match(rewriteEntryLinks('[out](../../other/SKILL.md)', 'references/part.md').problems.join('\n'), /outside its skill/);
+});
+
+test('a copy whose overlay replaces a step says that the replacement wins', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack, overlay: OVERLAY.replace('### S1\n', '### S1\nreplaces: S1. Instructions arrive through the build server, which records them. Decided in records/decisions.md.\n') });
+
+  const result = compose(project, '--write');
+  assert.equal(result.status, EXIT_OK, result.stdout);
+  assert.match(result.stdout, /For review: the overlay replaces S1/);
+  // The step's own text stays between the markers, so the opening says which of the two to follow.
+  const skill = readText(project, generated(project, 'SKILL.md'));
+  const start = skill.indexOf('This is `notes`');
+  const opening = skill.slice(start, skill.indexOf('\n', start));
+  assert.match(opening, /Where an addition there opens with `replaces:` \(S1\), it supersedes that step: follow the addition, not the step's text between the markers\./);
+  assert.match(skill, /\*\*S1\. Record the instruction\.\*\*/);
+  assert.equal(check(project).status, EXIT_OK);
+});
+
+test('a branch of a local clone is refused as a branch, though only its remote-tracking ref exists', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const clone = await tempDir('adapt-clone-');
+  git(clone, 'clone', '--quiet', pack, '.');
+  const local = spawnSync('git', ['-C', clone, 'show-ref', '--verify', '--quiet', 'refs/heads/release-line'], { env: GIT_ENV });
+  assert.notEqual(local.status, 0, 'the clone was expected to hold release-line only as origin/release-line');
+  const project = await addAdapter({ pack, adapter: adapterJson(pack, { base: { ref: 'release-line' } }) });
+
+  const refused = compose(project, '--pack', clone);
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[pin\] ref release-line is a branch; a branch is refused, because it moves/);
+
+  updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (adapter) => { adapter.base.ref = 'v1.0.0'; });
+  const accepted = compose(project, '--pack', clone);
+  assert.equal(accepted.status, EXIT_OK, accepted.stdout);
+  assert.match(accepted.stdout, /read from the local pack at /);
+});
+
+test('the vendored composer: compose notes, and outdated flags, a pinned ref that ships another one', async () => {
+  const running = readFileSync(ADAPT);
+  const pack = await buildPack({ upTo: 'v1.0.0', composer: running });
+  const project = await addAdapter({ pack });
+  const first = compose(project, '--write');
+  assert.equal(first.status, EXIT_OK, first.stdout);
+  assert.doesNotMatch(first.stdout, /ships another composer/);
+  const same = outdated(project);
+  assert.equal(same.status, EXIT_OK, same.stdout);
+  assert.match(same.stdout, /composer: the vendored one is the one v1\.0\.0 ships/);
+
+  // The next release ships another composer and leaves the skill as it was.
+  write(pack, PACK_COMPOSER_PATH, `${running.toString('utf8')}// the next release\n`);
+  git(pack, 'commit', '--quiet', '-am', 'the next composer');
+  git(pack, 'tag', 'v1.0.1');
+  updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (adapter) => { adapter.base.ref = 'v1.0.1'; });
+  const moved = compose(project, '--write');
+  assert.equal(moved.status, EXIT_OK, moved.stdout);
+  assert.match(moved.stdout, /Note: v1\.0\.1 ships another composer \(sha256 [0-9a-f]{12}\) than this one \(sha256 [0-9a-f]{12}\), which composes the copy and is the one vendored\. To move the composer with the pin, compose --write with skills\/update-agent-skills\/scripts\/adapt\.mjs from a clone of the pack at v1\.0\.1/);
+  assert.ok(read(project, `${ADAPTERS}/.tool/adapt.mjs`).equals(running), 'compose vendored a composer it did not run');
+  const behind = outdated(project);
+  assert.equal(behind.status, EXIT_ATTENTION, behind.stdout);
+  assert.match(behind.stdout, /composer: the vendored one \(sha256 [0-9a-f]{12}\) is not the one v1\.0\.1 ships \(sha256 [0-9a-f]{12}\)/);
+
+  // Composing with the release's own composer moves it, and the copy and both checks follow.
+  const taken = spawnSync(process.execPath, [path.join(pack, PACK_COMPOSER_PATH), 'compose', '--repo', project, '--pack', pack, '--write'], { encoding: 'utf8' });
+  assert.equal(taken.status, EXIT_OK, taken.stdout + taken.stderr);
+  assert.ok(read(project, `${ADAPTERS}/.tool/adapt.mjs`).equals(read(pack, PACK_COMPOSER_PATH)), 'the release\'s composer was not vendored');
+  const current = outdated(project);
+  assert.equal(current.status, EXIT_OK, current.stdout);
+  assert.match(current.stdout, /composer: the vendored one is the one v1\.0\.1 ships/);
+  const checked = vendored(project, ['check', '--repo', project]);
+  assert.equal(checked.status, EXIT_OK, checked.stdout + checked.stderr);
+});
+
+// GitHub is the one remote source. Its address is rewritten to the local pack for these runs only,
+// in the child's own git configuration, so the ls-remote and the shallow fetches run without a
+// network and the code path is the one a project takes.
+const GITHUB_PACK = 'https://github.com/example-owner/example-pack';
+
+function overGithub(pack, args) {
+  const env = { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: `url.${pack}.insteadOf`, GIT_CONFIG_VALUE_0: GITHUB_PACK };
+  const result = spawnSync(process.execPath, [ADAPT, ...args], { encoding: 'utf8', env });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+test('a GitHub source: a pin is fetched by tag or full sha, a branch or a missing tag is refused, and outdated reads its tags', async () => {
+  const pack = await buildPack();
+  const project = await addAdapter({ pack, adapter: adapterJson(GITHUB_PACK) });
+  const setRef = (ref) => updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (adapter) => { adapter.base.ref = ref; });
+
+  const byTag = overGithub(pack, ['compose', '--repo', project, '--write']);
+  assert.equal(byTag.status, EXIT_OK, byTag.stdout + byTag.stderr);
+  assert.match(byTag.stdout, /notes-here: notes at v1\.0\.0 \(commit [0-9a-f]{12}, tree [0-9a-f]{12}\), read from example-owner\/example-pack/);
+  const lock = JSON.parse(readText(project, generated(project, LOCK_FILE)));
+  assert.equal(lock.base.source, GITHUB_PACK);
+  assert.equal(lock.base.commit, git(pack, 'rev-parse', 'v1.0.0^{commit}'));
+  assert.match(readText(project, generated(project, 'SKILL.md')), /adapted-from: "https:\/\/github\.com\/example-owner\/example-pack skills\/notes"/);
+  assert.equal(check(project).status, EXIT_OK);
+
+  setRef(git(pack, 'rev-parse', 'v1.2.0^{commit}'));
+  const bySha = overGithub(pack, ['compose', '--repo', project, '--write']);
+  assert.equal(bySha.status, EXIT_OK, bySha.stdout + bySha.stderr);
+  assert.match(readText(project, generated(project, 'SKILL.md')), /Copy it, never move it, and hash it\./);
+
+  for (const [ref, message] of [
+    ['release-line', /\[pin\] ref release-line is a branch of example-owner\/example-pack; a branch is refused, because it moves/],
+    ['v9.9.9', /\[pin\] example-owner\/example-pack has no tag v9\.9\.9/],
+  ]) {
+    setRef(ref);
+    const refused = overGithub(pack, ['compose', '--repo', project]);
+    assert.equal(refused.status, EXIT_FAILED, refused.stdout + refused.stderr);
+    assert.match(refused.stdout, message);
+  }
+
+  setRef('v1.0.0');
+  assert.equal(overGithub(pack, ['compose', '--repo', project, '--write']).status, EXIT_OK);
+  const report = overGithub(pack, ['outdated', '--repo', project, '--verify']);
+  assert.equal(report.status, EXIT_ATTENTION, report.stdout + report.stderr);
+  assert.match(report.stdout, /notes-here adapts notes at v1\.0\.0 \(commit [0-9a-f]{12}, tree [0-9a-f]{12}\) from example-owner\/example-pack/);
+  assert.match(report.stdout, /v2\.0\.0 exists; skills\/notes changed \(tree [0-9a-f]{12} -> [0-9a-f]{12}\)/);
+  assert.match(report.stdout, /composer: v1\.0\.0 ships none to compare with/);
+  assert.match(report.stdout, /verify: every carried file is the upstream bytes at [0-9a-f]{12}/);
 });
 
 test('a long composed SKILL.md is a warning, never a failure', async () => {
@@ -745,7 +1151,7 @@ test('outdated: a moved tag or a deleted one is an alarm, and compose refuses a 
   assert.match(moved.stdout, /ALARM: the tag v1\.0\.0 now names [0-9a-f]{12}, not [0-9a-f]{12}, the commit this copy was composed from/);
   const refused = compose(project, '--write');
   assert.equal(refused.status, EXIT_FAILED);
-  assert.match(refused.stdout, /\[4\] v1\.0\.0 named [0-9a-f]{12} when this copy was composed, and names [0-9a-f]{12} now/);
+  assert.match(refused.stdout, /\[pin\] v1\.0\.0 named [0-9a-f]{12} when this copy was composed, and names [0-9a-f]{12} now/);
   const commit = git(pack, 'rev-parse', 'HEAD');
   updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (adapter) => { adapter.base.commit = commit; });
   assert.equal(compose(project, '--write').status, EXIT_OK);

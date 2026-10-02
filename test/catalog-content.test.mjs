@@ -228,6 +228,9 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   assert.match(adapt, /never a branch/);
   assert.match(adapt, /`skills update` never moves an adapted copy/);
   assert.match(adapt, /check-pack-freshness\.mjs --repo/);
+  // The composer is vendored as it ran, never fetched and run, so the skill says how it moves with a pin.
+  assert.match(adapt, /The composer moves with the pin only when a person runs the new one/);
+  assert.match(adapt, /<clone>\/skills\/update-agent-skills\/scripts\/adapt\.mjs compose --repo <project> --pack <clone>/);
   assert.match(section(updateAgentSkills, 'Inventory Every Requested Plane'), /adapted copies a project composed/);
 
   // The guide names all ten checks, and the two identities a pin is refused for.
@@ -236,6 +239,10 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
   assert.match(adapting, /never edited by hand/);
   assert.match(adapting, /`outdated --verify` fetches the pinned commit and compares every carried\s+file/);
+  // A refusal names the check a reader looks up, or says it is the pin's or the adapter folder's.
+  assert.match(checks, /`\[adapter\]`, an adapter\s+folder that does not read as one/);
+  assert.match(checks, /`\[pin\]`, a pin\s+that cannot be taken/);
+  assert.match(adapting, /\*\*Which composer is vendored\.\*\*/);
 
   assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
   assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);

@@ -116,7 +116,8 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 ## Commands
 
 ```bash
-# The first time: run the composer from a clone of the pack checked out at the pinned ref.
+# The first time, and when a pin moves to a ref that ships another composer: run the composer
+# from a clone of the pack checked out at the pinned ref.
 node <pack clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <pack clone>
 node <pack clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <pack clone> --write
 
@@ -132,11 +133,20 @@ node .claude/skill-adapters/.tool/adapt.mjs outdated --repo . --verify  # and co
   would add (`+`), change (`~`) or remove (`-`), what moved in the pin, and every addition to a hard
   line for review. It writes nothing without `--write`. With it, it writes the generated folder and
   vendors itself. `--adapter <name>` composes one; `--pack <dir>` reads a local clone instead of
-  fetching.
+  fetching. When the pinned ref ships another composer than the one running, it says so.
 - `check` is offline: no git, no network. It exits 1 when any check below fails.
 - `outdated` exits 2 when something needs a person: a newer tag that changes the skill, a moved or
-  deleted tag, or a question it could not answer. It never says "current" when it could not tell.
-  With `--verify` it exits 1 when a carried file is not the upstream bytes.
+  deleted tag, a vendored composer that is not the one the pinned ref ships, or a question it could
+  not answer. It never says "current" when it could not tell. With `--verify` it exits 1 when a
+  carried file is not the upstream bytes.
+
+**Which composer is vendored.** The one that ran `compose --write`, byte for byte; check 7 then
+holds every copy to it. `compose` reads the pack and never runs anything it fetched, the pinned
+release's own composer included, so the composer does not move with a pin by itself: a pin moved
+with the vendored composer keeps that composer until a person runs the new one. Bootstrapping from
+a clone at the pinned ref is what makes the vendored composer the release's. When the two differ,
+`compose` notes it and `outdated` flags it, and composing again with the composer from a clone at
+the pinned ref replaces it.
 
 Wire `check` into the project's tests, so that drift is a red test even without CI, and add one
 line to the project's agent instructions: never edit `.claude/skills/<name>/`; edit the adapter
@@ -150,7 +160,8 @@ generated folder by hand: merge `adapter.json` and the overlay, then compose.
 1. the frontmatter: `name` and `description` from `adapter.json`; `license`, `allowed-tools` and
    `compatibility` from the skill, the tools widened only by `widenTools`; `metadata` a map of the
    source, entry, ref, commit and tree;
-2. one generated line saying where to edit instead, and a short paragraph saying what the copy is;
+2. one generated line saying where to edit instead, and a short paragraph saying what the copy is
+   and, when an addition opens with `replaces:`, that the addition wins over the step it names;
 3. **Names in this copy**: where the text names a pack skill whose slot is bound to a project
    skill, the project skill to use instead;
 4. **This repository's bindings**, the overlay's table as written;
@@ -165,8 +176,11 @@ generated file, and the composer's version and sha256.
 
 **A reference file as the entry.** Its text becomes the body of `SKILL.md` at the folder root, so
 every relative link in it is rewritten for that place, and it is still carried at its own path. The
-skill's own `SKILL.md` is not carried, so a link to it is refused, and so is a binding or an
-addition to an id that only `SKILL.md` declares.
+skill's own `SKILL.md` is not carried, so a link to it from the entry is refused, and so is a
+binding or an addition to an id that only `SKILL.md` declares. Another carried file that links to
+the skill's `SKILL.md` is carried byte for byte, so its link resolves to this copy's `SKILL.md`,
+which holds the entry's text; `compose` and `check` warn and name each such link, because only an
+edit to the skill can change it.
 
 Composing is concatenation at fixed points, never a model merging text, so the result can be
 compared byte for byte: LF line endings, files in sorted order, no timestamps.
@@ -174,17 +188,23 @@ compared byte for byte: LF line endings, files in sorted order, no timestamps.
 ## The checks
 
 `check` holds every adapted copy to these. `compose` refuses an input that would break 4, 5, 6 or 10,
-or put a marker of check 2 into the overlay; the rest it writes true.
+or put a marker of check 2 into the overlay; the rest it writes true. A refusal or a failure is
+printed with the number of its check. Two kinds carry a word instead: `[adapter]`, an adapter
+folder that does not read as one (an unknown key, a missing overlay, a project file out of place
+or colliding with a file of the skill, an overlay section the copy would drop), and `[pin]`, a pin
+that cannot be taken (a branch, an abbreviated sha, a tag that now names another commit, a
+recorded commit or tree the ref no longer gives, a skill or entry the ref does not have, or a
+source that cannot be read).
 
 | # | what it holds | what fails it |
 |---|---|---|
 | 1 | every generated file has the sha256 its lock records, and the folder holds nothing else | a hand edit, a file added or removed by hand |
 | 2 | the text between the markers has the sha256 recorded at compose time | an edit to the skill's own text |
 | 3 | composing again from the copy and the current adapter folder gives the same bytes | an overlay or `adapter.json` changed without composing; a pin moved in `adapter.json` but not composed |
-| 4 | every id the overlay cites is declared by a carried file; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapter | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy |
-| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, and no addition to a hard line, or overlay line naming one, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
+| 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapter; `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy; two rows for one slot |
+| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, or overlay line naming one, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
 | 6 | the adapted copy's name differs from the skill's | an adapter that takes its skill's name |
-| 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again |
+| 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
 | 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
 | 10 | every relative link in the generated folder resolves and stays inside the repository | a link in the overlay or a project file to something that is not there |
@@ -205,6 +225,8 @@ file, and that is what proves it.
 3. Change `base.ref` (and `base.commit` and `base.tree`, if recorded). `compose` refuses, and names
    the id, when the overlay cites one that is gone or a required slot the new release added.
 4. `compose --write`, then review the generated diff: it is the upstream change and nothing else.
+   If `compose` notes that the new ref ships another composer, compose again with the one from a
+   clone of the pack at that ref, so the vendored composer moves with the pin.
 5. Run `check` and whatever scenarios the project keeps for the skill, and commit it as one change.
 
 `check-pack-freshness.mjs --repo <project>` lists the same pins against the latest release, beside
@@ -222,6 +244,7 @@ the global installs, as part of an inventory. Neither it nor `skills update` eve
 | the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |
+| a pin moved with the old composer | the copies are composed, vendored and checked by the old composer; nothing offline disagrees | `compose` notes it and `outdated` flags it; compose again with the composer from a clone at the pinned ref |
 
 ## What it does not do
 

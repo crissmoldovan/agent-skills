@@ -15,16 +15,18 @@
  *   check     offline and read-only: the generated folder is byte for byte what composing its
  *             recorded inputs gives, and every rule an overlay must keep still holds.
  *   outdated  online and read-only: newer tags, whether each one changes the pinned skill's tree,
- *             and an alarm when a pinned tag no longer names the commit the copy was composed from.
+ *             an alarm when a pinned tag no longer names the commit the copy was composed from,
+ *             and whether the vendored composer is the one the pinned commit ships.
  *
  * The generated folder is committed and never edited by hand, the same discipline as any other
  * generated file a test byte-compares: a hand edit, or an overlay changed without composing
  * again, turns `check` red.
  *
  * Dependency-free Node plus git. It runs git plumbing only — ls-remote, a shallow fetch into a
- * throwaway bare repository, rev-parse, ls-tree, cat-file — and never checks a tree out, so
- * nothing in a fetched tree runs. It writes nothing without --write, and with it only the
- * generated folder, its own vendored copy, and a temporary directory it removes.
+ * throwaway bare repository, show-ref, for-each-ref, rev-parse, ls-tree, cat-file — and never
+ * checks a tree out, so nothing in a fetched tree runs, its own release's composer included. It
+ * writes nothing without --write, and with it only the generated folder, its own vendored copy,
+ * and a temporary directory it removes.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -60,6 +62,8 @@ export const DEFAULT_ADAPTERS_DIR = '.claude/skill-adapters';
 export const DEFAULT_SKILLS_DIR = '.claude/skills';
 export const TOOL_DIR = '.tool';
 export const TOOL_FILE = 'adapt.mjs';
+/** Where the pack keeps this composer, so a pinned commit names the composer of its release. */
+export const PACK_COMPOSER_PATH = 'skills/update-agent-skills/scripts/adapt.mjs';
 /** Claude Code's documentation asks for a SKILL.md under 500 lines; past it, `check` warns. */
 export const LONG_SKILL_LINES = 500;
 
@@ -94,7 +98,11 @@ const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HS][0-9][0-9A-Za-z]
 // refuses an addition to a hard line, or any overlay line that names one, that carries them.
 const RELAXING = /\b(?:unless|except(?:ion|ions)?|exempt(?:s|ed|ion)?|waive[sd]?|need not|needn't|do(?:es)? not apply|doesn't apply|don't apply|no longer|not required|may skip|can skip|(?:is|are) optional|overrid(?:e|es|den)|relax(?:es|ed)?|(?:is|are) lifted)\b/i;
 
-/** A refusal: the message is for the person, and `check` is the number a reader looks up. */
+/**
+ * A refusal: the message is for the person. `check` is the number of the check it would break, which
+ * a reader looks up in the guide's table; a refusal of the pin itself carries none and prints as
+ * `[pin]`, and a refusal of the adapter folder's shape prints as `[adapter]`.
+ */
 export class AdaptError extends Error {
   constructor(message, check = 0) {
     super(message);
@@ -176,8 +184,12 @@ export class GitReader {
     return this.succeeds(['show-ref', '--verify', '--quiet', `refs/tags/${name}`]);
   }
 
+  /** A local branch, or a remote-tracking one such as `refs/remotes/origin/<name>` in a clone. */
   hasBranch(name) {
-    return this.succeeds(['show-ref', '--verify', '--quiet', `refs/heads/${name}`]) || this.succeeds(['show-ref', '--verify', '--quiet', `refs/remotes/${name}`]);
+    const result = this.run(['for-each-ref', '--format=%(refname)', `refs/heads/${name}`, `refs/remotes/*/${name}`]);
+    if (result.status !== 0) return false;
+    // A pattern also matches a ref that continues past it, so only the exact names count.
+    return utf8(result.stdout).split('\n').some((ref) => ref === `refs/heads/${name}` || (/^refs\/remotes\/[^/]+\//.test(ref) && ref.endsWith(`/${name}`) && ref.split('/').length === 3 + name.split('/').length));
   }
 
   commitOf(revision) {
@@ -286,7 +298,7 @@ export function openSource(base, { repo, pack } = {}) {
   }
   if (!FULL_SHA.test(base.ref)) {
     const found = remoteHeads(base.source, base.ref);
-    if (!found.tag && found.branch) throw new AdaptError(`ref ${base.ref} is a branch of ${sourceLabel(base.source)}; a branch is refused, because it moves. Pin a tag or a full commit sha`, 4);
+    if (!found.tag && found.branch) throw new AdaptError(`ref ${base.ref} is a branch of ${sourceLabel(base.source)}; a branch is refused, because it moves. Pin a tag or a full commit sha`);
     if (!found.tag) throw new AdaptError(`${sourceLabel(base.source)} has no tag ${base.ref}`);
   }
   const scratch = mkdtempSync(path.join(tmpdir(), 'adapt-skill-'));
@@ -318,19 +330,19 @@ export function resolvePin(reader, base) {
   } else if (reader.hasTag(base.ref)) {
     commit = reader.commitOf(`refs/tags/${base.ref}`);
   } else if (reader.hasBranch(base.ref)) {
-    throw new AdaptError(`ref ${base.ref} is a branch; a branch is refused, because it moves. Pin a tag or a full commit sha`, 4);
+    throw new AdaptError(`ref ${base.ref} is a branch; a branch is refused, because it moves. Pin a tag or a full commit sha`);
   } else {
     throw new AdaptError(`the pack has no tag ${base.ref}${/^[0-9a-f]{7,39}$/.test(base.ref) ? '; an abbreviated sha is refused, give all of it' : ''}`);
   }
   if (!commit) throw new AdaptError(`cannot resolve ${base.ref} to a commit`);
   const folder = `skills/${base.skill}`;
   const tree = reader.treeAt(commit, folder);
-  if (!tree) throw new AdaptError(`the pack has no ${folder} at ${base.ref}`, 4);
+  if (!tree) throw new AdaptError(`the pack has no ${folder} at ${base.ref}`);
   if (base.commit && base.commit !== commit) {
-    throw new AdaptError(`adapter.json records commit ${short(base.commit)} for ${base.ref}, which now names ${short(commit)}${base.tree === tree ? ' (the skill tree is unchanged)' : ''}. A published tag should never move: read why, then set base.commit and base.tree to the new values, or remove them to take what the ref names now`, 4);
+    throw new AdaptError(`adapter.json records commit ${short(base.commit)} for ${base.ref}, which now names ${short(commit)}${base.tree === tree ? ' (the skill tree is unchanged)' : ''}. A published tag should never move: read why, then set base.commit and base.tree to the new values, or remove them to take what the ref names now`);
   }
   if (base.tree && base.tree !== tree) {
-    throw new AdaptError(`adapter.json records tree ${short(base.tree)} for ${folder}, but ${base.ref} has ${short(tree)}. Read the change, then set base.tree to the new value, or remove it`, 4);
+    throw new AdaptError(`adapter.json records tree ${short(base.tree)} for ${folder}, but ${base.ref} has ${short(tree)}. Read the change, then set base.tree to the new value, or remove it`);
   }
   return { source: base.source, skill: base.skill, entry: base.entry, ref: base.ref, commit, tree };
 }
@@ -677,8 +689,8 @@ export function validateAdapter(adapter, folderName) {
     for (const key of Object.keys(base)) if (!BASE_KEYS.has(key)) problems.push(`base has an unknown key "${key}"`);
     const sourceIssue = sourceProblem(base.source);
     if (sourceIssue) problems.push(sourceIssue);
+    // A name that is the skill's own is check 6's to refuse, at compose and at check.
     if (typeof base.skill !== 'string' || !SKILL_NAME.test(base.skill)) problems.push('base.skill must be the pack skill\'s name');
-    else if (base.skill === adapter.name) problems.push(`the adapted copy takes the name of its skill, ${base.skill}; it needs a name of its own, so neither copy hides the other`);
     if (base.entry !== undefined && !(typeof base.entry === 'string' && /^[A-Za-z0-9._/-]+\.md$/.test(base.entry) && posix.normalize(base.entry) === base.entry && !base.entry.startsWith('/') && !base.entry.split('/').includes('..'))) {
       problems.push('base.entry must be SKILL.md or the relative path of a Markdown file inside the skill');
     }
@@ -823,12 +835,12 @@ export function readBase(reader, pin) {
     files.set(entry.path, { bytes: reader.blob(entry.object), executable: entry.mode === '100755' });
   }
   const skill = files.get('SKILL.md');
-  if (!skill) throw new AdaptError(`${folder} has no SKILL.md at ${pin.ref}`, 4);
+  if (!skill) throw new AdaptError(`${folder} has no SKILL.md at ${pin.ref}`);
   const split = splitFrontmatter(lf(utf8(skill.bytes)));
   if (!split) throw new AdaptError(`${folder}/SKILL.md has no frontmatter`);
   const declared = frontmatterValue(split.frontmatter, 'name');
   if (declared !== pin.skill) throw new AdaptError(`${folder}/SKILL.md names itself ${declared}, not ${pin.skill}`);
-  if (pin.entry !== 'SKILL.md' && !files.has(pin.entry)) throw new AdaptError(`${folder} has no ${pin.entry} at ${pin.ref}`, 4);
+  if (pin.entry !== 'SKILL.md' && !files.has(pin.entry)) throw new AdaptError(`${folder} has no ${pin.entry} at ${pin.ref}`);
   const carried = new Map([...files].filter(([file]) => file !== 'SKILL.md'));
   return {
     identity: pin,
@@ -860,7 +872,7 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   const { identity } = base;
   const fail = (check, message) => errors.push(finding(check, message));
 
-  if (adapter.name === identity.skill) fail(6, `the adapted copy takes the name of its skill, ${identity.skill}`);
+  if (adapter.name === identity.skill) fail(6, `the adapted copy takes the name of its skill, ${identity.skill}; it needs a name of its own, so neither copy hides the other`);
 
   const declarationFiles = [];
   if (identity.entry === 'SKILL.md') declarationFiles.push({ path: 'SKILL.md', text: base.entryText });
@@ -873,8 +885,8 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   const overlay = parseOverlay(utf8(overlaySource ?? ''));
   for (const problem of overlay.problems) fail(0, problem);
   for (const marker of [BASE_BEGIN, BASE_END]) {
-    if (overlay.text.includes(marker)) fail(3, `the overlay contains "${marker}", the marker that fences the skill's own text`);
-    if (base.entryText.includes(marker)) fail(3, `${identity.entry} contains "${marker}", the marker that fences the skill's own text`);
+    if (overlay.text.includes(marker)) fail(2, `the overlay contains "${marker}", the marker that fences the skill's own text`);
+    if (base.entryText.includes(marker)) fail(2, `${identity.entry} contains "${marker}", the marker that fences the skill's own text`);
   }
 
   const notCarried = (id) => (skillOnly && (skillOnly.slots.has(id) || skillOnly.lines.has(id)) ? `: ${id} is declared only in ${identity.skill}'s SKILL.md, which a copy over ${identity.entry} does not carry` : '');
@@ -1005,6 +1017,20 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   if (lineCount > LONG_SKILL_LINES) warnings.push(`SKILL.md is ${lineCount} lines, past the ${LONG_SKILL_LINES} that agents are asked to keep a skill under; move project traps into a project reference file`);
 
   for (const problem of linkProblems(files, { folder: posix.join(layout.skillsRel, adapter.name), exists: layout.exists ?? (() => false) })) fail(10, problem);
+  // Over a reference file, this copy's SKILL.md holds that file's text. Another carried file that
+  // links to the skill's SKILL.md is carried byte for byte, so its link resolves, and reaches the
+  // wrong text; it cannot be rewritten without editing the skill, so it is named instead.
+  if (identity.entry !== 'SKILL.md') {
+    const named = new Set();
+    for (const [file, content] of sortedEntries(base.carried)) {
+      if (!/\.mdx?$/i.test(file)) continue;
+      for (const { pathname } of relativeLinks(utf8(content.bytes))) {
+        if (posix.normalize(posix.join(posix.dirname(file), pathname)) !== 'SKILL.md') continue;
+        named.add(`${file} links to ${pathname}, ${identity.skill}'s own SKILL.md; it is carried byte for byte, so in this copy that link reaches the text of ${identity.entry}`);
+      }
+    }
+    warnings.push(...named);
+  }
 
   const lock = {
     version: LOCK_VERSION,
@@ -1058,8 +1084,12 @@ function composeSkillMarkdown({ adapter, base, names, overlay, segment, layout }
   ].join('');
   lines.push(`<!-- GENERATED by adapt.mjs from ${identity.skill} at ${identity.ref}. Do not edit it by hand: edit ${adapterFolder} and run node ${layout.adaptersRel}/${TOOL_DIR}/${TOOL_FILE} compose --repo .${folders} --write -->`, '');
   const what = identity.entry === 'SKILL.md' ? `\`${identity.skill}\`` : `\`${identity.entry}\` of \`${identity.skill}\``;
+  // The skill's text is carried unchanged, so a replaced step still reads as it did upstream; the
+  // copy says which instruction wins, or an agent reading it would find two for one step.
+  const replaced = overlay.additions.filter((addition) => addition.replaces).map((addition) => addition.id);
+  const supersedes = replaced.length === 0 ? '' : ` Where an addition there opens with \`replaces:\` (${replaced.join(', ')}), it supersedes that step: follow the addition, not the step's text between the markers.`;
   const rest = identity.entry === 'SKILL.md' ? '' : ` The skill's own SKILL.md is not part of this copy.`;
-  lines.push(`This is ${what} at \`${identity.ref}\` from \`${sourceLabel(identity.source)}\`, adapted to this repository. Its own text is carried unchanged between the \`base:begin\` and \`base:end\` markers below; the bindings fill its slots, and "In this repository" adds to its steps and hard lines by id. Nothing here relaxes a hard line.${rest}`, '');
+  lines.push(`This is ${what} at \`${identity.ref}\` from \`${sourceLabel(identity.source)}\`, adapted to this repository. Its own text is carried unchanged between the \`base:begin\` and \`base:end\` markers below; the bindings fill its slots, and "In this repository" adds to its steps and hard lines by id.${supersedes} Nothing here relaxes a hard line.${rest}`, '');
   if (names.size > 0) {
     lines.push('## Names in this copy', '', 'Where the text below names another skill, use this repository\'s skill instead:', '', '| the text says | use |', '|---|---|');
     for (const [from, { to }] of sortedEntries(names)) lines.push(`| \`${from}\` | \`${to}\` |`);
@@ -1152,6 +1182,17 @@ function composerBytes() {
   return readFileSync(fileURLToPath(import.meta.url));
 }
 
+/**
+ * The composer a pinned commit ships, or null when the source carries none there. It is read and
+ * compared, never run: compose runs nothing it fetched, so the composer moves with a pin only when
+ * a person runs the one the new ref ships.
+ */
+export function composerAt(reader, commit) {
+  return reader.fileAt(commit, PACK_COMPOSER_PATH);
+}
+
+const takeComposer = (ref) => `To move the composer with the pin, compose --write with ${PACK_COMPOSER_PATH} from a clone of the pack at ${ref}`;
+
 // ---------------------------------------------------------------------------------------------
 // commands
 
@@ -1202,6 +1243,7 @@ export function runCompose(options, io) {
       source = openSource(adapter.base, { repo: layout.root, pack: options.pack });
       const pin = resolvePin(source.reader, adapter.base);
       const base = readBase(source.reader, pin);
+      const shipped = composerAt(source.reader, pin.commit);
       const result = composeAdapted({ adapter, overlay: record.overlay, projectFiles: record.projectFiles, base, composer, layout, others: others(adapters) });
       const target = path.join(layout.skillsPath, adapter.name);
       const targetRel = `${layout.skillsRel}/${adapter.name}`;
@@ -1234,7 +1276,7 @@ export function runCompose(options, io) {
         // The same tag naming another commit is a moved tag, not a release. It is taken only when
         // adapter.json records the new commit, which is a person saying they read why.
         if (was.ref === pin.ref && was.source === pin.source && was.commit !== pin.commit && adapter.base.commit !== pin.commit) {
-          io.out(`  refused: [4] ${pin.ref} named ${short(was.commit)} when this copy was composed, and names ${short(pin.commit)} now. A published tag should never move: read why, then re-pin to a full sha or a new tag, or set base.commit to ${pin.commit} to take it`);
+          io.out(`  refused: [pin] ${pin.ref} named ${short(was.commit)} when this copy was composed, and names ${short(pin.commit)} now. A published tag should never move: read why, then re-pin to a full sha or a new tag, or set base.commit to ${pin.commit} to take it`);
           failed = true;
           continue;
         }
@@ -1262,6 +1304,9 @@ export function runCompose(options, io) {
       }
       if (changes === 0) io.out('  no change');
       for (const note of result.notes) io.out(`  ${note}`);
+      if (shipped && !shipped.equals(bytes)) {
+        io.out(`  Note: ${pin.ref} ships another composer (sha256 ${short(sha256(shipped))}) than this one (sha256 ${short(composer.sha256)}), which composes the copy and is the one vendored. ${takeComposer(pin.ref)}.`);
+      }
       for (const warning of result.warnings) io.out(`  Warning: ${warning}`);
 
       const vendored = existsSync(layout.toolPath) ? readFileSync(layout.toolPath) : null;
@@ -1402,7 +1447,7 @@ export function runCheck(options, io) {
             // check 3 about the bytes rather than repeating it.
             const result = composeAdapted({ adapter, overlay: record.overlay, projectFiles: record.projectFiles, base: rebuilt.base, composer: { sha256: lock.composer?.sha256 ?? sha256(running) }, layout, others: others(adapters) });
             for (const error of result.errors) add(error.check, error.message);
-            warnings.push(...result.warnings.filter((warning) => warning.startsWith('SKILL.md is')));
+            warnings.push(...result.warnings);
             if (!result.errors.length) {
               const differ = [];
               for (const [file, content] of result.files) if (!generated.files.get(file)?.bytes.equals(content.bytes)) differ.push(file);
@@ -1465,8 +1510,9 @@ export function newerTags(tags, pinRef, skill) {
 
 /**
  * `outdated`: online and read-only. For each adapted copy: whether its pinned tag still names the
- * commit it was composed from, the newest newer tag and whether that tag changes the skill, and,
- * with `--verify`, whether every carried file is still the upstream bytes.
+ * commit it was composed from, the newest newer tag and whether that tag changes the skill, whether
+ * the vendored composer is the one the pinned commit ships, and, with `--verify`, whether every
+ * carried file is still the upstream bytes.
  */
 export function runOutdated(options, io) {
   const layout = layoutFor(options);
@@ -1499,10 +1545,12 @@ export function runOutdated(options, io) {
       }
       return new GitReader(scratch.dir);
     };
+    const fetchedRefs = new Set();
     const fetchRef = (reader, refspec) => {
-      if (!isGithubSource(pinned.source)) return;
+      if (!isGithubSource(pinned.source) || fetchedRefs.has(refspec)) return;
       const fetched = reader.run(['fetch', '--quiet', '--depth', '1', '--no-tags', pinned.source, refspec], { timeout: 300_000 });
       if (fetched.status !== 0) throw new AdaptError(`cannot fetch ${refspec} from ${sourceLabel(pinned.source)}: ${fetched.stderr || 'git fetch failed'}`);
+      fetchedRefs.add(refspec);
     };
     try {
       const tags = listRemoteTags(source);
@@ -1530,6 +1578,21 @@ export function runOutdated(options, io) {
           io.out(`  ${tag} exists; skills/${pinned.skill} changed (tree ${short(pinned.tree)} -> ${short(tree)}): read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\``);
           attention = true;
         }
+      }
+      // The vendored composer against the one the pinned commit ships. A pin moved with the old
+      // composer keeps it, and nothing else would say so.
+      const pinReader = readerFor();
+      fetchRef(pinReader, pinned.commit);
+      const shipped = composerAt(pinReader, pinned.commit);
+      const vendored = existsSync(layout.toolPath) ? readFileSync(layout.toolPath) : null;
+      if (!shipped) io.out(`  composer: ${pinned.ref} ships none to compare with`);
+      else if (!vendored) {
+        io.out(`  composer: none is vendored at ${layout.adaptersRel}/${TOOL_DIR}/${TOOL_FILE}; compose with --write`);
+        attention = true;
+      } else if (shipped.equals(vendored)) io.out(`  composer: the vendored one is the one ${pinned.ref} ships`);
+      else {
+        io.out(`  composer: the vendored one (sha256 ${short(sha256(vendored))}) is not the one ${pinned.ref} ships (sha256 ${short(sha256(shipped))}). ${takeComposer(pinned.ref)}`);
+        attention = true;
       }
       if (options.verify) {
         const reader = readerFor();
