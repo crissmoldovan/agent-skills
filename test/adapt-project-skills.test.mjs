@@ -953,6 +953,12 @@ test('a skill slot whose default this repository adapts is bound to the adapter,
   assert.equal(refused.status, EXIT_FAILED);
   assert.match(refused.stdout, /\[4\] B3 hands work to `helper`, which this repository adapts as `helper-here`; bind B3 to it/);
 
+  // Bound, but to another skill than the adapted copy: a typo, or a second answer to one question.
+  await addAdapter({ project, pack });
+  const elsewhere = compose(project, '--adapter', 'notes-here');
+  assert.equal(elsewhere.status, EXIT_FAILED, elsewhere.stdout);
+  assert.match(elsewhere.stdout, /\[4\] B3 hands work to `helper`, which this repository adapts as `helper-here`, and the overlay binds it to `ask-here`; bind B3 to the adapted copy/);
+
   await addAdapter({ project, pack, overlay: OVERLAY.replace('`ask-here`', '`helper-here`') });
   const accepted = compose(project, '--write');
   assert.equal(accepted.status, EXIT_OK, accepted.stdout);

@@ -985,8 +985,17 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   const adaptedHere = new Map();
   for (const other of others) if (other.name !== adapter.name) adaptedHere.set(other.skill, [...(adaptedHere.get(other.skill) ?? []), other.name]);
   for (const slot of declared.slots.values()) {
-    if (!slot.skill || !slot.defaultSkill || !adaptedHere.has(slot.defaultSkill) || names.has(slot.defaultSkill)) continue;
-    fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${adaptedHere.get(slot.defaultSkill).map((name) => `\`${name}\``).join(' and ')}; bind ${slot.id} to it, or the agent is sent to the generic copy`);
+    if (!slot.skill || !slot.defaultSkill || !adaptedHere.has(slot.defaultSkill)) continue;
+    const adapters = adaptedHere.get(slot.defaultSkill);
+    const listed = adapters.map((name) => `\`${name}\``).join(' and ');
+    const binding = bound.get(slot.id);
+    // Bound to another skill than the adapted copy is refused too: the project keeps an adapted
+    // copy of this skill for this work, so a different name is a typo or a second answer.
+    if (binding && binding.skill !== slot.defaultSkill) {
+      if (!adapters.includes(binding.skill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}, and the overlay binds it to \`${binding.skill}\`; bind ${slot.id} to the adapted copy`);
+      continue;
+    }
+    if (!names.has(slot.defaultSkill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}; bind ${slot.id} to it, or the agent is sent to the generic copy`);
   }
   if (identity.entry !== 'SKILL.md' && adaptedHere.has(identity.skill) && base.entryText.includes(`\`${identity.skill}\``) && !names.has(identity.skill)) {
     fail(4, `${identity.entry} sends the reader to \`${identity.skill}\`, which this repository adapts as ${adaptedHere.get(identity.skill).map((name) => `\`${name}\``).join(' and ')}; map it in adapter.json names`);
