@@ -121,7 +121,8 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
   such a heading indented one to three spaces, which Markdown still reads as a heading: an example
   that shows one indents the fence and its lines four spaces.
 - An addition's heading starts at the left margin, so an indented `###` heading whose first word
-  is an id is refused outside fenced code too.
+  is an id is refused outside fenced code too. A heading of any shape that opens with a hard line's
+  id is refused anywhere but the addition to that hard line, fenced or not (check 5).
 
 ## Commands
 
@@ -219,7 +220,7 @@ source that cannot be read).
 | 2 | the text between the markers has the sha256 recorded at compose time | an edit to the skill's own text |
 | 3 | composing again from the copy and the current adapter folder gives the same bytes | an overlay or `adapter.json` changed without composing; a pin moved in `adapter.json` but not composed |
 | 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapted copy, and to no other skill; `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy, or another skill than the adapted copy; two rows for one slot |
-| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, its heading included, or overlay line naming one, a heading included, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
+| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, its heading included, or overlay line naming one, a heading included, written in the words of an exception (`unless`, `except`, `does not apply` …). Outside the addition to a hard line, no heading opens with its id, in any shape Markdown gives a heading: a `#` heading at any level, in a quote or a list item, an underlined line, a line that is only bold, or an HTML heading, indented up to three columns, fenced or not. A heading that names a hard line further in, or is indented four columns or more, is listed for review, and refused when it or the paragraph under it is written in the words of an exception | an overlay that relaxes a hard line, or puts text under a heading for one that no check reads as an addition to it. No script can tell stricter from looser in prose, so every addition to a hard line, and every heading that names one, is also listed for review |
 | 6 | the adapted copy's name differs from the skill's | an adapter that takes its skill's name |
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |

@@ -167,6 +167,14 @@ an indented one outside fenced code is refused too.
    no binding, addition or replacement may widen one. No script can tell stricter from looser in
    prose, so review holds this rule: an overlay that adds to a hard line, or binds a slot a hard line
    names, is read against that hard line.
+
+   An overlay puts a hard line's id at the head of a heading only in the addition to it. Anywhere
+   else, a heading that opens with one is refused, in any shape Markdown gives a heading: a `#`
+   heading at any level, in a quote or a list item, an underlined line, a line that is only bold, or
+   an HTML heading, indented up to three columns, fenced or not. The copy would show the text under
+   it as text for that hard line, which no check reads as an addition to it. A heading that names a
+   hard line further in, or is indented four columns or more, is listed for review, and refused
+   when it or the paragraph under it is written in the words of an exception.
 5. **`replaces:` is explicit, and rare.** An addition whose first line starts with `replaces:`
    supersedes its step instead of extending it. It is refused on an `H` id, and on a slot, which is
    bound and never replaced. The line says why, and where the decision is recorded:
@@ -306,4 +314,5 @@ It does not check that the prose cites only declared ids, that a removed id's nu
 again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
 for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
 required slot unbound, writes `replaces:` on a hard line, adds to one in the words of an exception,
-in its heading or under it, or leaves a fence open past the addition or section it opens in.
+in its heading or under it, opens a heading with one outside the addition to it, or leaves a fence
+open past the addition or section it opens in.

@@ -689,7 +689,7 @@ export function parseOverlay(source) {
   plain.forEach((line, index) => {
     const indented = line.match(/^ {1,3}###[ \t]+(\S+)/);
     const id = indented?.[1].replace(/[.:,;]$/, '');
-    if (id && ID.test(id)) problems.push(`overlay line ${index + 1}: "### ${id}" is indented, and Markdown still reads it as a heading: the copy would show the lines after it as an addition to ${id}, which the checks read as part of what comes before; start it at the left margin to add to ${id}, or indent it four spaces or put it in fenced code to show it as an example`);
+    if (id && ID.test(id)) problems.push(`overlay line ${index + 1}: "### ${id}" is indented, and Markdown still reads it as a heading: the copy would show the lines after it as an addition to ${id}, which the checks read as part of what comes before; start it at the left margin to add to ${id}, or indent it four spaces to show it as an example`);
   });
   // Where each line sits, so a fence that does not close can be named by where it opened.
   const where = new Map();
@@ -760,12 +760,13 @@ export function parseOverlay(source) {
           open = null;
           continue;
         }
-        open = { id, heading: rows[index], line: index + 1, lines: [] };
+        open = { id, heading: rows[index], line: index + 1, last: index + 1, lines: [] };
         additions.push(open);
         continue;
       }
       if (open) {
         open.lines.push(rows[index]);
+        open.last = index + 1;
         where.set(index, `in the addition to ${open.id}`);
       } else if (rows[index].trim() !== '') problems.push(`overlay line ${index + 1}: text under ## Additions sits under a ### <id> heading`);
     }
@@ -800,6 +801,93 @@ export function parseOverlay(source) {
     additionsText: body('additions'),
     trapsText: body('project traps'),
   };
+}
+
+// What reads as a heading in an overlay, for check 5, read on every line, fenced or not: a fence
+// the composer reads as code may not be one, and a heading the check skipped would be checked by
+// nothing.
+const CONTAINER_MARKER = /^(?:>|[-+*](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))/;
+const ATX_HEADING = /^#{1,6}(?:[ \t]|$)/;
+const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t]*$/;
+const BOLD_ONLY = /^(?:(\*\*|__)(?=\S)(.*?\S)\1|<(b|strong)>(.*?)<\/\3>)[ \t]*[.:]?[ \t]*$/i;
+const HTML_HEADING = /<h([1-6])(?=[\s>/])[^<>\n]*>([\s\S]*?)(?:<\/h\1\s*>|$)/gi;
+
+/** A line without the quote and list markers it opens with, and the column the line starts at. */
+function inContainer(line) {
+  const indent = column(line.match(/^[ \t]*/)[0]);
+  let rest = line.replace(/^[ \t]*/, '');
+  for (let marker = rest.match(CONTAINER_MARKER); marker; marker = rest.match(CONTAINER_MARKER)) rest = rest.slice(marker[0].length).replace(/^[ \t]*/, '');
+  return { indent, rest };
+}
+
+/** The first word of a heading's text, without the emphasis or punctuation around it. */
+function firstWord(text) {
+  return (text.trim().split(/\s+/)[0] ?? '').replace(/^[*_`([<]+/, '').replace(/[*_`)\]>.:,;!?]+$/, '');
+}
+
+/**
+ * Every line of a text that reads as a heading, in any shape Markdown gives one: a `#` heading at any
+ * level, after any quote or list markers; a paragraph underlined with `=` or `-`; a line that is
+ * only bold; and an HTML `<h1>` to `<h6>`, over as many lines as it takes. Each gives its first line
+ * and its last (1-based), the line as written, its text, the words it could open with (for an
+ * underlined paragraph, the first word of each of its lines, since which of them start it depends on
+ * what comes before), the paragraph under it, and whether it is plainly a heading: indented four
+ * columns or more, or underlined from four columns in, it may be code or text instead. Each line is
+ * read once, so a text is read in O(n).
+ */
+export function headingsIn(text) {
+  const lines = text.split('\n');
+  const found = new Map();
+  const add = (first, last, words, leads, plain) => {
+    const known = found.get(first);
+    if (known) {
+      known.plain ||= plain;
+      known.leads.push(...leads);
+    } else found.set(first, { line: first + 1, last: last + 1, shown: lines[first].trim(), text: words, leads, plain });
+  };
+  let paragraph = -1;
+  lines.forEach((line, index) => {
+    const { indent, rest } = inContainer(line);
+    if (rest === '') {
+      paragraph = -1;
+      return;
+    }
+    if (ATX_HEADING.test(rest)) {
+      const words = rest.replace(/^#+/, '').replace(/[ \t]#+[ \t]*$/, '');
+      add(index, index, words, [firstWord(words)], indent <= 3);
+      paragraph = -1;
+      return;
+    }
+    if (paragraph !== -1 && SETEXT_UNDERLINE.test(rest)) {
+      const above = lines.slice(paragraph, index).map((row) => inContainer(row).rest);
+      add(paragraph, index, above.join('\n'), above.map(firstWord), indent <= 3);
+      paragraph = -1;
+      return;
+    }
+    const bold = rest.match(BOLD_ONLY);
+    if (bold) add(index, index, bold[2] ?? bold[4], [firstWord(bold[2] ?? bold[4])], indent <= 3);
+    if (paragraph === -1) paragraph = index;
+  });
+  let line = 0;
+  let at = 0;
+  for (const match of text.matchAll(HTML_HEADING)) {
+    for (; at < match.index; at += 1) if (text[at] === '\n') line += 1;
+    const first = line;
+    let last = line;
+    for (let end = at; end < match.index + match[0].length; end += 1) if (text[end] === '\n') last += 1;
+    const words = match[2].replace(/<[^>]*>/g, ' ');
+    add(first, Math.max(first, last - (match[0].endsWith('\n') ? 1 : 0)), words, [firstWord(words)], inContainer(lines[first]).indent <= 3);
+  }
+  // The paragraph under a heading ends at a blank line or at the next heading, so each line is
+  // read for one heading at most.
+  const headings = [...found.values()].sort((a, b) => a.line - b.line);
+  return headings.map((heading, index) => {
+    const stop = index + 1 < headings.length ? headings[index + 1].line - 1 : lines.length;
+    let next = heading.last;
+    while (next < stop && inContainer(lines[next]).rest === '') next += 1;
+    while (next < stop && inContainer(lines[next]).rest !== '') next += 1;
+    return { ...heading, block: lines.slice(heading.line - 1, next).join('\n') };
+  });
 }
 
 function trimBlank(text) {
@@ -1185,16 +1273,33 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
     }
   }
   const hardLines = [...declared.lines.values()].filter((line) => line.kind === 'H');
+  const inAdditionTo = (id, line) => overlay.additions.some((addition) => addition.id === id && line >= addition.line && line <= addition.last);
   // Every line, headings included; a line of an addition to that hard line, its heading included,
   // is the addition's to answer for, above.
   overlay.text.split('\n').forEach((line, index) => {
     for (const hard of hardLines) {
       if (!new RegExp(`\\b${hard.id}\\b`).test(line)) continue;
-      const inAddition = overlay.additions.some((addition) => addition.id === hard.id && (addition.line === index + 1 || addition.text.includes(line)));
       const word = line.match(RELAXING);
-      if (word && !inAddition) fail(5, `overlay line ${index + 1} names ${hard.id} and reads as relaxing it ("${word[0]}"); a hard line is only made stricter`);
+      if (word && !inAdditionTo(hard.id, index + 1)) fail(5, `overlay line ${index + 1} names ${hard.id} and reads as relaxing it ("${word[0]}"); a hard line is only made stricter`);
     }
   });
+  // A heading says what the lines under it are about, so outside the addition to a hard line, a
+  // heading whose first word is its id would show text for that hard line that no check reads as an
+  // addition to it. It is refused in every shape and indented up to three columns, fenced or not. A
+  // heading that names one further in, or indented four columns, which may be code, is listed for
+  // review, and read with the paragraph under it for the words of an exception.
+  for (const heading of headingsIn(overlay.text)) {
+    for (const hard of hardLines) {
+      if (!new RegExp(`\\b${hard.id}\\b`).test(heading.text) || inAdditionTo(hard.id, heading.line)) continue;
+      if (heading.plain && heading.leads.includes(hard.id)) {
+        fail(5, `overlay line ${heading.line}: "${heading.shown}" reads as a heading for ${hard.id} outside the addition to ${hard.id}; the copy would show the lines under it as text for that hard line that no check reads as an addition to it. Add to ${hard.id} under ## Additions as ### ${hard.id}, or name it inside a sentence`);
+        continue;
+      }
+      notes.push(`For review against ${hard.id}: overlay line ${heading.line} names it in a heading.`);
+      const word = heading.block.match(RELAXING);
+      if (word) fail(5, `overlay line ${heading.line} names ${hard.id} in a heading, and it or the paragraph under it reads as relaxing it ("${word[0]}"); a hard line is only made stricter`);
+    }
+  }
   for (const hard of hardLines) {
     for (const id of bound.keys()) if (new RegExp(`\\b${id}\\b`).test(hard.text)) notes.push(`For review against ${hard.id}: it names ${id}, which the overlay binds.`);
   }

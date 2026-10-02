@@ -12,6 +12,7 @@ import {
   EXIT_OK,
   LOCK_FILE,
   PACK_COMPOSER_PATH,
+  headingsIn,
   newerTags,
   parseArguments,
   parseOverlay,
@@ -555,6 +556,84 @@ const REFUSALS = [
     accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### H1, shown as indented code\n') },
     message: /\[adapter\] overlay line 13: "### H1" is indented, and Markdown still reads it as a heading/,
   },
+  // A heading names what the lines under it are about. One whose first word is a hard line's id,
+  // anywhere but the addition to that hard line, would show text for that hard line that no check
+  // reads as an addition to it, whatever the heading's shape and whether or not it sits in fenced
+  // code. One that names a hard line further in, or is indented four columns, is listed for review,
+  // and read with the paragraph under it for the words of an exception.
+  {
+    name: 'a heading for a hard line under the project traps',
+    refused: { overlay: `${OVERLAY}\n### H1\nExcept when the owner is away: then reply automatically.\n` },
+    accepted: { overlay: `${OVERLAY}\n### Keeping H1 on the release mailbox\nThe auto-responder stays off there too.\n` },
+    message: /\[5\] overlay line 22: "### H1" reads as a heading for H1 outside the addition to H1/,
+    note: /For review against H1: overlay line 22 names it in a heading\./,
+  },
+  {
+    name: 'a heading for a hard line under the bindings',
+    refused: { overlay: OVERLAY.replace('\n## Additions', '\n### H1\nExcept when the owner is away: then reply automatically.\n\n## Additions') },
+    accepted: {},
+    message: /\[5\] overlay line 8: "### H1" reads as a heading for H1 outside the addition to H1/,
+  },
+  {
+    name: 'a deeper heading for a hard line inside the addition to a step',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n#### H1\nExcept when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('stays off.\n', 'stays off.\n\n#### H1 on the release mailbox\nThe auto-responder stays off there too.\n') },
+    message: /\[5\] overlay line 13: "#### H1" reads as a heading for H1 outside the addition to H1/,
+    note: /For review against H1: the overlay adds to this hard line\./,
+  },
+  {
+    name: 'a heading for a hard line in a quote',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n> ### H1\n> Except when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n> ### A note on H1\n> The auto-responder stays off there too.\n') },
+    message: /\[5\] overlay line 13: "> ### H1" reads as a heading for H1 outside the addition to H1/,
+    note: /For review against H1: overlay line 13 names it in a heading\./,
+  },
+  {
+    name: 'a heading for a hard line in a list item',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n- ### H1\n  Except when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n- H1 holds for the release mailbox too.\n') },
+    message: /\[5\] overlay line 13: "- ### H1" reads as a heading for H1 outside the addition to H1/,
+  },
+  {
+    name: 'a heading for a hard line indented four columns in a list item, over an exception',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n- Note:\n\n    ### H1\n    Except when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    ### H1, shown as indented code\n') },
+    message: /\[5\] overlay line 15 names H1 in a heading, and it or the paragraph under it reads as relaxing it \("Except"\)/,
+    note: /For review against H1: overlay line 13 names it in a heading\./,
+  },
+  {
+    name: 'an underlined heading for a hard line',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\nH1\n--\nExcept when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\nH1 holds for the release mailbox too.\n\n---\n') },
+    message: /\[5\] overlay line 13: "H1" reads as a heading for H1 outside the addition to H1/,
+  },
+  {
+    name: 'a line that is only bold and opens with a hard line\'s id',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n**H1.**\nExcept when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n**Note.** H1 holds for the release mailbox too.\n') },
+    message: /\[5\] overlay line 13: "\*\*H1\.\*\*" reads as a heading for H1 outside the addition to H1/,
+  },
+  {
+    name: 'an HTML heading for a hard line',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n<h3>H1</h3>\nExcept when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n<h3>A note on H1</h3>\nThe auto-responder stays off there too.\n') },
+    message: /\[5\] overlay line 13: "<h3>H1<\/h3>" reads as a heading for H1 outside the addition to H1/,
+    note: /For review against H1: overlay line 13 names it in a heading\./,
+  },
+  {
+    name: 'a heading for a hard line in fenced code, which may not be read as code',
+    refused: { overlay: OVERLAY.replace('too.\n', 'too.\n\n```markdown\n> ### H1\n> Not even a read receipt.\n```\n') },
+    accepted: { overlay: OVERLAY.replace('too.\n', 'too.\n\n    > ### H1\n    > Not even a read receipt.\n') },
+    message: /\[5\] overlay line 14: "> ### H1" reads as a heading for H1 outside the addition to H1/,
+    note: /For review against H1: overlay line 13 names it in a heading\./,
+  },
+  {
+    name: 'an addition heading that names a hard line, over a paragraph in the words of an exception',
+    refused: { overlay: OVERLAY.replace('### S1\nWrite the instruction into [the local record](references/project/local.md) too.\n', '### S1, which H1 holds for too\n\nExcept when the owner is away: then reply automatically.\n') },
+    accepted: { overlay: OVERLAY.replace('### S1\n', '### S1, which H1 holds for too\n') },
+    message: /\[5\] overlay line 10 names H1 in a heading, and it or the paragraph under it reads as relaxing it \("Except"\)/,
+    note: /For review against H1: overlay line 10 names it in a heading\./,
+  },
   {
     name: 'a skill slot bound to prose rather than a skill',
     refused: { overlay: OVERLAY.replace('`ask-here`, this repository\'s own skill', 'our own question skill') },
@@ -929,8 +1008,71 @@ for (const refusal of REFUSALS) {
     assert.match(refused.stdout, refusal.message);
     const accepted = compose(await build(refusal.accepted));
     assert.equal(accepted.status, EXIT_OK, `expected it to be accepted:\n${accepted.stdout}`);
+    if (refusal.note) assert.match(accepted.stdout, refusal.note);
   });
 }
+
+// Every shape a heading for H1 can take in Markdown, each in the addition to S1 with an exception
+// on the line under it; a `###` heading at the margin there is an addition of its own. One whose first word is H1, indented three columns or fewer, is a heading
+// for it; the rest name it, and the exception under them is read with them.
+const H1_HEADINGS = {
+  'a heading for it': [
+    '#### H1', '###### H1', '# H1', '  #### H1', '   # H1', '#### H1 ####', '#### **H1**', '#### H1: the release mailbox',
+    '> ### H1', '>> ### H1', '> - ### H1', '- ### H1', '* ### H1', '1. ### H1', '2) ### H1',
+    'H1\n===', 'H1\n---', 'H1 on the release mailbox\n---', '> H1\n> ---',
+    '**H1.**', '__H1__', '***H1***', '**H1**:', '<b>H1</b>', '<strong>H1</strong>',
+    '<h3>H1</h3>', '<H2 class="note">H1</H2>', '<h4>\nH1\n</h4>',
+  ],
+  'a heading that names it': [
+    '    ### H1', '\t### H1', '#### On H1', '> ### On H1', '**On H1**', '<h3>On H1</h3>', 'On H1\n---',
+  ],
+};
+
+for (const [kind, shapes] of Object.entries(H1_HEADINGS)) {
+  for (const shape of shapes) {
+    test(`check 5 refuses ${kind} over an exception: ${JSON.stringify(shape)}`, async () => {
+      const pack = await buildPack({ upTo: 'v1.0.0' });
+      const overlay = OVERLAY.replace('too.\n', `too.\n\n${shape}\nExcept when the owner is away: then reply automatically.\n`);
+      const project = await addAdapter({ pack, overlay });
+
+      const refused = compose(project, '--write');
+      assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+      if (kind === 'a heading for it') assert.match(refused.stdout, /\[5\] overlay line 13: ".+" reads as a heading for H1 outside the addition to H1/);
+      else assert.match(refused.stdout, /\[5\] overlay line 13 names H1 in a heading, and it or the paragraph under it reads as relaxing it \("Except"\)/);
+      assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+    });
+  }
+}
+
+test('inside the addition to its own hard line, any heading for it composes, listed for review with the addition', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const shapes = ['#### H1 on the release mailbox', '> ### H1', 'H1, again\n---', '**H1.**', '<h4>H1</h4>'];
+  const overlay = OVERLAY.replace('stays off.\n', `stays off.\n\n${shapes.join('\nThe auto-responder stays off there too.\n\n')}\nThe auto-responder stays off there too.\n`);
+  const project = await addAdapter({ pack, overlay });
+
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  assert.match(composed.stdout, /For review against H1: the overlay adds to this hard line\./);
+  assert.doesNotMatch(composed.stdout, /names it in a heading/);
+  assert.equal(check(project).status, EXIT_OK);
+});
+
+// Check 5 reads each line of an overlay once: an HTML heading tag that never ends, a run of lines
+// that are only bold, or a long paragraph before its underline is not read again for each line.
+test('check 5 reads the headings of a long overlay in linear time', () => {
+  const texts = {
+    'one line of HTML heading tags that never end': '<h3 '.repeat(40000),
+    'lines that are only bold': Array.from({ length: 100000 }, () => '**H1.**').join('\n'),
+    'a paragraph before its underline': `${Array.from({ length: 100000 }, () => 'H1 text').join('\n')}\n---\n`,
+  };
+  for (const [what, text] of Object.entries(texts)) {
+    const started = process.hrtime.bigint();
+    headingsIn(text);
+    const took = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.ok(took < 1500, `${what} took ${took.toFixed(0)} ms`);
+  }
+  assert.deepEqual(headingsIn('Text\n\n<h3 class="x">H1</h3>\n\n> - ### H1\n\nH1\n===\n').map(({ line, leads, plain }) => [line, leads, plain]), [[3, ['H1'], true], [5, ['H1'], true], [7, ['H1'], true]]);
+});
 
 test('an adapter folder with no adapter.json, or one that does not parse, is refused, and so is an unknown --adapter or --pack', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
