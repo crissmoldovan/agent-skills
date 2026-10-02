@@ -1109,11 +1109,15 @@ test('a reference file as the entry: a link inside fenced code is carried as wri
   assert.equal(checked.status, EXIT_OK, checked.stdout);
 });
 
-// Check 10 errs toward refusing. A fence that never closes is not a fence to the link scan: the
-// fence reader does not know where a list item ends, as CommonMark does, so a fence left open in
-// one would otherwise hide every link after it, and a link the scan skips is checked by nothing.
-// Declarations keep the verifier's reading, in which such a fence runs to the end.
+// Check 10 errs toward refusing. A fence closes at the next bare line of at least as many of its
+// character. One indented, as in a list item, also ends at the first line that is not blank and is
+// indented less than it, a closing line included, which is where CommonMark ends the item; so a
+// fence left open in a list item cannot pair with a closing line further down. A fence that ends
+// that way, or never closes, is not a fence to the link scan, because a link the scan skips is
+// checked by nothing. Declarations keep the verifier's reading, in which a fence pairs with the next
+// closing line at any indent, and one that never closes runs to the end.
 const OPEN_FENCE_ADDITION = '### S1\n1. Run it:\n\n   ```bash\n   run-it\n\n2. Then read [the record](references/project/missing.md).\n';
+const H1_FENCED = '### H1\nNot even an automatic reply:\n\n```bash\nresponder off\n```\n';
 
 test('a fence left open does not hide the links after it: an overlay whose list item leaves one open is refused at [10]', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
@@ -1127,11 +1131,47 @@ test('a fence left open does not hide the links after it: an overlay whose list 
   assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
 });
 
+test('a fence left open in a list item ends with the item: it cannot pair with the closing line of a fence in a later addition and hide the links between, so the overlay is refused at [10]', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const overlay = OVERLAY
+    .replace('### S1\nWrite the instruction into [the local record](references/project/local.md) too.\n', OPEN_FENCE_ADDITION)
+    .replace('### H1\nNot even an automatic reply: the auto-responder stays off.\n', H1_FENCED);
+  assert.ok(overlay.includes(OPEN_FENCE_ADDITION) && overlay.includes(H1_FENCED));
+  const project = await addAdapter({ pack, overlay });
+
+  const refused = compose(project, '--write');
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[10\] SKILL\.md links to references\/project\/missing\.md, which does not resolve/);
+  assert.equal(existsSync(path.join(project, generated(project, 'SKILL.md'))), false);
+});
+
 test('link rewriting reads past a fence that never closes, as check 10 does, and a fence after it that closes is still an example', () => {
   const text = '1. Run it:\n\n   ```bash\n   run-it\n\n2. Then read [the guide](guide.md).\n\n~~~markdown\nBack to [the steps](../SKILL.md).\n~~~\n';
   const moved = rewriteEntryLinks(text, 'references/part.md');
   assert.deepEqual(moved.problems, []);
   assert.equal(moved.text, text.replace('[the guide](guide.md)', '[the guide](references/guide.md)'));
+});
+
+test('link rewriting ends an indented fence at the first line indented less than it, so a closing line further down cannot hide the links between', () => {
+  const later = '1. Run it:\n\n   ```bash\n   run-it\n\n2. Then read [the guide](guide.md).\n\nNot even an automatic reply:\n\n```bash\nresponder off\n```\n';
+  const moved = rewriteEntryLinks(later, 'references/part.md');
+  assert.deepEqual(moved.problems, []);
+  assert.equal(moved.text, later.replace('[the guide](guide.md)', '[the guide](references/guide.md)'));
+  // A closing line indented less than its fence ends it the same way: the fence is read as text,
+  // which errs toward reading a link, and that closing line opens a fence of its own.
+  const shallow = '- Run it:\n\n  ```bash\n  run-it, then read [the guide](guide.md)\n```\n[the steps](steps.md)\n```\n';
+  assert.equal(rewriteEntryLinks(shallow, 'references/part.md').text, shallow.replace('[the guide](guide.md)', '[the guide](references/guide.md)'));
+});
+
+// The link scan reads each fence once: a text of openers that never close is read in linear time,
+// where reading each one to the end of the text took seconds.
+test('link rewriting reads a text of many fences that never close in linear time', () => {
+  const text = Array.from({ length: 40000 }, () => '```x').join('\n');
+  const started = process.hrtime.bigint();
+  const moved = rewriteEntryLinks(text, 'references/part.md');
+  const took = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.equal(moved.text, text);
+  assert.ok(took < 2000, `40000 unclosed fences took ${took.toFixed(0)} ms`);
 });
 
 // Only fenced code is an example. An inline code span is read like any other text, as the pack's

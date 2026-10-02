@@ -420,30 +420,53 @@ function widenTools(baseTools, widen) {
 // ---------------------------------------------------------------------------------------------
 // what a skill declares
 
+const FENCE_OPEN = /^(\s*)(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/;
+
+/** For each line index, the first index at or after it whose line passes `test`, else the line count. */
+function nextPassing(lines, test) {
+  const next = new Int32Array(lines.length + 1).fill(lines.length);
+  for (let index = lines.length - 1; index >= 0; index -= 1) next[index] = test(lines[index]) ? index : next[index + 1];
+  return next;
+}
+
 /**
- * For each line, whether it sits in a fenced block, its fences included; a fence at any indent.
- * A fence closes at the next bare line of at least as many of its character. One that never
- * closes runs to the end of the text, as the pack's verifier reads declarations, unless
- * `unclosed` is 'text': then its opening line opens nothing and is read as text, like the lines
- * after it, which are read again from the next line.
+ * For each line, whether it sits in a fenced block, its fences included. A fence opens at a line
+ * that starts, at any indent, with three or more backticks or tildes, and closes at the next bare
+ * line of at least as many of the same character. One that never closes runs to the end of the
+ * text, as the pack's verifier reads declarations, unless `unclosed` is 'text'. Then an indented
+ * fence, as in a list item, also ends at the first line that is not blank and is indented less than
+ * it, a closing line included, which is where CommonMark ends the item; and a fence that ends that
+ * way, or never closes, opens nothing: its opening line is read as text, like the lines after it,
+ * which are read again from the next line. The next closing line and the next shallower line are
+ * looked up in tables read once from the end, so the text is read in linear time.
  */
 function fencedLines(text, { unclosed = 'to the end' } = {}) {
   const lines = text.split('\n');
   const fenced = lines.map(() => false);
+  const tables = new Map();
+  const next = (key, test) => {
+    if (!tables.has(key)) tables.set(key, nextPassing(lines, test));
+    return tables.get(key);
+  };
   for (let at = 0; at < lines.length;) {
-    const open = lines[at].match(/^\s*(`{3,}|~{3,})/);
+    const open = lines[at].match(FENCE_OPEN);
     if (!open) {
       at += 1;
       continue;
     }
-    let end = at + 1;
-    for (; end < lines.length; end += 1) {
-      const close = lines[end].match(/^\s*(`{3,}|~{3,})\s*$/);
-      if (close && close[1][0] === open[1][0] && close[1].length >= open[1].length) break;
-    }
-    if (end === lines.length && unclosed === 'text') {
-      at += 1;
-      continue;
+    const [, indent, fence] = open;
+    const closes = (line) => {
+      const close = line.match(FENCE_CLOSE);
+      return Boolean(close) && close[1][0] === fence[0] && close[1].length >= fence.length;
+    };
+    const end = next(`close ${fence}`, closes)[at + 1];
+    if (unclosed === 'text') {
+      const shallower = indent.length === 0 ? lines.length : next(`under ${indent.length}`, (line) => /\S/.test(line) && line.match(/^\s*/)[0].length < indent.length)[at + 1];
+      if (shallower <= end) {
+        at += 1;
+        continue;
+      }
     }
     fenced.fill(true, at, end + 1);
     at = end + 1;
@@ -460,11 +483,13 @@ function unfencedLines(text) {
 /**
  * The text as runs of whole lines, each wholly inside fenced code or wholly outside it; joining
  * every run's text with a newline gives the text back. These runs are what the link scan and the
- * link rewriter read, and they err toward reading a link: a fence that never closes is not one
- * here, because this reader does not know where a list item or a blockquote ends, as CommonMark
- * does, so one left open would hide every link after it, and a link this scan skips is checked by
- * nothing. Declarations keep the verifier's reading, in which such a fence runs to the end, so the
- * composer still sees exactly the ids the verifier saw.
+ * link rewriter read, and they err toward reading a link, because a link this scan skips is checked
+ * by nothing: an indented fence ends at the first line indented less than it, so one left open in a
+ * list item cannot pair with a closing line further down, and a fence that ends that way or never
+ * closes is not one here. A fence at the left margin left open by mistake still pairs with the next
+ * closing line, as CommonMark pairs it, and the lines between are read as an example. Declarations
+ * keep the verifier's reading, in which a fence pairs with the next closing line at any indent and
+ * one that never closes runs to the end, so the composer still sees exactly the ids the verifier saw.
  */
 function fenceRuns(text) {
   const fenced = fencedLines(text, { unclosed: 'text' });
@@ -652,9 +677,8 @@ function splitTarget(target) {
 
 /**
  * Every relative link target in a Markdown text: inline links, images and link definitions,
- * outside fenced code. Fenced code is an example, paired as the pack's verifier pairs it for
- * declarations: a line shown there links from wherever a reader is to put it, not from here. A
- * fence that never closes is not one here, so it cannot hide the links after it (fenceRuns).
+ * outside fenced code. Fenced code is an example: a line shown there links from wherever a reader
+ * is to put it, not from here. Fences are read as fenceRuns reads them, erring toward reading a link.
  */
 export function relativeLinks(text) {
   const found = [];

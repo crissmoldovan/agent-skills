@@ -207,11 +207,15 @@ the adapted `SKILL.md`, the copy carries:
 
 Every relative link in the adapted copy resolves, and a copy in which one does not is refused. A
 link inside fenced code is an example, written for wherever a reader is to put it, so it is not
-checked. A link in an inline code span, in code indented four spaces rather than fenced, or in a
-fence inside a blockquote is checked. A fence that never closes is not read as one, so the links
-after it are checked: one left open by mistake would otherwise hide every link after it. Composing
-joins texts at fixed points and asks no model to merge them, so the result can be compared byte for
-byte, and composing again catches a hand edit or a stale copy.
+checked. A fence closes at the next bare line of at least as many of its character, backticks or
+tildes; an indented one, as in a list item, also ends at the first line indented less than it that
+is not blank, a closing line included, because that is where the item ends. A fence that ends that
+way or never closes is not read as one, so the links after it are checked. A link in an inline code
+span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.
+Not checked: the links after a fence at the left margin left open by mistake, up to the next bare
+line that closes it, as CommonMark closes it too. Composing joins texts at fixed points and asks no
+model to merge them, so the result can be compared byte for byte, and composing again catches a
+hand edit or a stale copy.
 
 ### When the entry is a reference file
 

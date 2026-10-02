@@ -213,6 +213,16 @@ test('update-agent-skills maintains communication and every local plane', () => 
 // skill and its guide keep saying how a copy is composed, checked and moved, that `skills update`
 // never moves one, and that the guide stays free of a machine path, a real address or a real zone.
 // Names have no shape a public test can hold; scripts/scan-denylist.mjs reads for those.
+// Check 10 as both the guide and docs/project-adaptation.md state it: how a fence is paired, what
+// the link check still reads, and what it does not.
+const CHECK_10_WORDS = [
+  'A fence closes at the next bare line of at least as many of its character, backticks or tildes',
+  'an indented one, as in a list item, also ends at the first line indented less than it that is not blank, a closing line included',
+  'A fence that ends that way or never closes is not read as one, so the links after it are checked.',
+  'A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.',
+  'Not checked: the links after a fence at the left margin left open by mistake, up to the next bare line that closes it',
+];
+
 test('update-agent-skills composes, checks and lists adapted copies, and keeps them out of skills update', async () => {
   const adapting = await read('skills/update-agent-skills/references/adapting.md');
   const adaptation = await read('docs/project-adaptation.md');
@@ -236,10 +246,10 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   // The guide names all ten checks, and the two identities a pin is refused for.
   const checks = section(adapting, 'The checks');
   for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
-  // Check 10 leaves out only fenced code that closes; the guide says what it still reads.
+  // Check 10 leaves out only fenced code that closes; the guide says how a fence is paired, what
+  // it still reads, and what it does not.
   const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
-  assert.match(linkCheck, /A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked/);
-  assert.match(linkCheck, /a fence that never closes is not read as one, so the links after it are checked/);
+  for (const words of CHECK_10_WORDS) assert.ok(linkCheck.includes(words), `check 10 in the guide does not say: ${words}`);
   assert.match(adapting, /warn and name each such link outside\s+fenced code/);
   assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
   assert.match(adapting, /never edited by hand/);
@@ -539,8 +549,8 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.match(copy, /### When the entry is a reference file/);
   assert.match(copy, /relative link in it outside fenced code is rewritten for its new place; a link inside fenced code\s+is an example, carried as written/);
   assert.match(copy, /A\s+link inside fenced code is an example, written for wherever a reader is to put it, so it is not\s+checked\./);
-  // What check 10 still reads, wherever the page wraps it.
-  for (const words of ['A link in an inline code span, in code indented four spaces rather than fenced, or in a fence inside a blockquote is checked.', 'A fence that never closes is not read as one, so the links after it are checked']) {
+  // How check 10 pairs a fence, what it still reads and what it does not, wherever the page wraps it.
+  for (const words of CHECK_10_WORDS) {
     assert.match(copy, new RegExp(words.replace(/[.]/g, '\\.').replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
   }
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
