@@ -619,7 +619,7 @@ test('a general-fit skill the repository has adapted is not offered for install'
   assert.match(await routing(repo), /→ `ask-the-owner`, this repository's adapted copy of `request-answers`$/m);
 });
 
-test('a skill asked for only by name is listed and routed when the repository has adapted it, and kept with a note when its copy goes', async () => {
+test('a skill asked for only by name is listed and routed when the repository has adapted it, and leaves with its copy', async () => {
   const repo = await repository('onboard-adapted-request-only');
   const home = await scratch('onboard-adapted-request-only-home');
   // Control: a skill that is asked for only by name is never in the plan on its own.
@@ -635,9 +635,46 @@ test('a skill asked for only by name is listed and routed when the repository ha
   assert.match(await routing(repo), /→ `pass-the-work-on`, this repository's adapted copy of `handoff-prompt`$/m);
 
   await rm(path.join(repo, '.claude', 'skills', 'pass-the-work-on'), { recursive: true, force: true });
+  // Until a refresh, the check names the copy that went; nothing else would, since a skill listed
+  // only for its copy is never required.
+  await installRequired(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')));
+  assert.match((await run(['check', '--repo', repo], { home })).stdout, /the adapted copy pass-the-work-on has changed/);
   const after = (await planJson(repo, home)).rows.find((entry) => entry.name === 'handoff-prompt');
   assert.equal(after.kind, '-');
-  assert.match(after.note, /its adapted copy is gone — kept; pass --drop handoff-prompt/);
+  assert.match(after.note, /its adapted copy is gone, and the copy was why it was listed — removed/);
+  // The refresh takes it out of the profile and the routing: kept, it would send every session to
+  // the generic skill, which this repository never installed.
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  const profile = JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8'));
+  assert.equal(profile.skills['handoff-prompt'], undefined, 'a skill listed only for its copy outlived the copy');
+  assert.doesNotMatch(await routing(repo), /handoff-prompt|pass-the-work-on/);
+  assert.equal((await run(['check', '--repo', repo], { home })).stdout, '');
+  assert.equal((await planJson(repo, home)).rows.some((entry) => entry.name === 'handoff-prompt'), false);
+});
+
+test('a copy is part of a skill\'s own evidence: composing one lifts a decline, and a decline of an adapted skill holds until its copies change', async () => {
+  const repo = await repository('onboard-adapted-declined');
+  const home = await scratch('onboard-adapted-declined-home');
+  await writeFile(path.join(repo, 'CHANGELOG.md'), '# Changelog\n');
+  await run(['apply', '--repo', repo, '--yes', '--decline', 'release-notes'], { home });
+  // Control: the decline holds while nothing about the skill changes.
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, 'declined');
+
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  const lifted = (await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes');
+  assert.equal(lifted.kind, '=', 'a decline outlived the copy composed after it');
+  assert.match(lifted.note, /adapted here as cut-a-release/);
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.match(await routing(repo), /→ `cut-a-release`, this repository's adapted copy of `release-notes`$/m);
+
+  await run(['apply', '--repo', repo, '--yes', '--decline', 'release-notes'], { home });
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, 'declined');
+  assert.doesNotMatch(await routing(repo), /cut-a-release/);
+  // A re-pin is not new evidence; a second copy is.
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes', { ref: 'v1.5.0', tree: 'c'.repeat(40) });
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, 'declined');
+  await adaptedCopy(repo, 'ship-a-pack', 'release-notes', { entry: 'references/release-pack.md' });
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, '=');
 });
 
 test('the check names an adapted copy that was re-pinned, added or removed, and a refresh quiets it', async () => {

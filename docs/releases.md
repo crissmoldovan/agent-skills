@@ -204,16 +204,19 @@ the plan gives it a `=` row naming the copy and no install command, and lists it
 the scan alone would not have matched it. Its routing line names the copy, or both copies when two
 adapt one skill, so a session is sent to the project's text by name rather than by a description a
 long skill listing may drop. The check counts a copy on disk as its skill, and says one line when a
-copy was added, removed or re-pinned since the profile was written. A lock it cannot read stands in
-for nothing and is named in the plan. A copy of a skill the catalogue does not carry is recorded and
-not routed.
+copy was added, removed or re-pinned since the profile was written. A lock it cannot read, a folder
+that is not a skill name, and a second folder of one name whose lock says something else stand in
+for nothing and are named in the plan. A copy of a skill the catalogue does not carry is recorded
+and not routed. A skill listed only for its copy leaves the profile and the routing with its last
+copy, in a row that says so, rather than send sessions to a skill the repository never installed.
+A copy counts in a decline's evidence: composing a copy of a declined skill lifts the decline.
 
 **Who should update.** Anyone whose repository holds an adapted copy of a pack skill. A routing file
 written by 1.0.1 renders byte for byte the same under 1.1.0 until the repository holds a copy, so
 nothing reads as drift on upgrade. A profile written by 1.0.1 has no `adapted` map; in a repository
 that already holds copies, the armed check names them at every session start until a refresh
-records them and routes to them. Moving a copy's pin is reported the same way, so refresh in the
-change that moves it.
+records them and routes to them. Composing, removing or re-pinning a copy is reported the same way,
+so refresh in the change that does it.
 
 ## Release checklist
 

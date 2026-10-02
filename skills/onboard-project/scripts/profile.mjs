@@ -237,8 +237,12 @@ export function fingerprintOf(trueSignalsBySkill) {
  * written into a profile and a routing file.
  */
 function adaptedLockProblem(lock, folder) {
+  // The routing file and the profile name the copy by its folder, and a folder that is not a skill
+  // name would be counted here and then dropped when the profile is recorded: present to the plan
+  // and the check, and reported as changed at every session start after.
+  if (!SKILL_NAME.test(folder)) return 'the folder name is not a skill name (lowercase letters, digits and single hyphens)';
   if (!lock) return `${ADAPTED_LOCK_FILE} does not read as a JSON object`;
-  if (lock.version !== 1) return `${ADAPTED_LOCK_FILE} is not a version this skill reads`;
+  if (lock.version !== 1) return `${ADAPTED_LOCK_FILE} has version ${JSON.stringify(lock.version ?? null)}, which this skill does not read: if a newer composer wrote it, update onboard-project`;
   if (lock.name !== undefined && lock.name !== folder) return `${ADAPTED_LOCK_FILE} names ${JSON.stringify(lock.name)}, not its own folder`;
   const base = lock.base;
   if (!base || typeof base !== 'object' || Array.isArray(base)) return `${ADAPTED_LOCK_FILE} names no skill it adapts`;
@@ -258,15 +262,17 @@ function adaptedLockProblem(lock, folder) {
  * adapts (its `entry`), and the pin: the ref and the skill folder's git tree. Only the repository's
  * own directories are read, because an adapted copy is the project's and is committed with it.
  *
- * A lock that cannot be read is named in `unreadable` and stands in for nothing: a folder that
- * merely looks adapted must never silence the report of a skill that is missing. It reads a few
- * small files and no history, so the session-start check can afford it.
+ * A copy that stands in for nothing is named in `ignored`, with why: a lock that cannot be read,
+ * because a folder that merely looks adapted must never silence the report of a skill that is
+ * missing; or a second folder of one name whose lock says something else, because a session loads
+ * only one of the two. It reads a few small files and no history, so the session-start check can
+ * afford it.
  */
 export function adaptedCopies(repoRoot) {
   const root = resolve(repoRoot);
   const byBase = new Map();
-  const unreadable = [];
-  const named = new Set();
+  const ignored = [];
+  const named = new Map();
   for (const directory of PROJECT_SKILL_DIRECTORIES) {
     let entries;
     try {
@@ -281,20 +287,26 @@ export function adaptedCopies(repoRoot) {
       const lock = readJson(lockPath);
       const problem = adaptedLockProblem(lock, entry.name);
       if (problem) {
-        unreadable.push(`${where}: ${problem}`);
+        ignored.push(`${where}: ${problem}`);
         continue;
       }
-      // One name, one skill: a session loads one of two folders that share a name, so only the
-      // first is counted, in the order the directories are listed above.
-      if (named.has(entry.name)) continue;
-      named.add(entry.name);
       const copy = { name: entry.name, entry: lock.base.entry ?? ENTRY_DEFAULT, ref: lock.base.ref, tree: lock.base.tree };
+      // One name, one skill: a session loads one of two folders that share a name, so only the
+      // first is counted, in the order the directories are listed above. The same copy in both
+      // places says nothing; a second one that adapts something else, or at another pin, is named.
+      const first = named.get(entry.name);
+      if (first) {
+        const same = first.skill === lock.base.skill && ['entry', 'ref', 'tree'].every((key) => first.copy[key] === copy[key]);
+        if (!same) ignored.push(`${where}: has the name of ${first.where}, which is read first, and its lock says something else`);
+        continue;
+      }
+      named.set(entry.name, { where, skill: lock.base.skill, copy });
       if (!byBase.has(lock.base.skill)) byBase.set(lock.base.skill, []);
       byBase.get(lock.base.skill).push(copy);
     }
   }
   for (const copies of byBase.values()) copies.sort((left, right) => byCodePoint(left.name, right.name));
-  return { byBase: new Map([...byBase].sort((left, right) => byCodePoint(left[0], right[0]))), unreadable };
+  return { byBase: new Map([...byBase].sort((left, right) => byCodePoint(left[0], right[0]))), ignored };
 }
 
 /** The `adapted` map a profile records: a plain object, keyed by the skill each copy adapts. */
@@ -386,7 +398,8 @@ export function renderRules(profile) {
       ? [
         '',
         'Where a line names an adapted copy, load that copy rather than the skill it adapts: it carries',
-        "that skill's whole text together with this repository's values.",
+        "the skill's text, or only the file named after \"from\", together with this repository's values.",
+        'Where a line names more than one copy, load the one whose own description fits the task.',
       ]
       : []),
     '',

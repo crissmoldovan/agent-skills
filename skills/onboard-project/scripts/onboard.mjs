@@ -259,12 +259,19 @@ function adaptedNote(copies, installedScope) {
  * the copy. Before this, a repository that had adapted `release-notes` was offered `release-notes`
  * again, and its check reported it missing beside the copies that do its job. A skill the scan did
  * not match is listed anyway, as `adapted`: the copy is the evidence that the project uses it.
+ *
+ * That listing is the one a scan takes away, and it says so in a `-` row. A skill listed only for
+ * its copy, once the copy is gone, has nothing left behind it: keeping it would route every session
+ * to the generic skill, which this repository never installed, and a check would never say so,
+ * because nothing listed only for a copy is required. The copy also counts in a decline's evidence:
+ * composing a copy of a declined skill lifts the decline, and a decline of an adapted skill holds
+ * until its copies change.
  */
 export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak = [], drop = [], decline = [] } = {}) {
   const root = resolve(repoRoot);
   const counts = historyCounts(root, { home });
   const { catalogue, matches, fingerprint, repoOnlyTrue, evidence, repoUnknown, unmatchedUnknown } = scan(root, { home, counts, pack });
-  const { byBase: adaptedHere, unreadable: unreadableCopies } = adaptedCopies(root);
+  const { byBase: adaptedHere, ignored: ignoredCopies } = adaptedCopies(root);
   for (const [base, copies] of adaptedHere) {
     if (!catalogue.has(base) || matches.has(base)) continue;
     matches.set(base, {
@@ -275,19 +282,18 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
       unknownSignals: [],
     });
   }
-  const adaptedNotes = [
-    ...unreadableCopies.map((problem) => `${problem} — so it stands in for no skill here`),
-    ...[...adaptedHere]
-      .filter(([base]) => !catalogue.has(base))
-      .map(([base, copies]) => `${copies.map((copy) => copy.name).join(', ')} ${copies.length === 1 ? 'adapts' : 'adapt'} ${base}, which this catalogue does not carry — recorded in the profile, not routed`),
-  ];
   const existing = readProfile(root, { home });
   const fresh = resolvePlacement(root, { home });
   const placement = existing?.placement ?? fresh.placement;
   const why = existing?.placement ? "the placement recorded in this repository's profile" : fresh.why;
   const installed = installedSkills({ repoRoot: root, home });
   const declined = { ...(existing?.declined ?? {}) };
-  const ownFingerprint = (name) => fingerprintOf({ [name]: repoOnlyTrue[name] ?? [] });
+  // A skill's own evidence: its true repository signals, and the names of the copies that adapt it.
+  // A skill with no copy fingerprints exactly as it did before copies were read, so no decline
+  // recorded by an earlier release lifts on an upgrade.
+  const ownFingerprint = (name) => fingerprintOf({
+    [name]: [...(repoOnlyTrue[name] ?? []), ...(adaptedHere.get(name) ?? []).map((copy) => `adapted:${copy.name}`)],
+  });
 
   // A decline is recorded against the skill's own evidence, so it holds until that evidence moves.
   for (const name of decline) {
@@ -346,14 +352,16 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
       rows.push({ ...base, kind: '-', note: 'declined: removed, and not offered again until its evidence changes' });
       continue;
     }
+    // Listed only because the repository had adapted it, and no adapted copy of it is here now: it
+    // leaves the profile and the routing with its copy, rather than send sessions to a skill the
+    // repository never installed.
+    if (entry.match === 'adapted' && !adaptedHere.get(name)?.length) {
+      rows.push({ ...base, kind: '-', note: 'its adapted copy is gone, and the copy was why it was listed — removed; compose the copy again and refresh to bring it back' });
+      continue;
+    }
     skills[name] = entry;
     if (entry.match === 'weak') {
       rows.push({ ...base, kind: '=', note: 'kept from the profile: suggested from its description, not checked' });
-      continue;
-    }
-    // Listed only because the repository had adapted it, and no adapted copy of it is here now.
-    if (entry.match === 'adapted' && catalogue.has(name)) {
-      rows.push({ ...base, kind: '-', note: `its adapted copy is gone — kept; pass --drop ${name} to remove it` });
       continue;
     }
     // Unreadable only when the KIND of evidence that put it in the profile cannot be read now: a
@@ -379,6 +387,15 @@ export function buildPlan(repoRoot, { home = homedir(), pack = PACK_ROOT, weak =
     skills[name] = { match: 'weak', evidence: ['suggested from description, not checked'], useWhen: null, required: false, scope: installed.get(name) };
     rows.push({ kind: '=', name, match: 'weak', evidence: ['suggested from description, not checked'], scope: installed.get(name), required: false, install: null, undo: null });
   }
+
+  // Said after the rows, so a copy of a skill the catalogue no longer carries, which the profile
+  // still lists, is not called unrouted: its kept line names the copy.
+  const adaptedNotes = [
+    ...ignoredCopies.map((problem) => `${problem} — so it stands in for no skill here`),
+    ...[...adaptedHere]
+      .filter(([base]) => !catalogue.has(base) && !skills[base])
+      .map(([base, copies]) => `${copies.map((copy) => copy.name).join(', ')} ${copies.length === 1 ? 'adapts' : 'adapt'} ${base}, which this catalogue does not carry — recorded in the profile, not routed`),
+  ];
 
   const profile = {
     version: PROFILE_VERSION,

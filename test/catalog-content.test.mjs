@@ -720,6 +720,15 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
   const adapting = await read('skills/update-agent-skills/references/adapting.md');
   assert.match(section(adapting, 'Moving a pin'), /In a repository onboarded with `onboard-project`, refresh its profile in that same change/);
   assert.match(releases, /names them at every session start until a refresh\s+records them/);
+  // Each kind of `adapted copy:` line says what to do with it, and a lock version this skill does
+  // not read is not sent to the composer, whose own check would pass it.
+  assert.match(onboardProject, /when the problem is a lock version this skill does not read, update\s+onboard-project/);
+  assert.match(onboardProject, /`<copy> adapts <skill>, which this catalogue does not carry`/);
+  // A skill listed only for its copy leaves with it, and a copy lifts a decline.
+  assert.match(onboardProject, /except a skill listed only as `adapted`, which leaves with its last\s+copy/);
+  assert.match(onboardProject, /composing a copy of a declined skill lifts\s+the decline/);
+  assert.match(onboardProjectWrites, /The exception is a skill listed only as `adapted`/);
+  assert.doesNotMatch(onboardProjectWrites, /whole text/, 'the routing paragraph says a copy over one file carries the whole skill');
 
   for (const [where, text] of [['SKILL.md', onboardProject], ['references/what-gets-written.md', onboardProjectWrites]]) {
     assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);

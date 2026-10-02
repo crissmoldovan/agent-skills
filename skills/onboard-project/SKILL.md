@@ -103,9 +103,13 @@ work should be reported; it recommends the skills that own those jobs and owns n
    of its own, and its `adapted.lock.json` names the skill it adapts. The plan counts that skill as
    present: a `=` row naming the copy, no install command, and a routing line that names the copy
    instead of the skill. A skill the scan did not match is listed anyway, as `adapted`, because the
-   copy is the evidence that the project uses it. A line `adapted copy: <folder>: <problem>` names a
-   copy whose lock cannot be read, and its skill is planned as if no copy were there: hand it to
-   `update-agent-skills`, whose adapter `check` says what is wrong, and never edit the lock by hand.
+   copy is the evidence that the project uses it. Lines that open `adapted copy:` come in two kinds.
+   `<folder>: <problem>` names a copy that stands in for nothing, and its skill is planned as if no
+   copy were there: when the problem is a lock version this skill does not read, update
+   onboard-project; when it is a folder of the same name read first, rename or remove one of the
+   two; otherwise hand it to `update-agent-skills`, whose adapter `check` says what is wrong. Never
+   edit a lock by hand. `<copy> adapts <skill>, which this catalogue does not carry` names a copy of
+   a skill from elsewhere: it is recorded in the profile and gets no routing line.
    **Complete when:** the change list exists, and no file in the repository has changed.
 
 4. **Add the weak matches yourself, if any.** The scan is deliberately narrow: it recommends only
@@ -155,15 +159,19 @@ work should be reported; it recommends the skills that own those jobs and owns n
 7. **Record a no properly.** If the user declines a skill, write nothing unless they say "don't
    ask again" — then apply with `--decline <names>`, which records that decision against the
    fingerprint of that skill's own evidence, so it is offered again if and only if the evidence
-   changes.
+   changes. An adapted copy is part of that evidence: composing a copy of a declined skill lifts
+   the decline, and a decline of a skill with copies holds until a copy is added or removed.
    **Complete when:** a declined skill is either absent from the profile or recorded with its
    fingerprint.
 
-8. **Refresh shows differences only, and never drops a listed skill on its own.** New matches;
-   a `-` row for a listed skill whose evidence is gone, kept until the user says `--drop <names>`;
-   a `?` row for one whose evidence cannot be read on this machine — no session history here, or a
-   scan that hit its bounds — which is kept without question; listed skills that are not installed;
-   and a routing file that no longer matches its profile, shown as the lines that would change.
+8. **Refresh shows differences only, and drops a listed skill only on request or with its
+   copy.** New matches; a `-` row for a listed skill whose evidence is gone, kept until the user
+   says `--drop <names>` — except a skill listed only as `adapted`, which leaves with its last
+   copy, in a `-` row that says so, because kept it would route every session to a skill this
+   repository never installed; a `?` row for one whose evidence cannot be read on this machine —
+   no session history here, or a scan that hit its bounds — which is kept without question; listed
+   skills that are not installed; and a routing file that no longer matches its profile, shown as
+   the lines that would change.
    **Complete when:** the user sees only what changed since the last scan.
 
 9. **Arm the check only if the user asks for it.** It is off until then. It says one line when a

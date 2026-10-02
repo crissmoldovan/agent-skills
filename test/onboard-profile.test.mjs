@@ -244,8 +244,8 @@ test('adapted copies are read from the repository\'s own skill folders, by the s
   await mkdir(path.join(repo, '.claude', 'skills', 'plain-skill'), { recursive: true });
   await writeFile(path.join(repo, '.claude', 'skills', 'plain-skill', 'SKILL.md'), '---\nname: plain-skill\n---\n');
 
-  const { byBase, unreadable } = adaptedCopies(repo);
-  assert.deepEqual(unreadable, []);
+  const { byBase, ignored } = adaptedCopies(repo);
+  assert.deepEqual(ignored, []);
   assert.deepEqual([...byBase.keys()], ['release-notes', 'request-answers']);
   assert.deepEqual(byBase.get('release-notes'), [
     { name: 'cut-a-release', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
@@ -263,13 +263,32 @@ test('a lock that cannot be read stands in for nothing, and is named', async () 
   await adaptedCopy(repo, 'renamed', 'release-notes', { lock: { version: 1, name: 'another-name', base: { skill: 'release-notes', ref: 'v1.4.0', tree: 'b'.repeat(40) } } });
   await adaptedCopy(repo, 'bad-entry', 'release-notes', { entry: '../outside.md' });
   await adaptedCopy(repo, 'later-version', 'release-notes', { lock: { version: 2, base: { skill: 'release-notes', ref: 'v1.4.0', tree: 'b'.repeat(40) } } });
+  // A folder no routing line could name, with a lock that names nothing: counted, it would silence
+  // the missing report and then be dropped from the profile, reading as changed at every start.
+  await adaptedCopy(repo, 'Ask_Here', 'release-notes', { lock: { version: 1, base: { skill: 'release-notes', ref: 'v1.4.0', tree: 'b'.repeat(40) } } });
 
-  const { byBase, unreadable } = adaptedCopies(repo);
+  const { byBase, ignored } = adaptedCopies(repo);
   assert.equal(byBase.size, 0, 'an unreadable lock stood in for a skill');
-  assert.equal(unreadable.length, 6, unreadable.join('\n'));
-  assert.ok(unreadable.some((line) => /^\.claude\/skills\/torn: /.test(line)));
-  assert.ok(unreadable.some((line) => /takes the name of the skill it adapts/.test(line)));
-  assert.ok(unreadable.some((line) => /not its own folder/.test(line)));
+  assert.equal(ignored.length, 7, ignored.join('\n'));
+  assert.ok(ignored.some((line) => /^\.claude\/skills\/torn: /.test(line)));
+  assert.ok(ignored.some((line) => /takes the name of the skill it adapts/.test(line)));
+  assert.ok(ignored.some((line) => /not its own folder/.test(line)));
+  assert.ok(ignored.some((line) => /^\.claude\/skills\/later-version: .*has version 2, which this skill does not read: if a newer composer wrote it, update onboard-project$/.test(line)));
+  assert.ok(ignored.some((line) => /^\.claude\/skills\/Ask_Here: the folder name is not a skill name/.test(line)));
+});
+
+test('a second folder of one name is named when its lock says something else, and is quiet when it is the same copy', async () => {
+  const repo = await scratch('profile-repo-adapted-twice');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes', { directory: path.join('.agents', 'skills') });
+  const same = adaptedCopies(repo);
+  assert.deepEqual(same.ignored, [], 'the same copy in both folders was reported');
+  assert.equal(same.byBase.get('release-notes').length, 1);
+
+  await adaptedCopy(repo, 'cut-a-release', 'request-answers', { directory: path.join('.agents', 'skills') });
+  const differing = adaptedCopies(repo);
+  assert.deepEqual(differing.ignored, ['.agents/skills/cut-a-release: has the name of .claude/skills/cut-a-release, which is read first, and its lock says something else']);
+  assert.deepEqual([...differing.byBase.keys()], ['release-notes'], 'the folder read second was counted');
 });
 
 test('the routing names a skill\'s adapted copies instead of the skill, and says what each adapts', () => {
@@ -291,6 +310,9 @@ test('the routing names a skill\'s adapted copies instead of the skill, and says
   assert.doesNotMatch(rules, /→ `release-notes`/, 'the routing still sends the task to the generic skill');
   assert.doesNotMatch(rules, /orphan-copy/);
   assert.match(rules, /load that copy rather than the skill it adapts/);
+  assert.match(rules, /or only the file named after "from"/);
+  assert.match(rules, /load the one whose own description fits the task/);
+  assert.doesNotMatch(rules, /whole text/, 'the routing says a copy over one file carries the whole skill');
   assert.equal(renderRules(profile), renderRules(structuredClone(profile)));
 });
 
