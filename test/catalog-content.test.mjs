@@ -297,6 +297,63 @@ test('resolve-problem-report gates the arc and delegates landing, description, a
   assert.doesNotMatch(resolveProblemReport, /\bCUE\b|\bRGC\b/);
 });
 
+test('resolve-problem-report assesses a report on three separate questions, and does not call a released fix verified', async () => {
+  const assessing = await read('skills/resolve-problem-report/references/assessing-a-report.md');
+  // SKILL.md is at the body cap, so it gains no lines: G0 points to the reference, G5 names where the
+  // reader meets the fix, prerequisite 1 asks where the date came from, and the checklist holds both.
+  assert.match(resolveProblemReport, /Answer severity, priority\s+and effort separately, each by its owner: \[assessing a report\]\(references\/assessing-a-report\.md\)/);
+  assert.match(resolveProblemReport, /its date and the source it was taken from/);
+  assert.match(resolveProblemReport, /nor the fix being released[\s\S]{0,200}where the reader meets it/);
+  assert.match(resolveProblemReport, /severity, priority and effort are three answers, each with its owner/);
+  assert.match(resolveProblemReport, /a released fix where its\s+reader meets it/);
+  assert.match(section(resolveProblemReport, 'Deeper reading'), /\[assessing a report\]\(references\/assessing-a-report\.md\)/);
+  // Adaptable on its own: its own slots, hard lines and steps (the skill's first ids), its skill
+  // named in backticks rather than linked, and the guide by a URL that resolves from any copy.
+  assert.match(assessing, /^## Bindings$/m);
+  for (let slot = 1; slot <= 9; slot += 1) assert.match(assessing, new RegExp(`^\\| B${slot} \\|`, 'm'));
+  for (let line = 1; line <= 3; line += 1) assert.match(assessing, new RegExp(`^- \\*\\*H${line}\\. `, 'm'));
+  for (let step = 1; step <= 6; step += 1) assert.match(assessing, new RegExp(`^\\d+\\. \\*\\*S${step}\\. `, 'm'));
+  const declared = new Set([...assessing.matchAll(/^(?:\| (B\d+) \||- \*\*(H\d+)\. |\d+\. \*\*(S\d+)\. )/gm)].map((m) => m[1] ?? m[2] ?? m[3]));
+  for (const id of assessing.match(/\b[BHS][1-9]\d*\b/g)) assert.ok(declared.has(id), `the reference cites ${id}, which it does not declare`);
+  assert.match(assessing, /\| B1 \|[^\n]*\| skill \| `resolve-problem-report` \|/);
+  assert.match(assessing, /\| B9 \|[^\n]*\| value \| ask once \|/);
+  assert.doesNotMatch(assessing, /\]\([^)]*SKILL\.md/);
+  assert.match(assessing, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+  // Three questions, each with its owner, answered at G0 and kept apart from the arc's own measures.
+  assert.match(assessing, /\*\*H1\. Severity, priority and effort are three questions, and no answer sets another\.\*\*/);
+  assert.match(assessing, /Answer the three questions at G0, before G1's deep work/);
+  assert.match(assessing, /"first estimate"/);
+  assert.match(assessing, /recorded as proposed/);
+  assert.match(assessing, /Severity is not the band's cost of being wrong/);
+  assert.match(assessing, /Effort is not a candidate's size/);
+  assert.match(assessing, /worst credible reader/);
+  assert.match(assessing, /keep the old answer beside the new one/);
+  // The real date, with its source; nothing backfilled.
+  assert.match(assessing, /Date the report from its source/);
+  assert.match(assessing, /\*\*H3\. Nothing is dated or judged from memory\.\*\*/);
+  // Released is not verified: in the release first, then checked where the reader meets it, even when
+  // told to close.
+  assert.match(assessing, /\*\*H2\. A released fix is not a verified one\.\*\*/);
+  assert.match(assessing, /even when someone says to close it/);
+  assert.match(assessing, /git merge-base --is-ancestor <fix commit> <released commit>/);
+  assert.match(assessing, /A surface no check reached is not verified/);
+  assert.match(assessing, /Close a fix as fixed only once it is verified/);
+  // It assesses one report; the register of every report is not this skill's.
+  assert.match(assessing, /keeps no register of every report/);
+  // The organisation markers are read from the block above rather than restated, so a change to that
+  // pattern reaches this file too, with a guard that every marker it checks is checked here.
+  const markerSource = (await read('test/catalog-content.test.mjs')).match(/assert\.doesNotMatch\(resolveProblemReport, \/(.+?)\/\);/);
+  assert.ok(markerSource, "resolve-problem-report's block no longer checks for organisation markers");
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
+  const organisationMarkers = new RegExp(markerSource[1]);
+  for (const text of [resolveProblemReport, assessing]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 test('new-ux-discovery gates every candidate and keeps the dropped ones on record', () => {
   assert.match(newUxDiscovery, /NOT-ALREADY-IMPLEMENTED/);
   assert.match(newUxDiscovery, /NO-CONFUSION/);

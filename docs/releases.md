@@ -182,6 +182,52 @@ steps as S1 to S11. Every slot's default is what the skill does on its own, so a
 binds nothing gets the same procedure. Nothing needs migrating: no project could adapt the skill
 before it declared these ids.
 
+### `resolve-problem-report` answers severity, priority and effort as three questions, and does not call a released fix verified
+
+Two judgements about a report were left to chance. At intake, `resolve-problem-report` restated
+the report as a claim and classified it, but said nothing about how bad it is, how soon it is
+wanted or how much work it is. Unasked, the three get answered as one sense of urgency, each
+borrowing from the others: a quick fix reads as minor, and a defect that is someone else's to fix
+reads as less severe. At the end, verification checked each requirement at its own evidence class
+but never said where, so a fix that had been released could be called fixed before anyone had
+looked at it where its reader meets it. And the report's date was whatever date came to hand,
+often the day someone copied it into a tracker.
+
+A new reference, [`assessing-a-report.md`](../skills/resolve-problem-report/references/assessing-a-report.md),
+answers severity, priority and effort at G0 as three separate questions, each with its owner:
+severity by whoever holds the evidence, because it is a finding; priority by the person who rules
+it when the report competes with other work, the agent's answer recorded as proposed until they
+do; and effort by whoever will do the work, verification included. It gives a default scale for
+each, says why none of them stands in for the band's cost of being wrong, a candidate's size or
+who chooses the fix, and says when to assess again, keeping the old answer beside the new one and
+naming what moved it. It dates the report from its source, best first, and names the source. At
+G5 it checks that a fix is in a release before the release is recorded, says what each check
+reached (a suite on a pre-production environment, a check that the tree released is the tree
+tested, signed-out checks on production, a person looking where the agent cannot), and closes a
+fix as fixed only once it is verified where its reader meets it, even when told to close it
+sooner. Three hard lines come with it: severity, priority and effort are three questions and no
+answer sets another; a released fix is not a verified one; and nothing is dated or judged from
+memory.
+
+`SKILL.md` gains no lines, because its body was already at the 484-line cap. Step 2 points to the
+reference, G5's verification names where the reader meets the fix, prerequisite 1 asks where the
+report's date came from, two checklist items carry the new rules, and Deeper reading lists the
+file. Two paragraphs the change does not otherwise touch, G2's gate and step 7, are rewrapped at
+100 columns, with no word changed, to make the room. The skill keeps no register of reports: ids,
+states across every report and the links between them stay out of it, as its rule against ticket
+hygiene says. A run that answered none of the three questions, or closed a released fix unchecked,
+now fails two checklist items it passed before; nothing that consumes the skill's output breaks,
+so this is substantive new guidance, a minor change under [Versioning](#versioning).
+
+The reference declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes for a reference file a project adapts on its own: nine slots, B1 to B9 (the rest of the
+arc, which is `resolve-problem-report` itself so that an adapted copy can route it, who rules
+priority, the three scales, where each judgement is recorded, the sources a date is taken from,
+where the reader meets the fix, and who looks where the agent cannot), three hard lines, H1 to H3,
+and six steps, S1 to S6. They are the skill's first ids, so a file that declares more continues
+from them. Every slot's default is what the skill does on its own, so a project that binds nothing
+gets the same procedure.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
