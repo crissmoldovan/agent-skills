@@ -296,8 +296,12 @@ transcripts or raw logs; no unmarked inference or unearned benefit claims; never
 earlier record, and never let writing one change the answer.
 ```
 
-Follow it, in the same section, with this sentence exactly:
+Follow it, in the same section, with this sentence exactly, the words
+`the run-record convention` a link to `references/documenting-the-run.md`. That path is
+written from the skill's root, where `SKILL.md` sits, and is given here as code, not as a
+link: a link resolves from the file that holds it, fenced or not, and from this file's folder
+that path names nothing.
 
 ```markdown
-Records are written per [the run-record convention](references/documenting-the-run.md).
+Records are written per the run-record convention.
 ```

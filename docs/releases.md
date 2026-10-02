@@ -232,6 +232,22 @@ and six steps, S1 to S6. They are the skill's first ids, so a file that declares
 from them. Every slot's default is what the skill does on its own, so a project that binds nothing
 gets the same procedure.
 
+### The run-record convention names the link to itself as words and a path, not as a link
+
+`references/documenting-the-run.md`, which `investigate-codebase`, `blast-area`,
+`visualise-blast-area`, `land-complex-change`, `resolve-problem-report` and `new-ux-discovery`
+each carry byte for byte, showed the sentence a skill's `SKILL.md` points to it with as a fenced
+example, link included. That path is written from the skill's root, where `SKILL.md` sits; a link
+resolves from the file that holds it, fenced or not, and from `references/` the path names nothing.
+[Project adaptation](project-adaptation.md) refuses a copy in which a relative link does not
+resolve, so no copy that carried the file could be made. The fence now holds the sentence's words,
+and the line above it names, as code, the words that link and the path they link to. The sentence
+each `SKILL.md` carries is unchanged, and the test that holds every one of them to the convention
+now builds it from those words and that path. A new test resolves every relative link in every
+Markdown file a skill carries from that file's own folder, fenced code included; these six copies
+were the only files that failed it. The wording keeps its meaning, so this is a patch under
+[Versioning](#versioning).
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
