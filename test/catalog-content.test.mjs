@@ -334,6 +334,15 @@ test('resolve-problem-report assesses a report on three separate questions, and 
   // Priority's check is cited to its source and leaves the level to who is waiting, not to the harm.
   assert.match(assessing, /\[triage best practices\]\(https:\/\/www\.chromium\.org\/for-testers\/bug-reporting-guidelines\/triage-best-practices\/\)/);
   assert.match(assessing, /The\s+level follows from that answer, not from the harm \(H1\)/);
+  // `now` is the call of the person who rules priority, never the harm's: harm that continues is
+  // evidence for severity and a reason to ask for that call at once, and the agent's own level stays
+  // proposed until it comes.
+  const nowRow = assessing.match(/^\| \*\*now\*\* \|([^\n]*)\|$/m);
+  assert.ok(nowRow, 'the priority table has no `now` row');
+  assert.doesNotMatch(nowRow[1], /harm/i, 'the `now` row lets the harm set the priority, against H1');
+  assert.match(nowRow[1], /The person bound as B2 has called it urgent/);
+  assert.match(assessing, /Harm that is continuing for readers is evidence for severity, not a\s+priority/);
+  assert.match(assessing, /only their call makes it `now`/);
   // The real date, with its source; nothing backfilled.
   assert.match(assessing, /Date the report from its source/);
   assert.match(assessing, /\*\*H3\. Nothing is dated or judged from memory\.\*\*/);

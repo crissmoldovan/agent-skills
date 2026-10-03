@@ -81,7 +81,7 @@ high as the surface it started on.
 
 | level | means |
 |---|---|
-| **now** | Drop other work. Harm is continuing for readers, or the person bound as B2 has called it urgent |
+| **now** | Drop other work. The person bound as B2 has called it urgent |
 | **this release** | Someone outside has been told a fix is coming, or a release is waiting on it |
 | **next release** | Wanted, and it can slip one release without anyone noticing |
 | **backlog** | Nobody is waiting |
@@ -91,6 +91,12 @@ A check against the table, adapted from the Chromium project's
 would someone notice, in a bad way, if this were still there in the release? A yes on a report
 levelled next release or backlog means finding out who would notice and what they were told. The
 level follows from that answer, not from the harm (H1).
+
+Harm that is continuing for readers is evidence for severity, not a priority. It is a reason to put
+the report to the person bound as B2 at once, with its evidence, rather than at the next review,
+and only their call makes it `now`. Until they rule, the agent proposes a level from who is waiting
+and what was promised, and records it as proposed (S1). An unattended run, which asks nobody, puts
+the continuing harm first in what it leaves for them.
 
 ## Effort: the work to the next state
 
