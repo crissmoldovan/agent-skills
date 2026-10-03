@@ -419,7 +419,7 @@ test('release-notes sends a release to people as a document pack, pinned at both
   assert.doesNotMatch(pack, /from the other two/);
   assert.match(pack, /Take in late arrivals before the render/);
   // A ruling that moves the number or the route after the ship stamps and ships again.
-  assert.match(pack, /goes back to S13: stamp, ship and record again/);
+  assert.match(pack, /goes back to S13:\s+stamp,\s+ship\s+and\s+record\s+again/);
   assert.match(pack, /never written up as approved/);
   // Whose a decision would be is sourced too, never the agent's guess.
   assert.match(pack, /Say whose it would be only when a record names who owns that\s+area, and cite it/);
@@ -435,6 +435,11 @@ test('release-notes sends a release to people as a document pack, pinned at both
   const drafting = procedure.find(({ body }) => /\bdraft the message\b/i.test(body));
   assert.ok(drafting && drafting.id < 11, 'a step before S11 drafts the message that S11 and S12 check');
   assert.match(procedure.find(({ id }) => id === 17).body, /drafted in S10,\s+checked in\s+S11\s+and shown in\s+S12/);
+  // Whatever changes after S11's pass, the sweep of S14 and a late arrival in S15 included, is read
+  // again by all three checkers before the render, never by the consistency checker alone.
+  assert.match(procedure.find(({ id }) => id === 15).body, /run\s+S11\s+again,\s+all\s+three\s+checkers,\s+over\s+everything\s+changed\s+since\s+its\s+last\s+pass,\s+the\s+sweep\s+of\s+S14\s+included/);
+  assert.doesNotMatch(pack, /run the consistency checker again/);
+  assert.match(pack, /The\s+three\s+checkers'\s+last\s+pass\s+came\s+after\s+the\s+last\s+change/);
   // Byte for byte covers every file rendered, a binary one such as a PDF as much as a text file:
   // the dry run writes and commits it too, and whatever the render stamps into it is fixed.
   assert.doesNotMatch(pack, /rendered text file/);

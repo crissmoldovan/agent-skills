@@ -192,12 +192,13 @@ independent checkers read the drafts, against the evidence, for consistency acro
 and as a recipient, until a pass finds nothing. The list of what is open is drafted last, from the
 other documents, and the message after it, from the note and that list, so the checkers and the
 person who sends it read the message with the documents; a ruling or a reply that arrives while the
-pack is drafted goes in before the render; a ruling that changes the number or the route of what
-has shipped means stamping and shipping again. The release record, who pushed the release and on
-whose word included, is written before any message, and the commit served is checked rather than
-assumed to be the stamp. The reference also covers a release that carries an earlier one, fixes
-merged after the stamp, and writing for people who decide: every open decision names who approves
-it, from the records, and the recipients are never asked to decide another person's.
+pack is drafted goes in before the render, and all three checkers read again whatever changed after
+their pass, the sweep after the release included; a ruling that changes the number or the route of
+what has shipped means stamping and shipping again. The release record, who pushed the release and
+on whose word included, is written before any message, and the commit served is checked rather
+than assumed to be the stamp. The reference also covers a release that carries an earlier one,
+fixes merged after the stamp, and writing for people who decide: every open decision names who
+approves it, from the records, and the recipients are never asked to decide another person's.
 
 The agent prepares the message and never sends it on its own word: it goes when the person who
 sends it does, or approves that exact message. What is sent is byte for byte what is kept: the dry

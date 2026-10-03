@@ -122,10 +122,11 @@ is never attached; the pack names what replaced it.
 8. **S15. Take in late arrivals before the render.** Since the drafts began, has anyone ruled on the
    number, the route or the scope, or replied to the last pack? Each one goes in first: a ruling on
    the number through B9, a ruling on the route into the baseline and the environments named, a
-   reply into the open list and whatever it changes in the note. A ruling that changes the number
-   or the route of what S14 shipped goes back to S13: stamp, ship and record again. If someone is
-   still editing a draft, the render waits for them. Then run the consistency checker again over
-   what changed, and commit it as S13 says.
+   reply into the open list and whatever it changes in the note and the message. A ruling that
+   changes the number or the route of what S14 shipped goes back to S13: stamp, ship and record
+   again. If someone is still editing a draft, the render waits for them. Then run S11 again, all
+   three checkers, over everything changed since its last pass, the sweep of S14 included, and
+   commit it as S13 says.
 9. **S16. Render and archive** (B13, B14): the drafts with their source notes, the checks with their
    logs, and the files rendered. Search the rendered files for tokens and machine paths first.
    Compare every rendered file, binary ones included, byte for byte (by hash or with `cmp`; a text
@@ -217,11 +218,14 @@ Before the message goes:
 
 1. Both ends are pinned, by deployment and commit, in the note's header, and the baseline is what
    the readers were last sent.
-2. Every claim in the drafts carries a source note, and no file rendered carries one (H5).
-3. The checkers' last pass found nothing, and every finding rejected has its reason.
-4. The open list agrees with the note and every companion: the same items, approvers and figures.
+2. Every claim in the drafts carries a source note, and neither a file rendered nor the message as
+   prepared carries one (H5).
+3. The three checkers' last pass came after the last change to the message or a document, and
+   found nothing, and every finding rejected has its reason.
+4. The open list agrees with the note, every companion and the message: the same items, approvers
+   and figures.
 5. The release record, who pushed it and on whose word included, was committed before the message,
-   and no document contradicts it.
+   and neither the message nor any document contradicts it.
 6. Every ruling and reply that arrived while the pack was drafted is in the render.
 7. Every rendered file, binary ones included, is byte-identical to its copy last committed (H7).
 8. Every open decision names who approves it, and the recipients are asked only about what is
