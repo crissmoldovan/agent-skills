@@ -435,6 +435,13 @@ test('release-notes sends a release to people as a document pack, pinned at both
   const drafting = procedure.find(({ body }) => /\bdraft the message\b/i.test(body));
   assert.ok(drafting && drafting.id < 11, 'a step before S11 drafts the message that S11 and S12 check');
   assert.match(procedure.find(({ id }) => id === 17).body, /drafted in S10,\s+checked in\s+S11\s+and shown in\s+S12/);
+  // Byte for byte covers every file rendered, a binary one such as a PDF as much as a text file:
+  // the dry run writes and commits it too, and whatever the render stamps into it is fixed.
+  assert.doesNotMatch(pack, /rendered text file/);
+  assert.match(pack, /every rendered file, a binary one such as a PDF as much as a text\s+file, is identical/);
+  assert.match(pack, /binary ones included, byte for byte\s+\(by hash or with\s+`cmp`/);
+  assert.match(pack, /The dry run writes every file\s+the render will/);
+  assert.match(pack, /A time or\s+an id the render writes into a file, printed or not/);
   // The release record before any message, and the served commit read rather than assumed.
   assert.match(pack, /record the release before any message/);
   assert.match(pack, /\*\*who pushed it and\s+on whose word\*\*/);

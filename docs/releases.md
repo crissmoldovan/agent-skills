@@ -200,10 +200,11 @@ merged after the stamp, and writing for people who decide: every open decision n
 it, from the records, and the recipients are never asked to decide another person's.
 
 The agent prepares the message and never sends it on its own word: it goes when the person who
-sends it does, or approves that exact message. What is sent is byte for byte what is kept: a
-document changed after the dry run is dry-run and committed again, the render is compared with the
-copy last committed, and each copy as sent with the render. A pack is sent whole or not at all, and
-a correction rides in the next release's message.
+sends it does, or approves that exact message. What is sent is byte for byte what is kept: the dry
+run writes every file the render will, a PDF or an image as much as a text file, and fixes any time
+or id the renderer would stamp; a document changed after the dry run is dry-run and committed
+again; every rendered file is compared with the copy last committed, and each copy as sent with the
+render. A pack is sent whole or not at all, and a correction rides in the next release's message.
 
 A project can adapt the reference on its own, as a reference file of the skill
 ([project adaptation](project-adaptation.md#when-the-entry-is-a-reference-file)). It declares eight

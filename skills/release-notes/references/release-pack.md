@@ -35,8 +35,9 @@ cites none of that file's ids, so it reads the same with or without it.
   exact text, those recipients and those attachments for sending. A message changed after the
   approval is approved again.
 - **H7. What is sent is what is kept, byte for byte.** Every file attached is one rendered for the
-  release, every rendered text file is identical to its copy last committed, and every copy as
-  sent is compared with the file rendered before the send is recorded.
+  release, every rendered file, a binary one such as a PDF as much as a text file, is identical
+  to its copy last committed, and every copy as sent is compared with the file rendered before
+  the send is recorded.
 - **H8. Nobody is asked to decide what is someone else's.** Every open decision names who approves
   it, from the records. The recipients are asked only about what is theirs, and are told that their
   approval does not replace the owner's.
@@ -97,13 +98,17 @@ is never attached; the pack names what replaced it.
 5. **S12. Show it all to the person bound as B11,** the message and every document in full, and
    wait for their word. A change goes back through S10 and S11.
 6. **S13. Number and stamp the release through B9, then dry-run the render** (B13): the source notes
-   stripped, none left, and no scratch or machine path in any file. Commit the files the dry run
-   wrote, and keep the drafts with their source notes in the archive (B14). Whenever a document
+   stripped, none left, and no scratch or machine path in any file. The dry run writes every file
+   the render will, in every format B13 names, binary ones included; one it cannot write yet, as
+   when the renderer cannot run (H9), is dry-run once it can, before S16. Commit the files the dry
+   run wrote, and keep the drafts with their source notes in the archive (B14). Whenever a document
    changes after this (in the sweep of S14, for a late arrival in S15, or for a fix in S20),
    dry-run it again and commit what it writes: S16 compares against the files last committed. A
-   changed document does not stamp the release again; only a changed number does (S15). A time the
-   render prints, such as when the pack was composed, is fixed, never "now": with "now", the dry
-   run and the render differ, and the comparison in S16 fails.
+   changed document does not stamp the release again; only a changed number does (S15). A time or
+   an id the render writes into a file, printed or not, such as when the pack was composed or a
+   PDF's creation date, is fixed, never "now" or new on each run: otherwise the dry run and the
+   render differ, and the comparison in S16 fails. A renderer that cannot fix them cannot pass
+   S16, so the message is held and the person bound as B11 is asked, as H9 says.
 7. **S14. Ship it, and record the release before any message.** The record says where it went, the
    deployment, the commit served, the time in UTC and in the zone bound as B15, **who pushed it and
    on whose word**, and how to roll it back. Take the push from its record, such as the reflog of
@@ -123,7 +128,8 @@ is never attached; the pack names what replaced it.
    what changed, and commit it as S13 says.
 9. **S16. Render and archive** (B13, B14): the drafts with their source notes, the checks with their
    logs, and the files rendered. Search the rendered files for tokens and machine paths first.
-   Compare every rendered text file, byte for byte, with its copy last committed, as S13 says (H7).
+   Compare every rendered file, binary ones included, byte for byte (by hash or with `cmp`; a text
+   diff passes over a binary file) with its copy last committed, as S13 says (H7).
 10. **S17. Prepare the message** to the recipients bound as B10: the text drafted in S10, checked in
     S11 and shown in S12, its source notes stripped and none left, with the files rendered in S16
     attached from the archive, not from a scratch directory. A message is never first written here:
@@ -217,7 +223,7 @@ Before the message goes:
 5. The release record, who pushed it and on whose word included, was committed before the message,
    and no document contradicts it.
 6. Every ruling and reply that arrived while the pack was drafted is in the render.
-7. Every rendered text file is byte-identical to its copy last committed (H7).
+7. Every rendered file, binary ones included, is byte-identical to its copy last committed (H7).
 8. Every open decision names who approves it, and the recipients are asked only about what is
    theirs (H8).
 9. Every document of the pack is rendered and attached, and none is "to follow" (H9).
