@@ -3,7 +3,7 @@ name: release-notes
 description: "Write the note for one version and put it everywhere the project records releases — what shipped, why it shipped, and what it means for a reader deciding whether to adopt it. Symptoms: ship/cut a release, publish to npm, bump the version, changeset, release notes, CHANGELOG entry, tag a version, patch/minor/major release, create a GitHub/GitLab Release. It writes and places the note and makes the semver call; for describing a change that already landed use describe-changes, and for a what's-new feature inside a product use release-ledger."
 license: MIT
 compatibility: "Any project that records releases somewhere a reader can find them — a changelog file, a changeset directory, a releases document, a forge Release page. Discovering the version and the destinations needs read access to the repository, and publishing needs the destination's existing credential. An optional Claude Code PreToolUse gate, installed by the user and nobody else, refuses a release whose version no release-note file mentions. Output is the note, in every destination the project uses."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -70,6 +70,8 @@ The trigger is the release action, not whether there is anything impressive to s
 - **About to deploy an app** whose users can tell the difference afterwards.
 - **Writing a CHANGELOG entry, a changeset, or a release document** — including the one you
   are tempted to generate from `git log`.
+- **Sending a release to people as documents** — a note and its companions, carried by a
+  message to the people who approve or adopt it: `references/release-pack.md`.
 - **When the gate refuses a release.** It is telling you to come back here and write parts 2
   and 3, not to find a way around it.
 
@@ -122,7 +124,8 @@ describes. A slot nobody binds keeps its default.
    `describe-changes` (B6) output. A note written from a branch name is a guess.
 3. **The destinations this project uses**, discovered rather than assumed — see below.
 4. **The previous note for this project**, so the new one matches its shape and does not
-   contradict it.
+   contradict it. When the note is sent to people, its baseline is the build they were last
+   sent, not the previous note (`references/release-pack.md`).
 
 ## Impact analysis: run it, do not guess
 
@@ -164,6 +167,10 @@ them (B2); do not assume one. `ls CHANGELOG.md docs/releases.md`, `ls .changeset
   story once, beyond the mechanical per-package entries.
 - **Downstream surfacing** — if the release changes a public doc or site claim, the note names
   that follow-up; it is part of the impact.
+- **A document pack** — a release sent to people is a destination too: one note plus companion
+  documents, carried by a message, pinned at both ends, sourced and checked before anyone reads
+  it, sent byte for byte as kept, and the message prepared for a person to send once the release
+  is recorded: `references/release-pack.md`.
 
 Never auto-generate the changelog from `git log` and call it done. The generator gives you
 part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* and the
@@ -196,7 +203,8 @@ part 1 (the *what*) and drops parts 2 and 3. Take its line, then add the *why* a
 6. **S6. Score it with the sell-test.** Complete when it scores 3 or better, or you have rewritten
    it.
 7. **S7. Place it, then release.** The note goes in *before* the publish, the tag and the Release.
-   Complete when every destination on the list from S4 has it.
+   Complete when every destination on the list from S4 has it, apart from a document pack's
+   message, which goes only after the release is recorded (`references/release-pack.md`).
 
 ## Sell-test: score before you ship
 

@@ -381,6 +381,97 @@ test('release-notes versions a product with no API, treats a bump judge as advic
   }
 });
 
+test('release-notes sends a release to people as a document pack, pinned at both ends and checked before it goes', async () => {
+  const pack = await read('skills/release-notes/references/release-pack.md');
+  // A document pack is a destination, and the baseline is what the readers were last sent.
+  assert.match(releaseNotes, /\*\*A document pack\*\*[^\n]*\n[\s\S]*?references\/release-pack\.md/);
+  assert.match(releaseNotes, /baseline is the build they were last\s+sent/);
+  // The note goes in before the release; the pack's message is the one destination that goes after.
+  assert.match(releaseNotes, /apart from a document pack's\s+message, which goes only after the release is recorded/);
+  // Adaptable on its own: its own slots, hard lines and steps, continuing the skill's numbering
+  // (verify-skills holds them unique across both files), and its skill named in backticks rather
+  // than linked, so an adapted copy's names map can route it.
+  assert.match(pack, /^## Bindings$/m);
+  for (const id of ['B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16']) assert.match(pack, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['H5', 'H6', 'H7', 'H8', 'H9']) assert.match(pack, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
+  for (let step = 8; step <= 18; step += 1) assert.match(pack, new RegExp(`^\\d+\\. \\*\\*S${step}\\. `, 'm'));
+  // The two cases that are not simple are steps too, so a project can add to them by id.
+  assert.match(pack, /^## S19\. A release that carries an earlier one$/m);
+  assert.match(pack, /^## S20\. Fixes merged after the stamp$/m);
+  assert.match(pack, /\| B9 \|[^\n]*\| skill \| `release-notes` \|/);
+  assert.match(pack, /\| B16 \|[^\n]*\| skill \| `request-answers` \|/);
+  assert.match(pack, /\| B10 \|[^\n]*\| value \| ask once \|/);
+  assert.doesNotMatch(pack, /\]\([^)]*SKILL\.md/);
+  // An adapted copy of this file alone carries no SKILL.md and no docs/: it cites none of
+  // SKILL.md's ids, and the guide by a URL that resolves anywhere.
+  assert.doesNotMatch(pack, /\b(?:B[1-8]|H[1-4]|S[1-7])\b/);
+  assert.match(pack, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+  // One note in its three parts, plus companions, plus the message.
+  assert.match(pack, /One note, plus companions, plus the message that carries them/);
+  assert.match(pack, /opens with the three parts/);
+  // Pinned at both ends, sourced, checked three ways, the open list last, late arrivals in.
+  assert.match(pack, /Pin both ends\.\*\* The baseline is the build the readers were last sent/);
+  assert.match(pack, /source note\s+that the render strips/);
+  assert.match(pack, /three independent checkers/);
+  assert.match(pack, /\*\*evidence\*\*[\s\S]*\*\*consistency\*\*[\s\S]*\*\*as a recipient\*\*/);
+  // However many companions a project binds, the open list is drafted from all of them.
+  assert.match(pack, /the list of what is open last, from the other documents/);
+  assert.doesNotMatch(pack, /from the other two/);
+  assert.match(pack, /Take in late arrivals before the render/);
+  // A ruling that moves the number or the route after the ship stamps and ships again.
+  assert.match(pack, /goes back to S13:\s+stamp,\s+ship\s+and\s+record\s+again/);
+  assert.match(pack, /never written up as approved/);
+  // Whose a decision would be is sourced too, never the agent's guess.
+  assert.match(pack, /Say whose it would be only when a record names who owns that\s+area, and cite it/);
+  // A document changed after the dry run is dry-run and committed again, so the byte comparison
+  // is against what was last committed, never a stale copy.
+  assert.match(pack, /dry-run it again and commit what it writes: S16 compares against the files last\s+committed/);
+  assert.match(pack, /with its copy last committed, as S13 says \(H7\)/);
+  assert.match(pack, /Run S11 again over the changed documents, commit them as S13 says/);
+  // The message is drafted with the documents, so the checkers of S11 and the person of S12 read
+  // it; S17 assembles the text they read and never writes one first.
+  const procedure = [...pack.matchAll(/^\d+\. \*\*S(\d+)\. ([\s\S]*?)(?=^\d+\. \*\*S\d+\. |^## )/gm)].map(([, id, body]) => ({ id: Number(id), body }));
+  assert.deepEqual(procedure.map(({ id }) => id), [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+  const drafting = procedure.find(({ body }) => /\bdraft the message\b/i.test(body));
+  assert.ok(drafting && drafting.id < 11, 'a step before S11 drafts the message that S11 and S12 check');
+  assert.match(procedure.find(({ id }) => id === 17).body, /drafted in S10,\s+checked in\s+S11\s+and shown in\s+S12/);
+  // Whatever changes after S11's pass, the sweep of S14 and a late arrival in S15 included, is read
+  // again by all three checkers before the render, never by the consistency checker alone.
+  assert.match(procedure.find(({ id }) => id === 15).body, /run\s+S11\s+again,\s+all\s+three\s+checkers,\s+over\s+everything\s+changed\s+since\s+its\s+last\s+pass,\s+the\s+sweep\s+of\s+S14\s+included/);
+  assert.doesNotMatch(pack, /run the consistency checker again/);
+  assert.match(pack, /The\s+three\s+checkers'\s+last\s+pass\s+came\s+after\s+the\s+last\s+change/);
+  // Byte for byte covers every file rendered, a binary one such as a PDF as much as a text file:
+  // the dry run writes and commits it too, and whatever the render stamps into it is fixed.
+  assert.doesNotMatch(pack, /rendered text file/);
+  assert.match(pack, /every rendered file, a binary one such as a PDF as much as a text\s+file, is identical/);
+  assert.match(pack, /binary ones included, byte for byte\s+\(by hash or with\s+`cmp`/);
+  assert.match(pack, /The dry run writes every file\s+the render will/);
+  assert.match(pack, /A time or\s+an id the render writes into a file, printed or not/);
+  // The release record before any message, and the served commit read rather than assumed.
+  assert.match(pack, /record the release before any message/);
+  assert.match(pack, /\*\*who pushed it and\s+on whose word\*\*/);
+  assert.match(pack, /The commit served is not always the stamp/);
+  // Nobody decides another's item; the agent never sends; what is sent is what is kept.
+  assert.match(pack, /Nobody is asked to decide what is someone else's/);
+  assert.match(pack, /never sends the message on its own word/);
+  assert.match(pack, /What is sent is what is kept, byte for byte/);
+  assert.match(pack, /the correction rides\s+in the next release's message/);
+  assert.match(pack, /\*\*H9\. The pack is sent whole\.\*\*/);
+  // The same organisation markers as release-notes' own block, read from it as the block above does,
+  // with the same two guards, so a later doesNotMatch on releaseNotes cannot silently replace them.
+  const markerSource = (await read('test/catalog-content.test.mjs')).match(/assert\.doesNotMatch\(releaseNotes, \/(.+?)\/\);/);
+  assert.ok(markerSource, "release-notes' block no longer checks for organisation markers");
+  const organisationMarkers = new RegExp(markerSource[1]);
+  assert.match(' CUE ', organisationMarkers, 'the markers read from that block are the pattern the blocks above use');
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
+  for (const text of [releaseNotes, pack]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
 
 async function assertRunRecordCopiesIdentical(directory) {

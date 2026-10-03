@@ -177,6 +177,49 @@ and its seven steps as S1 to S7. Every slot's default is what the skill does on 
 project that binds nothing gets the same procedure. Nothing needs migrating: no project could
 adapt the skill before it declared these ids. The `release-notes` gate is unchanged.
 
+### `release-notes` sends a release to people as a document pack, pinned at both ends and checked before it goes
+
+Some releases are sent as well as published: a build goes to the people who approve it as a note
+and the documents beside it, carried by one message. `release-notes` said where a note lands, and
+nothing about a pack people read before they decide. A new reference,
+[`release-pack.md`](../skills/release-notes/references/release-pack.md), covers it. A pack is one
+note, in the three parts the skill already requires, plus companion documents, such as a comparison
+of every difference and a list of what is still open and whose it is; the message that carries
+them is one more destination, and a longer notes document opens with the three parts as its
+summary. Both ends are pinned, and the baseline is the build the readers were last sent, not the
+previous note. Every sentence carries a source note, stripped when the pack is rendered, and three
+independent checkers read the drafts, against the evidence, for consistency across the documents,
+and as a recipient, until a pass finds nothing. The list of what is open is drafted last, from the
+other documents, and the message after it, from the note and that list, so the checkers and the
+person who sends it read the message with the documents; a ruling or a reply that arrives while the
+pack is drafted goes in before the render, and all three checkers read again whatever changed after
+their pass, the sweep after the release included; a ruling that changes the number or the route of
+what has shipped means stamping and shipping again. The release record, who pushed the release and
+on whose word included, is written before any message, and the commit served is checked rather
+than assumed to be the stamp. The reference also covers a release that carries an earlier one,
+fixes merged after the stamp, and writing for people who decide: every open decision names who
+approves it, from the records, and the recipients are never asked to decide another person's.
+
+The agent prepares the message and never sends it on its own word: it goes when the person who
+sends it does, or approves that exact message. What is sent is byte for byte what is kept: the dry
+run writes every file the render will, a PDF or an image as much as a text file, and fixes any time
+or id the renderer would stamp; a document changed after the dry run is dry-run and committed
+again; every rendered file is compared with the copy last committed, and each copy as sent with the
+render. A pack is sent whole or not at all, and a correction rides in the next release's message.
+
+A project can adapt the reference on its own, as a reference file of the skill
+([project adaptation](project-adaptation.md#when-the-entry-is-a-reference-file)). It declares eight
+slots, B9 to B16, among them the skill that makes the number and the note (`release-notes` by
+default) and the skill a question for the owner of an open decision goes to (`request-answers`),
+five hard lines, H5 to H9, and thirteen steps, continuing the skill's numbering: S8 to S18 in
+order, with S19 for a release that carries an earlier one and S20 for fixes merged after the stamp.
+In `SKILL.md`, "When to Use", the fourth prerequisite and "Where the note lands" point to it, and
+the seventh step names the pack's message as the one destination that goes after the release
+rather than before it. Nothing a release relied on changes meaning, so this is new guidance, a
+minor change under [Versioning](#versioning). The `release-notes` gate is unchanged. The skill's
+metadata version moves from 1.0.0 to 1.1.0, for this reference and for versioning a product that
+has no API.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
