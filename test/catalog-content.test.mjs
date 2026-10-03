@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { posix, sep } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
 
@@ -208,6 +209,106 @@ test('update-agent-skills maintains communication and every local plane', () => 
   assert.doesNotMatch(updateAgentSkills, /cueplusplus\/skills|crissmoldovan\/agent-skills|cue:/i);
 });
 
+// A project adapts a pack skill by composing it (docs/project-adaptation.md), and this skill owns
+// that install. Its tests are test/adapt-project-skills.test.mjs; what is held here is that the
+// skill and its guide keep saying how a copy is composed, checked and moved, that `skills update`
+// never moves one, and that the guide stays free of a machine path, a real address or a real zone.
+// Names have no shape a public test can hold; scripts/scan-denylist.mjs reads for those.
+// Check 10 as both the guide and docs/project-adaptation.md state it: every link is read, fenced
+// code included, and why; an example writes a path as code. Neither says a fenced link is skipped.
+const CHECK_10_WORDS = [
+  "A link inside fenced code is checked like any other, as the pack's verifier checks a skill's files",
+  'a link the check skipped would be checked by nothing, and no reading of fences by hand matches CommonMark',
+  'An example that shows a path writes it as code, such as `docs/guide.md`, not as a link',
+  'A link written from the root, such as `/docs/guide.md`, is refused: it is written from the file that holds it',
+];
+const NO_FENCE_EXEMPTION = /is an example and is not checked|so it is not\s+checked|skipped only when every reading|read every way it could\s+be meant|carried as written/;
+// Check 5's heading rule, as both documents state it: outside the addition to a hard line, no
+// heading in any shape names its id, wherever it sits and however far it is indented, fenced or
+// not, and no line opens with one in bold. Nothing about a heading is left to review alone.
+const CHECK_5_HEADING_WORDS = [
+  'wherever the id sits in it, in any shape Markdown gives a heading: a `#` heading at any level, in a quote or a list item, an underlined paragraph, a paragraph that is only bold, or an HTML heading, at any indent, fenced or not',
+  'opens with one in bold, the form a skill declares it in',
+];
+// What check 5 reads an id and an exception in: a sentence whole, as a reader sees it.
+const CHECK_5_READING_WORDS = [
+  'in the same sentence, read whole over the lines it wraps across, or opening the sentence after it',
+  'read as a reader sees them: through emphasis, character references, invisible characters and markup between letters',
+];
+const CHECK_5_NO_REVIEW_ONLY = /listed for review, and refused when it or the paragraph under it|indented up to three columns|opens a heading with one|every heading that names one/;
+const wrapped = (words) => new RegExp(words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+'));
+// The overlay rules both documents state: a fence closes inside its part, or the overlay is
+// refused, and an addition's heading starts at the left margin.
+const OVERLAY_FENCE_WORDS = 'Fenced code in the overlay closes inside the addition or section it opens in';
+const OVERLAY_HEADING_WORDS = "An addition's heading starts at the left margin";
+
+test('update-agent-skills composes, checks and lists adapted copies, and keeps them out of skills update', async () => {
+  const adapting = await read('skills/update-agent-skills/references/adapting.md');
+  const adaptation = await read('docs/project-adaptation.md');
+  const contributing = await read('CONTRIBUTING.md');
+
+  assert.match(descriptionOf(updateAgentSkills), /adapt a pack skill to this project/);
+  assert.match(updateAgentSkills, /^compatibility: .*Node\.js 22 or newer and git for the composer, scripts\/adapt\.mjs/m);
+  const adapt = section(updateAgentSkills, 'Adapting a Pack Skill to One Project');
+  assert.match(adapt, /\]\(references\/adapting\.md\)/);
+  for (const command of ['compose', 'check', 'outdated']) assert.match(adapt, new RegExp(`adapt\\.mjs ${command} --repo`));
+  assert.match(adapt, /writes nothing without `--write`/);
+  assert.match(adapt, /--discard-hand-edits/);
+  assert.match(adapt, /never a branch/);
+  assert.match(adapt, /`skills update` never moves an adapted copy/);
+  assert.match(adapt, /check-pack-freshness\.mjs --repo/);
+  // The composer is vendored as it ran, never fetched and run, so the skill says how it moves with a pin.
+  assert.match(adapt, /The composer moves with the pin only when a person runs the new one/);
+  assert.match(adapt, /<clone>\/skills\/update-agent-skills\/scripts\/adapt\.mjs compose --repo <project> --pack <clone>/);
+  assert.match(section(updateAgentSkills, 'Inventory Every Requested Plane'), /adapted copies a project composed/);
+
+  // The guide names all ten checks, and the two identities a pin is refused for.
+  const checks = section(adapting, 'The checks');
+  for (let number = 1; number <= 10; number += 1) assert.match(checks, new RegExp(`^\\| ${number} \\|`, 'm'), `the guide does not hold check ${number}`);
+  // Check 10 reads every link, fenced code included, and says why. Check 5 reads an addition's
+  // heading with its text.
+  const fifth = checks.match(/^\| 5 \|.*$/m)?.[0] ?? '';
+  assert.match(fifth, /no addition to a hard line, its heading included, or paragraph naming one/);
+  for (const words of [...CHECK_5_HEADING_WORDS, ...CHECK_5_READING_WORDS]) assert.ok(fifth.includes(words), `check 5 in the guide does not say: ${words}`);
+  assert.doesNotMatch(adapting, CHECK_5_NO_REVIEW_ONLY);
+  const linkCheck = checks.match(/^\| 10 \|.*$/m)?.[0] ?? '';
+  for (const words of CHECK_10_WORDS) assert.ok(linkCheck.includes(words), `check 10 in the guide does not say: ${words}`);
+  assert.doesNotMatch(adapting, NO_FENCE_EXEMPTION);
+  for (const words of [OVERLAY_FENCE_WORDS, OVERLAY_HEADING_WORDS, 'a fence in the overlay that does not close inside its addition or section', 'an indented `###` heading whose first word is an id']) {
+    assert.match(adapting, new RegExp(words.replace(/ /g, '\\s+')), `the guide does not say: ${words}`);
+  }
+  assert.match(adapting, /every\s+relative\s+link\s+in\s+it,\s+fenced\s+code\s+included,\s+is\s+rewritten\s+for\s+that\s+place/);
+  assert.match(adapting, /warn\s+and\s+name\s+each\s+such\s+link,\s+because\s+only\s+an\s+edit\s+to\s+the\s+skill\s+can\s+change\s+it/);
+  assert.match(adapting, /A branch is refused, because it moves, and so is an abbreviated sha/);
+  assert.match(adapting, /never edited by hand/);
+  assert.match(adapting, /`outdated --verify` fetches the pinned commit and compares every carried\s+file/);
+  // A refusal names the check a reader looks up, or says it is the pin's or the adapter folder's.
+  assert.match(checks, /`\[adapter\]`, an adapter\s+folder that does not read as one/);
+  assert.match(checks, /`\[pin\]`, a pin\s+that cannot be taken/);
+  assert.match(adapting, /\*\*Which composer is vendored\.\*\*/);
+  // A git setting that rewrites GitHub addresses to ssh is common, and the composer refuses it.
+  assert.match(section(adapting, 'Failure modes'), /`url\.<base>\.insteadOf`.*`--pack`/);
+  // Rule 7 as the guide states it: no pre-approval reaches a copy unless its adapter names it, and why.
+  assert.match(adapting, wrapped('carries no `allowed-tools` line unless `allowedTools` names the tools, and then exactly those'));
+  assert.match(adapting, wrapped('a pre-approval granted by a shared skill would apply in every project that adapts it'));
+  assert.match(checks.match(/^\| 9 \|.*$/m)?.[0] ?? '', /an `allowed-tools` line added by hand/);
+  assert.doesNotMatch(adapting, /widenTools|widened only/);
+
+  assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
+  assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);
+  assert.match(contributing, /`update-agent-skills` owns moving installed copies wherever they live, and composing,\s+checking and listing the adapted copy/);
+  assert.match(releases, /`update-agent-skills` moves installed copies wherever they live, and owns the adapted copy/);
+
+  for (const [where, text] of [['SKILL.md', updateAgentSkills], ['references/adapting.md', adapting]]) {
+    // The other organisation marker the blocks above name is on the contributors' private
+    // denylist, which scan-denylist.mjs reads before every push, so a new line does not restate it.
+    assert.doesNotMatch(text, /\bCUE\b/, `${where} names an organisation`);
+    assert.doesNotMatch(text, /~\/work\//, `${where} carries a machine path`);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/, `${where} carries a real address`);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/, `${where} names a real zone`);
+  }
+});
+
 test('frontmatter stays compatible with Agent Skills and skills.sh discovery', () => {
   for (const [name, source] of [['model-routing', routing], ['agent-lifecycle', lifecycle], ['blocks', blocks], ['request-blocks-review', requestBlocksReview], ['secure-credential-setup', secureCredentialSetup], ['derive-codebase-context', deriveCodebaseContext], ['publish-agent-skill', publishAgentSkill], ['update-agent-skills', updateAgentSkills], ['release-ledger', releaseLedger], ['github-webhooks', githubWebhooks], ['describe-changes', describeChanges], ['investigate-codebase', investigateCodebase], ['blast-area', blastArea], ['visualise-blast-area', visualiseBlastArea], ['land-complex-change', landComplexChange], ['resolve-problem-report', resolveProblemReport], ['new-ux-discovery', newUxDiscovery], ['release-notes', releaseNotes]]) {
     assert.match(source, new RegExp(`^---\\nname: ${name}\\n`));
@@ -377,9 +478,77 @@ function fencedBlockAfter(source, marker, label) {
   return source.slice(start, close);
 }
 
+// A RELATIVE LINK RESOLVES FROM THE FILE THAT HOLDS IT, FENCED CODE INCLUDED.
+//
+// scripts/verify-skills.mjs resolves the links in each SKILL.md, and nothing resolved the links in
+// the other Markdown files a skill carries. The run-record convention showed the sentence a
+// SKILL.md links to it with, link included, in a fence in references/, where
+// `references/documenting-the-run.md` names nothing. Project adaptation refuses a copy of a skill
+// in which a relative link does not resolve, and a check that reads every link, fenced or not,
+// refused every copy that carried the file. No reading of fences by hand matches CommonMark, so
+// links are read everywhere, as inline links, images and link definitions, and an example that
+// shows a path writes it as code.
+const INLINE_LINK = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+['"][^)]*['"])?\)/g;
+const LINK_DEFINITION = /^ {0,3}\[[^\]]+\]:[ \t]*(\S+)/gm;
+
+function relativeLinkPaths(text) {
+  const paths = [];
+  for (const match of [...text.matchAll(INLINE_LINK), ...text.matchAll(LINK_DEFINITION)]) {
+    const target = match[1].replace(/^<(.*)>$/, '$1');
+    if (!target || target.startsWith('#') || target.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+    const pathname = target.split(/[#?]/, 1)[0];
+    if (pathname) paths.push(pathname);
+  }
+  return paths;
+}
+
+/** The links in one carried file that do not reach a file or folder of its skill from its own folder. */
+function unresolvedLinks(text, file, carried) {
+  const problems = [];
+  for (const pathname of relativeLinkPaths(text)) {
+    const resolved = posix.normalize(posix.join(posix.dirname(file), pathname)).replace(/\/$/, '');
+    if (resolved === '..' || resolved.startsWith('../')) problems.push(`${file} links to ${pathname}, outside its skill`);
+    else if (resolved !== '.' && !carried.has(resolved)) problems.push(`${file} links to ${pathname}, which does not resolve from ${posix.dirname(file)}/`);
+  }
+  return problems;
+}
+
+test('the carried-link reading finds a link in fenced code, and passes the path written as code', () => {
+  const carried = new Set(['SKILL.md', 'references', 'references/notes.md']);
+  const fenced = 'Follow it with:\n\n```markdown\nSee [the notes](references/notes.md).\n```\n';
+  assert.deepEqual(unresolvedLinks(fenced, 'references/notes.md', carried), [
+    'references/notes.md links to references/notes.md, which does not resolve from references/',
+  ]);
+  assert.deepEqual(unresolvedLinks(fenced, 'SKILL.md', carried), []);
+  const asCode = 'Follow it with the sentence below, linking the words `the notes` to `references/notes.md`:\n\n```markdown\nSee the notes.\n```\n';
+  assert.deepEqual(unresolvedLinks(asCode, 'references/notes.md', carried), []);
+  assert.deepEqual(unresolvedLinks('    [n]: ../other/SKILL.md\n[m]: missing.md\n', 'SKILL.md', carried), [
+    'SKILL.md links to missing.md, which does not resolve from ./',
+  ]);
+  assert.deepEqual(unresolvedLinks('[n]: ../other/SKILL.md\n', 'SKILL.md', carried), ['SKILL.md links to ../other/SKILL.md, outside its skill']);
+  assert.deepEqual(unresolvedLinks('[a](#top) [b](https://example.com/c.md) [c](<notes.md#top> "title") ![d](../SKILL.md)', 'references/notes.md', carried), []);
+});
+
+test('every relative link in a Markdown file a skill carries resolves from that file, fenced code included', async () => {
+  const problems = [];
+  const read = new Set();
+  const skills = (await readdir(new URL('skills/', root), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  for (const skill of skills) {
+    const folder = new URL(`skills/${skill}/`, root);
+    const carried = new Set((await readdir(folder, { recursive: true })).map((file) => file.split(sep).join('/')).filter((file) => !file.split('/').includes('node_modules')));
+    for (const file of [...carried].filter((name) => /\.mdx?$/i.test(name)).sort()) {
+      problems.push(...unresolvedLinks(await readFile(new URL(file, folder), 'utf8'), file, carried).map((problem) => `${skill}/${problem}`));
+      read.add(`${skill}/${file}`);
+    }
+  }
+  for (const skill of documentingRunCarriers) assert.ok(read.has(`${skill}/references/documenting-the-run.md`), `${skill}'s run-record reference was not read`);
+  assert.deepEqual(problems, []);
+});
+
 const runRecordConvention = await read('skills/investigate-codebase/references/documenting-the-run.md');
 const inBodyCoreTemplate = fencedBlockAfter(runRecordConvention, '## In-body core (copy verbatim)', 'in-body core');
-const runRecordPointer = fencedBlockAfter(runRecordConvention, 'Follow it, in the same section, with this sentence exactly:', 'pointer sentence');
+const pointerMarker = 'Follow it, in the same section, with the sentence below, word for word,';
+const runRecordPointer = fencedBlockAfter(runRecordConvention, pointerMarker, 'pointer sentence');
 
 test('every --document skill embeds the verbatim in-body core and the exact pointer sentence', () => {
   assert.ok(inBodyCoreTemplate.includes('<skill-name>'), 'the in-body core template lost its <skill-name> placeholder');
@@ -395,11 +564,23 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
   ]);
   assert.deepEqual([...sources.keys()], documentingRunCarriers);
 
+  // The convention gives the sentence's words in the fence and names, as code, the words that link
+  // and the path they link to from the skill's root: a link written in the fence would resolve from
+  // references/, where that path names nothing.
+  assert.deepEqual(relativeLinkPaths(runRecordPointer), [], 'the pointer sentence in documenting-the-run.md is written as a link, which resolves from references/');
+  const anchor = runRecordConvention.indexOf(pointerMarker);
+  const lead = runRecordConvention.slice(anchor, runRecordConvention.indexOf('```markdown\n', anchor));
+  const named = lead.match(/linking the words\s+`([^`]+)`\s+to\s+`([^`]+)`/);
+  assert.ok(named, 'documenting-the-run.md does not say to link, naming as code, the words of the pointer sentence that link and the path they link to');
+  const [, words, target] = named;
+  assert.equal(runRecordPointer.split(words).length, 2, `the pointer sentence holds "${words}" exactly once`);
+  const pointer = runRecordPointer.replace(words, `[${words}](${target})`);
+
   for (const [name, source] of sources) {
     const expected = inBodyCoreTemplate.replaceAll('<skill-name>', name);
     assert.ok(source.includes(expected), `${name}/SKILL.md does not embed the verbatim in-body core block from documenting-the-run.md`);
     assert.ok(!source.includes(inBodyCoreTemplate), `${name}/SKILL.md left the <skill-name> placeholder unsubstituted`);
-    assert.ok(source.includes(runRecordPointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence`);
+    assert.ok(source.includes(pointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence, ${pointer}`);
   }
 });
 
@@ -455,6 +636,11 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.match(rules, /A hard line is never relaxed/);
   assert.match(rules, /`replaces:`[\s\S]*It is refused on an `H` id/);
   assert.match(rules, /never takes its skill's name/);
+  // Rule 7: a copy pre-approves only the tools the project names, because a shared skill's would
+  // apply in every project that adapts it.
+  assert.match(rules, wrapped('`allowed-tools` never comes from the skill'));
+  assert.match(rules, wrapped('a pre-approval granted by a shared skill would apply in every project that adapts it'));
+  assert.doesNotMatch(adaptation, /widenTools|widens the tools/);
 
   assert.match(adaptation, /A branch is refused, because it moves/);
   assert.match(adaptation, /\]\(releases\.md#tags\)/);
@@ -479,7 +665,20 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   const copy = section(adaptation, 'The adapted copy');
   assert.match(copy, /`LICENSE`, the MIT text/);
   assert.match(copy, /### When the entry is a reference file/);
-  assert.match(copy, /relative link in it is rewritten for its new place/);
+  assert.match(copy, /relative\s+link\s+in\s+it,\s+fenced\s+code\s+included,\s+is\s+rewritten\s+for\s+its\s+new\s+place/);
+  assert.doesNotMatch(adaptation, NO_FENCE_EXEMPTION);
+  // That check 10 reads every link, and why, wherever the page wraps it.
+  for (const words of CHECK_10_WORDS) {
+    assert.match(copy, new RegExp(words.replace(/[.]/g, '\\.').replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
+  }
+  // And what the overlay holds its fences to, beside the overlay's own parts.
+  for (const words of [OVERLAY_FENCE_WORDS, OVERLAY_HEADING_WORDS]) {
+    assert.match(adaptation, new RegExp(words.replace(/ /g, '\\s+')), `docs/project-adaptation.md does not say: ${words}`);
+  }
+  assert.match(adaptation, wrapped('adds to one in the words of an exception, in its heading or under it, names one in a heading or opens a line with one in bold outside the addition to it,'));
+  for (const words of CHECK_5_HEADING_WORDS) assert.match(rules, wrapped(words), `the merge rules do not say: ${words}`);
+  assert.doesNotMatch(adaptation, CHECK_5_NO_REVIEW_ONLY);
+  assert.match(adaptation, /or\s+leaves\s+a\s+fence\s+open\s+past\s+the\s+addition\s+or\s+section\s+it\s+opens\s+in\./);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
   assert.match(adaptation, /\*\*Only a declaration opens with an id\.\*\*/);
 

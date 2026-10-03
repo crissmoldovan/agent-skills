@@ -19,8 +19,12 @@ What checks what today:
 
 - `scripts/verify-skills.mjs` checks the declarations in this pack: every file under `skills/` that
   declares `## Bindings` ([what it holds](#what-the-verifier-holds)).
-- Composing an adapted copy, and checking it against its pin, happens in the project. No tool in the
-  pack does that yet; a tool that does follows this page.
+- Composing an adapted copy, checking it against its pin, and reporting newer pins happen in the
+  project, with `update-agent-skills`' composer,
+  [`scripts/adapt.mjs`](../skills/update-agent-skills/scripts/adapt.mjs). A project vendors it
+  beside its adapters and runs its offline check from its own tests;
+  [adapting a pack skill](../skills/update-agent-skills/references/adapting.md) is the guide to
+  it, and it follows this page.
 
 ## The three kinds of id
 
@@ -137,6 +141,17 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 - **Project files.** Reference files of the project's own, carried under `references/project/` so
   they never collide with the skill's.
 
+Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of at
+least as many of its character, indented as far as the fence or up to three columns further; a
+fence may open on the line of its list marker. An overlay with a fence that does not is refused:
+left open, the fence would swallow every heading after it, and with them every check those
+headings face. A line that opens another part of the overlay, one of its sections or a `###`
+heading whose first word is an id, ends a fence open across it, and so does such a heading
+indented one to three spaces, which Markdown still reads as a heading; an example that shows one
+for a step indents the fence and its lines four spaces, and one for a hard line is shown only in
+the addition to that hard line. An addition's heading starts at the left margin, so an indented
+one outside fenced code is refused too.
+
 ## The merge rules
 
 1. **A binding replaces the default, and nothing else.** The bound value holds wherever the skill
@@ -153,6 +168,15 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
    no binding, addition or replacement may widen one. No script can tell stricter from looser in
    prose, so review holds this rule: an overlay that adds to a hard line, or binds a slot a hard line
    names, is read against that hard line.
+
+   An overlay names a hard line in a heading only in the addition to it. Anywhere else, a heading
+   that names one is refused, wherever the id sits in it, in any shape Markdown gives a heading: a
+   `#` heading at any level, in a quote or a list item, an underlined paragraph, a paragraph that is
+   only bold, or an HTML heading, at any indent, fenced or not. So is a line that opens with one in
+   bold, the form a skill declares it in. The copy would show the text under it as text for that
+   hard line, which no check reads as an addition to it. Anywhere else, an overlay names a hard line
+   in a sentence, and a sentence that names one is refused when it is written in the words of an
+   exception, or the sentence after it opens with them.
 5. **`replaces:` is explicit, and rare.** An addition whose first line starts with `replaces:`
    supersedes its step instead of extending it. It is refused on an `H` id, and on a slot, which is
    bound and never replaced. The line says why, and where the decision is recorded:
@@ -172,9 +196,12 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
    with the project's own trigger phrases, so neither copy hides the other and a reader can tell which
    one was loaded.
 7. **The frontmatter follows the skill, except what the project names.** `name` and `description`
-   come from the project. `allowed-tools` and `compatibility` come from the skill, and the project
-   widens the tools only by naming each one where review sees it. `metadata` is a map that records
-   the skill, its pin and its tree.
+   come from the project, and `license` and `compatibility` from the skill. `allowed-tools` never
+   comes from the skill: it pre-approves tools while the skill is active, and a pre-approval granted
+   by a shared skill would apply in every project that adapts it, chosen by none of them. The copy
+   carries the line only when the project names the tools itself, each where review sees it, and
+   then exactly those; otherwise it carries none. `metadata` is a map that records the skill, its
+   pin and its tree.
 8. **Nobody edits the adapted copy by hand.** It is generated. A project changes its overlay and
    composes again. A fix to the generic text is made in this pack, and reaches the project when its
    pin moves.
@@ -201,9 +228,13 @@ the adapted `SKILL.md`, the copy carries:
   pack's work and the licence asks for its notice in every such copy;
 - the record of its pin (below), with the sha256 of every file it carries.
 
-Every relative link in the adapted copy resolves, and a copy in which one does not is refused.
-Composing joins texts at fixed points and asks no model to merge them, so the result can be
-compared byte for byte, and composing again catches a hand edit or a stale copy.
+Every relative link in the adapted copy resolves, and a copy in which one does not is refused. A
+link inside fenced code is checked like any other, as the pack's verifier checks a skill's files: a
+link the check skipped would be checked by nothing, and no reading of fences by hand matches
+CommonMark. An example that shows a path writes it as code, such as `docs/guide.md`, not as a link.
+A link written from the root, such as `/docs/guide.md`, is refused: it is written from the file
+that holds it. Composing joins texts at fixed points and asks no model to merge them, so the result
+can be compared byte for byte, and composing again catches a hand edit or a stale copy.
 
 ### When the entry is a reference file
 
@@ -211,8 +242,8 @@ A project may adapt one reference file of a skill instead of its `SKILL.md`, whe
 the procedure it needs.
 
 - The entry's text becomes the body of the adapted `SKILL.md`, at the folder root, so every
-  relative link in it is rewritten for its new place. The entry is still carried at its own path
-  too, so the skill's other files still find it.
+  relative link in it, fenced code included, is rewritten for its new place. The entry is still
+  carried at its own path too, so the skill's other files still find it.
 - The skill's own `SKILL.md` is not carried, because the adapted `SKILL.md` takes its place. A file
   written to be adapted on its own therefore names its skill in backticks, such as `release-notes`,
   where it sends the reader to the rest of that skill, rather than linking to `../SKILL.md`, so the
@@ -287,4 +318,7 @@ such as the ones on this page declares nothing. It fails when:
 
 It does not check that the prose cites only declared ids, that a removed id's number is not used
 again, that an overlay keeps the hard lines, or anything in a project. Those are for review, and
-for whatever composes the adapted copy.
+for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
+required slot unbound, writes `replaces:` on a hard line, adds to one in the words of an exception,
+in its heading or under it, names one in a heading or opens a line with one in bold outside the
+addition to it, or leaves a fence open past the addition or section it opens in.

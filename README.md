@@ -134,11 +134,12 @@ More: [Skill](skills/publish-agent-skill/SKILL.md)
 
 ### `update-agent-skills`
 
-Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack. It moves installed copies; it does not publish a new release — that is publish-agent-skill.
+Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them, and compose a project's adapted copy of a pack skill from a pinned release and the project's overlay. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack, adapt a pack skill to this project. It moves installed copies; it does not publish a new release — that is publish-agent-skill.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill update-agent-skills
 node <skill-folder>/scripts/install-freshness-hook.mjs   # optional: check freshness each session
+node <clone>/skills/update-agent-skills/scripts/adapt.mjs compose --repo . --pack <clone>   # optional: adapt a pack skill to this project
 ```
 
 Ask it:
@@ -146,8 +147,11 @@ Ask it:
 - *"Use update-agent-skills. Make changelog, catalogue README, release notes, and agent update guidance agree; then update only the planes I explicitly named."*
 - *"Update this released skill for all supported agents in global scope on this machine."*
 - *"Prepare the update communication only."*
+- *"Adapt this pack skill to the project: compose it from the pinned release and our overlay, show me the change, and check it."*
 
-More: [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs)
+An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). The first compose runs from a clone of the pack checked out at the pinned tag or full sha, so the composer the project vendors is that release's; [the guide](skills/update-agent-skills/references/adapting.md#commands) says how to make one. `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
+
+More: [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs) · [Composer](skills/update-agent-skills/scripts/adapt.mjs) · [Adapting a pack skill](skills/update-agent-skills/references/adapting.md)
 
 ### `release-ledger`
 
@@ -887,7 +891,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 
 - [`docs/composition.md`](docs/composition.md) — routing and lifecycle ownership, where progress reports draw their evidence, and where external-repository work sits.
 - [`docs/blocks.md`](docs/blocks.md) — Blocks REST/GitHub separation.
-- [`docs/project-adaptation.md`](docs/project-adaptation.md) — adapting a skill to one project without forking it: binding slots, hard-line and step ids, the merge rules, and how the adapted copy pins its skill.
+- [`docs/project-adaptation.md`](docs/project-adaptation.md) — adapting a skill to one project without forking it: binding slots, hard-line and step ids, the merge rules, and how the adapted copy pins its skill; `update-agent-skills` carries [the composer](skills/update-agent-skills/scripts/adapt.mjs) that builds and checks the copy.
 - [`skills/release-ledger/references/system-model.md`](skills/release-ledger/references/system-model.md) — release-ledger system model.
 - [`skills/github-webhooks/references/event-types.md`](skills/github-webhooks/references/event-types.md) — webhook event reference.
 - [`skills/describe-changes/references/output-contract.md`](skills/describe-changes/references/output-contract.md) — change-description contract.
