@@ -536,6 +536,11 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   // What the copy carries, a reference file as its entry, and how an id is cited rather than declared.
   const copy = section(adaptation, 'The adapted copy');
   assert.match(copy, /`LICENSE`, the MIT text/);
+  // The record lists the sha256 of the files the copy carries; it cannot list its own, since writing
+  // that digest would change it.
+  assert.match(copy, /the record of its pin \(below\), with the sha256 of every other file it\s+carries/);
+  assert.match(copy, /The record does not\s+hash itself/);
+  assert.match(section(adaptation, 'Pinning a skill'), /\*\*sha256 of every file\*\* carried, but for the record that holds them/);
   assert.match(copy, /### When the entry is a reference file/);
   assert.match(copy, /relative link in it is rewritten for its new place/);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
