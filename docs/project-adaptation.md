@@ -196,9 +196,12 @@ one outside fenced code is refused too.
    with the project's own trigger phrases, so neither copy hides the other and a reader can tell which
    one was loaded.
 7. **The frontmatter follows the skill, except what the project names.** `name` and `description`
-   come from the project. `allowed-tools` and `compatibility` come from the skill, and the project
-   widens the tools only by naming each one where review sees it. `metadata` is a map that records
-   the skill, its pin and its tree.
+   come from the project, and `license` and `compatibility` from the skill. `allowed-tools` never
+   comes from the skill: it pre-approves tools while the skill is active, and a pre-approval granted
+   by a shared skill would apply in every project that adapts it, chosen by none of them. The copy
+   carries the line only when the project names the tools itself, each where review sees it, and
+   then exactly those; otherwise it carries none. `metadata` is a map that records the skill, its
+   pin and its tree.
 8. **Nobody edits the adapted copy by hand.** It is generated. A project changes its overlay and
    composes again. A fix to the generic text is made in this pack, and reaches the project when its
    pin moves.

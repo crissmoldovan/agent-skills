@@ -288,6 +288,11 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
   assert.match(adapting, /\*\*Which composer is vendored\.\*\*/);
   // A git setting that rewrites GitHub addresses to ssh is common, and the composer refuses it.
   assert.match(section(adapting, 'Failure modes'), /`url\.<base>\.insteadOf`.*`--pack`/);
+  // Rule 7 as the guide states it: no pre-approval reaches a copy unless its adapter names it, and why.
+  assert.match(adapting, wrapped('carries no `allowed-tools` line unless `allowedTools` names the tools, and then exactly those'));
+  assert.match(adapting, wrapped('a pre-approval granted by a shared skill would apply in every project that adapts it'));
+  assert.match(checks.match(/^\| 9 \|.*$/m)?.[0] ?? '', /an `allowed-tools` line added by hand/);
+  assert.doesNotMatch(adapting, /widenTools|widened only/);
 
   assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
   assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);
@@ -631,6 +636,11 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.match(rules, /A hard line is never relaxed/);
   assert.match(rules, /`replaces:`[\s\S]*It is refused on an `H` id/);
   assert.match(rules, /never takes its skill's name/);
+  // Rule 7: a copy pre-approves only the tools the project names, because a shared skill's would
+  // apply in every project that adapts it.
+  assert.match(rules, wrapped('`allowed-tools` never comes from the skill'));
+  assert.match(rules, wrapped('a pre-approval granted by a shared skill would apply in every project that adapts it'));
+  assert.doesNotMatch(adaptation, /widenTools|widens the tools/);
 
   assert.match(adaptation, /A branch is refused, because it moves/);
   assert.match(adaptation, /\]\(releases\.md#tags\)/);

@@ -55,7 +55,6 @@ somewhere else; pass the same values to every command, because the lock records 
     "commit": "<optional: the full commit the ref was reviewed at>",
     "tree": "<optional: the full tree of skills/<pack skill> at that commit>"
   },
-  "widenTools": [],
   "overlay": "overlay.md",
   "projectFiles": [],
   "names": {}
@@ -70,7 +69,7 @@ somewhere else; pass the same values to every command, because the lock records 
 | `base.entry` | `SKILL.md`, or one reference file of the skill when that file holds the procedure the project needs |
 | `base.ref` | a tag (`vX.Y.Z` or `<skill>-vX.Y.Z`) or a full commit sha. A branch is refused, because it moves, and so is an abbreviated sha. A per-skill tag is compared with newer tags of its own and with the latest catalogue tag, because a catalogue release can change the skill without a per-skill tag beside it |
 | `base.commit`, `base.tree` | optional. When present, a ref that now resolves elsewhere is refused |
-| `widenTools` | tools added to the skill's `allowed-tools`, each named here where review sees it |
+| `allowedTools` | optional: exactly the tools the copy pre-approves while it is active, each one word, such as `Read`, since the `allowed-tools` line separates them by spaces. Absent or empty, the copy pre-approves none, whatever the skill declares ([why](#no-tool-is-pre-approved-unless-the-project-names-it)) |
 | `overlay` | the overlay file, `overlay.md` unless named |
 | `projectFiles` | the project's own files, each listed by its path inside the adapter folder, and each inside a `project` folder under `references`, `scripts` or `assets`, so they never collide with the skill's: `<adapter>/references/project/record-forms.md` is listed as the part after `<adapter>/`. A file in those folders that is not listed is refused rather than left out |
 | `names` | rarely needed: a pack skill the carried text names in backticks that no slot covers, mapped to this project's skill. Its main use is a reference-file entry that sends the reader back to its own skill |
@@ -176,9 +175,9 @@ generated folder by hand: merge `adapter.json` and the overlay, then compose.
 
 `SKILL.md`, in this order:
 
-1. the frontmatter: `name` and `description` from `adapter.json`; `license`, `allowed-tools` and
-   `compatibility` from the skill, the tools widened only by `widenTools`; `metadata` a map of the
-   source, entry, ref, commit and tree;
+1. the frontmatter: `name` and `description` from `adapter.json`; `license` and `compatibility`
+   from the skill; `allowed-tools` only when `allowedTools` names tools, and then exactly those;
+   `metadata` a map of the source, entry, ref, commit and tree;
 2. one generated line saying where to edit instead, and a short paragraph saying what the copy is
    and, when an addition opens with `replaces:`, that the addition wins over the step it names;
 3. **Names in this copy**: where the text names a pack skill whose slot is bound to a project
@@ -204,6 +203,21 @@ link, because only an edit to the skill can change it.
 Composing is concatenation at fixed points, never a model merging text, so the result can be
 compared byte for byte: LF line endings, files in sorted order, no timestamps.
 
+### No tool is pre-approved unless the project names it
+
+A skill's `allowed-tools` line pre-approves tools while the skill is active, in a harness that reads
+it, and one entry can reach far: `Bash` alone covers every command, a push included. So the copy
+carries no `allowed-tools` line unless `allowedTools` names the tools, and then exactly those, in
+the order named. The skill's own line is never carried, not even in part: a pre-approval granted by
+a shared skill would apply in every project that adapts it, chosen by none of them. A tool the copy
+does not name is asked for as the project's own settings decide, as it is for a skill without the
+line.
+
+The lock still records what the skill declares, and `compose` says so, so a project that wants a
+tool pre-approved can see what the skill asked for and name it in `allowedTools`, where review sees
+it. `compose` lists every tool the copy pre-approves for review, and check 9 refuses an
+`allowed-tools` line that is not that list, one added by hand included.
+
 ## The checks
 
 `check` holds every adapted copy to these. `compose` refuses an input that would break 4, 5, 6 or 10,
@@ -227,7 +241,7 @@ source that cannot be read).
 | 6 | the adapted copy's name differs from the skill's | an adapter that takes its skill's name |
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
-| 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
+| 9 | the frontmatter follows the skill's `compatibility`, carries `allowed-tools` only as `allowedTools` names it, and once, and `metadata` is a map | a hand edit to the frontmatter, an `allowed-tools` line added by hand among them |
 | 10 | every relative link in the generated folder resolves and stays inside the repository. A link inside fenced code is checked like any other, as the pack's verifier checks a skill's files: a link the check skipped would be checked by nothing, and no reading of fences by hand matches CommonMark. An example that shows a path writes it as code, such as `docs/guide.md`, not as a link. A link written from the root, such as `/docs/guide.md`, is refused: it is written from the file that holds it | a link in the overlay or a project file to something that is not there, an example's included |
 
 A generated folder whose adapter folder is gone fails as well.
@@ -266,6 +280,7 @@ and the run exits 2 when a pin moved or differs. Neither it nor `skills update` 
 | a newer release renames an id the overlay cites | `compose` refuses and names it | fix the overlay in the same change as the pin |
 | no network | only `compose` (without `--pack`) and `outdated` stop | nothing else needs it |
 | a git setting (`url.<base>.insteadOf`) rewrites GitHub addresses to ssh | `compose` without `--pack` refuses the pin, and `outdated` reports unknown: the composer allows a remote over https only, and the message names the setting | run the command with that setting left out (for one in the global configuration, `GIT_CONFIG_GLOBAL` naming an empty file), or compose from a clone with `--pack` |
+| the project wants a tool pre-approved that the skill's own `allowed-tools` names | the copy does not carry it, so the harness asks for the tool as the project's own settings decide | name it in `allowedTools` and compose; review reads it there |
 | the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |

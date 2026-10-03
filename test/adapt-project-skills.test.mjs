@@ -188,7 +188,6 @@ function adapterJson(pack, overrides = {}) {
     name: 'notes-here',
     description: 'Take notes about what reaches this repository. Use when something arrives for the team.',
     base: { source: pack, skill: 'notes', ref: 'v1.0.0', ...base },
-    widenTools: ['Grep'],
     projectFiles: ['references/project/local.md'],
     ...rest,
   };
@@ -279,11 +278,12 @@ test('the composed copy carries the skill byte for byte, under the project name,
 
   const skill = readText(project, generated(project, 'SKILL.md'));
   const { frontmatter, body } = splitFrontmatter(skill);
-  // Rule 7: name and description are the project's; tools and compatibility the skill's,
-  // widened only by widenTools; metadata a map recording the pin.
+  // Rule 7: name and description are the project's; licence and compatibility the skill's; no
+  // allowed-tools, since this adapter names none; metadata a map recording the pin.
   assert.match(frontmatter, /^name: notes-here$/m);
   assert.match(frontmatter, /^description: Take notes about what reaches this repository\./m);
-  assert.match(frontmatter, /^allowed-tools: Read Write Bash Grep$/m);
+  assert.match(frontmatter, /^license: MIT$/m);
+  assert.doesNotMatch(frontmatter, /allowed-tools/);
   assert.match(frontmatter, /^compatibility: "Any agent that reads Agent Skills; Node\.js 22 or newer for its script\."$/m);
   assert.match(frontmatter, /^metadata:\n {2}adapted-from: ".+ skills\/notes"\n {2}entry: "SKILL\.md"\n {2}ref: "v1\.0\.0"\n {2}commit: "[0-9a-f]{40}"\n {2}tree: "[0-9a-f]{12}"$/m);
 
@@ -389,16 +389,86 @@ test('check fails on a hand edit, and compose will not overwrite one without --d
   assert.match(added.stdout, /\[1\] references\/extra\.md is not in the lock: added by hand/);
 });
 
-test('check fails when the frontmatter is edited, and says which rule it breaks', async () => {
+// Rule 7: `allowed-tools` pre-approves tools while a skill is active, so a line a shared skill
+// declares would grant the same in every project that adapts it, chosen by none of them. A copy
+// carries the line only when its adapter names the tools, and then exactly those.
+test('an adapted copy pre-approves no tool unless its adapter names one', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack });
+  const result = compose(project, '--write');
+  assert.equal(result.status, EXIT_OK, result.stdout);
+
+  const file = generated(project, 'SKILL.md');
+  assert.doesNotMatch(splitFrontmatter(readText(project, file)).frontmatter, /allowed-tools/, "the skill's own allowed-tools reached the copy");
+  // The lock records what the skill declares, and compose says what the copy did not take.
+  const lock = JSON.parse(readText(project, generated(project, LOCK_FILE)));
+  assert.equal(lock.base.frontmatter['allowed-tools'], 'Read Write Bash');
+  assert.match(result.stdout, /notes declares allowed-tools Read Write Bash; this copy pre-approves no tool, as adapter\.json names none in allowedTools\./);
+  assert.equal(check(project).status, EXIT_OK);
+
+  // An empty list names none.
+  updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (value) => {
+    value.allowedTools = [];
+  });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  assert.doesNotMatch(splitFrontmatter(readText(project, file)).frontmatter, /allowed-tools/);
+  assert.equal(check(project).status, EXIT_OK);
+});
+
+test('allowedTools names exactly what the copy pre-approves, and compose lists it for review', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack, adapter: adapterJson(pack, { allowedTools: ['Grep', 'Bash(git:*)'] }) });
+  const result = compose(project, '--write');
+  assert.equal(result.status, EXIT_OK, result.stdout);
+
+  const file = generated(project, 'SKILL.md');
+  const toolLines = (text) => splitFrontmatter(text).frontmatter.split('\n').filter((line) => line.includes('allowed-tools'));
+  assert.deepEqual(toolLines(readText(project, file)), ['allowed-tools: "Grep Bash(git:*)"']);
+  assert.match(result.stdout, /For review: this copy pre-approves Grep Bash\(git:\*\) while it is active, as allowedTools names; notes itself declares Read Write Bash\./);
+  assert.equal(check(project).status, EXIT_OK);
+
+  // A tool the skill also declares is carried only because it is named, in the order named, and
+  // none of the skill's others comes with it.
+  updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (value) => {
+    value.allowedTools = ['Grep', 'Read'];
+  });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  assert.deepEqual(toolLines(readText(project, file)), ['allowed-tools: Grep Read']);
+  assert.equal(check(project).status, EXIT_OK);
+});
+
+test('check refuses an allowed-tools line added by hand, in any form, and one that is not what allowedTools names', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack });
   assert.equal(compose(project, '--write').status, EXIT_OK);
   const file = generated(project, 'SKILL.md');
-  write(project, file, readText(project, file).replace('allowed-tools: Read Write Bash Grep', 'allowed-tools: Read Write Bash Grep Edit'));
+  const composed = readText(project, file);
 
-  const result = check(project);
-  assert.equal(result.status, EXIT_FAILED);
-  assert.match(result.stdout, /\[9\] allowed-tools is not Read Write Bash widened by Grep/);
+  for (const added of ['allowed-tools: Bash', 'allowed-tools:\n  - Bash', "'allowed-tools': Bash", 'allowed-tools:']) {
+    write(project, file, composed.replace('\nlicense: MIT\n', `\nlicense: MIT\n${added}\n`));
+    const result = check(project);
+    assert.equal(result.status, EXIT_FAILED, added);
+    assert.match(result.stdout, /\[9\] allowed-tools is in the frontmatter, but adapter\.json names no tool in allowedTools/, added);
+  }
+  write(project, file, composed);
+  assert.equal(check(project).status, EXIT_OK);
+
+  // With allowedTools, the line is that list, written once.
+  updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (value) => {
+    value.allowedTools = ['Grep'];
+  });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  const granted = readText(project, file);
+  write(project, file, granted.replace('allowed-tools: Grep\n', 'allowed-tools: Grep Edit\n'));
+  const widened = check(project);
+  assert.equal(widened.status, EXIT_FAILED);
+  assert.match(widened.stdout, /\[9\] allowed-tools is not Grep, as allowedTools names/);
+  write(project, file, granted.replace('allowed-tools: Grep\n', 'allowed-tools: Grep\nallowed-tools: Bash\n'));
+  const twice = check(project);
+  assert.equal(twice.status, EXIT_FAILED);
+  assert.match(twice.stdout, /\[9\] allowed-tools appears 2 times; the copy writes it once, as allowedTools names/);
+  write(project, file, granted.replace('allowed-tools: Grep\n', ''));
+  assert.match(check(project).stdout, /\[9\] allowed-tools is not Grep, as allowedTools names/);
 });
 
 test('check fails when the overlay changed without a compose, and passes once composed', async () => {
@@ -1012,10 +1082,28 @@ const REFUSALS = [
     message: /\[adapter\] base\.commit, when given, is the full commit sha/,
   },
   {
-    name: 'widenTools as one string',
-    refused: { adapter: { widenTools: 'Grep' } },
-    accepted: { adapter: { widenTools: ['Grep'] } },
-    message: /\[adapter\] widenTools must be a list of tool names, each one word/,
+    name: 'allowedTools as one string',
+    refused: { adapter: { allowedTools: 'Grep' } },
+    accepted: { adapter: { allowedTools: ['Grep'] } },
+    message: /\[adapter\] allowedTools must be a list of tool names, each one word/,
+  },
+  {
+    name: 'allowedTools with a tool of two words',
+    refused: { adapter: { allowedTools: ['Bash(git status:*)'] } },
+    accepted: { adapter: { allowedTools: ['Bash(git:*)'] } },
+    message: /\[adapter\] allowedTools must be a list of tool names, each one word, as the allowed-tools line separates them by spaces/,
+  },
+  {
+    name: 'allowedTools naming one tool twice',
+    refused: { adapter: { allowedTools: ['Grep', 'Read', 'Grep'] } },
+    accepted: { adapter: { allowedTools: ['Grep', 'Read'] } },
+    message: /\[adapter\] allowedTools names Grep twice/,
+  },
+  {
+    name: 'widenTools, which would add to the tools a skill pre-approves',
+    refused: { adapter: { widenTools: [] } },
+    accepted: {},
+    message: /\[adapter\] adapter\.json has "widenTools", which is not read: an adapted copy carries no allowed-tools line unless allowedTools names the tools, and then exactly those; name them there, or remove the key/,
   },
   {
     name: 'an overlay outside the adapter folder',
@@ -1210,7 +1298,7 @@ function folderReader(root) {
 function composeFrom(root, skill, { entry = 'SKILL.md', overlay = '' } = {}) {
   const base = readBase(folderReader(root), { source: root, skill, entry, ref: 'v0.0.0', commit: '0'.repeat(40), tree: '0'.repeat(40) });
   return composeAdapted({
-    adapter: { name: `${skill}-here`, description: 'An adapted copy.', base: {}, widenTools: [], overlay: 'overlay.md', projectFiles: [], names: {}, raw: '{}' },
+    adapter: { name: `${skill}-here`, description: 'An adapted copy.', base: {}, allowedTools: [], overlay: 'overlay.md', projectFiles: [], names: {}, raw: '{}' },
     overlay: Buffer.from(overlay),
     base,
     composer: { sha256: '0'.repeat(64) },

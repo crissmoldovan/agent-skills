@@ -175,6 +175,13 @@ personal copy of the generic one.
   one the pinned release ships, and `--verify` compares every carried file with the upstream bytes,
   which is what proves a copy the offline check can only show was not changed.
 
+The copy's frontmatter takes `license` and `compatibility` from the skill and pre-approves no tool
+unless `adapter.json` names it: it carries an `allowed-tools` line only when `allowedTools` lists
+the tools, and then exactly those, never the skill's own, because a pre-approval granted by a shared
+skill would apply in every project that adapts it. `compose` lists every tool a copy pre-approves
+for review and says what the skill itself declares, and `check` refuses an `allowed-tools` line
+that is not that list.
+
 A reference file of a skill can be the entry instead of `SKILL.md`: its links are rewritten for the
 folder root, an id only `SKILL.md` declares is refused, and a link from another carried file to the
 skill's `SKILL.md`, which in that copy holds the entry's text, is named in a warning. When an

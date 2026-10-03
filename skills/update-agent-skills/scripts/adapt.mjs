@@ -52,7 +52,7 @@ import { fileURLToPath } from 'node:url';
 const posix = path.posix;
 
 /** Bumped when the composed bytes would change for the same inputs. The lock records it. */
-export const COMPOSER_VERSION = 1;
+export const COMPOSER_VERSION = 2;
 export const ADAPTER_VERSION = 1;
 export const LOCK_VERSION = 1;
 
@@ -83,7 +83,7 @@ const GITHUB_SOURCE = /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za
 const PROJECT_DIRS = ['references/project/', 'scripts/project/', 'assets/project/'];
 const BASE_BEGIN = '<!-- base:begin';
 const BASE_END = '<!-- base:end -->';
-const ADAPTER_KEYS = new Set(['version', 'name', 'description', 'base', 'widenTools', 'overlay', 'projectFiles', 'names']);
+const ADAPTER_KEYS = new Set(['version', 'name', 'description', 'base', 'allowedTools', 'overlay', 'projectFiles', 'names']);
 const BASE_KEYS = new Set(['source', 'skill', 'entry', 'ref', 'commit', 'tree']);
 const OVERLAY_SECTIONS = new Map([['bindings', 'Bindings'], ['additions', 'Additions'], ['project traps', 'Project traps']]);
 
@@ -413,10 +413,19 @@ export function yamlString(value) {
   return JSON.stringify(text);
 }
 
-function widenTools(baseTools, widen) {
-  const tools = baseTools ? baseTools.split(/\s+/).filter(Boolean) : [];
-  for (const tool of widen) if (!tools.includes(tool)) tools.push(tool);
-  return tools.join(' ');
+/**
+ * The `allowed-tools` value a copy carries: exactly the tools its adapter names, or none. The
+ * skill's own line is never carried. It pre-approves tools while the skill is active, and a
+ * pre-approval granted by a shared skill would apply in every project that adapts it, chosen by
+ * none of them (merge rule 7).
+ */
+function allowedToolsOf(adapter) {
+  return (adapter.allowedTools ?? []).join(' ');
+}
+
+/** How many top-level `allowed-tools` keys a frontmatter holds, its key quoted or not. */
+function allowedToolsLines(frontmatter) {
+  return frontmatter.split('\n').filter((line) => /^(["']?)allowed-tools\1\s*:/.test(line)).length;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1140,7 +1149,10 @@ export function linkProblems(files, { folder, exists }) {
 export function validateAdapter(adapter, folderName) {
   const problems = [];
   if (!adapter || typeof adapter !== 'object' || Array.isArray(adapter)) return { problems: ['adapter.json is not a JSON object'] };
-  for (const key of Object.keys(adapter)) if (!ADAPTER_KEYS.has(key)) problems.push(`adapter.json has an unknown key "${key}"`);
+  for (const key of Object.keys(adapter)) {
+    if (key === 'widenTools') problems.push('adapter.json has "widenTools", which is not read: an adapted copy carries no allowed-tools line unless allowedTools names the tools, and then exactly those; name them there, or remove the key');
+    else if (!ADAPTER_KEYS.has(key)) problems.push(`adapter.json has an unknown key "${key}"`);
+  }
   if (adapter.version !== ADAPTER_VERSION) problems.push(`adapter.json version must be ${ADAPTER_VERSION}`);
   if (typeof adapter.name !== 'string' || !SKILL_NAME.test(adapter.name) || adapter.name.length > 64) problems.push('name must be a skill name: lowercase letters, digits and single hyphens, at most 64 characters');
   else if (folderName !== undefined && adapter.name !== folderName) problems.push(`name ${adapter.name} differs from its folder ${folderName}`);
@@ -1160,8 +1172,13 @@ export function validateAdapter(adapter, folderName) {
     if (base.commit !== undefined && !(typeof base.commit === 'string' && FULL_SHA.test(base.commit))) problems.push('base.commit, when given, is the full commit sha');
     if (base.tree !== undefined && !(typeof base.tree === 'string' && FULL_SHA.test(base.tree))) problems.push('base.tree, when given, is the full tree sha');
   }
-  if (adapter.widenTools !== undefined && !(Array.isArray(adapter.widenTools) && adapter.widenTools.every((tool) => typeof tool === 'string' && /^\S+$/.test(tool)))) {
-    problems.push('widenTools must be a list of tool names, each one word');
+  if (adapter.allowedTools !== undefined) {
+    if (!(Array.isArray(adapter.allowedTools) && adapter.allowedTools.every((tool) => typeof tool === 'string' && /^\S+$/.test(tool)))) {
+      problems.push('allowedTools must be a list of tool names, each one word, as the allowed-tools line separates them by spaces');
+    } else {
+      const repeated = new Set(adapter.allowedTools.filter((tool, index, all) => all.indexOf(tool) !== index));
+      for (const tool of repeated) problems.push(`allowedTools names ${tool} twice`);
+    }
   }
   if (adapter.overlay !== undefined && (typeof adapter.overlay !== 'string' || !/^(?!\.\.?\/)[A-Za-z0-9._-]+\.md$/.test(adapter.overlay))) problems.push('overlay must name a Markdown file in the adapter folder');
   if (adapter.projectFiles !== undefined) {
@@ -1193,7 +1210,7 @@ export function validateAdapter(adapter, folderName) {
       name: adapter.name,
       description: adapter.description,
       base: { source: base.source, skill: base.skill, entry: base.entry ?? 'SKILL.md', ref: base.ref, commit: base.commit ?? null, tree: base.tree ?? null },
-      widenTools: adapter.widenTools ?? [],
+      allowedTools: adapter.allowedTools ?? [],
       overlay: adapter.overlay ?? 'overlay.md',
       projectFiles: [...(adapter.projectFiles ?? [])].sort(),
       names: adapter.names ?? {},
@@ -1563,6 +1580,13 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
     warnings.push(...named);
   }
 
+  // A pre-approval is a grant, so review sees every one the copy carries; and what the skill
+  // itself declares is said too, because the copy never takes it (merge rule 7).
+  const granted = allowedToolsOf(adapter);
+  const declaredTools = base.frontmatter['allowed-tools'] || null;
+  if (granted) notes.push(`For review: this copy pre-approves ${granted} while it is active, as allowedTools names; ${identity.skill} itself declares ${declaredTools ?? 'none'}.`);
+  else if (declaredTools) notes.push(`${identity.skill} declares allowed-tools ${declaredTools}; this copy pre-approves no tool, as adapter.json names none in allowedTools.`);
+
   const lock = {
     version: LOCK_VERSION,
     name: adapter.name,
@@ -1596,7 +1620,7 @@ function composeSkillMarkdown({ adapter, base, names, overlay, segment, layout }
   const { identity, frontmatter } = base;
   const lines = ['---', `name: ${adapter.name}`, `description: ${yamlString(adapter.description)}`];
   if (frontmatter.license) lines.push(`license: ${yamlString(frontmatter.license)}`);
-  const tools = widenTools(frontmatter['allowed-tools'], adapter.widenTools);
+  const tools = allowedToolsOf(adapter);
   if (tools) lines.push(`allowed-tools: ${yamlString(tools)}`);
   if (frontmatter.compatibility) lines.push(`compatibility: ${yamlString(frontmatter.compatibility)}`);
   lines.push(
@@ -1895,14 +1919,21 @@ function baseFromCopy(lock, generated) {
   };
 }
 
-/** Check 9: the frontmatter follows the skill's, widened only by widenTools, with metadata a map. */
+/**
+ * Check 9: the frontmatter carries the skill's compatibility, `allowed-tools` only as allowedTools
+ * names it and only once, and metadata a map.
+ */
 function frontmatterProblems(skillMarkdown, lock, adapter) {
   const split = splitFrontmatter(skillMarkdown);
   if (!split) return ['SKILL.md has no frontmatter'];
   const problems = [];
   const recorded = lock.base.frontmatter ?? {};
-  const expectedTools = widenTools(recorded['allowed-tools'], adapter.widenTools) || null;
-  if ((frontmatterValue(split.frontmatter, 'allowed-tools') || null) !== expectedTools) problems.push(`allowed-tools is not ${recorded['allowed-tools'] ?? 'absent'}${adapter.widenTools.length ? ` widened by ${adapter.widenTools.join(' ')}` : ''}, as the skill and widenTools give`);
+  const granted = allowedToolsOf(adapter);
+  const toolLines = allowedToolsLines(split.frontmatter);
+  if (!granted) {
+    if (toolLines) problems.push('allowed-tools is in the frontmatter, but adapter.json names no tool in allowedTools: an adapted copy pre-approves only the tools its adapter names');
+  } else if (toolLines > 1) problems.push(`allowed-tools appears ${toolLines} times; the copy writes it once, as allowedTools names`);
+  else if (frontmatterValue(split.frontmatter, 'allowed-tools') !== granted) problems.push(`allowed-tools is not ${granted}, as allowedTools names`);
   if ((frontmatterValue(split.frontmatter, 'compatibility') || null) !== (recorded.compatibility || null)) problems.push('compatibility differs from the skill\'s');
   const metadata = split.frontmatter.split('\n');
   const at = metadata.findIndex((line) => line.startsWith('metadata:'));
