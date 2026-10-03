@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
@@ -304,4 +304,392 @@ test('verifier rejects a fit.json that does not parse, names an unknown kind, or
     assert.equal(result.status, 1, `${name} passed verification`);
     assert.match(result.stderr, expected);
   }
+});
+
+// A skill a project may adapt declares its binding slots in a `## Bindings` table and names its
+// hard lines and steps with stable ids (docs/project-adaptation.md). A project's overlay cites
+// those ids, so an id that is malformed, declared twice, or a slot with no default would make an
+// adapted copy compose wrong or not at all. Any file of a skill may declare the section.
+
+const bindingsTable = (rows) => [
+  '## Bindings',
+  '',
+  '| id | slot | kind | default |',
+  '|---|---|---|---|',
+  ...rows,
+  '',
+].join('\n');
+
+const adaptableBody = (rows, rest = '') => [
+  '---',
+  'name: valid-skill',
+  'description: Valid fixture',
+  '---',
+  '',
+  bindingsTable(rows),
+  '## Hard lines',
+  '',
+  '- **H1. Contacts nobody.** The run sends nothing to anyone.',
+  '',
+  '## Procedure',
+  '',
+  '1. **S1. Record the instruction.** Keep its words.',
+  '2. **S2. Read the evidence.** Before touching the file.',
+  '',
+  '### S3 — Keep it verbatim',
+  '',
+  rest,
+].join('\n');
+
+const goodRows = [
+  '| B1 | who the run answers to | value, required | ask once, and keep the answer for the run |',
+  '| B2 | the zone written beside UTC | value | UTC only |',
+  '| B3 | where a question for a person goes | skill | `sibling-skill` |',
+];
+
+async function adaptableFixture(body = adaptableBody(goodRows)) {
+  const root = await fixture();
+  await writeFile(path.join(root, 'skills', 'valid-skill', 'SKILL.md'), body);
+  // The catalogue ships the skill a `skill` slot defaults to.
+  await mkdir(path.join(root, 'skills', 'sibling-skill', 'references'), { recursive: true });
+  await writeFile(path.join(root, 'skills', 'sibling-skill', 'SKILL.md'), '---\nname: sibling-skill\ndescription: Sibling fixture\n---\n');
+  await writeFile(
+    path.join(root, 'skills', 'sibling-skill', 'references', 'fit.json'),
+    `${JSON.stringify({ version: 1, kind: 'general', useWhen: 'a fixture' }, null, 2)}\n`,
+  );
+  return root;
+}
+
+test('verifier accepts a skill whose Bindings, hard lines and steps are well formed', async () => {
+  const result = await verify(await adaptableFixture());
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('verifier refuses a slot id that is not one capital letter and a number from 1', async () => {
+  for (const id of ['B01', 'b1', 'B-1', 'B1a', 'BB1', 'B0', '`B1`']) {
+    const root = await adaptableFixture(adaptableBody([`| ${id} | a slot | value | ask once |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `${id} passed verification`);
+    assert.match(result.stderr, /slot id .* is not well formed/, id);
+  }
+});
+
+test('verifier refuses a slot id under H or S, the letters of hard lines and steps', async () => {
+  for (const id of ['H4', 'S9']) {
+    const root = await adaptableFixture(adaptableBody([`| ${id} | a slot | value | ask once |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `${id} passed verification`);
+    assert.match(result.stderr, new RegExp(`slot id ${id} uses ${id[0]}, which names`));
+  }
+});
+
+test('verifier refuses a slot with no default, or a placeholder in its place', async () => {
+  for (const placeholder of ['', '-', '—', 'TBD', 'todo', 'n/a', '?']) {
+    const root = await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${placeholder} |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `default "${placeholder}" passed verification`);
+    assert.match(result.stderr, /slot B1 has no default/);
+  }
+});
+
+// A placeholder is still a placeholder when it is wrapped in code, emphasis or strikethrough, or
+// escaped: what the reader is left with is `TBD`. A real default wrapped the same way still passes.
+test('verifier refuses a placeholder default wrapped in Markdown formatting, and keeps a formatted real one', async () => {
+  for (const placeholder of ['`TBD`', '`?`', '`-`', '``todo``', '*TBD*', '**n/a**', '_TBD_', '***?***', '~~TBD~~', '` `', '\\?', '**`TBD`**']) {
+    const root = await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${placeholder} |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `default "${placeholder}" passed verification`);
+    assert.match(result.stderr, /slot B1 has no default/, placeholder);
+  }
+  for (const fallback of ['`UTC only`', '*ask once*', '**nobody**, and the run says so']) {
+    const result = await verify(await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${fallback} |`])));
+    assert.equal(result.status, 0, `default "${fallback}" was refused: ${result.stderr}`);
+  }
+});
+
+test('verifier refuses a slot kind other than value or skill, with an optional ", required"', async () => {
+  for (const kind of ['list', 'Value', 'value required', 'skill, optional', '']) {
+    const root = await adaptableFixture(adaptableBody([`| B1 | a slot | ${kind} | ask once |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `kind "${kind}" passed verification`);
+    assert.match(result.stderr, /slot B1 has kind .* — use value or skill/);
+  }
+});
+
+test('verifier holds a skill slot to a default that names one skill this catalogue ships', async () => {
+  const cases = [
+    ['sibling-skill', /slot B1 is of kind skill, so its default names one skill in backticks/],
+    ['`sibling-skill` or `other-skill`', /slot B1 is of kind skill, so its default names one skill in backticks/],
+    ['`missing-skill`', /slot B1 defaults to `missing-skill`, which this catalogue does not ship/],
+  ];
+  for (const [fallback, expected] of cases) {
+    const root = await adaptableFixture(adaptableBody([`| B1 | where a question goes | skill | ${fallback} |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `default ${fallback} passed verification`);
+    assert.match(result.stderr, expected);
+  }
+});
+
+test('verifier refuses a Bindings section with no table, a different header, or no slot', async () => {
+  const frontmatter = '---\nname: valid-skill\ndescription: Valid fixture\n---\n\n';
+  const cases = [
+    ['## Bindings\n\nNone yet.\n', /## Bindings has no table/],
+    ['## Bindings\n\n| id | value |\n|---|---|\n| B1 | ask once |\n', /columns \| id \| slot \| kind \| default \|/],
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n\nNo rows.\n', /## Bindings declares no slot/],
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n| B1 | a slot | value |\n', /row has 3 cells; the table has 4/],
+    // A delimiter row with another number of cells than the header is not a table to a renderer.
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|\n| B1 | a slot | value | ask once |\n', /delimiter row has 1 cell; the table has 4/],
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|---|\n| B1 | a slot | value | ask once |\n', /delimiter row has 5 cells; the table has 4/],
+  ];
+  for (const [section, expected] of cases) {
+    const root = await adaptableFixture(frontmatter + section);
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `${section} passed verification`);
+    assert.match(result.stderr, expected);
+  }
+});
+
+test('verifier refuses an id declared twice, within a file or across the files of a skill', async () => {
+  const twiceInOneFile = await adaptableFixture(adaptableBody([...goodRows, '| B2 | another slot | value | ask once |']));
+  let result = await verify(twiceInOneFile);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /id B2 is declared twice in this skill \(first at .*SKILL\.md:\d+\)/);
+
+  const stepTwice = await adaptableFixture(adaptableBody(goodRows, '- **S2. Read it again.** A second S2.\n'));
+  result = await verify(stepTwice);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /id S2 is declared twice in this skill/);
+
+  // A reference file is read as much as SKILL.md, and shares the skill's ids.
+  const acrossFiles = await adaptableFixture();
+  await writeFile(
+    path.join(acrossFiles, 'skills', 'valid-skill', 'references', 'pack.md'),
+    `# Pack\n\n${bindingsTable(['| B3 | where the pack goes | value | ask once |'])}\n1. **S1. Pin both ends.**\n`,
+  );
+  result = await verify(acrossFiles);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`${escapeRegExp(path.join('references', 'pack.md'))}:\\d+: id B3 is declared twice in this skill`));
+  assert.match(result.stderr, new RegExp(`${escapeRegExp(path.join('references', 'pack.md'))}:\\d+: id S1 is declared twice in this skill`));
+});
+
+test('verifier checks a Bindings section in a reference file, not only in SKILL.md', async () => {
+  const root = await fixture();
+  await writeFile(
+    path.join(root, 'skills', 'valid-skill', 'references', 'assessing.md'),
+    `# Assessing\n\n${bindingsTable(['| B1 | who rules the severity | value | |'])}`,
+  );
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`${escapeRegExp(path.join('references', 'assessing.md'))}:\\d+: slot B1 has no default`));
+});
+
+test('verifier refuses a malformed hard-line or step id, and slots under two letters in one skill', async () => {
+  const malformed = await adaptableFixture(adaptableBody(goodRows, '- **S04. Hash it.** A leading zero.\n\n### H2a — A suffix\n'));
+  let result = await verify(malformed);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /S04 is not a well-formed step id/);
+  assert.match(result.stderr, /H2a is not a well-formed hard-line id/);
+
+  const twoLetters = await adaptableFixture(adaptableBody([...goodRows, '| F4 | the event source | value | ask once |']));
+  result = await verify(twoLetters);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /slots in this skill use more than one letter \(B, F\)/);
+
+  // Another letter than B is allowed, as long as the skill uses only that one.
+  const ownLetter = await adaptableFixture(adaptableBody(['| F1 | the event source | value | ask once |', '| F2 | the table | value | ask once |']));
+  result = await verify(ownLetter);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+// An id written with a separator or in lower case (`S-1`, `H_1`, `s4`) is a malformed id, not
+// prose: it fails rather than passing unread. A heading or lead-in where a letter follows the H or
+// S is a word (`## Hard lines`, `- **Sweep the day.**`) and stays ordinary text.
+test('verifier refuses an id written with a separator or in lower case, and leaves a word after H or S alone', async () => {
+  const cases = [
+    ['- **S-1. Do work.** A hyphen.', /S-1 is not a well-formed step id/],
+    ['### H_1 — Guard', /H_1 is not a well-formed hard-line id/],
+    ['1. **S.5 Dotted.** A full stop.', /S\.5 is not a well-formed step id/],
+    ['### S 6 — Spaced', /S 6 is not a well-formed step id/],
+    ['- **H–3. An en dash.**', /H–3 is not a well-formed hard-line id/],
+    ['- **s4. Lower case.**', /s4 is not a well-formed step id/],
+    ['### h2 — Lower case', /h2 is not a well-formed hard-line id/],
+  ];
+  for (const [line, expected] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${line}\n`)));
+
+    assert.equal(result.status, 1, `${line} passed verification`);
+    assert.match(result.stderr, expected, line);
+  }
+
+  const words = [
+    '## Scope',
+    '',
+    '### Sweep the day',
+    '',
+    '- **Severity: the evidence decides it.**',
+    '- **Hash it before and after.**',
+    '- **Signed in, or not.**',
+    '- **S-curve:** a word, not an id.',
+    '1. **How this was checked.**',
+    '#### H-bridge',
+    '',
+  ].join('\n');
+  const result = await verify(await adaptableFixture(adaptableBody(goodRows, words)));
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('verifier ignores fenced examples and files that declare no Bindings', async () => {
+  const fencedOnly = [
+    '# Showing an overlay',
+    '',
+    '```markdown',
+    '## Bindings',
+    '',
+    '| id | value |',
+    '|---|---|',
+    '| B01 | not a slot of this skill |',
+    '```',
+    '',
+    '- **S1. A step in a file that is not adaptable.**',
+    '- **S1. The same id again, which no rule reads here.**',
+    '',
+  ].join('\n');
+  const root = await adaptableFixture();
+  await writeFile(path.join(root, 'skills', 'valid-skill', 'references', 'overlay-example.md'), fencedOnly);
+  const withFenceInAdaptable = adaptableBody(goodRows, ['```markdown', '- **S1. An example step inside a fence.**', '| B9 | x | list | |', '```', ''].join('\n'));
+  await writeFile(path.join(root, 'skills', 'valid-skill', 'SKILL.md'), withFenceInAdaptable);
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+// The page that defines the convention shows a skill declaring it, and lists the placeholders the
+// verifier refuses as a default. Its example has to pass the verifier inside this catalogue, and
+// each placeholder it names has to be refused, so the page and the check cannot drift apart.
+test('the project-adaptation page: its example passes in this catalogue, and every placeholder it names is refused', async () => {
+  const page = await readFile(path.join(repository, 'docs', 'project-adaptation.md'), 'utf8');
+  const example = page.slice(page.indexOf('## Declaring them')).match(/```markdown\n([\s\S]*?)\n```/)[1];
+  const withExample = (fallback) => `---\nname: valid-skill\ndescription: Valid fixture\n---\n\n${example.replace('| value | UTC only |', `| value | ${fallback} |`)}\n`;
+  const root = await fixture();
+  await cp(path.join(repository, 'skills'), path.join(root, 'skills'), { recursive: true });
+  const skill = path.join(root, 'skills', 'valid-skill', 'SKILL.md');
+
+  await writeFile(skill, withExample('UTC only'));
+  const passed = await verify(root);
+  assert.equal(passed.status, 0, passed.stderr);
+
+  const listed = page.match(/a slot has no default \(([^)]*)\)/);
+  assert.ok(listed, 'the page lists the placeholders it says are refused');
+  const placeholders = [...listed[1].matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+  assert.ok(placeholders.length >= 4, `too few placeholders read from the page: ${placeholders.join(', ')}`);
+  for (const placeholder of [...placeholders, '', '-']) {
+    await writeFile(skill, withExample(placeholder));
+    const refused = await verify(root);
+    assert.equal(refused.status, 1, `the page says "${placeholder}" is refused as a default, and it passed`);
+    assert.match(refused.stderr, /slot B2 has no default/);
+  }
+});
+
+test('verifier refuses a file that declares Bindings twice, and a slot that does not say what it holds', async () => {
+  const twice = await adaptableFixture(`${adaptableBody(goodRows)}\n${bindingsTable(['| B4 | another | value | ask once |'])}`);
+  let result = await verify(twice);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /SKILL\.md:\d+: ## Bindings is declared twice in this file/);
+
+  const unsaid = await adaptableFixture(adaptableBody(['| B1 |  | value | ask once |']));
+  result = await verify(unsaid);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /slot B1 does not say what it holds/);
+});
+
+// A fence nested in a list item is indented past three spaces and is still code, so an example
+// step inside it declares nothing; and a heading at any level declares, level one included.
+test('verifier leaves out a fence nested in a list item, and reads a level-one heading', async () => {
+  const nested = adaptableBody(goodRows, [
+    '- A pitfall with an example:',
+    '  - The example, in a nested list:',
+    '',
+    '     ```markdown',
+    '     1. **S1. An example step inside a nested fence.**',
+    '     ```',
+    '',
+  ].join('\n'));
+  let result = await verify(await adaptableFixture(nested));
+  assert.equal(result.status, 0, result.stderr);
+
+  result = await verify(await adaptableFixture(adaptableBody(goodRows, '# S2 — The same step, at level one\n')));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /id S2 is declared twice in this skill/);
+});
+
+// A fence hides lines only when it closes before a line indented less than its opener. A line that
+// only looks like a fence (indented code showing one, a fence never closed, backticks in the info
+// string) would otherwise hide every declaration after it, so a step declared twice would pass.
+test('verifier reads past a line that only looks like a fence, so a declaration after it is still held', async () => {
+  const cases = [
+    ['an indented code line showing a fence', ['    ```', '', '- **S2. Read it again.** A second S2.']],
+    ['an indented code line, then a real fenced example', ['    ```', '', '- **S2. Read it again.** A second S2.', '', '```markdown', 'An example.', '```']],
+    ['a fence never closed', ['```markdown', '- **S2. Read it again.** A second S2.']],
+    ['backticks in a backtick fence\'s info string', ['``` `inline` code, which is not a fence', '- **S2. Read it again.** A second S2.', '```']],
+  ];
+  for (const [name, rest] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${rest.join('\n')}\n`)));
+
+    assert.equal(result.status, 1, `after ${name}, a second S2 passed verification`);
+    assert.match(result.stderr, /id S2 is declared twice in this skill/, name);
+  }
+});
+
+// A fence-shaped line indented more than three columns past the opener is the fence's content, so
+// it does not close the fence, and an example after it stays code. Indented code showing a whole
+// fenced example is code too.
+test('verifier keeps a fence open past a deeper fence-shaped line, and leaves out indented code showing a fence', async () => {
+  const deeper = [
+    '```markdown',
+    '- An example that shows a fence of its own:',
+    '',
+    '    ```js',
+    '    code',
+    '    ```',
+    '',
+    '- **S1. An example step, still inside the outer fence.**',
+    '```',
+    '',
+  ].join('\n');
+  let result = await verify(await adaptableFixture(adaptableBody(goodRows, deeper)));
+  assert.equal(result.status, 0, result.stderr);
+
+  const indented = ['    ```markdown', '    - **S1. An example step in indented code.**', '    ```', ''].join('\n');
+  result = await verify(await adaptableFixture(adaptableBody(goodRows, indented)));
+  assert.equal(result.status, 0, result.stderr);
+});
+
+// Only a declaration opens a list item with an id in bold. A citation written as a bold lead-in
+// is read as a declaration, which is why the page tells authors to cite an id inside the sentence.
+test('verifier reads a bold lead-in that opens with an id as declaring it', async () => {
+  const leadIn = adaptableBody(goodRows, '## Pitfalls\n\n- **S2 skipped:** the evidence was never read.\n');
+  const result = await verify(await adaptableFixture(leadIn));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /id S2 is declared twice in this skill/);
+
+  const inSentence = adaptableBody(goodRows, '## Pitfalls\n\n- **Evidence skipped:** if S2 was skipped, the evidence was never read.\n');
+  assert.equal((await verify(await adaptableFixture(inSentence))).status, 0);
 });
