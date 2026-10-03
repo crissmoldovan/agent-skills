@@ -81,7 +81,9 @@ is never attached; the pack names what replaced it.
    merge caused is a difference like any other, and putting it back needs its owner's word for that
    item alone.
 3. **S10. Draft with a source on every claim.** Write the note first (B9), then the companions, and
-   the list of what is open last, from the other documents. Every sentence carries a source note
+   the list of what is open last, from the other documents. Then draft the message to the
+   recipients bound as B10, from the note and that list, as "What a pack is" describes, so that
+   S11 checks it and S12 shows it with the documents. Every sentence carries a source note
    that the render strips: `<!-- src: path:line | commit | capture -->`. Follow "Writing it", below.
 4. **S11. Check with three independent checkers,** each given the drafts and the evidence, and none
    another's findings:
@@ -109,9 +111,9 @@ is never attached; the pack names what replaced it.
    memory. **The commit served is not always the stamp.** Where a merge carries the release to an
    environment, the merge is served: check that the stamp is its ancestor
    (`git merge-base --is-ancestor <stamp> <served>`) and record both. Put the deployment and the
-   commit served in every header that names the build. Then sweep every document for what the
-   push answered ("not yet", "not pushed", "nobody has checked"), so the message never contradicts
-   its attachments, and commit what changed as S13 says.
+   commit served in every header that names the build. Then sweep the message and every document
+   for what the push answered ("not yet", "not pushed", "nobody has checked"), so the message never
+   contradicts its attachments, and commit the documents that changed as S13 says.
 8. **S15. Take in late arrivals before the render.** Since the drafts began, has anyone ruled on the
    number, the route or the scope, or replied to the last pack? Each one goes in first: a ruling on
    the number through B9, a ruling on the route into the baseline and the environments named, a
@@ -122,9 +124,11 @@ is never attached; the pack names what replaced it.
 9. **S16. Render and archive** (B13, B14): the drafts with their source notes, the checks with their
    logs, and the files rendered. Search the rendered files for tokens and machine paths first.
    Compare every rendered text file, byte for byte, with its copy last committed, as S13 says (H7).
-10. **S17. Prepare the message** to the recipients bound as B10, with the files rendered in S16
-    attached from the archive, not from a scratch directory. If a document changed after the person
-    bound as B11 read it, show them the difference first. Show them the prepared message verbatim,
+10. **S17. Prepare the message** to the recipients bound as B10: the text drafted in S10, checked in
+    S11 and shown in S12, its source notes stripped and none left, with the files rendered in S16
+    attached from the archive, not from a scratch directory. A message is never first written here:
+    one with no draft goes back to S10. If the message or a document changed after the person bound
+    as B11 read it, show them the difference first. Show them the prepared message verbatim,
     attachments included, and say that nothing has been sent. It goes only as H6 says. Afterwards,
     read the sent folder or the channel before reporting it sent, or still a draft.
 11. **S18. Record what was sent.** Copy the attachments as sent into the archive, and compare each

@@ -428,6 +428,13 @@ test('release-notes sends a release to people as a document pack, pinned at both
   assert.match(pack, /dry-run it again and commit what it writes: S16 compares against the files last\s+committed/);
   assert.match(pack, /with its copy last committed, as S13 says \(H7\)/);
   assert.match(pack, /Run S11 again over the changed documents, commit them as S13 says/);
+  // The message is drafted with the documents, so the checkers of S11 and the person of S12 read
+  // it; S17 assembles the text they read and never writes one first.
+  const procedure = [...pack.matchAll(/^\d+\. \*\*S(\d+)\. ([\s\S]*?)(?=^\d+\. \*\*S\d+\. |^## )/gm)].map(([, id, body]) => ({ id: Number(id), body }));
+  assert.deepEqual(procedure.map(({ id }) => id), [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+  const drafting = procedure.find(({ body }) => /\bdraft the message\b/i.test(body));
+  assert.ok(drafting && drafting.id < 11, 'a step before S11 drafts the message that S11 and S12 check');
+  assert.match(procedure.find(({ id }) => id === 17).body, /drafted in S10,\s+checked in\s+S11\s+and shown in\s+S12/);
   // The release record before any message, and the served commit read rather than assumed.
   assert.match(pack, /record the release before any message/);
   assert.match(pack, /\*\*who pushed it and\s+on whose word\*\*/);
