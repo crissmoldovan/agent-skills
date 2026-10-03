@@ -243,10 +243,9 @@ resolves from the file that holds it, fenced or not, and from `references/` the 
 resolve, so no copy that carried the file could be made. The fence now holds the sentence's words,
 and the line above it names, as code, the words that link and the path they link to. The sentence
 each `SKILL.md` carries is unchanged, and the test that holds every one of them to the convention
-now builds it from those words and that path. A new test resolves every relative link in every
-Markdown file a skill carries from that file's own folder, fenced code included; these six copies
-were the only files that failed it. The wording keeps its meaning, so this is a patch under
-[Versioning](#versioning).
+now builds it from those words and that path. These six copies were the only Markdown files a
+skill carries in which a relative link, fenced code included, did not resolve from the file's own
+folder. The wording keeps its meaning, so this is a patch under [Versioning](#versioning).
 
 ## Release checklist
 
