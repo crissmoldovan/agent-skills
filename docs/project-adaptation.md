@@ -275,7 +275,9 @@ breaking; from 1.0.0 it moves the first.
 
 `scripts/verify-skills.mjs` reads every Markdown file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It leaves fenced code out, at any indentation, so an example
-such as the ones on this page declares nothing. It fails when:
+such as the ones on this page declares nothing. A fence counts only when it closes before a line
+indented less than it, so a line that merely looks like one (indented code showing a fence, or a
+fence left open) hides nothing after it. It fails when:
 
 - one file declares the section twice, or the section has no table, the table's columns are not
   `id | slot | kind | default`, its delimiter row has another number of cells, so that a renderer

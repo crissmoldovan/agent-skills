@@ -198,24 +198,55 @@ function validateLinks(source, file, skillDirectory) {
   }
 }
 
+/** The column a run of leading whitespace reaches, a tab moving to the next multiple of four. */
+function indentColumns(whitespace) {
+  let column = 0;
+  for (const character of whitespace) column = character === '\t' ? column + 4 - (column % 4) : column + 1;
+  return column;
+}
+
 /**
  * The file's lines with every fenced code block blanked, so line numbers still match. A fence is
  * read at any indentation, because one nested in a list item sits past the three spaces a fence at
- * the top level may have, and is code all the same.
+ * the top level may have, and is code all the same. Without reading the lists around it, a fence is
+ * taken the strictest way it could be meant, so that it never hides a line Markdown would show: it
+ * closes at a bare run of at least as many of its character, indented at most three columns more
+ * than it, and only if that comes before any line that is not blank and is indented less than it. A
+ * fence that does not close so opens nothing: its line is read as text, and so are the lines after
+ * it. That is an indented code line that merely shows a fence, or a fence left open, which would
+ * otherwise hide every declaration after it. A less indented line that would have closed it is the
+ * closing line its writer meant, so it does not open a fence of its own. A backtick fence whose info
+ * string holds a backtick is not a fence.
  */
 function unfencedLines(source) {
-  let fence = null;
-  return source.split('\n').map((line) => {
-    if (fence === null) {
-      const open = line.match(/^\s*(`{3,}|~{3,})/);
-      if (!open) return line;
-      fence = open[1];
-      return '';
+  const lines = source.split('\n');
+  const result = [...lines];
+  const meantToClose = new Set();
+  for (let at = 0; at < lines.length; at += 1) {
+    const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
+    if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
+    const [, lead, fence] = open;
+    const indent = indentColumns(lead);
+    let end = -1;
+    for (let next = at + 1; next < lines.length; next += 1) {
+      if (lines[next].trim() === '') continue;
+      const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
+      const closes = close !== null && close[2][0] === fence[0] && close[2].length >= fence.length;
+      const depth = indentColumns(lines[next].match(/^\s*/)[0]);
+      if (depth < indent) {
+        if (closes) meantToClose.add(next);
+        break;
+      }
+      if (closes && depth <= indent + 3) {
+        end = next;
+        break;
+      }
     }
-    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
-    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-    return '';
-  });
+    if (end < 0) continue;
+    result.fill('', at, end + 1);
+    at = end;
+  }
+  return result;
 }
 
 /** A table row's cells, split on every pipe that is not escaped, as GitHub's tables split them. */

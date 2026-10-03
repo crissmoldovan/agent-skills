@@ -640,6 +640,48 @@ test('verifier leaves out a fence nested in a list item, and reads a level-one h
   assert.match(result.stderr, /id S2 is declared twice in this skill/);
 });
 
+// A fence hides lines only when it closes before a line indented less than its opener. A line that
+// only looks like a fence (indented code showing one, a fence never closed, backticks in the info
+// string) would otherwise hide every declaration after it, so a step declared twice would pass.
+test('verifier reads past a line that only looks like a fence, so a declaration after it is still held', async () => {
+  const cases = [
+    ['an indented code line showing a fence', ['    ```', '', '- **S2. Read it again.** A second S2.']],
+    ['an indented code line, then a real fenced example', ['    ```', '', '- **S2. Read it again.** A second S2.', '', '```markdown', 'An example.', '```']],
+    ['a fence never closed', ['```markdown', '- **S2. Read it again.** A second S2.']],
+    ['backticks in a backtick fence\'s info string', ['``` `inline` code, which is not a fence', '- **S2. Read it again.** A second S2.', '```']],
+  ];
+  for (const [name, rest] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${rest.join('\n')}\n`)));
+
+    assert.equal(result.status, 1, `after ${name}, a second S2 passed verification`);
+    assert.match(result.stderr, /id S2 is declared twice in this skill/, name);
+  }
+});
+
+// A fence-shaped line indented more than three columns past the opener is the fence's content, so
+// it does not close the fence, and an example after it stays code. Indented code showing a whole
+// fenced example is code too.
+test('verifier keeps a fence open past a deeper fence-shaped line, and leaves out indented code showing a fence', async () => {
+  const deeper = [
+    '```markdown',
+    '- An example that shows a fence of its own:',
+    '',
+    '    ```js',
+    '    code',
+    '    ```',
+    '',
+    '- **S1. An example step, still inside the outer fence.**',
+    '```',
+    '',
+  ].join('\n');
+  let result = await verify(await adaptableFixture(adaptableBody(goodRows, deeper)));
+  assert.equal(result.status, 0, result.stderr);
+
+  const indented = ['    ```markdown', '    - **S1. An example step in indented code.**', '    ```', ''].join('\n');
+  result = await verify(await adaptableFixture(adaptableBody(goodRows, indented)));
+  assert.equal(result.status, 0, result.stderr);
+});
+
 // Only a declaration opens a list item with an id in bold. A citation written as a bold lead-in
 // is read as a declaration, which is why the page tells authors to cite an id inside the sentence.
 test('verifier reads a bold lead-in that opens with an id as declaring it', async () => {
