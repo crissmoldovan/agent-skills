@@ -199,7 +199,9 @@ the adapted `SKILL.md`, the copy carries:
 - the project's own files, under `references/project/`;
 - this pack's `LICENSE`, the MIT text, because an adapted copy is a substantial portion of the
   pack's work and the licence asks for its notice in every such copy;
-- the record of its pin (below), with the sha256 of every file it carries.
+- the record of its pin (below), with the sha256 of every other file it carries. The record does not
+  hash itself, which no record could do: writing its own digest into it would change it. A copy is
+  checked by hashing every file but the record and comparing the result with what the record lists.
 
 Every relative link in the adapted copy resolves, and a copy in which one does not is refused.
 Composing joins texts at fixed points and asks no model to merge them, so the result can be
@@ -230,7 +232,7 @@ An adapted copy names the skill it came from by three identities:
 |---|---|---|
 | the **ref**: a catalogue tag `vX.Y.Z`, a per-skill tag `<skill>-vX.Y.Z`, or a full commit sha | the release a reader can read about, or one exact commit | a tag has release notes, and a sha needs no release. A branch is refused, because it moves |
 | the **tree**: `git rev-parse <ref>:skills/<skill>` | exactly the skill's folder | it changes only when that skill's bytes change, so a newer tag with the same tree has nothing to review |
-| the **sha256 of every file** carried | the bytes in the project | checked offline |
+| the **sha256 of every file** carried, but for the record that holds them | the bytes in the project | checked offline |
 
 - Record the commit a tag named, as well as the tag. [The tag policy](releases.md#tags) says a
   published tag never moves, and names the one case in which a tag is withdrawn; the recorded
@@ -273,15 +275,23 @@ breaking; from 1.0.0 it moves the first.
 
 `scripts/verify-skills.mjs` reads every Markdown file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It leaves fenced code out, at any indentation, so an example
-such as the ones on this page declares nothing. It fails when:
+such as the ones on this page declares nothing. A fence counts only when it closes before a line
+indented less than it, so a line that merely looks like one (indented code showing a fence, or a
+fence left open) hides nothing after it. It fails when:
 
 - one file declares the section twice, or the section has no table, the table's columns are not
-  `id | slot | kind | default`, or it declares no slot;
+  `id | slot | kind | default`, its delimiter row has another number of cells, so that a renderer
+  would not read it as a table, or it declares no slot;
 - a slot id is not well formed, or uses `H` or `S`;
 - a slot has no default (an empty cell, a dash, `TBD`, `TODO`, `n/a` or `?`), says nothing in its
-  `slot` column, or has a kind other than `value` or `skill` with an optional `, required`;
+  `slot` column, or has a kind other than `value` or `skill` with an optional `, required`. A
+  placeholder is refused in code, emphasis or strikethrough marks too, and escaped;
 - a `skill` slot's default is not one skill in backticks that this catalogue ships;
-- a hard-line or step id is not well formed;
+- a hard-line or step id is not well formed. A heading or bold lead-in that opens with `H` or `S`,
+  in either case, followed by a digit, straight after the letter or after up to three characters
+  that are neither a letter nor a digit, is read as an id, so `S-1`, `H_1`, `S 6` and `s4` fail
+  rather than pass as prose. Where a letter follows (`## Hard lines`, `- **Sweep the day.**`), the
+  opening is a word and declares nothing;
 - an id is declared twice in one skill, in one file or across two;
 - one skill's slots use more than one letter.
 
