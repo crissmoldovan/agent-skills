@@ -215,7 +215,9 @@ order, with S19 for a release that carries an earlier one and S20 for fixes merg
 In `SKILL.md`, "When to Use", the fourth prerequisite and "Where the note lands" point to it, and
 the seventh step names the pack's message as the one destination that goes after the release
 rather than before it. Nothing a release relied on changes meaning, so this is new guidance, a
-minor change under [Versioning](#versioning). The `release-notes` gate is unchanged.
+minor change under [Versioning](#versioning). The `release-notes` gate is unchanged. The skill's
+metadata version moves from 1.0.0 to 1.1.0, for this reference and for versioning a product that
+has no API.
 
 ## Release checklist
 
