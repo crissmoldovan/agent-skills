@@ -279,9 +279,14 @@ such as the ones on this page declares nothing. It fails when:
   `id | slot | kind | default`, or it declares no slot;
 - a slot id is not well formed, or uses `H` or `S`;
 - a slot has no default (an empty cell, a dash, `TBD`, `TODO`, `n/a` or `?`), says nothing in its
-  `slot` column, or has a kind other than `value` or `skill` with an optional `, required`;
+  `slot` column, or has a kind other than `value` or `skill` with an optional `, required`. A
+  placeholder is refused in code, emphasis or strikethrough marks too, and escaped;
 - a `skill` slot's default is not one skill in backticks that this catalogue ships;
-- a hard-line or step id is not well formed;
+- a hard-line or step id is not well formed. A heading or bold lead-in that opens with `H` or `S`,
+  in either case, followed by a digit, straight after the letter or after up to three characters
+  that are neither a letter nor a digit, is read as an id, so `S-1`, `H_1`, `S 6` and `s4` fail
+  rather than pass as prose. Where a letter follows (`## Hard lines`, `- **Sweep the day.**`), the
+  opening is a word and declares nothing;
 - an id is declared twice in one skill, in one file or across two;
 - one skill's slots use more than one letter.
 

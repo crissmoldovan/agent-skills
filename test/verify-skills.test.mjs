@@ -399,6 +399,23 @@ test('verifier refuses a slot with no default, or a placeholder in its place', a
   }
 });
 
+// A placeholder is still a placeholder when it is wrapped in code, emphasis or strikethrough, or
+// escaped: what the reader is left with is `TBD`. A real default wrapped the same way still passes.
+test('verifier refuses a placeholder default wrapped in Markdown formatting, and keeps a formatted real one', async () => {
+  for (const placeholder of ['`TBD`', '`?`', '`-`', '``todo``', '*TBD*', '**n/a**', '_TBD_', '***?***', '~~TBD~~', '` `', '\\?', '**`TBD`**']) {
+    const root = await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${placeholder} |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `default "${placeholder}" passed verification`);
+    assert.match(result.stderr, /slot B1 has no default/, placeholder);
+  }
+  for (const fallback of ['`UTC only`', '*ask once*', '**nobody**, and the run says so']) {
+    const result = await verify(await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${fallback} |`])));
+    assert.equal(result.status, 0, `default "${fallback}" was refused: ${result.stderr}`);
+  }
+});
+
 test('verifier refuses a slot kind other than value or skill, with an optional ", required"', async () => {
   for (const kind of ['list', 'Value', 'value required', 'skill, optional', '']) {
     const root = await adaptableFixture(adaptableBody([`| B1 | a slot | ${kind} | ask once |`]));
@@ -495,6 +512,43 @@ test('verifier refuses a malformed hard-line or step id, and slots under two let
   // Another letter than B is allowed, as long as the skill uses only that one.
   const ownLetter = await adaptableFixture(adaptableBody(['| F1 | the event source | value | ask once |', '| F2 | the table | value | ask once |']));
   result = await verify(ownLetter);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+// An id written with a separator or in lower case (`S-1`, `H_1`, `s4`) is a malformed id, not
+// prose: it fails rather than passing unread. A heading or lead-in where a letter follows the H or
+// S is a word (`## Hard lines`, `- **Sweep the day.**`) and stays ordinary text.
+test('verifier refuses an id written with a separator or in lower case, and leaves a word after H or S alone', async () => {
+  const cases = [
+    ['- **S-1. Do work.** A hyphen.', /S-1 is not a well-formed step id/],
+    ['### H_1 — Guard', /H_1 is not a well-formed hard-line id/],
+    ['1. **S.5 Dotted.** A full stop.', /S\.5 is not a well-formed step id/],
+    ['### S 6 — Spaced', /S 6 is not a well-formed step id/],
+    ['- **H–3. An en dash.**', /H–3 is not a well-formed hard-line id/],
+    ['- **s4. Lower case.**', /s4 is not a well-formed step id/],
+    ['### h2 — Lower case', /h2 is not a well-formed hard-line id/],
+  ];
+  for (const [line, expected] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${line}\n`)));
+
+    assert.equal(result.status, 1, `${line} passed verification`);
+    assert.match(result.stderr, expected, line);
+  }
+
+  const words = [
+    '## Scope',
+    '',
+    '### Sweep the day',
+    '',
+    '- **Severity: the evidence decides it.**',
+    '- **Hash it before and after.**',
+    '- **Signed in, or not.**',
+    '- **S-curve:** a word, not an id.',
+    '1. **How this was checked.**',
+    '#### H-bridge',
+    '',
+  ].join('\n');
+  const result = await verify(await adaptableFixture(adaptableBody(goodRows, words)));
   assert.equal(result.status, 0, result.stderr);
 });
 
