@@ -185,7 +185,8 @@ H5, and its procedure as seven steps, S1 to S7. Every slot's default is what the
 own. The shots and the settled rows add to what a brief carries, and drop nothing it carried
 before; in an environment with no renderer, brief and normal depth still attach no files. So this
 is new guidance, a minor change under [Versioning](#versioning). Nothing needs migrating: no
-project could adapt the skill before it declared these ids.
+project could adapt the skill before it declared these ids. The skill's metadata version moves
+from 1.0.0 to 1.1.0, for the shots, the settled rows and the slots.
 
 ## Release checklist
 
