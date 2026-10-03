@@ -180,7 +180,8 @@ it, where the standing order is written, and the three sibling skills it hands w
 rules, that nothing in the skill installs or arms the gate, and the two above), and its eleven
 steps as S1 to S11. Every slot's default is what the skill does on its own, so a project that
 binds nothing gets the same procedure. Nothing needs migrating: no project could adapt the skill
-before it declared these ids.
+before it declared these ids. The skill's metadata version moves from 1.0.0 to 1.1.0, for the head
+line, the cadence and the slots.
 
 ## Release checklist
 
