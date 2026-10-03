@@ -199,7 +199,9 @@ the adapted `SKILL.md`, the copy carries:
 - the project's own files, under `references/project/`;
 - this pack's `LICENSE`, the MIT text, because an adapted copy is a substantial portion of the
   pack's work and the licence asks for its notice in every such copy;
-- the record of its pin (below), with the sha256 of every file it carries.
+- the record of its pin (below), with the sha256 of every other file it carries. The record does not
+  hash itself, which no record could do: writing its own digest into it would change it. A copy is
+  checked by hashing every file but the record and comparing the result with what the record lists.
 
 Every relative link in the adapted copy resolves, and a copy in which one does not is refused.
 Composing joins texts at fixed points and asks no model to merge them, so the result can be
@@ -230,7 +232,7 @@ An adapted copy names the skill it came from by three identities:
 |---|---|---|
 | the **ref**: a catalogue tag `vX.Y.Z`, a per-skill tag `<skill>-vX.Y.Z`, or a full commit sha | the release a reader can read about, or one exact commit | a tag has release notes, and a sha needs no release. A branch is refused, because it moves |
 | the **tree**: `git rev-parse <ref>:skills/<skill>` | exactly the skill's folder | it changes only when that skill's bytes change, so a newer tag with the same tree has nothing to review |
-| the **sha256 of every file** carried | the bytes in the project | checked offline |
+| the **sha256 of every file** carried, but for the record that holds them | the bytes in the project | checked offline |
 
 - Record the commit a tag named, as well as the tag. [The tag policy](releases.md#tags) says a
   published tag never moves, and names the one case in which a tag is withdrawn; the recorded
