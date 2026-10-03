@@ -230,7 +230,8 @@ priority, the three scales, where each judgement is recorded, the sources a date
 where the reader meets the fix, and who looks where the agent cannot), three hard lines, H1 to H3,
 and six steps, S1 to S6. They are the skill's first ids, so a file that declares more continues
 from them. Every slot's default is what the skill does on its own, so a project that binds nothing
-gets the same procedure.
+gets the same procedure. The skill's metadata version moves from 1.0.0 to 1.1.0, for the three
+questions, the report's real date and the three states of a fix.
 
 ### The run-record convention names the link to itself as words and a path, not as a link
 
