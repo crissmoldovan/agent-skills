@@ -450,6 +450,9 @@ test('verifier refuses a Bindings section with no table, a different header, or 
     ['## Bindings\n\n| id | value |\n|---|---|\n| B1 | ask once |\n', /columns \| id \| slot \| kind \| default \|/],
     ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n\nNo rows.\n', /## Bindings declares no slot/],
     ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n| B1 | a slot | value |\n', /row has 3 cells; the table has 4/],
+    // A delimiter row with another number of cells than the header is not a table to a renderer.
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|\n| B1 | a slot | value | ask once |\n', /delimiter row has 1 cell; the table has 4/],
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|---|\n| B1 | a slot | value | ask once |\n', /delimiter row has 5 cells; the table has 4/],
   ];
   for (const [section, expected] of cases) {
     const root = await adaptableFixture(frontmatter + section);

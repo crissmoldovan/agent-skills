@@ -244,6 +244,13 @@ function validateBindingsTable(lines, heading, where, declare, slotLetters, ship
     fail(`${where(index + 1)}: the ## Bindings table needs a delimiter row under its header`);
     return;
   }
+  // A renderer takes the lines as a table only when the delimiter row has as many cells as the
+  // header, so a table a composer or a reader would not see is not accepted here either.
+  const delimiterCells = tableCells(delimiter).length;
+  if (delimiterCells !== BINDINGS_COLUMNS.length) {
+    fail(`${where(index + 1)}: the ## Bindings delimiter row has ${delimiterCells} cell${delimiterCells === 1 ? '' : 's'}; the table has ${BINDINGS_COLUMNS.length}`);
+    return;
+  }
   let rows = 0;
   for (index += 2; index < end && lines[index].trim().startsWith('|'); index += 1) {
     rows += 1;

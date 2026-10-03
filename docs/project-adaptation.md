@@ -276,7 +276,8 @@ reference file as much as `SKILL.md`. It leaves fenced code out, at any indentat
 such as the ones on this page declares nothing. It fails when:
 
 - one file declares the section twice, or the section has no table, the table's columns are not
-  `id | slot | kind | default`, or it declares no slot;
+  `id | slot | kind | default`, its delimiter row has another number of cells, so that a renderer
+  would not read it as a table, or it declares no slot;
 - a slot id is not well formed, or uses `H` or `S`;
 - a slot has no default (an empty cell, a dash, `TBD`, `TODO`, `n/a` or `?`), says nothing in its
   `slot` column, or has a kind other than `value` or `skill` with an optional `, required`. A
