@@ -281,28 +281,60 @@ for (const file of walk(root)) {
 }' '<arrival folder>/unpacked' > '<arrival folder>/CONTENTS.txt'
 ```
 
-**"N of N, and no file outside the manifest".** In bash, in the pack's own folder
-(`unpacked/<pack name>/`, or where it landed), for a manifest of
-`<sha256>  <path>` lines (`sha256sum -c` on Linux). The first line must read `N of N`, and nothing may
-follow it:
+**"N of N, and no file outside the manifest".** For a manifest of `<sha256>  <path>` lines, run on
+the pack's own folder (`unpacked/<pack name>/`, or where it landed). The manifest is the supplier's
+claim, and so are its paths: none is opened. The command walks the folder itself, never following a
+link, and compares what it finds with the manifest's lines. A path that is absolute or climbs out
+with `..` is refused, and so is one listed twice, compared as the pack guard compares members. The
+first line must read `N of N`, and nothing may follow it:
 
 ```sh
-total=$(grep -c . MANIFEST.sha256)
-ok=$(shasum -a 256 -c MANIFEST.sha256 2>/dev/null | grep -c ': OK$')
-echo "$ok of $total"
-comm -13 <(sed -E 's/^[0-9a-fA-F]{64} [ *]?//; s#^\./##' MANIFEST.sha256 | sort) \
-         <(find . -type f ! -name MANIFEST.sha256 ! -name RECEIVED.md | sed 's#^\./##' | sort) \
-  | sed 's/^/outside the manifest: /'
+node -e '
+const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+const [folder, name = "MANIFEST.sha256"] = process.argv.slice(1);
+if (!folder) { console.error("usage: <the pack folder> [<its manifest file, MANIFEST.sha256 by default>]"); process.exit(2); }
+const parse = [], walked = [], compare = [], listed = new Map(), seen = new Set();
+let total = 0;
+for (const line of fs.readFileSync(path.join(folder, name), "utf8").split(/\r?\n/)) {
+  if (line.trim() === "") continue;
+  total += 1;
+  const m = line.match(/^([0-9a-fA-F]{64}) [ *](.+)$/);
+  if (!m) { parse.push(`not a manifest line: ${line.slice(0, 80)}`); continue; }
+  const parts = m[2].replace(/\\/g, "/").split("/").filter((part) => part !== "" && part !== ".");
+  if (/^[\\/]/.test(m[2]) || /^[A-Za-z]:/.test(m[2]) || parts.includes("..") || parts.length === 0) { parse.push(`unsafe path in the manifest: ${m[2]}`); continue; }
+  const rel = parts.join("/").normalize("NFC"), key = rel.toLowerCase();
+  if (seen.has(key)) { parse.push(`listed twice in the manifest: ${m[2]}`); continue; }
+  seen.add(key);
+  listed.set(rel, m[1].toLowerCase());
+}
+const found = new Map(), ours = new Set([name, "RECEIVED.md"]);
+const walk = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+  const file = path.join(dir, e.name), rel = path.relative(folder, file).split(path.sep).join("/").normalize("NFC");
+  if (e.isDirectory()) walk(file);
+  else if (!e.isFile()) walked.push(`not a regular file: ${rel}`);
+  else if (!ours.has(rel)) found.set(rel, crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex"));
+} };
+walk(folder);
+let ok = 0;
+for (const [rel, sum] of listed) {
+  if (found.get(rel) === sum) ok += 1;
+  else compare.push(`${found.has(rel) ? "differs from the manifest" : "missing"}: ${rel}`);
+}
+console.log(`${ok} of ${total}`);
+for (const rel of found.keys()) if (!listed.has(rel)) console.log(`outside the manifest: ${rel}`);
+for (const problem of [...parse, ...walked, ...compare]) console.log(problem);
+' '<the pack folder>'
 ```
 
 A manifest in another shape is read by its own rules, and the result is still stated in this form.
 
 **Landing a pack, guarded.** Where B4 says a pack lands, it is copied from its archived unpack by
-this command and no other. It checks the archived pack against `CONTENTS.txt` first, makes the
-landing folder itself (it refuses one that exists), copies the pack into it, and checks every member
-where it landed: the same bytes and hash, none missing, and no other file. Run it after
-`CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written beside the landing, no
-`RECEIVED.md`, and nothing is committed:
+this command and no other. It checks the archived pack against `CONTENTS.txt` first, copies it into
+a new folder beside the landing place, checks every member there (the same bytes and hash, none
+missing, and no other file), and only then moves that folder into place. A landing place that
+exists already is refused, and a copy that fails or does not match is removed, so nothing is left
+behind. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written beside
+the landing, no `RECEIVED.md`, and nothing is committed:
 
 ```sh
 node -e '
@@ -330,33 +362,52 @@ const differences = (where, found) => [
   ...[...listed].filter(([rel, want]) => found.get(rel) !== want).map(([rel]) => `${where}: ${found.has(rel) ? "differs" : "missing"}: ${rel}`),
   ...[...found.keys()].filter((rel) => !listed.has(rel)).map((rel) => `${where}: not in CONTENTS.txt: ${rel}`),
 ];
+const taken = (target) => { try { fs.lstatSync(target); return true; } catch { return false; } };
 const source = path.join(arrival, "unpacked", pack);
 const before = differences("archive", measure(source));
 if (before.length) { console.error(`${before.join("\n")}\nthe archived pack is not what CONTENTS.txt lists; nothing landed`); process.exit(2); }
-try { fs.mkdirSync(landing); } catch (error) {
-  console.error(error.code === "EEXIST" ? `${landing} exists already; nothing landed` : `${landing} cannot be made (${error.code}); nothing landed`);
+if (taken(landing)) { console.error(`${landing} exists already; nothing landed`); process.exit(2); }
+let copy;
+try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) {
+  console.error(`${landing} cannot be made beside (${error.code}); nothing landed`);
   process.exit(2);
 }
-try { fs.cpSync(source, landing, { recursive: true, errorOnExist: true, force: false }); } catch (error) {
-  console.error(`the copy failed (${error.code ?? error.message}): write no RECEIVED.md, commit nothing, and remove ${landing}`);
-  process.exit(2);
-}
-const after = differences("landing", measure(landing));
-if (after.length) { console.error(`${after.join("\n")}\nthe landing is not what CONTENTS.txt lists: write no RECEIVED.md, commit nothing, and remove ${landing}`); process.exit(2); }
+const fail = (why) => { fs.rmSync(copy, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
+try { fs.cpSync(source, copy, { recursive: true, errorOnExist: true, force: false }); } catch (error) { fail(`the copy failed (${error.code ?? error.message})`); }
+const after = differences("landing", measure(copy));
+if (after.length) fail(`${after.join("\n")}\nthe landing is not what CONTENTS.txt lists`);
+if (taken(landing)) fail(`${landing} appeared during the copy`);
+try { fs.renameSync(copy, landing); } catch (error) { fail(`the copy could not be moved into place (${error.code})`); }
 console.log(`${listed.size} of ${listed.size} members landed, each matching CONTENTS.txt, and no other file`);
 ' '<arrival folder>' '<pack name>' '<the landing folder B4 names, not yet made>'
 ```
 
-**Landing a single file, guarded.** The same three checks, with its full sha256 from `SHA256SUMS`
-(`sha256sum -c --status -` on Linux). Nothing at the landing path is written over, a link included:
+**Landing a single file, guarded.** The same checks, with its full sha256 from `SHA256SUMS`. Nothing
+at the landing path is written over, a link included:
 
 ```sh
-sum='<full sha256, from SHA256SUMS>'
-printf '%s  %s\n' "$sum" '<archived file>' | shasum -a 256 -c --status - \
-  && [ ! -e '<landing path>' ] && [ ! -L '<landing path>' ] && cp '<archived file>' '<landing path>' \
-  && printf '%s  %s\n' "$sum" '<landing path>' | shasum -a 256 -c --status - \
-  && echo 'landed, matching SHA256SUMS' \
-  || echo 'not landed as archived: write no RECEIVED.md, commit nothing' >&2
+node -e '
+const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+const [sum = "", file, landing] = process.argv.slice(1);
+if (!/^[0-9a-f]{64}$/.test(sum) || !file || !landing) { console.error("usage: <full sha256, from SHA256SUMS> <archived file> <landing path>"); process.exit(2); }
+const sha = (target) => crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex");
+const taken = (target) => { try { fs.lstatSync(target); return true; } catch { return false; } };
+if (sha(file) !== sum) { console.error(`${file}: sha256 is not ${sum}; nothing landed`); process.exit(2); }
+if (taken(landing)) { console.error(`${landing} exists already; nothing landed`); process.exit(2); }
+let folder;
+try { folder = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) {
+  console.error(`${landing} cannot be made beside (${error.code}); nothing landed`);
+  process.exit(2);
+}
+const copy = path.join(folder, path.basename(landing));
+const fail = (why) => { fs.rmSync(folder, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
+try { fs.copyFileSync(file, copy, fs.constants.COPYFILE_EXCL); } catch (error) { fail(`the copy failed (${error.code ?? error.message})`); }
+if (sha(copy) !== sum) fail("the copy differs from SHA256SUMS");
+if (taken(landing)) fail(`${landing} appeared during the copy`);
+try { fs.renameSync(copy, landing); } catch (error) { fail(`the copy could not be moved into place (${error.code})`); }
+fs.rmSync(folder, { recursive: true, force: true });
+console.log("landed, matching SHA256SUMS");
+' '<full sha256, from SHA256SUMS>' '<archived file>' '<landing path>'
 ```
 
 **The facts only the raw email holds.** The `Message-ID`, the `Date:` header, the topmost

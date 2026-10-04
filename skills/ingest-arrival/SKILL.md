@@ -175,7 +175,8 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
      full sha256, bytes and path of every member, measured on the fresh unpack, **even when the pack
      brings a manifest**. A supplier's manifest is their claim, and a zip listing has no hashes.
    - Check the members against the supplier's manifest, and state the result as **"N of N, and no file
-     outside the manifest"**. With none, write "no supplier manifest".
+     outside the manifest"**. With none, write "no supplier manifest". The manifest's paths are the
+     supplier's: they are compared with the files found, and never opened.
 
    **Complete when:** `CONTENTS.txt` exists, and the manifest result is stated in that form.
 
@@ -297,9 +298,10 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
 
    - **Land by the guarded copy.** A pack lands only through "Landing a pack, guarded" in
      [record forms](references/record-forms.md), and a single file through its single-file form:
-     the archived copy is checked against `CONTENTS.txt` or `SHA256SUMS`, copied into a place made
-     for it, and checked again member by member where it landed. Until that prints `N of N`, or
-     `landed`, nothing is written beside it and nothing is committed.
+     the archived copy is checked against `CONTENTS.txt` or `SHA256SUMS`, copied beside the landing
+     place, checked again member by member, and moved into place only when it matches; a copy that
+     fails or differs is removed. Until that prints `N of N`, or `landed`, nothing is written beside
+     it and nothing is committed.
    - **Each surface names the others.**
    - **An issue id**, where the project keeps them (the default B6 skill keeps none), is linked only
      when the arrival itself cites it or B1 names it. That an arrival belongs under an existing id is
