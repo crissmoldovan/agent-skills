@@ -60,7 +60,10 @@ is the whole turn: an editor selection (`<ide_selection>…</ide_selection>`) or
 a record with the words the person typed, as a block of its own or inside the same string. The
 element is taken out, from its opening tag to its closing one, and what is left is the message. A
 turn left with no words is counted as `harness-markup`, or as `attachment-only` when an image or a
-document is attached. The elements screened out of messages are counted, and never shown.
+document is attached. The elements screened out of messages are counted, and never shown. The text
+of an `enqueue` is screened the same way, as a queued prompt is, before `locate` matches it against
+the phrase or against its delivery: an enqueue holding a reminder, delivered word for word, matches
+its delivered turn, and words only inside the reminder are no person's in either.
 (Guarded: the script was built against a constructed record, and how often real transcripts mix the
 two was not measured.)
 

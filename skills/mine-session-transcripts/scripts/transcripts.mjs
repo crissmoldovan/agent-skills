@@ -249,6 +249,19 @@ export function classify(record, { subagent = false } = {}) {
   };
 }
 
+/**
+ * The person's words in a `queue-operation` enqueue, screened as a queued prompt is: the harness's
+ * own elements, such as a reminder or an editor selection, are taken out wherever they sit, so an
+ * enqueue is matched against a phrase and against its delivery by the words the person typed.
+ * Null for any other record, and for an enqueue that holds no words of a person's.
+ */
+export function enqueuedWords(record) {
+  if (record?.type !== 'queue-operation' || record.operation !== 'enqueue') return null;
+  const { text, attached } = contentOf(record.content);
+  const screened = screenText(text, { marked: true, attached });
+  return screened.person ? { text: screened.text, screened: screened.screened ?? [] } : null;
+}
+
 const hashOf = (text) => createHash('sha256').update(normalise(text)).digest('hex');
 
 /**
@@ -747,16 +760,15 @@ async function commandLocate(options, out) {
     visitOther: (kind, record, at) => {
       if (!stringsOf(record).some(has)) return;
       count(kind);
-      if (record.type !== 'queue-operation' || record.operation !== 'enqueue') return;
-      const { text } = contentOf(record.content);
-      if (!has(text)) return;
+      const words = enqueuedWords(record);
+      if (!words || !has(words.text)) return;
       enqueues.push({
         file: at.file,
         line: at.line,
         where: at.where,
         timestamp: record.timestamp ?? null,
         session: record.sessionId ?? path.basename(at.file, '.jsonl'),
-        text,
+        text: words.text,
         inside: inWindow(record.timestamp),
       });
     },

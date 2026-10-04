@@ -139,7 +139,8 @@ the options.
    each enqueued copy reached that session as a person's message, and gives the file, line and time
    of any that never did, and of any the records cannot settle: that answers whether the session
    got a message sent while it was busy. A delivery has the enqueue's whole words, not just the
-   phrase, and one message delivers one enqueue.
+   phrase, and one message delivers one enqueue. The harness's own elements are screened out of an
+   enqueue as they are out of a turn (S3), so words only inside a reminder are no one's.
    **Complete when:** each message the question is about is known by its file, line, time and
    session, or the phrase is reported not found in the stated coverage, and, for a message sent
    while the agent was busy, whether it was delivered.

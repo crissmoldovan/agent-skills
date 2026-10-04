@@ -9,6 +9,7 @@ import { encodeProjectPath as onboardEncode } from '../skills/onboard-project/sc
 import {
   classify,
   encodeProjectPath,
+  enqueuedWords,
   findTranscripts,
   normalise,
   readMessages,
@@ -305,6 +306,43 @@ test('an enqueue is delivered only by a later message with its whole words, one 
   assert.match(goal.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
   assertNoMessageText(`${status.stdout}${ship.stdout}${goal.stdout}`, 'locate');
   for (const words of ['please deploy the preview', 'tag the release']) assert.ok(!`${status.stdout}${ship.stdout}`.includes(words), `locate printed ${words}`);
+});
+
+test("an enqueue is screened as a person's turn is: the harness's own elements are not its words, nor what decides its delivery", async () => {
+  const reminder = '<system-reminder>The person opened a file in the editor.</system-reminder>';
+  const selection = '<ide_selection>The person selected line 3 of totals.js: const total = 0</ide_selection>';
+  const history = await queueHistory([
+    typedAt(0, 'start on the totals page'),
+    enqueueAt(1, `please rename the footer link ${reminder}`),
+    queuedAt(2, `please rename the footer link ${reminder}`),
+    enqueueAt(3, `${selection}why is the total zero`),
+    typedAt(4, [{ type: 'text', text: selection }, { type: 'text', text: 'why is the total zero' }]),
+    enqueueAt(5, reminder),
+  ]);
+  const at = ['--repo', QUEUE_REPO, '--history', history];
+
+  // Delivered word for word, reminder and all: the enqueue and the turn are both screened, so they match.
+  const rename = run('locate', ...at, '--phrase', 'rename the footer link');
+  assert.equal(rename.status, 0, rename.stderr);
+  assert.match(rename.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(rename.stdout, /:3 {2}2030-02-01T10:02:00Z {2}session \S+ {2}queued$/m);
+  assert.match(rename.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+  const why = run('locate', ...at, '--phrase', 'why is the total zero');
+  assert.match(why.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(why.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+
+  // Words only inside a reminder are no person's, in an enqueue as in a turn: no enqueue is listed for them.
+  const opened = run('locate', ...at, '--phrase', 'opened a file');
+  assert.equal(opened.status, 0, opened.stderr);
+  assert.match(opened.stdout, /^0 messages from a person contain the phrase$/m);
+  assert.doesNotMatch(opened.stdout, /enqueued while a turn was running/);
+  assert.match(opened.stdout, /also occurs in records that are not a person's: .*1 harness-segment/);
+  assert.match(opened.stdout, /2 queue-bookkeeping/);
+  assert.doesNotMatch(`${rename.stdout}${why.stdout}${opened.stdout}`, /const total|footer link|total zero/);
+
+  assert.deepEqual(enqueuedWords(enqueueAt(1, `please rename the footer link ${reminder}`)), { text: 'please rename the footer link', screened: [reminder] });
+  assert.equal(enqueuedWords(enqueueAt(5, reminder)), null, 'an enqueue that is wholly the harness\'s holds no words of a person\'s');
+  assert.equal(enqueuedWords({ type: 'queue-operation', operation: 'remove', reason: 'delivered_to_agent' }), null);
 });
 
 test("an editor selection or a reminder that shares a turn with the person's words is not theirs", () => {
