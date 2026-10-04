@@ -329,14 +329,15 @@ for (const problem of [...parse, ...walked, ...compare]) console.log(problem);
 A manifest in another shape is read by its own rules, and the result is still stated in this form.
 
 **Landing a pack, guarded.** Where B4 says a pack lands, it is copied from its archived unpack by
-this command and no other. It checks the archived pack against `CONTENTS.txt` first, then claims
-the landing folder by making it, which fails when anything is already there. It copies the pack
-into a new folder beside it, checks every member there (the same bytes and hash, none missing, and
-no other file), puts the members into the folder it claimed, each folder made and each file linked
-so that nothing there is replaced, and checks them again. When anything fails or does not match,
-it removes what it made and nothing else, and says so if the landing place holds anything it did
-not make. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written
-beside the landing, no `RECEIVED.md`, and nothing is committed:
+this command and no other. It checks the archived pack against `CONTENTS.txt`, copies it into a new
+folder of its own beside the landing place, and checks every member there: the same bytes and hash,
+none missing, and no other file. Only then does it claim the landing folder by making it, which
+fails when anything is already there, put the members in (each folder made and each file linked, so
+that nothing there is replaced) and check them again. A failure before the claim leaves nothing at
+the landing place. After the claim nothing there is ever removed, because a path does not say who
+made what is at it: a landing that something else changed while it was filled is left as it is,
+and the command says so. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing
+is written beside the landing, no `RECEIVED.md`, and nothing is committed:
 
 ```sh
 node -e '
@@ -364,44 +365,33 @@ const differences = (where, found) => [
   ...[...listed].filter(([rel, want]) => found.get(rel) !== want).map(([rel]) => `${where}: ${found.has(rel) ? "differs" : "missing"}: ${rel}`),
   ...[...found.keys()].filter((rel) => !listed.has(rel)).map((rel) => `${where}: not in CONTENTS.txt: ${rel}`),
 ];
+const taken = (target) => { try { fs.lstatSync(target); return true; } catch { return false; } };
 const source = path.join(arrival, "unpacked", pack);
 const before = differences("archive", measure(source));
 if (before.length) { console.error(`${before.join("\n")}\nthe archived pack is not what CONTENTS.txt lists; nothing landed`); process.exit(2); }
-// The claim: mkdir makes the folder or fails, so nothing at the landing place is ever replaced.
-try { fs.mkdirSync(landing); } catch (error) {
-  console.error(error.code === "EEXIST" ? `${landing} exists already; nothing landed` : `${landing} cannot be made (${error.code}); nothing landed`);
+if (taken(landing)) { console.error(`${landing} exists already; nothing landed`); process.exit(2); }
+// The copy is made and checked in a folder of its own, unique to this run, before the landing place is touched.
+let copy;
+try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) {
+  console.error(`no folder could be made beside ${landing} (${error.code}); nothing landed`);
   process.exit(2);
 }
-// What this command made at the landing place, so that a failure removes that and nothing else:
-// a folder only once it is empty, and a file only while it is still the one this command linked.
-const made = [{ target: landing }];
-let copy = null;
-const fail = (why) => {
-  for (const { target, ino } of made.reverse()) {
-    try {
-      const st = fs.lstatSync(target);
-      if (ino === undefined && st.isDirectory()) fs.rmdirSync(target);
-      else if (ino !== undefined && st.ino === ino) fs.unlinkSync(target);
-    } catch {}
-  }
-  if (copy) fs.rmSync(copy, { recursive: true, force: true });
-  const left = fs.existsSync(landing) ? `; ${landing} holds what this command did not make, and is left as it is` : "";
-  console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing${left}`);
-  process.exit(2);
-};
-try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) { fail(`no folder could be made beside it (${error.code})`); }
+const fail = (why) => { fs.rmSync(copy, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
 try { fs.cpSync(source, copy, { recursive: true, errorOnExist: true, force: false }); } catch (error) { fail(`the copy failed (${error.code ?? error.message})`); }
-const after = differences("landing", measure(copy));
-if (after.length) fail(`${after.join("\n")}\nthe landing is not what CONTENTS.txt lists`);
-// Each folder by mkdir and each file by link(): both fail when anything is there, so nothing is replaced.
+const after = differences("copy", measure(copy));
+if (after.length) fail(`${after.join("\n")}\nthe copy is not what CONTENTS.txt lists`);
+// The claim: mkdir makes the folder or fails, so nothing already at the landing place is replaced.
+try { fs.mkdirSync(landing); } catch (error) { fail(error.code === "EEXIST" ? `${landing} exists already` : `${landing} cannot be made (${error.code})`); }
+// Each folder by mkdir and each file by link(): both fail when anything is there. From here on,
+// nothing at the landing place is removed, whatever happens.
+const leftAsItIs = `${landing} changed while this command filled it, and is left as it is for a person to look at`;
 const place = (from, to) => { for (const e of fs.readdirSync(from, { withFileTypes: true })) {
   const a = path.join(from, e.name), b = path.join(to, e.name);
-  if (e.isDirectory()) { fs.mkdirSync(b); made.push({ target: b }); place(a, b); }
-  else { fs.linkSync(a, b); made.push({ target: b, ino: fs.lstatSync(a).ino }); }
+  if (e.isDirectory()) { fs.mkdirSync(b); place(a, b); } else fs.linkSync(a, b);
 } };
-try { place(copy, landing); } catch (error) { fail(`the copy could not be put in place without replacing anything (${error.code})`); }
+try { place(copy, landing); } catch (error) { fail(`the copy could not be put in place without replacing anything (${error.code}); ${leftAsItIs}`); }
 const placed = differences("landing", measure(landing));
-if (placed.length) fail(`${placed.join("\n")}\nthe landing changed as it was moved into place`);
+if (placed.length) fail(`${placed.join("\n")}\n${leftAsItIs}`);
 fs.rmSync(copy, { recursive: true, force: true });
 console.log(`${listed.size} of ${listed.size} members landed, each matching CONTENTS.txt, and no other file`);
 ' '<arrival folder>' '<pack name>' '<the landing folder B4 names, not yet made>'
