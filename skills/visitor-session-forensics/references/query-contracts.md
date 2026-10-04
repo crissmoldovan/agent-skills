@@ -85,8 +85,10 @@ where `<signed in>` is the time of the visit's first event that carries the iden
 
 - The identity and the name are per visit: an event sent before sign-in carries neither. A visitor
   with no identity is reported *unnamed*, never matched by a guess.
-- `other_identities` is how many other identities the visit's events carry, read in the query
-  over every event of that visit and returned as a count, never a name (H3).
+- `other_identities` is how many identities the visit's events carry besides the one it is tied
+  to, read in the query over every event of that visit and returned as a count, never a name (H3).
+  Another named person counts as much as anyone: a visit two of the named people signed in to is
+  tied to neither.
 - `{VISITS}` is the visits whose `other_identities` is 0. A visit with more is left out of every
   later query and counted, and the report gives the count and never whose the other identity is.
 - Accounts bound as F5 are counted and left out.
@@ -96,8 +98,7 @@ where `<signed in>` is the time of the visit's first event that carries the iden
 SELECT JSONExtractString(raw, 'visit_id') AS visit,
   any(JSONExtractString(raw, 'visitor_id')) AS browser,
   groupUniqArrayIf(JSONExtractString(raw, 'identity'), JSONExtractString(raw, 'identity') IN ({IDENTITIES})) AS named,
-  uniqIf(JSONExtractString(raw, 'identity'),
-    JSONExtractString(raw, 'identity') != '' AND JSONExtractString(raw, 'identity') NOT IN ({IDENTITIES})) AS other_identities,
+  uniqIf(JSONExtractString(raw, 'identity'), JSONExtractString(raw, 'identity') != '') - 1 AS other_identities,
   min(dt) AS first_seen, minIf(dt, JSONExtractString(raw, 'identity') IN ({IDENTITIES})) AS signed_in, max(dt) AS last_seen
 FROM visits GROUP BY visit HAVING length(named) > 0
 ```

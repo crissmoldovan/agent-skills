@@ -932,6 +932,10 @@ test("visitor-session-forensics reads the named people's visits, never everythin
   assert.match(contracts, /before its sign-in[^.]*reported apart[^.]*never as the person's/);
   assert.match(q0, /"<signed in>"/);
   assert.match(q0, /minIf\(dt, JSONExtractString\(raw, 'identity'\) IN \(\{IDENTITIES\}\)\) AS signed_in/);
+  // Another named person is another identity too: a visit two of them signed in to is neither's.
+  assert.match(q0, /uniqIf\(JSONExtractString\(raw, 'identity'\), JSONExtractString\(raw, 'identity'\) != ''\) - 1 AS other_identities/);
+  assert.doesNotMatch(q0, /NOT IN \(\{IDENTITIES\}\)/);
+  assert.match(q0, /a visit two of the named people signed in to is\s+tied to neither/);
   const s4 = skill.slice(skill.indexOf('**S4. Find the people in the sources.**'), skill.indexOf('**S5. Pull the rows, as returned.**'));
   assert.match(s4, /never everything a browser sent/);
   assert.match(s4, /left out and counted, never split by a guess/);
