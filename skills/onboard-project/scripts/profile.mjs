@@ -24,7 +24,7 @@
  * `adapted` map records every such copy, and the routing names the copy rather than the skill.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -254,6 +254,14 @@ function adaptedLockProblem(lock, folder) {
   return null;
 }
 
+function isFile(file) {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Every adapted copy this repository holds, by the pack skill it adapts.
  *
@@ -264,8 +272,8 @@ function adaptedLockProblem(lock, folder) {
  *
  * A copy that stands in for nothing is named in `ignored`, with why: a lock that cannot be read,
  * because a folder that merely looks adapted must never silence the report of a skill that is
- * missing; or a second folder of one name whose lock says something else, because a session loads
- * only one of the two. It reads a few small files and no history, so the session-start check can
+ * missing; a folder with no SKILL.md, which no session can load; or a second folder of one name
+ * whose lock says something else, because a session loads only one of the two. It reads a few small files and no history, so the session-start check can
  * afford it.
  */
 export function adaptedCopies(repoRoot) {
@@ -288,6 +296,12 @@ export function adaptedCopies(repoRoot) {
       const problem = adaptedLockProblem(lock, entry.name);
       if (problem) {
         ignored.push(`${where}: ${problem}`);
+        continue;
+      }
+      // A session loads a skill by its SKILL.md, so a copy without one is not a skill the routing
+      // can send it to, however sound its lock.
+      if (!isFile(join(root, directory, entry.name, 'SKILL.md'))) {
+        ignored.push(`${where}: has no SKILL.md, so no session can load it; compose it again`);
         continue;
       }
       const copy = { name: entry.name, entry: lock.base.entry ?? ENTRY_DEFAULT, ref: lock.base.ref, tree: lock.base.tree };

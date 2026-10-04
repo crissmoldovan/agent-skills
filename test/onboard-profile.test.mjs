@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
@@ -275,6 +275,29 @@ test('a lock that cannot be read stands in for nothing, and is named', async () 
   assert.ok(ignored.some((line) => /not its own folder/.test(line)));
   assert.ok(ignored.some((line) => /^\.claude\/skills\/later-version: .*has version 2, which this skill does not read: if a newer composer wrote it, update onboard-project$/.test(line)));
   assert.ok(ignored.some((line) => /^\.claude\/skills\/Ask_Here: the folder name is not a skill name/.test(line)));
+});
+
+// A session loads a skill by its SKILL.md. A folder whose lock is intact but whose SKILL.md is gone
+// is a copy no session can load, so it stands in for nothing: counted, it would silence the report
+// of a missing skill and send the routing to a name that does not load.
+test('a copy whose SKILL.md is gone stands in for nothing, and is named', async () => {
+  const repo = await scratch('profile-repo-adapted-no-skill');
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await rm(path.join(repo, '.claude', 'skills', 'ask-the-owner', 'SKILL.md'));
+  const { byBase, ignored } = adaptedCopies(repo);
+  assert.deepEqual([...byBase.keys()], ['release-notes'], 'a copy with no SKILL.md stood in for its skill');
+  assert.deepEqual(ignored, ['.claude/skills/ask-the-owner: has no SKILL.md, so no session can load it; compose it again']);
+
+  // Nor is a SKILL.md that is a folder a skill a session loads.
+  await mkdir(path.join(repo, '.claude', 'skills', 'ask-the-owner', 'SKILL.md'));
+  assert.deepEqual(adaptedCopies(repo).ignored, ['.claude/skills/ask-the-owner: has no SKILL.md, so no session can load it; compose it again']);
+
+  // A loadable copy of the same name in a folder read later is the one a session loads, and counts.
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers', { directory: path.join('.agents', 'skills') });
+  const later = adaptedCopies(repo);
+  assert.deepEqual(later.byBase.get('request-answers')?.map((copy) => copy.name), ['ask-the-owner']);
+  assert.deepEqual(later.ignored, ['.claude/skills/ask-the-owner: has no SKILL.md, so no session can load it; compose it again']);
 });
 
 test('a second folder of one name is named when its lock says something else, and is quiet when it is the same copy', async () => {

@@ -90,8 +90,9 @@ skill list, and the marker never does. Only the check reads the marker.
   copies can adapt one skill, each from its own entry, and both are listed. A copy of a skill this
   catalogue does not carry is recorded and not routed, and the check compares the whole map, so a
   catalogue update never reads as this repository changing. A copy stands in for nothing, and is
-  named in the plan, when its lock cannot be read, when its folder is not a skill name, or when a
-  folder of the same name under `.claude/skills/` is read first and its lock says something else
+  named in the plan, when its lock cannot be read, when its folder is not a skill name, when it has
+  no `SKILL.md` a session could load, or when a folder of the same name under `.claude/skills/` is
+  read first and its lock says something else
   (the same copy in both places says nothing). A profile written before 1.1.0 has no `adapted` map,
   and reads as one that recorded none.
 - `evidence` is what the session-start check compares: for each skill that was in the catalogue at

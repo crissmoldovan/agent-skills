@@ -223,8 +223,8 @@ the scan alone would not have matched it. Its routing line names the copy, or bo
 adapt one skill, so a session is sent to the project's text by name rather than by a description a
 long skill listing may drop. The check counts a copy on disk as its skill, and says one line when a
 copy was added, removed or re-pinned since the profile was written. A lock it cannot read, a folder
-that is not a skill name, and a second folder of one name whose lock says something else stand in
-for nothing and are named in the plan. A copy of a skill the catalogue does not carry is recorded
+that is not a skill name, a folder with no `SKILL.md` a session could load, and a second folder of
+one name whose lock says something else stand in for nothing and are named in the plan. A copy of a skill the catalogue does not carry is recorded
 and not routed. A skill listed only for its copy leaves the profile and the routing with its last
 copy, in a row that says so, rather than send sessions to a skill the repository never installed.
 A copy counts in a decline's evidence: composing a copy of a declined skill lifts the decline.
