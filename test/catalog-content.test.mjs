@@ -954,6 +954,16 @@ fs.cpSync = (from, to) => { fs.mkdirSync(path.join(to, "data"), { recursive: tru
   assert.match(broken.stderr, /the copy failed \(ENOSPC\); nothing landed; write no RECEIVED\.md and commit nothing/);
   assert.equal(await exists(`${repo}/pack-a-4`), false);
   assert.deepEqual(await leftovers(), []);
+  // Something made at the landing place at the last moment is never replaced: the folder is claimed
+  // by an exclusive mkdir, which fails when anything is there, a file or a folder.
+  const racer = `${arrival}/racer.cjs`;
+  await writeFile(racer, `const fs = require("node:fs"), path = require("node:path"); const make = fs.mkdirSync; const landing = process.argv[3];
+fs.mkdirSync = (target, options) => { if (target === landing && !fs.existsSync(landing)) { make(landing); fs.writeFileSync(path.join(landing, "theirs.txt"), "someone else"); } return make(target, options); };\n`);
+  const raced = landPack([arrival, 'pack-a', `${repo}/pack-a-5`], racer);
+  assert.equal(raced.status, 2);
+  assert.match(raced.stderr, /exists already; nothing landed/);
+  assert.deepEqual(await readdir(`${repo}/pack-a-5`), ['theirs.txt']);
+  assert.deepEqual(await leftovers(), []);
 
   assert.match(skill, /\*\*Land by the guarded copy\.\*\*/);
   assert.match(skill, /Landing a pack, guarded/);
@@ -999,6 +1009,19 @@ test('ingest-arrival lands a single file only when its hash matches SHA256SUMS b
   assert.match(broken.stderr, /the copy failed \(ENOSPC\); nothing landed/);
   assert.equal(await exists(`${dir}/broken.csv`), false);
   assert.deepEqual(await leftovers(), []);
+  // A file or a link made at the landing path while the copy ran is never replaced: the copy is put
+  // there by link(), which fails when anything is there.
+  for (const [name, made] of [['raced.csv', 'fs.writeFileSync(landing, "someone else")'], ['raced-link.csv', 'fs.symlinkSync(landing + ".elsewhere", landing)']]) {
+    const racer = `${dir}/racer-${name}.cjs`;
+    await writeFile(racer, `const fs = require("node:fs"); const link = fs.linkSync; const landing = process.argv[3];
+fs.linkSync = (from, to) => { if (to === landing) ${made}; return link(from, to); };\n`);
+    const raced = landFile([sum, `${dir}/prices.csv`, `${dir}/${name}`], racer);
+    assert.equal(raced.status, 2, raced.stderr);
+    assert.match(raced.stderr, /exists already; nothing landed/);
+    assert.deepEqual(await leftovers(), []);
+  }
+  assert.equal(await readFile(`${dir}/raced.csv`, 'utf8'), 'someone else');
+  assert.equal(await exists(`${dir}/raced-link.csv.elsewhere`), false, 'the copy went through a link');
 });
 
 // Two members that extract to one path: the later overwrites the earlier, and the walk after the
