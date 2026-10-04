@@ -499,7 +499,7 @@ export async function readMessages(found, { since = null, until = null, includeH
       const result = classify(record, { subagent });
       let kind = result.person;
       if (!kind && result.kind === 'headless' && includeHeadless) kind = 'headless';
-      const at = { file, line: number };
+      const at = { file, line: number, where: subagent ? 'subagent' : 'session' };
       if (!kind) {
         exclude(result.kind);
         if (visitOther) visitOther(result.kind, record, at);
@@ -714,20 +714,25 @@ async function commandLocate(options, out) {
   const elsewhere = {};
   const count = (kind) => { elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; };
   // A message typed while a turn runs is enqueued first and delivered later, as a queued prompt or
-  // as the next turn. An enqueued copy of the phrase that no person's message of the same session
-  // holds, at or after it, is a message that never reached the session. Delivery is looked for
-  // past the window as well, since a message enqueued inside it can arrive after it.
-  const delivered = [];
-  const enqueued = [];
+  // as the next turn. An enqueue is delivered by a person's message of the same session, at or after
+  // it, that has its whole words: a later message that only shares the phrase is not its delivery.
+  // Each message delivers one enqueue at most, the earliest it can. An enqueue whose words sit inside
+  // a longer later message may have been delivered with others or not, and is reported as unknown.
+  // Delivery is looked for past the window, since a message enqueued inside it can arrive after it,
+  // and enqueues before the window are matched too, so that none takes another's delivery.
+  const candidates = [];
+  const enqueues = [];
   const sinceMs = options.since ? Date.parse(options.since) : null;
   const untilMs = options.until ? Date.parse(options.until) : null;
   const inWindow = (timestamp) => {
     const at = Date.parse(timestamp ?? '');
     return !((sinceMs !== null && !(at >= sinceMs)) || (untilMs !== null && !(at <= untilMs)));
   };
+  // A slash command typed while a turn ran is enqueued as typed, and arrives as the command's markup.
+  const formsOf = (message) => (message.command ? [message.text, `${message.command} ${message.text}`] : [message.text]);
   const seeMessage = (message, { inside }) => {
+    if (formsOf(message).some(has)) candidates.push(message);
     if (has(message.text)) {
-      delivered.push(message);
       if (inside) hits.push(message);
     } else if (message.screened.some(has)) {
       count('harness-segment');
@@ -742,18 +747,60 @@ async function commandLocate(options, out) {
     visitOther: (kind, record, at) => {
       if (!stringsOf(record).some(has)) return;
       count(kind);
-      if (record.type === 'queue-operation' && record.operation === 'enqueue' && stringsOf(record.content).some(has) && inWindow(record.timestamp)) {
-        enqueued.push({ file: at.file, line: at.line, timestamp: record.timestamp ?? null, session: record.sessionId ?? path.basename(at.file, '.jsonl') });
-      }
+      if (record.type !== 'queue-operation' || record.operation !== 'enqueue') return;
+      const { text } = contentOf(record.content);
+      if (!has(text)) return;
+      enqueues.push({
+        file: at.file,
+        line: at.line,
+        where: at.where,
+        timestamp: record.timestamp ?? null,
+        session: record.sessionId ?? path.basename(at.file, '.jsonl'),
+        text,
+        inside: inWindow(record.timestamp),
+      });
     },
   });
-  const undelivered = enqueued.filter((entry) => !delivered.some((message) => message.session === entry.session
-    && (!entry.timestamp || !message.timestamp || Date.parse(message.timestamp) >= Date.parse(entry.timestamp))));
+  const comparable = (text) => String(text).normalize('NFC').replace(/\s+/g, ' ').trim();
+  const timeOf = (entry) => {
+    const at = Date.parse(entry.timestamp ?? '');
+    return Number.isNaN(at) ? Infinity : at;
+  };
+  const byTime = (a, b) => {
+    const apart = timeOf(a) - timeOf(b);
+    return (Number.isNaN(apart) ? 0 : apart) || a.file.localeCompare(b.file) || a.line - b.line;
+  };
+  // At or after the enqueue. In one transcript a later line settles a tie or a missing time; across
+  // two, a missing time orders nothing.
+  const after = (message, entry) => {
+    const sent = Date.parse(message.timestamp ?? '');
+    const queued = Date.parse(entry.timestamp ?? '');
+    if (message.file === entry.file && (Number.isNaN(sent) || Number.isNaN(queued) || sent === queued)) return message.line > entry.line;
+    return sent >= queued;
+  };
+  candidates.sort(byTime);
+  const taken = new Set();
+  for (const entry of enqueues.sort(byTime)) {
+    const words = comparable(entry.text);
+    const later = candidates.filter((message) => message.session === entry.session && message.where === entry.where && after(message, entry));
+    const delivery = later.find((message) => !taken.has(message) && formsOf(message).some((text) => comparable(text) === words));
+    if (delivery) {
+      taken.add(delivery);
+      entry.delivery = 'delivered';
+    } else {
+      entry.delivery = later.some((message) => ` ${comparable(message.text)} `.includes(` ${words} `)) ? 'unknown' : 'not delivered';
+    }
+  }
+  const enqueued = enqueues.filter((entry) => entry.inside);
+  const undelivered = enqueued.filter((entry) => entry.delivery === 'not delivered');
+  const unknown = enqueued.filter((entry) => entry.delivery === 'unknown');
+  const delivered = enqueued.length - undelivered.length - unknown.length;
+  const position = ({ file, line, timestamp, session }) => ({ file: path.relative(found.history, file), line, timestamp, session });
   if (options.json) {
     out(JSON.stringify({
       hits: hits.map(({ text, hash, screened, ...rest }) => ({ ...rest, chars: text.length })),
       elsewhere,
-      queued: { enqueued: enqueued.length, undelivered: undelivered.map((entry) => ({ ...entry, file: path.relative(found.history, entry.file) })) },
+      queued: { enqueued: enqueued.length, delivered, undelivered: undelivered.map(position), unknown: unknown.map(position) },
       coverage: coverageLines(found, totals),
     }, null, 1));
     return 0;
@@ -766,8 +813,16 @@ async function commandLocate(options, out) {
   const other = sorted(elsewhere);
   if (other.length) out(`the phrase also occurs in records that are not a person's: ${other.map(([kind, n]) => `${n} ${kind}`).join(', ')}`);
   if (enqueued.length) {
-    out(`enqueued while a turn was running: ${enqueued.length}; ${undelivered.length ? `${undelivered.length} never reached that session as a person's message:` : "each reached that session as a person's message"}`);
+    const outcome = undelivered.length || unknown.length
+      ? `${[
+        delivered ? `${delivered} reached that session as a person's message` : null,
+        undelivered.length ? `${undelivered.length} never reached that session as a person's message` : null,
+        unknown.length ? `${unknown.length} cannot be told from these records` : null,
+      ].filter(Boolean).join('; ')}:`
+      : "each reached that session as a person's message";
+    out(`enqueued while a turn was running: ${enqueued.length}; ${outcome}`);
     for (const entry of undelivered) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, not delivered`);
+    for (const entry of unknown) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, delivery unknown: its words are inside a longer message later in that session`);
   }
   for (const line of coverageLines(found, totals)) out(line);
   return 0;

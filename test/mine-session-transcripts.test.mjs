@@ -227,13 +227,84 @@ test('locate says when a message enqueued while a turn ran never reached its ses
   const json = JSON.parse(run('locate', ...selection, '--phrase', 'rename the export tab', '--json').stdout);
   assert.deepEqual(json.queued, {
     enqueued: 1,
+    delivered: 0,
     undelivered: [{ file: '-srv-example-repo/00000000-0000-4000-8000-0000000000d4.jsonl', line: 6, timestamp: '2030-01-08T10:05:00.000Z', session: '00000000-0000-4000-8000-0000000000d4' }],
+    unknown: [],
   });
   // Delivered one second after the window closes: still delivered, since delivery is looked for past it.
   const late = run('locate', ...selection, '--phrase', 'keep CSV as the default format', '--until', '2030-01-07T09:01:29.500Z');
   assert.equal(late.status, 0, late.stderr);
   assert.match(late.stdout, /^0 messages from a person contain the phrase$/m);
   assert.match(late.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+});
+
+/**
+ * A history written by the test itself, for a repository at /srv/example/queue, holding one session's
+ * records in the order given. The words are invented, like every fixture's.
+ */
+const QUEUE_REPO = '/srv/example/queue';
+const QUEUE_SESSION = '00000000-0000-4000-8000-000000000101';
+async function queueHistory(records) {
+  const history = await tempDir('mine-queue-');
+  const dir = path.join(history, encodeProjectPath(QUEUE_REPO));
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, `${QUEUE_SESSION}.jsonl`), `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+  return history;
+}
+let queueUuid = 0;
+const queueTime = (minute) => `2030-02-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
+const queueBase = (minute) => {
+  queueUuid += 1;
+  return { uuid: `00000000-0000-4000-8000-${String(queueUuid).padStart(12, '0')}`, timestamp: queueTime(minute), sessionId: QUEUE_SESSION, cwd: QUEUE_REPO, version: '2.1.286' };
+};
+const typedAt = (minute, content) => ({ ...queueBase(minute), type: 'user', origin: { kind: 'human' }, message: { role: 'user', content } });
+const queuedAt = (minute, prompt) => ({ ...queueBase(minute), type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt } });
+const commandAt = (minute, name, args) => ({ ...queueBase(minute), type: 'user', message: { role: 'user', content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>` } });
+const enqueueAt = (minute, content) => ({ type: 'queue-operation', operation: 'enqueue', timestamp: queueTime(minute), sessionId: QUEUE_SESSION, content });
+
+test('an enqueue is delivered only by a later message with its whole words, one enqueue to a message, never by one that shares the phrase', async () => {
+  const history = await queueHistory([
+    typedAt(0, 'start on the preview build'),
+    enqueueAt(1, 'status? please deploy the preview'),
+    enqueueAt(2, 'status?'),
+    queuedAt(3, 'status?'),
+    enqueueAt(4, 'status?'),
+    enqueueAt(5, 'ship it'),
+    typedAt(6, 'ship it and tag the release'),
+    enqueueAt(7, '/goal finish the preview build'),
+    commandAt(8, 'goal', 'finish the preview build'),
+  ]);
+  const at = ['--repo', QUEUE_REPO, '--history', history];
+  const file = `${encodeProjectPath(QUEUE_REPO)}/${QUEUE_SESSION}.jsonl`;
+
+  // A later "status?" holds the phrase of the first enqueue, and is not its delivery; it delivers the
+  // second enqueue, which has its whole words, and so cannot deliver the third too.
+  const status = run('locate', ...at, '--phrase', 'status?');
+  assert.equal(status.status, 0, status.stderr);
+  assert.match(status.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(status.stdout, /^enqueued while a turn was running: 3; 1 reached that session as a person's message; 2 never reached that session as a person's message:$/m);
+  assert.match(status.stdout, new RegExp(`^ {2}${file}:2 {2}2030-02-01T10:01:00Z {2}session ${QUEUE_SESSION} {2}enqueued, not delivered$`, 'm'));
+  assert.match(status.stdout, new RegExp(`^ {2}${file}:5 {2}2030-02-01T10:04:00Z {2}session ${QUEUE_SESSION} {2}enqueued, not delivered$`, 'm'));
+  const json = JSON.parse(run('locate', ...at, '--phrase', 'status?', '--json').stdout);
+  assert.equal(json.queued.enqueued, 3);
+  assert.equal(json.queued.delivered, 1);
+  assert.deepEqual(json.queued.undelivered.map((entry) => entry.line), [2, 5]);
+  assert.deepEqual(json.queued.unknown, []);
+
+  // Words inside a longer later message may be several queued messages delivered as one turn, or
+  // not: the records cannot tell, and the answer says so rather than either.
+  const ship = run('locate', ...at, '--phrase', 'ship it');
+  assert.equal(ship.status, 0, ship.stderr);
+  assert.match(ship.stdout, /^enqueued while a turn was running: 1; 1 cannot be told from these records:$/m);
+  assert.match(ship.stdout, new RegExp(`^ {2}${file}:6 {2}2030-02-01T10:05:00Z {2}session ${QUEUE_SESSION} {2}enqueued, delivery unknown: its words are inside a longer message later in that session$`, 'm'));
+
+  // A slash command typed while a turn ran arrives as the command's markup, its name and arguments.
+  const goal = run('locate', ...at, '--phrase', 'finish the preview build');
+  assert.equal(goal.status, 0, goal.stderr);
+  assert.match(goal.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(goal.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+  assertNoMessageText(`${status.stdout}${ship.stdout}${goal.stdout}`, 'locate');
+  for (const words of ['please deploy the preview', 'tag the release']) assert.ok(!`${status.stdout}${ship.stdout}`.includes(words), `locate printed ${words}`);
 });
 
 test("an editor selection or a reminder that shares a turn with the person's words is not theirs", () => {
