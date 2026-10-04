@@ -959,6 +959,20 @@ test('visitor-session-forensics weighs person or agent as a leaning on both side
   for (const text of [skill, readme, releases]) assert.doesNotMatch(text, /and whether a person or an agent was at the controls/);
 });
 
+// An account's whole history is a dossier of its own: the accounts query reads the window, as every
+// other query does, and anything older or later only when the request names it and the yes covers it.
+test("visitor-session-forensics reads a named person's account within the window, never its whole history", async () => {
+  const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
+  const a1 = contracts.slice(contracts.indexOf('## A1. Accounts'), contracts.indexOf('## A2. Sign-in log'));
+  assert.match(a1, /\*\*Reads\*\* the auth store, filtered to `\{IDENTITIES\}` and to the window/);
+  assert.match(a1, /sessions\s+active\s+in\s+the\s+window:\s+created\s+at\s+or\s+before\s+`\{TO\}`,\s+and\s+renewed\s+or\s+ended\s+at\s+or\s+after\s+`\{FROM\}`/);
+  assert.doesNotMatch(a1, /its last sign-in|counts of\s+what the product stores for it\./);
+  assert.match(a1, /only when the request names it and the yes covers it \(S2\)/);
+  assert.doesNotMatch(a1, /last sign-in is in or after the window/);
+  const a2 = contracts.slice(contracts.indexOf('## A2. Sign-in log'), contracts.indexOf('## R1. Releases'));
+  assert.match(a2, /\*\*Reads\*\* the auth provider's log, filtered to the people's account ids or identities\s+and\s+to\s+the\s+window/);
+});
+
 // The commands in ingest-arrival's record forms that copy, land or check a pack, run as written.
 async function arrivalCommands() {
   const forms = await read('skills/ingest-arrival/references/record-forms.md');

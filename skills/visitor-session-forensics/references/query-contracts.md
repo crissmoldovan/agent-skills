@@ -187,21 +187,26 @@ with the referrer cut to its host and path.
 
 ## A1. Accounts
 
-**Reads** the auth store, filtered to `{IDENTITIES}`.
+**Reads** the auth store, filtered to `{IDENTITIES}` and to the window, as every other query is.
 
-**Returns** one row per account: when it was created, invited and confirmed, its last sign-in, its
-sessions (created, renewed, user agent, address, masked before it leaves the run), and counts of
-what the product stores for it. Counts only: never the contents of a person's own records.
+**Returns** one row per account: whether it existed and was confirmed when the window opened (yes or
+no, not the dates), its sessions active in the window: created at or before `{TO}`, and renewed or
+ended at or after `{FROM}` (created, renewed, user agent, address, masked before it leaves the
+run), and counts of what the product stored for it in the window. Counts only: never the contents
+of a person's own records.
 
+- An account's history outside the window (when it was created or invited, a sign-in before or
+  after, its sessions then) is read only when the request names it and the yes covers it (S2), as
+  a read of its own. Otherwise the report says it was not read.
 - Where sign-in runs on the site's servers, a session's user agent and address are the servers'.
   The report says so.
 
-**Control.** The control account has a row whose last sign-in is in or after the window.
+**Control.** The control account has a session active at the control visit's time.
 
 ## A2. Sign-in log
 
-**Reads** the auth provider's log, filtered to the people's account ids or identities, **a day at a
-time** where the log caps the rows one query returns.
+**Reads** the auth provider's log, filtered to the people's account ids or identities and to the
+window, **a day at a time** where the log caps the rows one query returns.
 
 **Returns** one row per log line: `["<time>", "<kind>", "<message>"]`, saved as returned.
 
