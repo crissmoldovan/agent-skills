@@ -164,7 +164,9 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
    kept, measured before and after the copy, and they match.
 
 4. **S4. Give each pack its own folder.** Two packs are never unpacked into one.
-   - Before extracting, check for an absolute path, a `..`, a symlink or encryption. An encrypted pack
+   - Before extracting, check for an absolute path, a `..`, a symlink, encryption, and two members
+     that would extract to one path, which unzipping keeps as one without a word. Anything the guard
+     in record forms prints stops the extraction, and B1 is told which members. An encrypted pack
      stops the run: its password is not ours to look for. When B1 supplies one, it goes through B13,
      never into a record.
    - Extract it into `unpacked/<pack name>/` inside the arrival's folder, the pack's own folder made

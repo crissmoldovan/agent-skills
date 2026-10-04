@@ -235,17 +235,29 @@ Linux):
 shasum -a 256 '<file>' && wc -c < '<file>'
 ```
 
-**The pack guard, before extracting.** Prints `clean`, or each unsafe member:
+**The pack guard, before extracting.** Prints `clean`, or each unsafe member. Two members that
+would extract to one path are unsafe too: the later overwrites the earlier, and the walk after the
+unpack sees only the winner. So each path is compared the way a disk that folds case or Unicode
+forms would store it: `\` read as `/`, `.` and empty parts dropped, the Unicode form evened out,
+and case folded. On a disk that folds neither, such a pair would not collide, and it stops the
+extraction all the same, because the archive may be unpacked again on one that does:
 
 ```sh
 python3 - '<pack>.zip' <<'EOF'
-import sys, stat, zipfile
-bad = []
+import sys, stat, zipfile, unicodedata
+bad, files, folders = [], {}, set()
+key = lambda parts: unicodedata.normalize('NFC', '/'.join(parts)).casefold()
 for i in zipfile.ZipFile(sys.argv[1]).infolist():
     n = i.filename
-    if n.startswith('/') or '..' in n.split('/'): bad.append('unsafe path: ' + n)
+    parts = [p for p in n.replace('\\', '/').split('/') if p not in ('', '.')]
+    if n.startswith(('/', '\\')) or '..' in parts: bad.append('unsafe path: ' + n)
     if (i.external_attr >> 16) & 0o170000 == stat.S_IFLNK: bad.append('symlink: ' + n)
     if i.flag_bits & 1: bad.append('encrypted: ' + n)
+    folders.update(key(parts[:depth]) for depth in range(1, len(parts)))
+    if i.is_dir(): folders.add(key(parts))
+    elif key(parts) in files: bad.append(f'two members extract to one path: {files[key(parts)]} and {n}')
+    else: files[key(parts)] = n
+bad += [f'a file and a folder extract to one path: {n}' for k, n in files.items() if k in folders]
 print('\n'.join(bad) or 'clean')
 EOF
 ```

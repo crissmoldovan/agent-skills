@@ -815,6 +815,40 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
   assert.match(readme, /\[Record forms\]\(skills\/ingest-arrival\/references\/record-forms\.md\)/);
 });
 
+// Two members that extract to one path: the later overwrites the earlier, and the walk after the
+// unpack sees only the winner, so the guard refuses them before anything is extracted.
+test("ingest-arrival's pack guard refuses two members that would extract to one path", async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
+  if (python.status !== 0) {
+    t.skip('no python3 on this machine');
+    return;
+  }
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const start = forms.indexOf('**The pack guard, before extracting.**');
+  assert.notEqual(start, -1, 'record forms no longer carry the pack guard');
+  const guard = forms.slice(start).match(/python3 - '<pack>\.zip' <<'EOF'\n([\s\S]*?)\nEOF\n/);
+  assert.ok(guard, 'no python3 heredoc under the pack guard');
+  const dir = await tempDir('ingest-arrival-guard-');
+  // Each pack is written by Python's own zipfile, which keeps a duplicate name when told to.
+  const pack = (name, members) => {
+    const made = spawnSync('python3', ['-W', 'ignore', '-c', [
+      'import sys, json, zipfile',
+      'with zipfile.ZipFile(sys.argv[1], "w") as z:',
+      '    for name in json.loads(sys.argv[2]): z.writestr(name, "x")',
+    ].join('\n'), `${dir}/${name}.zip`, JSON.stringify(members)], { encoding: 'utf8' });
+    assert.equal(made.status, 0, made.stderr);
+    return spawnSync('python3', ['-', `${dir}/${name}.zip`], { input: guard[1], encoding: 'utf8' });
+  };
+  assert.equal(pack('clean', ['README.md', 'data/a.csv', 'data/b.csv']).stdout.trim(), 'clean');
+  assert.match(pack('twice', ['data/file.csv', 'data/file.csv']).stdout, /^two members extract to one path: data\/file\.csv and data\/file\.csv$/m);
+  assert.match(pack('case', ['Data/File.csv', 'data/file.csv']).stdout, /^two members extract to one path: Data\/File\.csv and data\/file\.csv$/m);
+  assert.match(pack('forms', ['café.csv', 'café.csv']).stdout, /^two members extract to one path: /m);
+  assert.match(pack('dotted', ['data/a.csv', './data//a.csv']).stdout, /^two members extract to one path: data\/a\.csv and \.\/data\/\/a\.csv$/m);
+  assert.match(pack('folder', ['data', 'data/a.csv']).stdout, /^a file and a folder extract to one path: data$/m);
+  assert.match(pack('unsafe', ['../outside.csv']).stdout, /^unsafe path: \.\.\/outside\.csv$/m);
+});
+
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
 // "Use request-blocks-review on this finished PR…", so a reader who installed `blocks` and typed
 // the example would invoke a sibling skill they may not have. Nothing failed, because the tests
