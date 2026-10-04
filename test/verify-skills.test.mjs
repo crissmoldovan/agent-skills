@@ -279,7 +279,12 @@ test('verifier resolves the links in every Markdown file a skill carries, from t
     '',
     '[![badge](../present.md)](../present.md)',
     '',
+    'An anchor, an address and a title are not paths: [top](#guide), [elsewhere](https://example.com/c.md),',
+    '[titled](<../present.md#top> "the present file"), and from here ![the steps](../../SKILL.md).',
+    'Parentheses balance in a destination: [numbered](../notes(1).md).',
+    '',
   ].join('\n'));
+  await writeFile(path.join(skill, 'references', 'notes(1).md'), '# Notes\n');
   const accepted = await verify(root);
   assert.equal(accepted.status, 0, accepted.stderr);
 });
