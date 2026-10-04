@@ -91,7 +91,10 @@ const OVERLAY_SECTIONS = new Map([['bindings', 'Bindings'], ['additions', 'Addit
 // that what the pack holds declared and what an overlay may cite are the same set of ids.
 const BINDINGS_COLUMNS = ['id', 'slot', 'kind', 'default'];
 const SLOT_KIND = /^(?:value|skill)(?:, required)?$/;
-const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HS][0-9][0-9A-Za-z]*)/;
+// A candidate is read as wide as the verifier reads it (H or S in either case, then a digit, straight
+// after the letter or after up to three characters that are neither a letter nor a digit), and only
+// a well-formed one declares an id: the verifier refuses the rest, so no overlay may cite them.
+const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HhSs][^\p{L}\p{N}*`]{0,3}[0-9][0-9A-Za-z]*)/u;
 
 // A hard line is only ever made stricter (merge rule 4). No script can tell stricter from looser
 // in prose, so this is a tripwire for the words an exception is written in, backed by review: it
@@ -433,28 +436,53 @@ function allowedToolsLines(frontmatter) {
 
 // Declarations are read exactly as the pack's verifier reads them, so the composer sees exactly
 // the ids the verifier saw.
-const DECLARED_FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
-const DECLARED_FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/;
+
+/** The column a run of leading whitespace reaches, a tab moving to the next multiple of four. */
+function indentColumns(whitespace) {
+  let at = 0;
+  for (const character of whitespace) at = character === '\t' ? at + 4 - (at % 4) : at + 1;
+  return at;
+}
 
 /**
- * Lines with every fenced block blanked, so line numbers still match, as the pack's verifier reads
- * declarations: a fence opens at a line that starts, at any indent, with three or more backticks or
- * tildes, closes at the next bare line of at least as many of the same character at any indent, and
- * one that never closes runs to the end of the text.
+ * Lines with every fenced block blanked, so line numbers still match, exactly as the pack's verifier
+ * reads declarations (`unfencedLines` in scripts/verify-skills.mjs). A fence is read at any
+ * indentation, and the strictest way it could be meant, so that it never hides a line Markdown would
+ * show: it closes at a bare run of at least as many of its character, indented at most three columns
+ * more than it, and only if that comes before any line that is not blank and is indented less than
+ * it. A fence that does not close so opens nothing, and the lines after it are read. A less indented
+ * line that would have closed it is the closing line its writer meant, so it opens nothing either. A
+ * backtick fence whose info string holds a backtick is not a fence.
  */
 function unfencedLines(text) {
-  let fence = null;
-  return text.split('\n').map((line) => {
-    if (fence === null) {
-      const open = line.match(DECLARED_FENCE_OPEN);
-      if (!open) return line;
-      fence = open[1];
-      return '';
+  const lines = text.split('\n');
+  const result = [...lines];
+  const meantToClose = new Set();
+  for (let at = 0; at < lines.length; at += 1) {
+    const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
+    if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
+    const [, lead, fence] = open;
+    const indent = indentColumns(lead);
+    let end = -1;
+    for (let next = at + 1; next < lines.length; next += 1) {
+      if (lines[next].trim() === '') continue;
+      const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
+      const closes = close !== null && close[2][0] === fence[0] && close[2].length >= fence.length;
+      const depth = indentColumns(lines[next].match(/^\s*/)[0]);
+      if (depth < indent) {
+        if (closes) meantToClose.add(next);
+        break;
+      }
+      if (closes && depth <= indent + 3) {
+        end = next;
+        break;
+      }
     }
-    const close = line.match(DECLARED_FENCE_CLOSE);
-    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-    return '';
-  });
+    if (end < 0) continue;
+    result.fill('', at, end + 1);
+    at = end;
+  }
+  return result;
 }
 
 // The overlay reads its fences closer to CommonMark, and holds each to the addition or section it
@@ -641,10 +669,21 @@ export function parseDeclarations(files) {
     while (end < rows.length && !/^#{1,2}\s/.test(rows[end])) end += 1;
     let index = heading + 1;
     while (index < end && !rows[index].trim().startsWith('|')) index += 1;
-    if (index < end && tableCells(rows[index]).map((cell) => cell.toLowerCase()).join('|') === BINDINGS_COLUMNS.join('|')) {
+    // As the verifier holds the table: its header, then a delimiter row of as many cells, so that a
+    // renderer reads it as a table; then rows of four cells, each slot id well formed and not an H or
+    // an S, which name hard lines and steps.
+    const delimiter = rows[index + 1] ?? '';
+    const isTable = index < end
+      && tableCells(rows[index]).map((cell) => cell.toLowerCase()).join('|') === BINDINGS_COLUMNS.join('|')
+      && delimiter.trim().startsWith('|')
+      && tableCells(delimiter).length === BINDINGS_COLUMNS.length
+      && tableCells(delimiter).every((cell) => /^:?-+:?$/.test(cell));
+    if (isTable) {
       for (index += 2; index < end && rows[index].trim().startsWith('|'); index += 1) {
-        const [id, slot, kind, fallback] = tableCells(rows[index]);
-        if (!ID.test(id ?? '') || !SLOT_KIND.test(kind ?? '')) continue;
+        const cells = tableCells(rows[index]);
+        if (cells.length !== BINDINGS_COLUMNS.length) continue;
+        const [id, slot, kind, fallback] = cells;
+        if (!ID.test(id) || id[0] === 'H' || id[0] === 'S' || !SLOT_KIND.test(kind)) continue;
         const defaultSkill = (fallback ?? '').match(/^`([a-z0-9]+(?:-[a-z0-9]+)*)`$/)?.[1] ?? null;
         declare(slots, id, { id, file, slot, kind, default: fallback, required: kind.endsWith(', required'), skill: kind.startsWith('skill'), defaultSkill });
       }

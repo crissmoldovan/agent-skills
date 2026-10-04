@@ -17,6 +17,7 @@ import {
   linkProblems,
   newerTags,
   parseArguments,
+  parseDeclarations,
   parseOverlay,
   readBase,
   relativeLinks,
@@ -1415,6 +1416,55 @@ test('a base with a required slot is refused with an empty overlay for that slot
   assert.deepEqual(composedWithRequiredBound(root, 'notes', 'SKILL.md').errors, []);
 });
 
+// The composer reads what a skill declares exactly as the pack's verifier does, so an overlay may
+// cite every id the verifier held, and no other. Each text below declares S1 and S2, then holds a
+// second S1 and a second S2 after a line that may or may not open a fence; a reader that reads the
+// second one reports it as declared twice. Fences as the verifier reads them: one hides lines only
+// when it closes, at a bare line indented at most three columns more than it, before any line
+// indented less than it, and a backtick fence whose info string holds a backtick is no fence.
+const DECLARATIONS_HEAD = '# Part\n\n## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n| B1 | where a part goes | value | ask once |\n\n## Steps\n\n1. **S1. File the part.**\n2. **S2. Count the parts.**\n\n';
+const FENCE_READINGS = {
+  'indented code that shows a fence': ['Shown as code:\n\n    ```markdown\n\n- **S1. Again.**\n- **S2. After it.**\n', { S1: true, S2: true }],
+  'a fence left open': ['```text\nan example that never closes\n\n- **S1. Again.**\n- **S2. After it.**\n', { S1: true, S2: true }],
+  'a bare line indented past the fence, which does not close it': ['```\nfenced\n       ```\n- **S1. Again.**\n```\n- **S2. After it.**\n', { S1: false, S2: true }],
+  'a backtick fence whose info string holds a backtick': ['```js`x\n- **S1. Again.**\n```\n- **S2. After it.**\n', { S1: true, S2: true }],
+  'a fence in a list item': ['- Example:\n\n  ```markdown\n  - **S1. Again.**\n  ```\n\n- **S2. After it.**\n', { S1: false, S2: true }],
+  'a fence ended by a line less indented than it': ['  ```\n  - **S1. Again.**\n```\n\n- **S2. After it.**\n', { S1: true, S2: true }],
+};
+
+test('the composer reads declarations through fences exactly as the pack\'s verifier does', async () => {
+  const repository = fileURLToPath(new URL('..', import.meta.url));
+  for (const [shape, [region, reads]] of Object.entries(FENCE_READINGS)) {
+    const text = `${DECLARATIONS_HEAD}${region}`;
+    const root = await tempDir('adapt-declarations-');
+    write(root, 'scripts/verify-skills.mjs', readText(repository, 'scripts/verify-skills.mjs'));
+    write(root, 'skills/parts/SKILL.md', '---\nname: parts\ndescription: File parts.\n---\n\n# Parts\n');
+    write(root, 'skills/parts/references/fit.json', `${JSON.stringify({ version: 1, kind: 'general', useWhen: 'a fixture' })}\n`);
+    write(root, 'skills/parts/references/part.md', text);
+    const verifier = spawnSync(process.execPath, ['scripts/verify-skills.mjs'], { cwd: root, encoding: 'utf8' });
+    const composer = parseDeclarations([{ path: 'references/part.md', text }]).problems;
+    for (const id of ['S1', 'S2']) {
+      const verifierRead = new RegExp(`id ${id} is declared twice in this skill`).test(verifier.stderr);
+      const composerRead = composer.includes(`references/part.md declares ${id} a second time`);
+      assert.equal(verifierRead, reads[id], `${shape}: the verifier ${reads[id] ? 'did not read' : 'read'} the second ${id}\n${verifier.stderr}`);
+      assert.equal(composerRead, verifierRead, `${shape}: the composer ${composerRead ? 'read' : 'did not read'} the second ${id}, and the verifier ${verifierRead ? 'did' : 'did not'}`);
+    }
+  }
+});
+
+// A table or an id the verifier refuses declares nothing to the composer either, so an overlay
+// cannot cite what the pack never held declared.
+test('the composer declares no slot from a table the verifier refuses, and no id it refuses', () => {
+  const declared = (text) => parseDeclarations([{ path: 'SKILL.md', text }]);
+  const table = (rows, delimiter = '|---|---|---|---|') => `## Bindings\n\n| id | slot | kind | default |\n${delimiter}\n${rows.join('\n')}\n`;
+  assert.deepEqual([...declared(table(['| B1 | where it goes | value | ask once |'])).slots.keys()], ['B1']);
+  assert.deepEqual([...declared(table(['| B1 | where it goes | value | ask once |'], '|---|---|---|')).slots.keys()], [], 'a delimiter row with another number of cells');
+  assert.deepEqual([...declared(table(['| B1 | where it goes | value | ask once | extra |'])).slots.keys()], [], 'a row with another number of cells');
+  assert.deepEqual([...declared(table(['| H1 | where it goes | value | ask once |', '| S2 | where it goes | value | ask once |'])).slots.keys()], [], 'a slot named with a hard-line or step letter');
+  const lines = declared(`${table(['| B1 | where it goes | value | ask once |'])}\n- **S-1. Hyphenated.**\n- **s2. Lower case.**\n### H_3 Underscored\n- **S4. Well formed.**\n`).lines;
+  assert.deepEqual([...lines.keys()], ['S4']);
+});
+
 // Every skill this pack ships is a base a project may adapt, from its SKILL.md or from a Markdown
 // file it carries. A link a carried file holds that does not resolve from that file, fenced or not,
 // refuses every copy of the skill at check 10, so each composes here with an overlay that binds only
@@ -1422,21 +1472,8 @@ test('a base with a required slot is refused with an empty overlay for that slot
 // that links back to its skill's SKILL.md, or shows the markers that fence a copy's skill text, was
 // not written to be taken as the entry, and is refused as one by design (the guide says why); it is
 // set aside here, unless it declares `## Bindings`, which says it was.
-/** Whether a file declares `## Bindings` outside fenced code, as the pack's verifier reads it. */
-function declaresBindings(text) {
-  let fence = null;
-  for (const line of text.split('\n')) {
-    if (fence === null) {
-      const open = line.match(/^\s*(`{3,}|~{3,})/);
-      if (open) fence = open[1];
-      else if (/^##\s+Bindings\s*$/.test(line)) return true;
-      continue;
-    }
-    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
-    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-  }
-  return false;
-}
+/** Whether a file declares `## Bindings`: a slot, read as the composer reads declarations, which is as the pack's verifier reads them. */
+const declaresBindings = (text) => parseDeclarations([{ path: 'entry.md', text }]).slots.size > 0;
 
 test('every skill in this pack composes as a base, from SKILL.md and from each Markdown file it carries, with an overlay that binds only its required slots', () => {
   const root = fileURLToPath(new URL('..', import.meta.url));
