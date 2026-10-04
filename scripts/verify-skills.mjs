@@ -43,6 +43,7 @@ const FIT_KINDS = new Set(['signals', 'general', 'requestOnly']);
 // so every such file is read, and its ids are held unique across all of them, because "S4" has to
 // mean one step wherever the skill or an overlay cites it. Fenced code is not read, at any
 // indentation, so a fence nested in a list item counts: an example of a table is not a declaration.
+// Such a file whose code blocks GitHub could read otherwise than this check does is refused instead.
 const BINDINGS_COLUMNS = ['id', 'slot', 'kind', 'default'];
 const WELL_FORMED_ID = /^[A-Z][1-9][0-9]*$/;
 const SLOT_KIND = /^(?:value|skill)(?:, required)?$/;
@@ -206,28 +207,41 @@ function indentColumns(whitespace) {
 }
 
 /**
- * The file's lines with every fenced code block blanked, so line numbers still match. A fence is
- * read at any indentation, because one nested in a list item sits past the three spaces a fence at
- * the top level may have, and is code all the same. Without reading the lists around it, a fence is
- * taken the strictest way it could be meant, so that it never hides a line Markdown would show: it
- * closes at a bare run of at least as many of its character, indented at most three columns more
- * than it, and only if that comes before any line that is not blank and is indented less than it. A
- * fence that does not close so opens nothing: its line is read as text, and so are the lines after
- * it. That is an indented code line that merely shows a fence, or a fence left open, which would
- * otherwise hide every declaration after it. A less indented line that would have closed it is the
- * closing line its writer meant, so it does not open a fence of its own. A backtick fence whose info
- * string holds a backtick is not a fence.
+ * The file's lines with every fenced code block blanked, so line numbers still match, and the first
+ * block GitHub could read otherwise than these lines do, as a `refusal` to report instead of reading
+ * the file. A fence is read at any indentation, because one nested in a list item sits past the
+ * three spaces a fence at the top level may have, and is code all the same. It closes at a bare run
+ * of at least as many of its character, indented at most three columns more than it, before any line
+ * that is not blank and is indented less than it. A fence that does not close so is not blanked: its
+ * line is read as text, and so are the lines after it.
+ *
+ * Reading those lines as text is right only where GitHub shows them as text too, and whether it does
+ * can depend on a list around the fence, which this check does not read. A line indented less than
+ * the fence stays inside the block outside a list, and in a list item ends the item and the block
+ * with it, so the lines between are code either way; and a fence that never closes is code to the
+ * end of the file. So a fence that meets a less indented line first is refused, naming that line
+ * and the line the block opened on, and so is one that never closes. Two layouts read the same with
+ * or without a list, and are read as text without a refusal: a fence-shaped line with nothing after
+ * it, and one indented four or more columns with only blank lines under it before a line indented
+ * less than two columns that would not close it. The second is indented code that shows a fence, or
+ * a block in a list item that the line ends at once, since a list item's text starts at least two
+ * columns in. A less indented line that would have closed a fence is the closing line its writer
+ * meant, so it does not open a fence of its own. A backtick fence whose info string holds a backtick
+ * is not a fence.
  */
 function unfencedLines(source) {
   const lines = source.split('\n');
   const result = [...lines];
   const meantToClose = new Set();
+  let refusal = null;
   for (let at = 0; at < lines.length; at += 1) {
     const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
     if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
     const [, lead, fence] = open;
     const indent = indentColumns(lead);
     let end = -1;
+    let content = false;
+    let shallower = null;
     for (let next = at + 1; next < lines.length; next += 1) {
       if (lines[next].trim() === '') continue;
       const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
@@ -235,18 +249,30 @@ function unfencedLines(source) {
       const depth = indentColumns(lines[next].match(/^\s*/)[0]);
       if (depth < indent) {
         if (closes) meantToClose.add(next);
+        shallower = { line: next, depth, closes };
         break;
       }
       if (closes && depth <= indent + 3) {
         end = next;
         break;
       }
+      content = true;
     }
-    if (end < 0) continue;
+    if (end < 0) {
+      refusal ??= unreadableFence(at, indent, content, shallower);
+      continue;
+    }
     result.fill('', at, end + 1);
     at = end;
   }
-  return result;
+  return { lines: result, refusal };
+}
+
+/** Why GitHub could read a fence that does not close otherwise than as text, or null where it cannot. */
+function unreadableFence(at, indent, content, shallower) {
+  if (shallower === null) return content ? { line: at, reason: `the code block opened on line ${at + 1} never closes; close it` } : null;
+  if (!content && indent >= 4 && shallower.depth < 2 && !shallower.closes) return null;
+  return { line: shallower.line, reason: `line ${shallower.line + 1} is less indented than the code block opened on line ${at + 1}; indent it or close the block` };
 }
 
 /** A table row's cells, split on every pipe that is not escaped, as GitHub's tables split them. */
@@ -335,10 +361,15 @@ function validateAdaptation(skillDirectory, shipped) {
   const declared = new Map();
   const slotLetters = new Map();
   for (const file of files) {
-    const lines = unfencedLines(readFileSync(file, 'utf8'));
+    const { lines, refusal } = unfencedLines(readFileSync(file, 'utf8'));
     const headings = lines.flatMap((line, index) => (/^##\s+Bindings\s*$/.test(line) ? [index] : []));
     if (headings.length === 0) continue;
     const where = (index) => `${relative(root, file)}:${index + 1}`;
+    // What the file declares depends on how its code blocks are read, so it is refused, not read.
+    if (refusal) {
+      fail(`${where(refusal.line)}: ${refusal.reason}`);
+      continue;
+    }
     const declare = (id, index) => {
       const first = declared.get(id);
       if (first) fail(`${where(index)}: id ${id} is declared twice in this skill (first at ${first})`);

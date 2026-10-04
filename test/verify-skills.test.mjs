@@ -727,13 +727,12 @@ test('verifier leaves out a fence nested in a list item, and reads a level-one h
 });
 
 // A fence hides lines only when it closes before a line indented less than its opener. A line that
-// only looks like a fence (indented code showing one, a fence never closed, backticks in the info
-// string) would otherwise hide every declaration after it, so a step declared twice would pass.
+// only looks like a fence (indented code showing one, backticks in the info string, a fence-shaped
+// last line) would otherwise hide every declaration after it, so a step declared twice would pass.
 test('verifier reads past a line that only looks like a fence, so a declaration after it is still held', async () => {
   const cases = [
     ['an indented code line showing a fence', ['    ```', '', '- **S2. Read it again.** A second S2.']],
     ['an indented code line, then a real fenced example', ['    ```', '', '- **S2. Read it again.** A second S2.', '', '```markdown', 'An example.', '```']],
-    ['a fence never closed', ['```markdown', '- **S2. Read it again.** A second S2.']],
     ['backticks in a backtick fence\'s info string', ['``` `inline` code, which is not a fence', '- **S2. Read it again.** A second S2.', '```']],
   ];
   for (const [name, rest] of cases) {
@@ -742,6 +741,60 @@ test('verifier reads past a line that only looks like a fence, so a declaration 
     assert.equal(result.status, 1, `after ${name}, a second S2 passed verification`);
     assert.match(result.stderr, /id S2 is declared twice in this skill/, name);
   }
+});
+
+// Whether a line indented less than a fence ends it depends on a list around the fence, which the
+// verifier does not read: outside a list, CommonMark keeps the line inside the block, and in a list
+// item the line ends the item and the block with it. A fence that never closes runs to the end of
+// the file. Either way GitHub can show as code what a reading of the lines as text would declare, so
+// a file that declares Bindings is refused, naming the line and the line the block opened on.
+test('verifier refuses a code block that meets a less indented line before it closes, naming both lines', async () => {
+  const first = adaptableBody(goodRows, '').split('\n').length;
+  const cases = [
+    ['a fence indented two spaces holding an unindented step', ['  ```markdown', '- **S1. An example step.**', '  ```'], first + 1, first],
+    ['a closing line at the margin under a fence indented two spaces', ['  ```markdown', '  - **S1. An example step.**', '```'], first + 2, first],
+    ['a fence in a list item, then a line at the margin', ['- An example:', '', '    ```markdown', '    - **S1. An example step.**', '- **S4. The step after it.**'], first + 4, first + 2],
+  ];
+  for (const [name, rest, line, opened] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${rest.join('\n')}\n`)));
+
+    assert.equal(result.status, 1, `${name} passed verification`);
+    assert.match(
+      result.stderr,
+      new RegExp(`SKILL\\.md:${line}: line ${line} is less indented than the code block opened on line ${opened}; indent it or close the block`),
+      name,
+    );
+    assert.doesNotMatch(result.stderr, /declared twice/, `${name}: the block's lines were read as text`);
+  }
+});
+
+test('verifier refuses a code block that never closes, and reads a fence-shaped last line as text', async () => {
+  const first = adaptableBody(goodRows, '').split('\n').length;
+  for (const rest of [['```markdown', '- **S1. An example step.**'], ['    ```markdown', '    - **S1. An example step.**']]) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${rest.join('\n')}\n`)));
+
+    assert.equal(result.status, 1, `${rest[0].trim()} left open passed verification`);
+    assert.match(result.stderr, new RegExp(`SKILL\\.md:${first}: the code block opened on line ${first} never closes; close it`));
+    assert.doesNotMatch(result.stderr, /declared twice/);
+  }
+
+  // Nothing follows it, so no reading of it hides anything.
+  const last = await verify(await adaptableFixture(adaptableBody(goodRows, '- **S4. The last step.**\n\n```\n')));
+  assert.equal(last.status, 0, last.stderr);
+});
+
+// The verifier reads ids only in a file that declares Bindings, so a block it could not read one
+// way in any other file is left alone, as it was.
+test('verifier leaves a code block it cannot read one way alone in a file that declares no Bindings', async () => {
+  const root = await adaptableFixture();
+  await writeFile(
+    path.join(root, 'skills', 'valid-skill', 'references', 'overlay-example.md'),
+    ['# Showing an overlay', '', '  ```markdown', '- **S1. An example step.**', '  ```', '', '```markdown', '- **S2. Left open.**', ''].join('\n'),
+  );
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 0, result.stderr);
 });
 
 // A fence-shaped line indented more than three columns past the opener is the fence's content, so

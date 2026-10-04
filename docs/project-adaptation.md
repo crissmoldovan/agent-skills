@@ -277,10 +277,19 @@ breaking; from 1.0.0 it moves the first.
 
 `scripts/verify-skills.mjs` reads every Markdown file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It leaves fenced code out, at any indentation, so an example
-such as the ones on this page declares nothing. A fence counts only when it closes before a line
-indented less than it, so a line that merely looks like one (indented code showing a fence, or a
-fence left open) hides nothing after it. It fails when:
+such as the ones on this page declares nothing. A fence closes at a bare line of at least as many of
+its character, indented as far as the fence or up to three columns further. A line indented less
+than the fence that comes before its closing line may sit inside the block or end it, depending on
+a list around it that the verifier does not read, so the verifier refuses the file rather than read
+it one way, and it refuses a fence that never closes too. A line that only looks like a fence, and
+reads the same with or without a list, hides nothing after it: a fence-shaped line with nothing
+after it, or indented code that shows a fence, four or more columns in, with only blank lines under
+it before a line indented less than two columns that would not close it. It fails when:
 
+- a code block meets a line indented less than it before it closes (`line 12 is less indented than
+  the code block opened on line 10; indent it or close the block`), or never closes (`the code block
+  opened on line 10 never closes`). GitHub could show as code what the verifier would read as text,
+  so it reads nothing in that file until the block is indented or closed;
 - one file declares the section twice, or the section has no table, the table's columns are not
   `id | slot | kind | default`, its delimiter row has another number of cells, so that a renderer
   would not read it as a table, a row has a pipe after two or more backslashes, which GitHub keeps
