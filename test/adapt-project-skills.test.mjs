@@ -27,6 +27,7 @@ import {
   sha256,
   sourceProblem,
   splitFrontmatter,
+  writeGenerated,
   yamlString,
 } from '../skills/update-agent-skills/scripts/adapt.mjs';
 
@@ -2047,6 +2048,48 @@ test('a link that reaches outside the repository through a symbolic link in it i
   const checked = check(project);
   assert.equal(checked.status, EXIT_FAILED, checked.stdout);
   assert.match(checked.stdout, /\[10\] SKILL\.md links to \.\.\/\.\.\/\.\.\/docs\/internal\/notes\.md, which reaches outside the repository through a symbolic link/);
+});
+
+// Writing a copy moves the one that was there aside, then moves the new one into its place. A failure
+// between the two, such as a folder another program holds open, must not leave the project with
+// neither: the copy that was there goes back, and nothing the write made is left behind.
+test('a copy that fails to land puts back the copy that was there, and leaves nothing behind', async () => {
+  const root = await tempDir('adapt-write-');
+  const skills = path.join(root, '.claude', 'skills');
+  const target = path.join(skills, 'notes-here');
+  write(root, '.claude/skills/notes-here/SKILL.md', 'the copy that was there\n');
+  const files = new Map([['SKILL.md', { bytes: Buffer.from('the new copy\n'), executable: false }]]);
+  const failing = (which) => {
+    let calls = 0;
+    return (from, to) => {
+      calls += 1;
+      if (which.includes(calls)) throw Object.assign(new Error(`EBUSY: resource busy, rename call ${calls}`), { code: 'EBUSY' });
+      renameSync(from, to);
+    };
+  };
+
+  assert.throws(() => writeGenerated(target, files, { rename: failing([2]) }), /EBUSY: resource busy, rename call 2/);
+  assert.equal(readText(root, '.claude/skills/notes-here/SKILL.md'), 'the copy that was there\n');
+  assert.deepEqual(readdirSync(skills), ['notes-here']);
+
+  // When the copy cannot be put back either, the error says where it is kept, and it is kept.
+  const error = (() => {
+    try {
+      writeGenerated(target, files, { rename: failing([2, 3]) });
+    } catch (caught) {
+      return caught;
+    }
+    return null;
+  })();
+  assert.match(error?.message ?? '', /EBUSY: resource busy, rename call 2; the copy that was there is kept at (.+\.previous), and could not be moved back \(EBUSY: resource busy, rename call 3\): move it back to .+notes-here by hand/);
+  const kept = error.message.match(/is kept at (.+\.previous),/)[1];
+  assert.equal(readFileSync(path.join(kept, 'SKILL.md'), 'utf8'), 'the copy that was there\n');
+  assert.deepEqual(readdirSync(skills).filter((name) => !name.endsWith('.previous')), []);
+
+  renameSync(kept, target);
+  writeGenerated(target, files);
+  assert.equal(readText(root, '.claude/skills/notes-here/SKILL.md'), 'the new copy\n');
+  assert.deepEqual(readdirSync(skills), ['notes-here']);
 });
 
 test('a link written from the root is read, never moved, and refused at [10] wherever it sits', () => {

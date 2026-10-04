@@ -1735,10 +1735,17 @@ export function integrityProblems(generated, lock) {
   return problems;
 }
 
-function writeGenerated(target, files) {
+/**
+ * Write a generated folder in place of the one there: the new files go into a staging folder beside
+ * it, the old folder is moved aside, and the staging folder is moved into its place. If that last
+ * move fails, the old folder is moved back, so a failed write never leaves the project with no copy;
+ * if it cannot be moved back either, the error says where it is kept. `rename` is for tests.
+ */
+export function writeGenerated(target, files, { rename = renameSync } = {}) {
   const parent = path.dirname(target);
   mkdirSync(parent, { recursive: true });
   const staging = mkdtempSync(path.join(parent, `.${path.basename(target)}.compose-`));
+  let previous = null;
   try {
     for (const [file, content] of files) {
       const full = path.join(staging, ...file.split('/'));
@@ -1746,14 +1753,23 @@ function writeGenerated(target, files) {
       writeFileSync(full, content.bytes);
       chmodSync(full, content.executable ? 0o755 : 0o644);
     }
-    const previous = existsSync(target) ? `${staging}.previous` : null;
-    if (previous) renameSync(target, previous);
-    renameSync(staging, target);
-    if (previous) rmSync(previous, { recursive: true, force: true });
+    if (existsSync(target)) {
+      rename(target, `${staging}.previous`);
+      previous = `${staging}.previous`;
+    }
+    rename(staging, target);
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
+    if (previous) {
+      try {
+        rename(previous, target);
+      } catch (restore) {
+        error.message = `${error.message}; the copy that was there is kept at ${previous}, and could not be moved back (${restore.message}): move it back to ${target} by hand`;
+      }
+    }
     throw error;
   }
+  if (previous) rmSync(previous, { recursive: true, force: true });
 }
 
 function composerBytes() {
