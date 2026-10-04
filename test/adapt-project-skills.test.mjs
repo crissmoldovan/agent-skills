@@ -533,6 +533,31 @@ test('check fails on a generated folder whose adapter is gone', async () => {
   assert.match(result.stdout, /was composed from an adapter that is no longer in \.claude\/skill-adapters\//);
 });
 
+// `--adapter <name>` checks that adapter alone, so a folder some other adapter left behind fails only
+// the run that checks it: the whole repository, or that name.
+test('check --adapter checks that adapter alone, and names a left-behind folder only when it is asked for or all are checked', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const project = await addAdapter({ pack });
+  await addAdapter({ project, pack, folder: 'old-here', adapter: adapterJson(pack, { name: 'old-here' }) });
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  rmSync(path.join(project, ADAPTERS, 'old-here'), { recursive: true });
+
+  const healthy = check(project, '--adapter', 'notes-here');
+  assert.equal(healthy.status, EXIT_OK, healthy.stdout);
+  assert.doesNotMatch(healthy.stdout, /old-here/);
+  assert.match(healthy.stdout, /^notes-here: ok/m);
+
+  const everything = check(project);
+  assert.equal(everything.status, EXIT_FAILED);
+  assert.match(everything.stdout, /^old-here: FAILED\n {2}\[1\] \.claude\/skills\/old-here was composed from an adapter that is no longer in \.claude\/skill-adapters\//m);
+
+  const asked = check(project, '--adapter', 'old-here');
+  assert.equal(asked.status, EXIT_FAILED, asked.stdout);
+  assert.match(asked.stdout, /^old-here: FAILED\n {2}\[1\] \.claude\/skills\/old-here was composed from an adapter that is no longer in/m);
+  assert.doesNotMatch(asked.stdout, /notes-here/);
+  assert.throws(() => check(project, '--adapter', 'nowhere'), /no adapter folder named nowhere/);
+});
+
 test('a hand-written folder of the same name is replaced only with --discard-hand-edits', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const project = await addAdapter({ pack });

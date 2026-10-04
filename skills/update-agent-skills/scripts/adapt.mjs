@@ -2020,18 +2020,24 @@ export function runCheck(options, io) {
   let failures = 0;
   let checked = 0;
 
+  // A generated folder whose adapter is gone fails the check of the whole repository, and the check
+  // of that one name; `--adapter` naming another adapter checks that adapter alone.
   const names = new Set(adapters.map((record) => record.folderName));
+  const orphans = [];
   if (existsSync(layout.skillsPath)) {
-    for (const entry of readdirSync(layout.skillsPath, { withFileTypes: true })) {
-      if (entry.isDirectory() && !names.has(entry.name) && existsSync(path.join(layout.skillsPath, entry.name, LOCK_FILE))) {
-        io.out(`${entry.name}: FAILED`);
-        io.out(`  [1] ${layout.skillsRel}/${entry.name} was composed from an adapter that is no longer in ${layout.adaptersRel}/; restore the adapter, or delete the folder`);
-        failures += 1;
-      }
+    for (const entry of readdirSync(layout.skillsPath, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      if (entry.isDirectory() && !names.has(entry.name) && existsSync(path.join(layout.skillsPath, entry.name, LOCK_FILE))) orphans.push(entry.name);
     }
   }
+  for (const orphan of orphans) {
+    if (options.adapter && options.adapter !== orphan) continue;
+    io.out(`${orphan}: FAILED`);
+    io.out(`  [1] ${layout.skillsRel}/${orphan} was composed from an adapter that is no longer in ${layout.adaptersRel}/; restore the adapter, or delete the folder`);
+    failures += 1;
+  }
+  const askedForOrphan = Boolean(options.adapter) && orphans.includes(options.adapter);
 
-  for (const record of selectAdapters(adapters, options.adapter)) {
+  for (const record of askedForOrphan ? [] : selectAdapters(adapters, options.adapter)) {
     checked += 1;
     const problems = [];
     const warnings = [];

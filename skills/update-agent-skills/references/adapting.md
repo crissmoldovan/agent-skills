@@ -150,7 +150,9 @@ node .claude/skill-adapters/.tool/adapt.mjs outdated --repo . --verify  # and co
   line for review. It writes nothing without `--write`. With it, it writes the generated folder and
   vendors itself. `--adapter <name>` composes one; `--pack <dir>` reads a local clone instead of
   fetching. When the pinned ref ships another composer than the one running, it says so.
-- `check` is offline: no git, no network. It exits 1 when any check below fails.
+- `check` is offline: no git, no network. It exits 1 when any check below fails. `--adapter <name>`
+  checks one; a generated folder whose adapter is gone fails a check of every adapter, or of its
+  own name.
 - `outdated` exits 2 when something needs a person: a newer tag that changes the skill, a moved or
   deleted tag, a vendored composer that is not the one the pinned ref ships, or a question it could
   not answer. A version orders tags of one kind only, so for a per-skill tag against a catalogue
