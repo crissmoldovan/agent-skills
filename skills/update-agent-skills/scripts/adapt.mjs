@@ -446,24 +446,37 @@ function indentColumns(whitespace) {
 
 /**
  * Lines with every fenced block blanked, so line numbers still match, exactly as the pack's verifier
- * reads declarations (`unfencedLines` in scripts/verify-skills.mjs). A fence is read at any
- * indentation, and the strictest way it could be meant, so that it never hides a line Markdown would
- * show: it closes at a bare run of at least as many of its character, indented at most three columns
- * more than it, and only if that comes before any line that is not blank and is indented less than
- * it. A fence that does not close so opens nothing, and the lines after it are read. A less indented
- * line that would have closed it is the closing line its writer meant, so it opens nothing either. A
- * backtick fence whose info string holds a backtick is not a fence.
+ * reads declarations (`unfencedLines` in scripts/verify-skills.mjs), and the first block GitHub could
+ * read otherwise than these lines do, as a `refusal`. A fence is read at any indentation. It closes
+ * at a bare run of at least as many of its character, indented at most three columns more than it,
+ * before any line that is not blank and is indented less than it. A fence that does not close so is
+ * not blanked: its line is read as text, and so are the lines after it.
+ *
+ * Whether GitHub shows those lines as text can depend on a list around the fence, which neither the
+ * verifier nor the composer reads: a line indented less than the fence stays inside the block outside
+ * a list, and in a list item ends the item and the block with it, and a fence that never closes is
+ * code to the end of the file. So a fence that meets a less indented line first is refused, naming
+ * that line and the line the block opened on, and so is one that never closes. Two layouts read the
+ * same with or without a list and are read as text without a refusal: a fence-shaped line with
+ * nothing after it, and one indented four or more columns with only blank lines under it before a
+ * line indented less than two columns that would not close it, which is indented code that shows a
+ * fence, or a block in a list item that the line ends at once. A less indented line that would have
+ * closed a fence is the closing line its writer meant, so it opens nothing either. A backtick fence
+ * whose info string holds a backtick is not a fence.
  */
 function unfencedLines(text) {
   const lines = text.split('\n');
   const result = [...lines];
   const meantToClose = new Set();
+  let refusal = null;
   for (let at = 0; at < lines.length; at += 1) {
     const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
     if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
     const [, lead, fence] = open;
     const indent = indentColumns(lead);
     let end = -1;
+    let content = false;
+    let shallower = null;
     for (let next = at + 1; next < lines.length; next += 1) {
       if (lines[next].trim() === '') continue;
       const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
@@ -471,18 +484,30 @@ function unfencedLines(text) {
       const depth = indentColumns(lines[next].match(/^\s*/)[0]);
       if (depth < indent) {
         if (closes) meantToClose.add(next);
+        shallower = { line: next, depth, closes };
         break;
       }
       if (closes && depth <= indent + 3) {
         end = next;
         break;
       }
+      content = true;
     }
-    if (end < 0) continue;
+    if (end < 0) {
+      refusal ??= unreadableFence(at, indent, content, shallower);
+      continue;
+    }
     result.fill('', at, end + 1);
     at = end;
   }
-  return result;
+  return { lines: result, refusal };
+}
+
+/** Why GitHub could read a fence that does not close otherwise than as text, or null where it cannot. */
+function unreadableFence(at, indent, content, shallower) {
+  if (shallower === null) return content ? { line: at, reason: `the code block opened on line ${at + 1} never closes; close it` } : null;
+  if (!content && indent >= 4 && shallower.depth < 2 && !shallower.closes) return null;
+  return { line: shallower.line, reason: `line ${shallower.line + 1} is less indented than the code block opened on line ${at + 1}; indent it or close the block` };
 }
 
 // The overlay reads its fences closer to CommonMark, and holds each to the addition or section it
@@ -651,7 +676,8 @@ function tableCells(line) {
 /**
  * The slots, hard lines and steps a set of files declares. A file declares ids only when it
  * declares `## Bindings`, exactly as the pack's verifier reads them, so an id the verifier never
- * saw is never one an overlay can cite.
+ * saw is never one an overlay can cite. Such a file whose code blocks GitHub could read otherwise
+ * is refused and declares nothing, as the verifier refuses it.
  */
 export function parseDeclarations(files) {
   const slots = new Map();
@@ -662,9 +688,14 @@ export function parseDeclarations(files) {
     else map.set(id, record);
   };
   for (const { path: file, text } of files) {
-    const rows = unfencedLines(text);
+    const { lines: rows, refusal } = unfencedLines(text);
     const heading = rows.findIndex((line) => /^##\s+Bindings\s*$/.test(line));
     if (heading < 0) continue;
+    // What the file declares depends on how its code blocks are read, so it is refused, not read.
+    if (refusal) {
+      problems.push(`${file}: ${refusal.reason}`);
+      continue;
+    }
     let end = heading + 1;
     while (end < rows.length && !/^#{1,2}\s/.test(rows[end])) end += 1;
     let index = heading + 1;

@@ -347,4 +347,6 @@ again, that an overlay keeps the hard lines, or anything in a project. Those are
 for the composer, which refuses an overlay that cites an id no carried file declares, leaves a
 required slot unbound, writes `replaces:` on a hard line, adds to one in the words of an exception,
 in its heading or under it, names one in a heading or opens a line with one in bold outside the
-addition to it, or leaves a fence open past the addition or section it opens in.
+addition to it, or leaves a fence open past the addition or section it opens in. The composer reads
+what a skill declares as the verifier does, so it refuses a carried file whose code block the
+verifier refuses too.
