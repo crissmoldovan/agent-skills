@@ -151,7 +151,8 @@ sections: the percentage, counted from a named register just before writing, in 
 work blocked on a person in the denominator and never in the numerator, and the ceiling without
 them; and the ETA in agent-hours, then wall-clock at the agents the running section counts, then
 a clock time in each reader's zone, pasted from a command, dated when it is not today there, and
-labelled as an estimate with its basis. A new reference,
+labelled as an estimate with its basis. With no agent running, the ETA is agent-hours alone, and a
+clock time that leaves part of the work out says what it covers. A new reference,
 [`percentage-eta-cadence.md`](../skills/report-progress/references/percentage-eta-cadence.md),
 has the shape, the arithmetic, the clock commands, and what keeps updates on a cadence coming:
 a tick strictly inside the harness's cap on background time, re-armed before each update is

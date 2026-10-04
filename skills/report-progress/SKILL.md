@@ -272,10 +272,12 @@ describes. A slot nobody binds keeps its default.
    "Progress not measured: no register of the work" (H7). Give the ETA in agent-hours, then
    wall-clock at the agents actually running, as the running section counts them (B7), then a
    clock time in each reader's zone (B2), every time and zone label pasted from a command. With
-   no lifecycle evidence, divide by the agents dispatched and say they were not observed. Label
-   it an estimate with its basis (H8), and make it cover all the work to the goal, with a fix
-   round for each review still to come. `references/percentage-eta-cadence.md` has the shape
-   and the commands.
+   no lifecycle evidence, divide by the agents dispatched and say they were not observed. With
+   evidence that shows no agent running, give agent-hours alone and say the wall-clock and the
+   clock time are not measured, and why (H7). Label it an estimate with its basis (H8), and make
+   it cover all the work to the goal, with a fix round for each review still to come; a clock
+   time that leaves part of it out says what it covers. `references/percentage-eta-cadence.md`
+   has the shape and the commands.
    **Complete when:** the head line sits under the first line and each number in it states its
    basis, or the report has none because nobody asked for either and no cadence runs.
 

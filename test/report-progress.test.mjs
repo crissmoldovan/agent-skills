@@ -268,6 +268,10 @@ test('the head line is optional, sits above the three sections, and replaces non
   // The wall-clock divides by the running section's count, never by a number nobody observed.
   assert.match(procedure, /wall-clock at the agents actually running, as the running section counts them \(B7\)/);
   assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched and say they were not observed/);
+  // Evidence that shows no agent running leaves nothing to divide by, so no wall-clock is invented.
+  assert.match(procedure, /With evidence that shows no agent running, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
+  // A clock time that leaves part of the work out says what it covers, so it never reads as the goal's.
+  assert.match(procedure, /a clock time that leaves part of it out says what it covers/);
   assert.match(procedure, /With no register, it reads "Progress not measured: no register of the work" \(H7\)/);
   // A labelled ETA is the third kind of number S6 allows, so S6 cannot strip what S3 requires.
   assert.match(procedure, /or part of an ETA labelled as an estimate with its basis \(H8\)/);
@@ -302,6 +306,9 @@ test('the reference carries each lesson the head line and the cadence rest on', 
     /does not divide/,
     /It is an estimate, and it says so \(H8\)/,
     /The headline covers all the work up to the goal/,
+    /A clock time that leaves a part out says what it covers, and never reads as the goal's/,
+    /the goal's own time is not measured \(H7\)/,
+    /When the evidence shows no agent running[\s\S]*?there is nothing to divide by: give agent-hours alone, and say that the wall-clock and the clock time are not measured, and why \(H7\)/,
     /Assume a review finds something/,
     /printed and never typed/,
     /"not measured" in the report, with that reason \(H7\)/,
@@ -359,6 +366,14 @@ test("the reference's specimen adds up, and the gate reads it as a complete repo
   );
   assert.equal(Math.round((100 * done) / previous), before);
   assert.equal(after, percent);
+  // Its clock time leaves out the work blocked on a person, so it says what it covers, and the
+  // goal's own time is not measured until the person's timing is known: never a bare "done".
+  const eta = report.split('\n').find((line) => line.startsWith('ETA'));
+  assert.ok(eta, 'the specimen has no ETA line');
+  assert.doesNotMatch(eta, /; done \d/, "the specimen's clock time reads as the goal's while part of it is left out");
+  const [covered] = numbers(/the (\d+) handlers not blocked on a person done \d{2}:\d{2}–\d{2}:\d{2} UTC/, 'what its clock time covers');
+  assert.equal(covered, total - b, 'the clock time covers another number of handlers than the work not blocked on a person');
+  assert.match(eta, /the whole migration's time is not measured until/);
 
   const gate = await import('../adapters/claude-code/report-progress-gate.mjs');
   assert.deepEqual(gate.findReportFailures(report), []);
