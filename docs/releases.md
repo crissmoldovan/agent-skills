@@ -83,11 +83,12 @@ would publish, whatever its name: in a git checkout, every tracked file, whereve
 every untracked file git does not ignore outside generated output, so a local `.env` cannot fail
 the run. A commit publishes the index and a push publishes HEAD, so where either holds another
 copy of a tracked file than the working tree, because a deletion or an edit is not yet staged or
-committed, that copy is read too. Both patterns are ASCII, so every file is searched whatever
-its encoding. A binary file is searched as bytes, which finds a path in an image's metadata, and
-is named for a person to look at, since what an image shows is not read. One lifecycle test
-file, whose token fields are fixtures, is read for paths but not for the secret pattern, and the
-run names it. A pass no longer suggests that a file was read when it was not.
+committed, or the file is outside a sparse checkout, that copy is read too. Both patterns are
+ASCII, so every file is searched whatever its encoding. A binary file is searched as bytes,
+which finds a path in an image's metadata, and is named for a person to look at, since what an
+image shows is not read. One lifecycle test file, whose token fields are fixtures, is read for
+paths but not for the secret pattern, and the run names it. A pass no longer suggests that a
+file was read when it was not.
 
 Most of what leaks from real work has no shape a public validator can hold: a client's name, a
 person's handle, an internal host, an account id. `scripts/scan-denylist.mjs` checks what a

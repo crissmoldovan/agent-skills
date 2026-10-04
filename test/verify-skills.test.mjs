@@ -183,9 +183,9 @@ test('in a git checkout the verifier reads what git tracks or would add, and not
 
 // A commit publishes the index and a push publishes HEAD, so where either holds another copy of a
 // tracked file than the working tree does, that copy is read as well: a file deleted from the
-// working tree only, one with a clean edit not yet staged over it, one whose clean edit hides a
-// staged secret, and one whose deletion is staged but not committed. A committed deletion leaves
-// nothing to publish.
+// working tree only, one left out of a sparse checkout, one with a clean edit not yet staged over
+// it, one whose clean edit hides a staged secret, and one whose deletion is staged but not
+// committed. A committed deletion leaves nothing to publish.
 test('in a git checkout the verifier reads the index and HEAD copies where they differ from the working tree', async () => {
   const { rm } = await import('node:fs/promises');
   const root = await fixture();
@@ -199,6 +199,7 @@ test('in a git checkout the verifier reads the index and HEAD copies where they 
   await writeFile(path.join(root, 'staged.toml'), 'clean = true\n');
   await writeFile(path.join(root, 'unstaged-removal.toml'), leaked);
   await writeFile(path.join(root, 'committed-removal.toml'), leaked);
+  await writeFile(path.join(root, 'sparse.toml'), leaked);
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'fixture');
@@ -211,6 +212,9 @@ test('in a git checkout the verifier reads the index and HEAD copies where they 
   git(root, 'add', 'staged.toml');
   await writeFile(path.join(root, 'staged.toml'), 'clean = true\n');
   git(root, 'rm', '-q', 'unstaged-removal.toml');
+  // Outside a sparse checkout: the index marks the file skip-worktree, and git diff names nothing.
+  git(root, 'update-index', '--skip-worktree', 'sparse.toml');
+  await rm(path.join(root, 'sparse.toml'));
 
   const result = await verify(root);
 
@@ -220,6 +224,7 @@ test('in a git checkout the verifier reads the index and HEAD copies where they 
   assert.match(result.stderr, /- overwritten\.toml: contains a likely secret/);
   assert.match(result.stderr, /- staged\.toml: contains a likely secret/);
   assert.match(result.stderr, /- unstaged-removal\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- sparse\.toml: contains a likely secret/);
   assert.doesNotMatch(result.stderr, /committed-removal\.toml/);
 });
 

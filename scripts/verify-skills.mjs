@@ -247,7 +247,11 @@ function filesToScan() {
   const copy = (path, object) => copies.set(path, [...(copies.get(path) ?? []), object]);
   if (unstaged.status === 0) for (const path of paths(unstaged)) copy(path, `:${path.split(sep).join('/')}`);
   if (staged.status === 0) for (const path of paths(staged)) copy(path, `HEAD:${path.split(sep).join('/')}`);
-  return { from: 'the files git tracks or would add', files: [...new Set([...paths(tracked), ...added, ...copies.keys()])], copies };
+  // A file left out of a sparse checkout is in the index but not in the working tree, and git diff
+  // does not name it, so a tracked file the working tree lacks is read from the index whatever
+  // git diff says.
+  const indexed = new Set(paths(tracked));
+  return { from: 'the files git tracks or would add', files: [...new Set([...indexed, ...added, ...copies.keys()])], copies, indexed };
 }
 
 // The bytes of one copy git holds (`:path` in the index, `HEAD:path` in the last commit), or null
@@ -287,7 +291,10 @@ for (const relativeFile of scan.files) {
   } else if (stat !== null) {
     continue; // a submodule or a nested repository: its files are not this repository's to publish
   }
-  for (const object of scan.copies?.get(relativeFile) ?? []) {
+  const held = [...(scan.copies?.get(relativeFile) ?? [])];
+  const indexCopy = `:${relativeFile.split(sep).join('/')}`;
+  if (stat === null && scan.indexed?.has(relativeFile) && !held.includes(indexCopy)) held.push(indexCopy);
+  for (const object of held) {
     const bytes = gitCopy(object);
     if (bytes === null) continue;
     binary ||= bytes.includes(0);
