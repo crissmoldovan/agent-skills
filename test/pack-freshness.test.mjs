@@ -804,3 +804,32 @@ test('an adapted lock that cannot be read is reported, and without --repo no ada
   assert.equal(without.adapted, undefined);
   assert.equal(reportFor(without), '');
 });
+
+// Only a project that holds no adapted copies may read as one: a project, a skills folder or a lock
+// the check could not read is said, never folded into an empty inventory.
+test('a project, a skills folder or a lock that cannot be read is reported, and only a missing default folder reads as no copies', async () => {
+  const { lockPath, cachePath } = await scratch('adapted-unreadable');
+  await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-blocks') });
+  const fetchImpl = stubFetch([['git/trees', jsonResponse(treeResponse({ 'skills/blocks': 'sha-blocks' }))]]);
+  const run = (repo, skillsDir) => checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo, skillsDir, useCache: false });
+
+  // A project with no skills folder holds no adapted copies, and says nothing.
+  const plain = await tempDir('pack-freshness-plain-project-');
+  assert.equal(reportFor(await run(plain)), '');
+
+  const absent = path.join(plain, 'no-such-project');
+  assert.match(reportFor(await run(absent)), new RegExp(`^ADAPTED_PINS ${SOURCE} unknown: the project ${absent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} cannot be read \\(.*ENOENT.*\\)\\nUnknown is not "no adapted copies"`, 'm'));
+  const misspelt = reportFor(await run(plain, '.claude/skils'));
+  assert.match(misspelt, new RegExp(`^ADAPTED_PINS ${SOURCE} unknown: \\.claude/skils, the skills folder named, is not in the project`, 'm'));
+
+  await writeFile(path.join(plain, 'not-a-folder'), 'a file\n');
+  assert.match(reportFor(await run(plain, 'not-a-folder')), new RegExp(`^ADAPTED_PINS ${SOURCE} unknown: not-a-folder cannot be read \\(.*ENOTDIR.*\\)`, 'm'));
+
+  // A lock that exists and cannot be opened is named; a folder with no lock is an ordinary skill.
+  const repo = await projectWithAdaptedCopies('adapted-unopenable', {});
+  await mkdir(path.join(repo, '.claude', 'skills', 'folder-here', 'adapted.lock.json'), { recursive: true });
+  await mkdir(path.join(repo, '.claude', 'skills', 'plain-skill'), { recursive: true });
+  const unopenable = readAdaptedPins(repo, SOURCE);
+  assert.deepEqual(unopenable.problems.map((problem) => problem.replace(/\(.*\)$/, '(...)')), ['folder-here: adapted.lock.json cannot be read (...)']);
+  assert.match(reportFor(await run(repo)), /Unreadable adapted copy: folder-here: adapted\.lock\.json cannot be read \(.*EISDIR.*\)/);
+});
