@@ -1525,16 +1525,25 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   for (const other of others) if (other.name !== adapter.name) adaptedHere.set(other.skill, [...(adaptedHere.get(other.skill) ?? []), other.name]);
   for (const slot of declared.slots.values()) {
     if (!slot.skill || !slot.defaultSkill || !adaptedHere.has(slot.defaultSkill)) continue;
-    const adapters = adaptedHere.get(slot.defaultSkill);
-    const listed = adapters.map((name) => `\`${name}\``).join(' and ');
+    // A slot can hand work back to the skill this copy adapts, as a reference file written to be
+    // adapted on its own does when it sends the reader to the rest of its skill. A copy over that
+    // skill's SKILL.md carries the rest, so it is an adapted copy of the skill as much as any
+    // other, and in it the slot names the work this copy does itself (merge rule 2: the slot is
+    // bound to the adapted copy). A copy over a reference file does not carry the skill's SKILL.md,
+    // so it is never the copy its own slot hands work back to.
+    const itself = slot.defaultSkill === identity.skill && identity.entry === 'SKILL.md';
+    const adapters = itself ? [adapter.name, ...adaptedHere.get(slot.defaultSkill)] : adaptedHere.get(slot.defaultSkill);
+    const listed = adapters.map((name) => (name === adapter.name ? `\`${name}\` (this copy)` : `\`${name}\``)).join(' and ');
     const binding = bound.get(slot.id);
     // Bound to another skill than the adapted copy is refused too: the project keeps an adapted
     // copy of this skill for this work, so a different name is a typo or a second answer.
     if (binding && binding.skill !== slot.defaultSkill) {
-      if (!adapters.includes(binding.skill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}, and the overlay binds it to \`${binding.skill}\`; bind ${slot.id} to the adapted copy`);
+      if (adapters.includes(binding.skill)) continue;
+      const own = binding.skill === adapter.name ? `, this copy, which is over ${identity.entry} and does not carry ${identity.skill}'s SKILL.md` : '';
+      fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}, and the overlay binds it to \`${binding.skill}\`${own}; bind ${slot.id} to the adapted copy`);
       continue;
     }
-    if (!names.has(slot.defaultSkill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}; bind ${slot.id} to it, or the agent is sent to the generic copy`);
+    if (!names.has(slot.defaultSkill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}; bind ${slot.id} to ${adapters.length > 1 ? 'one of them' : 'it'}, or the agent is sent to the generic copy`);
   }
   if (identity.entry !== 'SKILL.md' && adaptedHere.has(identity.skill) && base.entryText.includes(`\`${identity.skill}\``) && !names.has(identity.skill)) {
     fail(4, `${identity.entry} sends the reader to \`${identity.skill}\`, which this repository adapts as ${adaptedHere.get(identity.skill).map((name) => `\`${name}\``).join(' and ')}; map it in adapter.json names`);

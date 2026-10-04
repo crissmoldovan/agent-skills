@@ -636,6 +636,10 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.match(rules, /A hard line is never relaxed/);
   assert.match(rules, /`replaces:`[\s\S]*It is refused on an `H` id/);
   assert.match(rules, /never takes its skill's name/);
+  // Rule 2 where a project adapts one skill twice: any of its copies is a binding, and a copy over
+  // SKILL.md may name itself for a slot that hands work back to its own skill.
+  assert.match(rules, wrapped('Where the project adapts it more than once, any of those copies is a binding.'));
+  assert.match(rules, wrapped("may name the copy it sits in when that copy is over the skill's `SKILL.md`"));
   // Rule 7: a copy pre-approves only the tools the project names, because a shared skill's would
   // apply in every project that adapts it.
   assert.match(rules, wrapped('`allowed-tools` never comes from the skill'));

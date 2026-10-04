@@ -160,7 +160,11 @@ one outside fenced code is refused too.
 2. **A skill slot maps a name; it never edits the text.** The adapted copy carries a short map:
    where the text names `resolve-problem-report`, use `triage-a-defect`. If the project adapts the
    default skill itself, the slot is bound to that adapted copy. Left unbound, it would send the
-   agent to the generic one, so it is refused.
+   agent to the generic one, so it is refused. Where the project adapts it more than once, any of
+   those copies is a binding. A slot that hands work back to its own skill, as a reference file
+   written to be adapted on its own does, may name the copy it sits in when that copy is over the
+   skill's `SKILL.md`, which carries the rest of the skill; a copy over the reference file does not,
+   so it never names itself.
 3. **An addition extends its step.** It is written after the skill's text, under the step's id, and
    adds to the step. It never removes, reorders or rewords anything. An addition keyed to an id
    that no file in the adapted copy declares is refused.

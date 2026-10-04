@@ -1502,6 +1502,51 @@ test('a skill slot whose default this repository adapts is bound to the adapter,
   assert.equal(check(project).status, EXIT_OK);
 });
 
+// A reference file written to be adapted on its own hands the rest of the work back to its own
+// skill through a skill slot. A project may adapt that skill twice: once from SKILL.md, which
+// carries the reference file too, and once from the reference file. In the copy over SKILL.md the
+// slot names the work that copy does itself, so it is bound to that copy; any adapted copy of the
+// skill is a binding the contract allows, and the copy over the reference file, which does not carry
+// the skill's SKILL.md, is never one for itself.
+test('a skill slot that hands work back to its own skill may name this copy when it is over SKILL.md, or another adapted copy', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  write(pack, 'skills/notes/references/part.md', PART.replace('| B4 | where a part is filed | value | ask once |', '| B4 | where a part is filed | value | ask once |\n| B6 | the skill that records the arrival a part came in | skill | `notes` |'));
+  git(pack, 'commit', '--quiet', '-am', 'a part hands the arrival back to notes');
+  git(pack, 'tag', 'v1.0.1');
+  const notesOverlay = (b6) => OVERLAY.replace('| B3 questions (skill) |', `${b6 ? `| B6 arrivals (skill) | \`${b6}\` |\n` : ''}| B3 questions (skill) |`);
+  const partsAdapter = { version: 1, name: 'parts-here', description: 'File the parts that reach this repository.', base: { source: pack, skill: 'notes', entry: 'references/part.md', ref: 'v1.0.1' } };
+  const partsOverlay = (b6) => `## Bindings\n\n| id | value |\n|---|---|\n| B4 parts | \`parts/\` |\n| B6 arrivals (skill) | \`${b6}\` |\n`;
+  const notesAdapter = (extra = {}) => adapterJson(pack, { base: { ref: 'v1.0.1' }, ...extra });
+  const project = await addAdapter({ pack, adapter: notesAdapter(), overlay: notesOverlay(null) });
+  await addAdapter({ project, pack, folder: 'parts-here', adapter: partsAdapter, overlay: partsOverlay('notes-here'), files: {} });
+
+  // Unbound, the copy over SKILL.md would send its reader to the generic skill for its own work.
+  const unbound = compose(project, '--adapter', 'notes-here');
+  assert.equal(unbound.status, EXIT_FAILED, unbound.stdout);
+  assert.match(unbound.stdout, /\[4\] B6 hands work to `notes`, which this repository adapts as `notes-here` \(this copy\) and `parts-here`; bind B6 to one of them, or the agent is sent to the generic copy/);
+  // Mapping the name in adapter.json instead of binding the slot is still refused.
+  await addAdapter({ project, pack, adapter: notesAdapter({ names: { notes: 'notes-here' } }), overlay: notesOverlay(null) });
+  assert.match(compose(project, '--adapter', 'notes-here').stdout, /\[4\] adapter\.json names maps `notes`, which a skill slot hands work to; bind that slot instead/);
+
+  // Bound to this copy, which is the one that does the work the slot names.
+  await addAdapter({ project, pack, adapter: notesAdapter(), overlay: notesOverlay('notes-here') });
+  const itself = compose(project, '--write');
+  assert.equal(itself.status, EXIT_OK, itself.stdout);
+  assert.match(readText(project, generated(project, 'SKILL.md')), /\| `notes` \| `notes-here` \|/);
+  assert.equal(check(project).status, EXIT_OK);
+
+  // Bound to the other adapted copy: the contract allows any adapted copy of the skill.
+  await addAdapter({ project, pack, adapter: notesAdapter(), overlay: notesOverlay('parts-here') });
+  assert.equal(compose(project, '--adapter', 'notes-here').status, EXIT_OK);
+
+  // The copy over the reference file does not carry the skill's SKILL.md, so it is never the
+  // adapted copy its own slot hands work back to.
+  await addAdapter({ project, pack, folder: 'parts-here', adapter: partsAdapter, overlay: partsOverlay('parts-here'), files: {} });
+  const parts = compose(project, '--adapter', 'parts-here');
+  assert.equal(parts.status, EXIT_FAILED, parts.stdout);
+  assert.match(parts.stdout, /\[4\] B6 hands work to `notes`, which this repository adapts as `notes-here`, and the overlay binds it to `parts-here`, this copy, which is over references\/part\.md and does not carry notes's SKILL\.md; bind B6 to the adapted copy/);
+});
+
 test('a reference file as the entry: its links move with it, and only ids a carried file declares bind', async () => {
   const pack = await buildPack({ upTo: 'v1.0.0' });
   const partOverlay = '## Bindings\n\n| id | value |\n|---|---|\n| B4 parts | `parts/`, one folder per part |\n\n## Additions\n\n### S4\nName each folder by the date the part arrived.\n';
