@@ -306,7 +306,7 @@ let total = 0;
 for (const line of fs.readFileSync(path.join(folder, name), "utf8").split(/\r?\n/)) {
   if (line.trim() === "") continue;
   total += 1;
-  const m = line.match(/^([0-9a-fA-F]{64}) [ *](.+)$/);
+  const m = line.match(/^([0-9a-fA-F]{64}) (?: |\*)(.+)$/);
   if (!m) { parse.push(`not a manifest line: ${line.slice(0, 80)}`); continue; }
   const parts = m[2].replace(/\\/g, "/").split("/").filter((part) => part !== "" && part !== ".");
   if (/^[\\/]/.test(m[2]) || /^[A-Za-z]:/.test(m[2]) || parts.includes("..") || parts.length === 0) { parse.push(`unsafe path in the manifest: ${m[2]}`); continue; }
