@@ -1346,13 +1346,56 @@ test('a hard line that names a bound slot in underscore emphasis is listed for r
   assert.ok(composed.notes.includes('For review against H1: it names B1, which the overlay binds.'), composed.notes.join('\n'));
 });
 
+/**
+ * The overlay of a project that binds only what it must: every required slot, a value to a
+ * placeholder and a skill slot to its own default, and nothing else.
+ */
+function requiredOnly(slots) {
+  const rows = slots.filter((slot) => slot.required).map((slot) => `| ${slot.id} | ${slot.skill ? `\`${slot.defaultSkill}\`` : 'A placeholder the project would replace.'} |`);
+  return rows.length ? `## Bindings\n\n| id | value |\n|---|---|\n${rows.join('\n')}\n` : '';
+}
+
+/**
+ * A skill composed as a base the way a project that binds the least would compose it. With an empty
+ * overlay, a required slot is refused at check 4 ("an overlay must bind the slot"), once per slot
+ * and with nothing else of its kind, so that refusal is held here; then the skill is composed again
+ * with each required slot bound, and that result is returned for the rest to be read.
+ */
+function composedWithRequiredBound(root, skill, entry) {
+  const empty = composeFrom(root, skill, { entry });
+  const required = [...empty.declared.slots.values()].filter((slot) => slot.required);
+  const unbound = (error) => error.check === 4 && / is required \(.*\), and the overlay does not bind it$/.test(error.message);
+  assert.deepEqual(
+    empty.errors.filter(unbound).map((error) => error.message),
+    required.map((slot) => `${slot.id} is required (${slot.slot}), and the overlay does not bind it`),
+    `${skill} from ${entry}: an empty overlay is refused for exactly its required slots`,
+  );
+  return required.length === 0 ? empty : composeFrom(root, skill, { entry, overlay: requiredOnly(required) });
+}
+
+// A skill may mark a slot required: an overlay must bind it, and its default still holds when the
+// skill runs on its own (docs/project-adaptation.md). A project that binds nothing else composes it.
+test('a base with a required slot is refused with an empty overlay for that slot alone, and composes once it is bound', async () => {
+  const root = await tempDir('adapt-required-');
+  write(root, 'LICENSE', LICENSE);
+  write(root, 'skills/notes/SKILL.md', NOTES_SKILL);
+  write(root, 'skills/notes/references/guide.md', '# Guide\n\nBack to the steps.\n');
+  write(root, 'skills/notes/references/part.md', PART);
+  write(root, 'skills/notes/scripts/count.mjs', 'console.log("count");\n');
+  write(root, 'skills/helper/SKILL.md', HELPER_SKILL);
+  const empty = composeFrom(root, 'notes');
+  assert.deepEqual(empty.errors.map((error) => `[${error.check}] ${error.message}`), ['[4] B1 is required (who the run answers to), and the overlay does not bind it']);
+  assert.equal(requiredOnly([...empty.declared.slots.values()]), '## Bindings\n\n| id | value |\n|---|---|\n| B1 | A placeholder the project would replace. |\n');
+  assert.deepEqual(composedWithRequiredBound(root, 'notes', 'SKILL.md').errors, []);
+});
+
 // Every skill this pack ships is a base a project may adapt, from its SKILL.md or from a Markdown
 // file it carries. A link a carried file holds that does not resolve from that file, fenced or not,
-// refuses every copy of the skill at check 10, so each composes here with an empty overlay, as a
-// project that binds nothing would compose it. A reference file that links back to its skill's
-// SKILL.md, or shows the markers that fence a copy's skill text, was not written to be taken as the
-// entry, and is refused as one by design (the guide says why); it is set aside here, unless it
-// declares `## Bindings`, which says it was.
+// refuses every copy of the skill at check 10, so each composes here with an overlay that binds only
+// its required slots, as a project that binds nothing it need not would compose it. A reference file
+// that links back to its skill's SKILL.md, or shows the markers that fence a copy's skill text, was
+// not written to be taken as the entry, and is refused as one by design (the guide says why); it is
+// set aside here, unless it declares `## Bindings`, which says it was.
 /** Whether a file declares `## Bindings` outside fenced code, as the pack's verifier reads it. */
 function declaresBindings(text) {
   let fence = null;
@@ -1369,7 +1412,7 @@ function declaresBindings(text) {
   return false;
 }
 
-test('every skill in this pack composes as a base, from SKILL.md and from each Markdown file it carries, with an empty overlay', () => {
+test('every skill in this pack composes as a base, from SKILL.md and from each Markdown file it carries, with an overlay that binds only its required slots', () => {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const failures = [];
   const setAside = [];
@@ -1380,7 +1423,7 @@ test('every skill in this pack composes as a base, from SKILL.md and from each M
       compositions += 1;
       let errors;
       try {
-        ({ errors } = composeFrom(root, skill, { entry }));
+        ({ errors } = composedWithRequiredBound(root, skill, entry));
       } catch (error) {
         failures.push(`${skill} from ${entry}: ${error.message}`);
         continue;
