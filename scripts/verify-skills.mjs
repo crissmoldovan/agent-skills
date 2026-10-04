@@ -187,10 +187,17 @@ function validateFit(skillDirectory, file) {
 // a destination after every `](`, so an image inside a link (a badge) gives both, in angle brackets
 // or with its parentheses balanced, after spaces or a line ending; and a link definition after any
 // quote or list markers, at any indent. A link from a reference file resolves from references/, not
-// from the skill's root, and a copy of the skill a project composes carries that file as it is.
+// from the skill's root, and a copy of the skill a project composes carries that file as it is. A
+// bare destination's parentheses balance at any depth up to 32, the limit cmark sets.
 const LINK_GAP = String.raw`[ \t]*(?:\r?\n(?:[ \t]*>){0,16}[ \t]*)?`;
 const LINK_TITLE = String.raw`"[^"\n]{0,2000}"|'[^'\n]{0,2000}'|\([^()\n]{0,2000}\)`;
-const INLINE_LINK = new RegExp(String.raw`\]\(${LINK_GAP}(<[^<>\n]*>|(?!<)(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+)(?:${LINK_GAP}(?:${LINK_TITLE}))?${LINK_GAP}\)`, 'g');
+const LINK_NESTING = 32;
+const BARE_DESTINATION = (() => {
+  let part = String.raw`(?:[^\s()\\]|\\.)`;
+  for (let level = 0; level < LINK_NESTING; level += 1) part = String.raw`(?:[^\s()\\]|\\.|\(${part}*\))`;
+  return String.raw`(?!<)${part}+`;
+})();
+const INLINE_LINK = new RegExp(String.raw`\]\(${LINK_GAP}(<[^<>\n]*>|${BARE_DESTINATION})(?:${LINK_GAP}(?:${LINK_TITLE}))?${LINK_GAP}\)`, 'g');
 const LINK_DEFINITION = new RegExp(String.raw`^(?:[ \t]*(?:>|[-+*](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*\[(?:[^\[\]\\\n]|\\.){1,999}\]:${LINK_GAP}(<[^<>\n]*>|\S+)`, 'gm');
 
 function validateLinks(source, file, skillDirectory) {

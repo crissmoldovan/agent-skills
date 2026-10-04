@@ -1040,10 +1040,18 @@ function trimBlank(text) {
 // space whose parentheses balance; then an optional title in quotes or parentheses, and the closing
 // parenthesis. A definition is read after any quote or list markers, at any indent, its destination
 // on its line or the next. The groups are what comes before the destination, the destination, and
-// what comes after it, so the rewriter moves only the destination.
+// what comes after it, so the rewriter moves only the destination. The parentheses of a bare
+// destination balance at any depth up to 32, the limit cmark sets, not one pair only; each level is
+// one character's choice, so a run of openings that never close is still read in linear time.
 const LINK_GAP = String.raw`[ \t]*(?:\r?\n(?:[ \t]*>){0,16}[ \t]*)?`;
 const LINK_TITLE = String.raw`"[^"\n]{0,2000}"|'[^'\n]{0,2000}'|\([^()\n]{0,2000}\)`;
-const INLINE_LINK = new RegExp(String.raw`(\]\(${LINK_GAP})(<[^<>\n]*>|(?!<)(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+)((?:${LINK_GAP}(?:${LINK_TITLE}))?${LINK_GAP}\))`, 'g');
+const LINK_NESTING = 32;
+const BARE_DESTINATION = (() => {
+  let part = String.raw`(?:[^\s()\\]|\\.)`;
+  for (let level = 0; level < LINK_NESTING; level += 1) part = String.raw`(?:[^\s()\\]|\\.|\(${part}*\))`;
+  return String.raw`(?!<)${part}+`;
+})();
+const INLINE_LINK = new RegExp(String.raw`(\]\(${LINK_GAP})(<[^<>\n]*>|${BARE_DESTINATION})((?:${LINK_GAP}(?:${LINK_TITLE}))?${LINK_GAP}\))`, 'g');
 const LINK_DEFINITION = new RegExp(String.raw`^((?:[ \t]*(?:>|[-+*](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*\[(?:[^\[\]\\\n]|\\.){1,999}\]:${LINK_GAP})(<[^<>\n]*>|\S+)`, 'gm');
 
 function splitTarget(target) {

@@ -252,6 +252,7 @@ test('verifier resolves the links in every Markdown file a skill carries, from t
     '> [definition]: missing.md',
     '[outside]: ../../../other-skill/SKILL.md',
     '[rooted]: /references/present.md',
+    'A destination may hold parentheses nested deeper than one pair: [nested](a(b(c)).md).',
     '',
   ].join('\n'));
 
@@ -264,6 +265,7 @@ test('verifier resolves the links in every Markdown file a skill carries, from t
   assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link does not resolve: missing\\.md`));
   assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link escapes its skill directory: \\.\\./\\.\\./\\.\\./other-skill/SKILL\\.md`));
   assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link escapes its skill directory: /references/present\\.md`));
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link does not resolve: a\\(b\\(c\\)\\)\\.md`));
   assert.doesNotMatch(refused.stderr, /\.\.\/\.\.\/SKILL\.md|: \.\.\/present\.md/);
 
   await writeFile(path.join(skill, 'references', 'deeper', 'guide.md'), [
