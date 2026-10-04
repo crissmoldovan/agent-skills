@@ -268,7 +268,8 @@ EOF
 **`CONTENTS.txt`, ours whether or not the pack has a manifest.** `<full sha256> <bytes> <path>` for
 every member, run on the fresh unpack before anything is added to it. Each pack is extracted into
 `unpacked/<pack name>/` in the arrival's folder, so the walk reads `unpacked/` and nothing else, and
-each path starts with its pack's folder:
+each path starts with its pack's folder. A member that is not a regular file is listed as such and
+the command exits 3, so the unpack is looked at before anything lands:
 
 ```sh
 node -e '
@@ -277,11 +278,14 @@ const root = process.argv[1];
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+let odd = 0;
 for (const file of walk(root)) {
   const st = fs.lstatSync(file), rel = path.relative(root, file);
-  if (!st.isFile()) { console.log(`not a regular file: ${rel}`); continue; }
+  if (!st.isFile()) { console.log(`not a regular file: ${rel}`); odd += 1; continue; }
   console.log(`${crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")} ${st.size} ${rel}`);
-}' '<arrival folder>/unpacked' > '<arrival folder>/CONTENTS.txt'
+}
+// A link or a device in an unpack is not a member to land, and the guard should have stopped it.
+process.exit(odd ? 3 : 0);' '<arrival folder>/unpacked' > '<arrival folder>/CONTENTS.txt'
 ```
 
 **"N of N, and no file outside the manifest".** For a manifest of `<sha256>  <path>` lines, run on

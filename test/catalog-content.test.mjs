@@ -789,6 +789,14 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
     `${sha('A synthetic pack.\n')} 18 pack-a/README.md`,
     `${sha('id,v\n1,2\n')} 9 pack-a/data/a.csv`,
   ]);
+  // A member that is not a regular file is listed as such, and the walk does not end as a success.
+  const { symlink } = await import('node:fs/promises');
+  await symlink(`${arrival}/elsewhere`, `${arrival}/unpacked/pack-a/link`);
+  const odd = nodeCommand('**`CONTENTS.txt`, ours whether or not the pack has a manifest.**')(`${arrival}/unpacked`);
+  assert.equal(odd.status, 3, odd.stderr);
+  assert.match(odd.stdout, /^not a regular file: pack-a\/link$/m);
+  const { rm: remove } = await import('node:fs/promises');
+  await remove(`${arrival}/unpacked/pack-a/link`);
 
   // A derived file comes only from a checked source: the images are written, hashed and counted,
   // never printed, and a source whose hash differs gets nothing extracted.
