@@ -133,7 +133,10 @@ such time, and the "control visit" the contracts below refer to.
 short prefix of the visit id, enough to keep visits apart; the full id goes in Q2.
 
 - The label is the first of these the element carries: the site's own tracking attribute, its
-  accessible label, its navigation target, its selector.
+  accessible label, its navigation target, its selector. It is the site's words for the element,
+  but an accessible label or a selector can hold what the page showed a person: a label holding an
+  `@`, a run of six or more digits, or an unbroken run of 20 or more letters and digits is replaced
+  by `:label`, as a path segment is, and a navigation target is cut like any URL.
 - Clicks are counted as `event IN ('click', 'tap')`.
 - An event before its visit's `<signed in>` (Q0) is counted apart, as the visit's before sign-in.
 
@@ -158,7 +161,8 @@ clicked shows clicks. A control visit that is not a named person's returns the t
 `["<visitor id>", "<user agent>", "<graphics renderer>", cores, memory_gb, fonts, plugins, touch_points, "<zone the browser reports>", "<language>"]`.
 
 - The fingerprint often arrives on a visit's opening event, which may carry no user agent or
-  language. Take those from the browser's other events, or the device reads as blank.
+  language. Take those from other events of the same visits (`{VISITS}`), never from anything
+  else the browser sent, or the device reads as blank.
 - A browser may send its fingerprint only on its first visit in the window. A browser with none is
   *device unknown*.
 - An event sent before sign-in was known has no identity; leave it out, or it becomes a second,
@@ -169,7 +173,7 @@ clicked shows clicks. A control visit that is not a named person's returns the t
 ## Q4. Recordings
 
 **Returns** one row per recording:
-`["<visit>", "<recording id>", first_ms, last_ms, "<link>", pointer_positions, pointer_batches, scrolls, selections, key_presses, blurs, focuses, multi_clicks, api_calls]`.
+`["<visit>", "<recording id>", first_ms, last_ms, pointer_positions, pointer_batches, scrolls, selections, key_presses, blurs, focuses, multi_clicks, api_calls]`.
 
 - `first_ms` and `last_ms` say which minutes the recording covers. A recording is not the whole
   visit.
@@ -178,9 +182,9 @@ clicked shows clicks. A control visit that is not a named person's returns the t
   as the element and not what it held.
 - `api_calls` counts requests to the site's own paths that the questions are about, such as an
   assistant's endpoint or a sign-in renewal.
-- The link opens the recording in the store and needs a sign-in there; it goes in the detail only.
-  Where S3 did not confirm that the source masks typed text in its recordings, the link is left out,
-  because whoever opens it would see what was typed.
+- The detail names a recording by its id, which someone signed in to the store opens there; no
+  link to it is written. A recording's address carries its id, and sometimes a signed token, in its
+  path: cut to its route it opens nothing, and uncut it would take that id out of the run (H4).
 
 **Control.** The control visit has a recording that covers it, with pointer positions.
 

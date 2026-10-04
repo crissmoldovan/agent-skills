@@ -175,8 +175,8 @@ what it filters on, the row it returns, and its control.
    and returns no identifiers (H3). A counter that does not find its control is not used, and the
    report says why. For each source, also settle whether it records what is typed (input or change
    events, field values in a recording), from its own settings or schema, never from anyone's rows.
-   A source that does is read only through queries that leave every typed value out, its recording
-   links are left out, and one whose queries cannot leave them out is not read (H2).
+   A source that does is read only through queries that leave every typed value out, and one whose
+   queries cannot leave them out is not read (H2).
    **Complete when:** every source has its held range and its answer on typed text, every counter
    has found its control, and every control read was one the yes named.
 

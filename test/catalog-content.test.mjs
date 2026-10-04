@@ -970,6 +970,14 @@ test("visitor-session-forensics reads the named people's visits, never everythin
   assert.match(s4, /never everything a browser sent/);
   assert.match(s4, /left out and counted, never split by a guess/);
   assert.match(s4, /\*\*Complete when:\*\* each named person has zero or more visits/);
+  // The device fields a visit's opening event lacks come from that visit's other events, never from
+  // whatever else the browser sent.
+  const q3 = contracts.slice(contracts.indexOf('## Q3. Devices'), contracts.indexOf('## Q4. Recordings'));
+  assert.doesNotMatch(q3, /the browser's other events/);
+  assert.match(q3, /other\s+events\s+of\s+the\s+same\s+visits/);
+  // An element's label is the site's words, and one that holds a person's data is replaced.
+  const q1 = contracts.slice(contracts.indexOf('## Q1. Events'), contracts.indexOf('## Q2. Visit facts'));
+  assert.match(q1, /replaced\s+by\s+`:label`/);
 });
 
 // "A person, on these signals" said about a named person's visit reads as "they did it", from
@@ -1021,7 +1029,10 @@ test('visitor-session-forensics never reads what a person typed, and checks each
   assert.match(contracts, /a\s+source\s+that\s+cannot\s+leave\s+typed\s+values\s+out\s+of\s+what\s+a\s+query\s+returns\s+is\s+not\s+read/i);
   const q4 = contracts.slice(contracts.indexOf('## Q4. Recordings'), contracts.indexOf('## Q5. Files loaded'));
   assert.match(q4, /never\s+a\s+key,\s+a\s+value\s+or\s+a\s+frame/);
-  assert.match(q4, /link\s+is\s+left\s+out/);
+  // A recording's address would either be cut to nothing usable or carry its id or token out of the
+  // run, so none is written: the detail names the recording by its id, opened in the store itself.
+  assert.doesNotMatch(q4, /"<link>"/);
+  assert.match(q4, /no\s+link\s+to\s+it\s+is\s+written/);
   const s3 = skill.slice(skill.indexOf('**S3. Prove each source'), skill.indexOf('**S4. Find the people'));
   assert.match(s3, /whether\s+it\s+records\s+what\s+is\s+typed/);
   assert.match(s3, /from\s+its\s+own\s+settings\s+or\s+schema,\s+never\s+from\s+anyone's\s+rows/);
