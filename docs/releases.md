@@ -157,9 +157,10 @@ personal copy of the generic one.
   tree runs. It prints what it would add, change or remove, what moved in the pin, and every
   addition to a hard line for review, and writes nothing without `--write`. It refuses a branch, an
   abbreviated sha, a tag that now names another commit, a binding or addition to an id no carried
-  file declares, an unbound required slot, `replaces:` on a hard line, an addition to one in the
-  words of an exception, a handoff to a skill the project also adapts that is not mapped to the
-  adapter, a link that does not resolve, and a copy edited by hand unless told
+  file declares, an unbound required slot, `replaces:` on a hard line, an addition to one or a
+  sentence naming one in the words of an exception, a heading that names one outside the addition
+  to it, a handoff to a skill the project also adapts that is not mapped to the adapter, a link
+  that does not resolve or is written from the root, and a copy edited by hand unless told
   `--discard-hand-edits`. With `--write` it vendors itself beside the adapters. It never runs a
   composer it fetched, so it says when the pinned release ships another composer than the one
   running; the composer moves with a pin when a person runs the release's own.
@@ -175,6 +176,13 @@ personal copy of the generic one.
   one the pinned release ships, and `--verify` compares every carried file with the upstream bytes,
   which is what proves a copy the offline check can only show was not changed.
 
+The copy's frontmatter takes `license` and `compatibility` from the skill and pre-approves no tool
+unless `adapter.json` names it: it carries an `allowed-tools` line only when `allowedTools` lists
+the tools, and then exactly those, never the skill's own, because a pre-approval granted by a shared
+skill would apply in every project that adapts it. `compose` lists every tool a copy pre-approves
+for review and says what the skill itself declares, and `check` refuses an `allowed-tools` line
+that is not that list.
+
 A reference file of a skill can be the entry instead of `SKILL.md`: its links are rewritten for the
 folder root, an id only `SKILL.md` declares is refused, and a link from another carried file to the
 skill's `SKILL.md`, which in that copy holds the entry's text, is named in a warning. When an
@@ -184,10 +192,20 @@ lists a copy of another source as not compared, and exits 2 when a pin moved or 
 names one in its update command, so an armed auto hook never touches one, and it is refused with
 `--hook`, whose silence means current.
 
+The pack's verifier, `scripts/verify-skills.mjs`, now resolves the links in every Markdown file a
+skill carries, not only in its `SKILL.md`, read as the composer reads them, fenced code and link
+definitions included. It found one file: `references/documenting-the-run.md`, which
+`investigate-codebase`, `blast-area`, `visualise-blast-area`, `land-complex-change`,
+`resolve-problem-report` and `new-ux-discovery` each carry byte for byte, showed the sentence a
+`SKILL.md` points to it with as a fenced example, link included, and from `references/` that link
+names nothing, so no copy of those six skills could be composed. The file now says to write that
+sentence word for word, linking its words to the path, and gives the path as code. No `SKILL.md`
+changes, and the wording keeps its meaning, so this is a patch for those six skills.
+
 **Who should update.** Anyone adapting a pack skill to a project. The skill's description gains
 the symptom "adapt a pack skill to this project", and its `compatibility` names Node.js 22 and git
 for the composer. Nothing installed changes behaviour: the freshness check without `--repo`
-behaves as before.
+behaves as before. The skill's metadata version moves from 1.0.0 to 1.1.0, for the composer.
 
 ### `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy
 

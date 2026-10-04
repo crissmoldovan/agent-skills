@@ -57,7 +57,6 @@ copy composed anywhere else does not stand in for its skill there.
     "commit": "<optional: the full commit the ref was reviewed at>",
     "tree": "<optional: the full tree of skills/<pack skill> at that commit>"
   },
-  "widenTools": [],
   "overlay": "overlay.md",
   "projectFiles": [],
   "names": {}
@@ -72,7 +71,7 @@ copy composed anywhere else does not stand in for its skill there.
 | `base.entry` | `SKILL.md`, or one reference file of the skill when that file holds the procedure the project needs |
 | `base.ref` | a tag (`vX.Y.Z` or `<skill>-vX.Y.Z`) or a full commit sha. A branch is refused, because it moves, and so is an abbreviated sha. A per-skill tag is compared with newer tags of its own and with the latest catalogue tag, because a catalogue release can change the skill without a per-skill tag beside it |
 | `base.commit`, `base.tree` | optional. When present, a ref that now resolves elsewhere is refused |
-| `widenTools` | tools added to the skill's `allowed-tools`, each named here where review sees it |
+| `allowedTools` | optional: exactly the tools the copy pre-approves while it is active, each one word, such as `Read`, since the `allowed-tools` line separates them by spaces. Absent or empty, the copy pre-approves none, whatever the skill declares ([why](#no-tool-is-pre-approved-unless-the-project-names-it)) |
 | `overlay` | the overlay file, `overlay.md` unless named |
 | `projectFiles` | the project's own files, each listed by its path inside the adapter folder, and each inside a `project` folder under `references`, `scripts` or `assets`, so they never collide with the skill's: `<adapter>/references/project/record-forms.md` is listed as the part after `<adapter>/`. A file in those folders that is not listed is refused rather than left out |
 | `names` | rarely needed: a pack skill the carried text names in backticks that no slot covers, mapped to this project's skill. Its main use is a reference-file entry that sends the reader back to its own skill |
@@ -113,7 +112,21 @@ Not even an automatic reply: the mailbox's auto-responder stays off.
 - Nothing else reaches the copy, so any other section, or text before the first one, is refused. A
   `#` title and HTML comments before the first section are allowed.
 - Links in the overlay are written as they will be read from the generated `SKILL.md`: a project
-  file is reached at the same path it has in the adapter folder.
+  file is reached at the same path it has in the adapter folder. Every link is checked, in fenced
+  code too, so an example writes a path as code, such as `docs/intake.md`, not as a link.
+- Fenced code in the overlay closes inside the addition or section it opens in, at a bare line of
+  at least as many of its character, indented as far as the fence or up to three columns further;
+  a fence may open on the line of its list marker. One left open would swallow every heading after
+  it, and the checks they face, so it is refused. A line that opens another part of the overlay, a
+  section or a `###` heading whose first word is an id, ends a fence open across it, and so does
+  such a heading indented one to three spaces, which Markdown still reads as a heading: an example
+  that shows one for a step indents the fence and its lines four spaces. One for a hard line is
+  shown only in the addition to that hard line.
+- An addition's heading starts at the left margin, so an indented `###` heading whose first word
+  is an id is refused outside fenced code too. A heading of any shape that names a hard line,
+  wherever the id sits in it, is refused anywhere but the addition to that hard line, at any indent
+  and fenced or not, and so is a line that opens with a hard line's id in bold (check 5). Elsewhere,
+  name a hard line in a sentence.
 
 ## Commands
 
@@ -139,7 +152,9 @@ node .claude/skill-adapters/.tool/adapt.mjs outdated --repo . --verify  # and co
   line for review. It writes nothing without `--write`. With it, it writes the generated folder and
   vendors itself. `--adapter <name>` composes one; `--pack <dir>` reads a local clone instead of
   fetching. When the pinned ref ships another composer than the one running, it says so.
-- `check` is offline: no git, no network. It exits 1 when any check below fails.
+- `check` is offline: no git, no network. It exits 1 when any check below fails. `--adapter <name>`
+  checks one; a generated folder whose adapter is gone fails a check of every adapter, or of its
+  own name.
 - `outdated` exits 2 when something needs a person: a newer tag that changes the skill, a moved or
   deleted tag, a vendored composer that is not the one the pinned ref ships, or a question it could
   not answer. A version orders tags of one kind only, so for a per-skill tag against a catalogue
@@ -169,9 +184,9 @@ generated folder by hand: merge `adapter.json` and the overlay, then compose.
 
 `SKILL.md`, in this order:
 
-1. the frontmatter: `name` and `description` from `adapter.json`; `license`, `allowed-tools` and
-   `compatibility` from the skill, the tools widened only by `widenTools`; `metadata` a map of the
-   source, entry, ref, commit and tree;
+1. the frontmatter: `name` and `description` from `adapter.json`; `license` and `compatibility`
+   from the skill; `allowed-tools` only when `allowedTools` names tools, and then exactly those;
+   `metadata` a map of the source, entry, ref, commit and tree;
 2. one generated line saying where to edit instead, and a short paragraph saying what the copy is
    and, when an addition opens with `replaces:`, that the addition wins over the step it names;
 3. **Names in this copy**: where the text names a pack skill whose slot is bound to a project
@@ -187,15 +202,30 @@ of the skill and of the text between the markers, the sha256 of every adapter in
 generated file, and the composer's version and sha256.
 
 **A reference file as the entry.** Its text becomes the body of `SKILL.md` at the folder root, so
-every relative link in it is rewritten for that place, and it is still carried at its own path. The
-skill's own `SKILL.md` is not carried, so a link to it from the entry is refused, and so is a
-binding or an addition to an id that only `SKILL.md` declares. Another carried file that links to
-the skill's `SKILL.md` is carried byte for byte, so its link resolves to this copy's `SKILL.md`,
-which holds the entry's text; `compose` and `check` warn and name each such link, because only an
-edit to the skill can change it.
+every relative link in it, fenced code included, is rewritten for that place, and it is still
+carried at its own path. The skill's own `SKILL.md` is not carried, so a link to it from the entry
+is refused, and so is a binding or an addition to an id that only `SKILL.md` declares. Another
+carried file that links to the skill's `SKILL.md` is carried byte for byte, so its link resolves to
+this copy's `SKILL.md`, which holds the entry's text; `compose` and `check` warn and name each such
+link, because only an edit to the skill can change it.
 
 Composing is concatenation at fixed points, never a model merging text, so the result can be
 compared byte for byte: LF line endings, files in sorted order, no timestamps.
+
+### No tool is pre-approved unless the project names it
+
+A skill's `allowed-tools` line pre-approves tools while the skill is active, in a harness that reads
+it, and one entry can reach far: `Bash` alone covers every command, a push included. So the copy
+carries no `allowed-tools` line unless `allowedTools` names the tools, and then exactly those, in
+the order named. The skill's own line is never carried, not even in part: a pre-approval granted by
+a shared skill would apply in every project that adapts it, chosen by none of them. A tool the copy
+does not name is asked for as the project's own settings decide, as it is for a skill without the
+line.
+
+The lock still records what the skill declares, and `compose` says so, so a project that wants a
+tool pre-approved can see what the skill asked for and name it in `allowedTools`, where review sees
+it. `compose` lists every tool the copy pre-approves for review, and check 9 refuses an
+`allowed-tools` line that is not that list, one added by hand included.
 
 ## The checks
 
@@ -203,7 +233,9 @@ compared byte for byte: LF line endings, files in sorted order, no timestamps.
 or put a marker of check 2 into the overlay; the rest it writes true. A refusal or a failure is
 printed with the number of its check. Two kinds carry a word instead: `[adapter]`, an adapter
 folder that does not read as one (an unknown key, a missing overlay, a project file out of place
-or colliding with a file of the skill, an overlay section the copy would drop), and `[pin]`, a pin
+or colliding with a file of the skill, an overlay section the copy would drop, a fence in the
+overlay that does not close inside its addition or section, an indented `###` heading whose first
+word is an id), and `[pin]`, a pin
 that cannot be taken (a branch, an abbreviated sha, a tag that now names another commit, a
 recorded commit or tree the ref no longer gives, a skill or entry the ref does not have, or a
 source that cannot be read).
@@ -213,13 +245,13 @@ source that cannot be read).
 | 1 | every generated file has the sha256 its lock records, and the folder holds nothing else | a hand edit, a file added or removed by hand |
 | 2 | the text between the markers has the sha256 recorded at compose time | an edit to the skill's own text |
 | 3 | composing again from the copy and the current adapter folder gives the same bytes | an overlay or `adapter.json` changed without composing; a pin moved in `adapter.json` but not composed |
-| 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to the adapted copy, and to no other skill; `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy, or another skill than the adapted copy; two rows for one slot |
-| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, or overlay line naming one, written in the words of an exception (`unless`, `except`, `does not apply` …) | an overlay that relaxes a hard line. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review |
+| 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to an adapted copy of it, and to no other skill (a copy over the skill's `SKILL.md` counts as one when the slot hands work back to its own skill; a copy over a reference file never does for itself); `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy, or another skill than the adapted copy; two rows for one slot |
+| 5 | no `replaces:` on a hard line, a reason on every `replaces:`, the id it names its own heading's, and no addition to a hard line, its heading included, or paragraph naming one written in the words of an exception (`unless`, `except`, `does not apply` …), on the line that names it, in the same sentence, read whole over the lines it wraps across, or opening the sentence after it. Ids and words are read as a reader sees them: through emphasis, character references, invisible characters and markup between letters. Outside the addition to a hard line, no heading names its id, wherever the id sits in it, in any shape Markdown gives a heading: a `#` heading at any level, in a quote or a list item, an underlined paragraph, a paragraph that is only bold, or an HTML heading, at any indent, fenced or not; and no line opens with one in bold, the form a skill declares it in | an overlay that relaxes a hard line, or puts text under a heading for one that no check reads as an addition to it. No script can tell stricter from looser in prose, so every addition to a hard line is also listed for review, and so is a paragraph that names one in a sentence and holds the words of an exception in another |
 | 6 | the adapted copy's name differs from the skill's | an adapter that takes its skill's name |
 | 7 | the vendored composer is the one that composed each copy, and the one running the check | a composer upgraded without composing again. Whether it is the one the pinned ref ships is `outdated`'s to say, since that needs the pack |
 | 8 | warning only: `SKILL.md` over 500 lines | a long trap table; move it into a project reference file |
-| 9 | the frontmatter follows the skill, widened only by `widenTools`, with `metadata` a map | a hand edit to the frontmatter |
-| 10 | every relative link in the generated folder resolves and stays inside the repository | a link in the overlay or a project file to something that is not there |
+| 9 | the frontmatter follows the skill's `compatibility`, carries `allowed-tools` only as `allowedTools` names it, and once, and `metadata` is a map | a hand edit to the frontmatter, an `allowed-tools` line added by hand among them |
+| 10 | every relative link in the generated folder resolves and stays inside the repository, a symbolic link on the way followed to where it lands. A link inside fenced code is checked like any other, as the pack's verifier checks a skill's files: a link the check skipped would be checked by nothing, and no reading of fences by hand matches CommonMark. An example that shows a path writes it as code, such as `docs/guide.md`, not as a link. A link written from the root, such as `/docs/guide.md`, is refused: it is written from the file that holds it | a link in the overlay or a project file to something that is not there, an example's included |
 
 A generated folder whose adapter folder is gone fails as well.
 
@@ -248,7 +280,9 @@ file, and that is what proves it.
 
 `check-pack-freshness.mjs --repo <project>` lists the same pins against the latest release, beside
 the global installs, as part of an inventory; a copy of another source is listed as not compared,
-and the run exits 2 when a pin moved or differs. Neither it nor `skills update` ever moves one.
+and the run exits 2 when a pin moved or differs. A lock it cannot open is named, and a project or a
+named skills folder it cannot read is reported as unknown, never as a project with no copies.
+Neither it nor `skills update` ever moves one.
 
 ## Failure modes
 
@@ -260,6 +294,7 @@ and the run exits 2 when a pin moved or differs. Neither it nor `skills update` 
 | a newer release renames an id the overlay cites | `compose` refuses and names it | fix the overlay in the same change as the pin |
 | no network | only `compose` (without `--pack`) and `outdated` stop | nothing else needs it |
 | a git setting (`url.<base>.insteadOf`) rewrites GitHub addresses to ssh | `compose` without `--pack` refuses the pin, and `outdated` reports unknown: the composer allows a remote over https only, and the message names the setting | run the command with that setting left out (for one in the global configuration, `GIT_CONFIG_GLOBAL` naming an empty file), or compose from a clone with `--pack` |
+| the project wants a tool pre-approved that the skill's own `allowed-tools` names | the copy does not carry it, so the harness asks for the tool as the project's own settings decide | name it in `allowedTools` and compose; review reads it there |
 | the generic copy is picked instead of the adapted one | the session misses the project's values; an unbound slot falls back to its default, often "ask once" | give the adapted copy the project's own trigger phrases, and route the task to it by name in the project's agent instructions; `onboard-project`'s routing file does that for a repository it onboards |
 | two branches change one adapted skill | a conflict inside a generated folder | merge the adapter folder, then compose |
 | a security fix reaches the pack | the project has it only when the pin moves | run `outdated` on a schedule the project keeps |

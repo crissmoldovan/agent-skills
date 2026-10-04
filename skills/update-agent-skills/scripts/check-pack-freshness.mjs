@@ -45,7 +45,7 @@
  * is refused with `--hook`, whose silence means current, since an inventory is
  * never silent.
  */
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -446,7 +446,7 @@ export async function checkPackFreshness(options = {}) {
   const result = await checkInstalledCopies(options);
   if (!options.repo) return result;
   const env = options.env ?? process.env;
-  const { pins, problems, others } = readAdaptedPins(options.repo, result.source, options.skillsDir);
+  const { pins, problems, others, unreadable } = readAdaptedPins(options.repo, result.source, options.skillsDir);
   result.adapted = pins.length === 0 ? { release: null, pins: [] } : await checkAdaptedPins({
     pins,
     source: result.source,
@@ -456,6 +456,7 @@ export async function checkPackFreshness(options = {}) {
   });
   result.adaptedProblems = problems;
   result.adaptedOthers = others;
+  result.adaptedUnreadable = unreadable;
   return result;
 }
 
@@ -471,24 +472,36 @@ function githubSlug(value) {
  * generated folder carries. A lock that cannot be read is reported, never skipped,
  * and a copy of another source — another repository, or a local clone of the pack
  * — is listed as not compared, because this check reads one source's releases.
+ * Only a project with no skills folder at the default place holds no copies: a
+ * project, a named skills folder or a folder that cannot be read is `unreadable`,
+ * so it is never folded into an empty inventory.
  */
 export function readAdaptedPins(repo, source, skillsDir = DEFAULT_ADAPTED_SKILLS_DIR) {
   const folder = path.resolve(repo, skillsDir);
   const pins = [];
   const problems = [];
   const others = [];
+  const none = (unreadable) => ({ pins, problems, others, unreadable });
+  try {
+    if (!statSync(repo).isDirectory()) return none(`the project ${repo} is not a folder`);
+  } catch (error) {
+    return none(`the project ${repo} cannot be read (${describeError(error)})`);
+  }
   let entries;
   try {
     entries = readdirSync(folder, { withFileTypes: true });
-  } catch {
-    return { pins, problems, others };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return none(`${skillsDir} cannot be read (${describeError(error)})`);
+    return none(skillsDir === DEFAULT_ADAPTED_SKILLS_DIR ? null : `${skillsDir}, the skills folder named, is not in the project`);
   }
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory()) continue;
     let text;
     try {
       text = readFileSync(path.join(folder, entry.name, ADAPTED_LOCK_FILE), 'utf8');
-    } catch {
+    } catch (error) {
+      // No lock is an ordinary skill folder; a lock that is there and cannot be read is not.
+      if (error?.code !== 'ENOENT') problems.push(`${entry.name}: ${ADAPTED_LOCK_FILE} cannot be read (${describeError(error)})`);
       continue;
     }
     let lock;
@@ -509,7 +522,7 @@ export function readAdaptedPins(repo, source, skillsDir = DEFAULT_ADAPTED_SKILLS
     }
     pins.push({ name: entry.name, skill: base.skill, folder: `skills/${base.skill}`, ref: base.ref, tree: base.tree });
   }
-  return { pins, problems, others };
+  return none(null);
 }
 
 /**
@@ -642,6 +655,12 @@ export function formatAdaptedNotice(result) {
   const pins = result?.adapted?.pins ?? [];
   const problems = result?.adaptedProblems ?? [];
   const others = result?.adaptedOthers ?? [];
+  if (result?.adaptedUnreadable) {
+    return [
+      `ADAPTED_PINS ${result.source} unknown: ${result.adaptedUnreadable}`,
+      'Unknown is not "no adapted copies": this check could not read where the project keeps them. Name the project, and its skills folder if it is not .claude/skills, as they are on disk.',
+    ].join('\n');
+  }
   if (pins.length === 0 && problems.length === 0 && others.length === 0) return '';
   const copies = (count) => `${count} adapted cop${count === 1 ? 'y' : 'ies'}`;
   const lines = [`ADAPTED_PINS ${result.source} ${copies(pins.length)} of its skills in this project${others.length ? `, and ${copies(others.length)} not compared` : ''}`];

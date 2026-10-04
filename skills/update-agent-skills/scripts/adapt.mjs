@@ -52,7 +52,7 @@ import { fileURLToPath } from 'node:url';
 const posix = path.posix;
 
 /** Bumped when the composed bytes would change for the same inputs. The lock records it. */
-export const COMPOSER_VERSION = 1;
+export const COMPOSER_VERSION = 2;
 export const ADAPTER_VERSION = 1;
 export const LOCK_VERSION = 1;
 
@@ -83,7 +83,7 @@ const GITHUB_SOURCE = /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za
 const PROJECT_DIRS = ['references/project/', 'scripts/project/', 'assets/project/'];
 const BASE_BEGIN = '<!-- base:begin';
 const BASE_END = '<!-- base:end -->';
-const ADAPTER_KEYS = new Set(['version', 'name', 'description', 'base', 'widenTools', 'overlay', 'projectFiles', 'names']);
+const ADAPTER_KEYS = new Set(['version', 'name', 'description', 'base', 'allowedTools', 'overlay', 'projectFiles', 'names']);
 const BASE_KEYS = new Set(['source', 'skill', 'entry', 'ref', 'commit', 'tree']);
 const OVERLAY_SECTIONS = new Map([['bindings', 'Bindings'], ['additions', 'Additions'], ['project traps', 'Project traps']]);
 
@@ -91,12 +91,17 @@ const OVERLAY_SECTIONS = new Map([['bindings', 'Bindings'], ['additions', 'Addit
 // that what the pack holds declared and what an overlay may cite are the same set of ids.
 const BINDINGS_COLUMNS = ['id', 'slot', 'kind', 'default'];
 const SLOT_KIND = /^(?:value|skill)(?:, required)?$/;
-const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HS][0-9][0-9A-Za-z]*)/;
+// A candidate is read as wide as the verifier reads it (H or S in either case, then a digit, straight
+// after the letter or after up to three characters that are neither a letter nor a digit), and only
+// a well-formed one declares an id: the verifier refuses the rest, so no overlay may cite them.
+const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HhSs][^\p{L}\p{N}*`]{0,3}[0-9][0-9A-Za-z]*)/u;
 
 // A hard line is only ever made stricter (merge rule 4). No script can tell stricter from looser
 // in prose, so this is a tripwire for the words an exception is written in, backed by review: it
-// refuses an addition to a hard line, or any overlay line that names one, that carries them.
-const RELAXING = /\b(?:unless|except(?:ion|ions)?|exempt(?:s|ed|ion)?|waive[sd]?|need not|needn't|do(?:es)? not apply|doesn't apply|don't apply|no longer|not required|may skip|can skip|(?:is|are) optional|overrid(?:e|es|den)|relax(?:es|ed)?|(?:is|are) lifted)\b/i;
+// refuses an addition to a hard line, or any paragraph of the overlay that names one, that carries
+// them. A word is bounded by what is not a letter or digit, as a reader bounds one: `\b` takes an
+// underscore for part of a word, so `_except_` (emphasis) would pass it. A phrase may wrap.
+const RELAXING = /(?<![A-Za-z0-9])(?:unless|except(?:ion|ions)?|exempt(?:s|ed|ion)?|waive[sd]?|need\s+not|needn['’]t|do(?:es)?\s+not\s+apply|(?:doesn|don)['’]t\s+apply|no\s+longer|not\s+required|may\s+skip|can\s+skip|(?:is|are)\s+optional|overrid(?:e|es|den)|relax(?:es|ed)?|(?:is|are)\s+lifted)(?![A-Za-z0-9])/i;
 
 /**
  * A refusal: the message is for the person. `check` is the number of the check it would break, which
@@ -411,29 +416,231 @@ export function yamlString(value) {
   return JSON.stringify(text);
 }
 
-function widenTools(baseTools, widen) {
-  const tools = baseTools ? baseTools.split(/\s+/).filter(Boolean) : [];
-  for (const tool of widen) if (!tools.includes(tool)) tools.push(tool);
-  return tools.join(' ');
+/**
+ * The `allowed-tools` value a copy carries: exactly the tools its adapter names, or none. The
+ * skill's own line is never carried. It pre-approves tools while the skill is active, and a
+ * pre-approval granted by a shared skill would apply in every project that adapts it, chosen by
+ * none of them (merge rule 7).
+ */
+function allowedToolsOf(adapter) {
+  return (adapter.allowedTools ?? []).join(' ');
+}
+
+/** How many top-level `allowed-tools` keys a frontmatter holds, its key quoted or not. */
+function allowedToolsLines(frontmatter) {
+  return frontmatter.split('\n').filter((line) => /^(["']?)allowed-tools\1\s*:/.test(line)).length;
 }
 
 // ---------------------------------------------------------------------------------------------
 // what a skill declares
 
-/** Lines with every fenced block blanked, so line numbers still match; a fence at any indent. */
+// Declarations are read exactly as the pack's verifier reads them, so the composer sees exactly
+// the ids the verifier saw.
+
+/** The column a run of leading whitespace reaches, a tab moving to the next multiple of four. */
+function indentColumns(whitespace) {
+  let at = 0;
+  for (const character of whitespace) at = character === '\t' ? at + 4 - (at % 4) : at + 1;
+  return at;
+}
+
+/**
+ * Lines with every fenced block blanked, so line numbers still match, exactly as the pack's verifier
+ * reads declarations (`unfencedLines` in scripts/verify-skills.mjs). A fence is read at any
+ * indentation, and the strictest way it could be meant, so that it never hides a line Markdown would
+ * show: it closes at a bare run of at least as many of its character, indented at most three columns
+ * more than it, and only if that comes before any line that is not blank and is indented less than
+ * it. A fence that does not close so opens nothing, and the lines after it are read. A less indented
+ * line that would have closed it is the closing line its writer meant, so it opens nothing either. A
+ * backtick fence whose info string holds a backtick is not a fence.
+ */
 function unfencedLines(text) {
-  let fence = null;
-  return text.split('\n').map((line) => {
-    if (fence === null) {
-      const open = line.match(/^\s*(`{3,}|~{3,})/);
-      if (!open) return line;
-      fence = open[1];
-      return '';
+  const lines = text.split('\n');
+  const result = [...lines];
+  const meantToClose = new Set();
+  for (let at = 0; at < lines.length; at += 1) {
+    const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
+    if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
+    const [, lead, fence] = open;
+    const indent = indentColumns(lead);
+    let end = -1;
+    for (let next = at + 1; next < lines.length; next += 1) {
+      if (lines[next].trim() === '') continue;
+      const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
+      const closes = close !== null && close[2][0] === fence[0] && close[2].length >= fence.length;
+      const depth = indentColumns(lines[next].match(/^\s*/)[0]);
+      if (depth < indent) {
+        if (closes) meantToClose.add(next);
+        break;
+      }
+      if (closes && depth <= indent + 3) {
+        end = next;
+        break;
+      }
     }
-    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
-    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-    return '';
-  });
+    if (end < 0) continue;
+    result.fill('', at, end + 1);
+    at = end;
+  }
+  return result;
+}
+
+// The overlay reads its fences closer to CommonMark, and holds each to the addition or section it
+// opens in, because a fence left open there would hide the headings after it, and with them every
+// check they face. Links are read everywhere, fenced or not, as the verifier reads a skill's files.
+
+/** The column a run of spaces and tabs reaches from `from`, a tab moving to the next multiple of four. */
+function column(whitespace, from = 0) {
+  let at = from;
+  for (const character of whitespace) at = character === '\t' ? at + 4 - (at % 4) : at + 1;
+  return at;
+}
+
+const FENCE_OPENER = /^([ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)*)(`{3,}|~{3,})(.*)$/;
+const FENCE_CLOSER = /^([ \t]*)(`{3,}|~{3,})[ \t]*\r?$/;
+const OPENER_LEAD = /[ \t]+|[-+*]|\d{1,9}[.)]/g;
+
+/**
+ * The fence a line opens, if any: three or more backticks or tildes after spaces and tabs, or after
+ * list markers, as `- ```bash` and `1. ```bash` open one in a list item. Its indent is the column
+ * the fence starts at, a marker counting its own width; a non-breaking space is not indentation.
+ * A backtick fence whose info string holds a backtick is a code span, and more than four columns
+ * after a marker make indented code, so neither opens a fence.
+ */
+function fenceOpener(line) {
+  const match = line.match(FENCE_OPENER);
+  if (!match) return null;
+  const [, lead, fence, info] = match;
+  if (fence[0] === '`' && info.includes('`')) return null;
+  let at = 0;
+  let afterMarker = false;
+  for (const [part] of lead.matchAll(OPENER_LEAD)) {
+    if (part[0] === ' ' || part[0] === '\t') {
+      const from = at;
+      at = column(part, at);
+      if (afterMarker && at - from > 4) return null;
+      afterMarker = false;
+    } else {
+      at += part.length;
+      afterMarker = true;
+    }
+  }
+  return { fence, indent: at };
+}
+
+/** A bare line of backticks or tildes, which may close a fence: its fence and the column it starts at. */
+function fenceCloser(line) {
+  const match = line.match(FENCE_CLOSER);
+  return match ? { fence: match[2], indent: column(match[1]) } : null;
+}
+
+const isBlank = (line) => /^[ \t]*\r?$/.test(line);
+
+/** Numbers by position, asking for the first position at or after one whose number is at most a bound. */
+class FirstAtMost {
+  constructor(values) {
+    let size = 1;
+    while (size < values.length) size *= 2;
+    this.size = size;
+    this.least = new Float64Array(2 * size).fill(Infinity);
+    this.least.set(values, size);
+    for (let node = size - 1; node >= 1; node -= 1) this.least[node] = Math.min(this.least[2 * node], this.least[2 * node + 1]);
+  }
+
+  set(position, value) {
+    let node = position + this.size;
+    this.least[node] = value;
+    for (node >>= 1; node >= 1; node >>= 1) this.least[node] = Math.min(this.least[2 * node], this.least[2 * node + 1]);
+  }
+
+  /** The first position at or after `from` holding at most `most`, else -1. */
+  first(from, most, node = 1, low = 0, high = this.size) {
+    if (high <= from || this.least[node] > most) return -1;
+    if (high - low === 1) return low;
+    const middle = (low + high) >> 1;
+    const left = this.first(from, most, 2 * node, low, middle);
+    return left !== -1 ? left : this.first(from, most, 2 * node + 1, middle, high);
+  }
+}
+
+/**
+ * For each line, the fence it opens; for each such fence, its closing line, the first bare line
+ * after it of at least as many of the same character indented at most three columns more than the
+ * fence (`close`), and the first line after it that is not blank and is indented less than it
+ * (`shallower`). Each answer is read from a tree in O(log n), the openers longest fence first so
+ * that the tree holds exactly the closing lines long enough, so a text is read in O(n log n)
+ * however many fence lengths and indents it holds.
+ */
+function fenceTable(lines) {
+  const count = lines.length;
+  const opens = lines.map(fenceOpener);
+  const closes = lines.map(fenceCloser);
+  const close = new Int32Array(count).fill(count);
+  for (const character of ['`', '~']) {
+    const asked = [];
+    const closing = [];
+    opens.forEach((open, index) => { if (open?.fence[0] === character) asked.push(index); });
+    closes.forEach((line, index) => { if (line?.fence[0] === character) closing.push(index); });
+    if (asked.length === 0 || closing.length === 0) continue;
+    asked.sort((a, b) => opens[b].fence.length - opens[a].fence.length);
+    closing.sort((a, b) => closes[b].fence.length - closes[a].fence.length);
+    const tree = new FirstAtMost(new Float64Array(count).fill(Infinity));
+    let added = 0;
+    for (const index of asked) {
+      const { fence, indent } = opens[index];
+      for (; added < closing.length && closes[closing[added]].fence.length >= fence.length; added += 1) tree.set(closing[added], closes[closing[added]].indent);
+      const found = tree.first(index + 1, indent + 3);
+      if (found !== -1) close[index] = found;
+    }
+  }
+  const depth = new FirstAtMost(lines.map((line) => (isBlank(line) ? Infinity : column(line.match(/^[ \t]*/)[0]))));
+  const shallower = (index) => {
+    const found = depth.first(index + 1, opens[index].indent - 1);
+    return found === -1 ? count : found;
+  };
+  return { count, opens, close, shallower };
+}
+
+/**
+ * The fences of an overlay, each read as if in a list item, the strictest way it could be meant: a
+ * fence closes at its closing line, and also ends at the first line that is not blank and is
+ * indented less than it, a closing line included, and at a line `ends` holds, when one is given. A fence that
+ * ends either way, or never closes, opens nothing: its opening line is read as text, like the
+ * lines after it, which are read again from the next line. Each such fence is listed in
+ * `unclosed`, with the line that ended it and why. A shallower line that would have closed it is
+ * the closing line its writer meant, so it is not read as opening a fence of its own.
+ */
+function readFences(text, { ends = null } = {}) {
+  const lines = text.split('\n');
+  const { count, opens, close, shallower } = fenceTable(lines);
+  const meantToClose = new Set();
+  const nextEnd = new Int32Array(count + 1).fill(count);
+  if (ends) for (let index = count - 1; index >= 0; index -= 1) nextEnd[index] = ends(lines[index]) ? index : nextEnd[index + 1];
+  const fenced = lines.map(() => false);
+  const unclosed = [];
+  for (let at = 0; at < count;) {
+    const open = opens[at];
+    if (!open || meantToClose.has(at)) {
+      at += 1;
+      continue;
+    }
+    const end = close[at];
+    const under = shallower(at);
+    const part = nextEnd[at + 1];
+    const stop = Math.min(under, part);
+    if (stop <= end) {
+      const why = stop === count ? 'never closes' : stop === part ? 'ends' : 'shallower';
+      const closer = why === 'shallower' ? fenceCloser(lines[stop]) : null;
+      const closes = closer?.fence[0] === open.fence[0] && closer.fence.length >= open.fence.length;
+      if (closes) meantToClose.add(stop);
+      unclosed.push({ line: at, fence: open.fence, at: stop, why: closes ? 'closes shallower' : why });
+      at += 1;
+      continue;
+    }
+    fenced.fill(true, at, end + 1);
+    at = end + 1;
+  }
+  return { fenced, unclosed };
 }
 
 function tableCells(line) {
@@ -462,10 +669,21 @@ export function parseDeclarations(files) {
     while (end < rows.length && !/^#{1,2}\s/.test(rows[end])) end += 1;
     let index = heading + 1;
     while (index < end && !rows[index].trim().startsWith('|')) index += 1;
-    if (index < end && tableCells(rows[index]).map((cell) => cell.toLowerCase()).join('|') === BINDINGS_COLUMNS.join('|')) {
+    // As the verifier holds the table: its header, then a delimiter row of as many cells, so that a
+    // renderer reads it as a table; then rows of four cells, each slot id well formed and not an H or
+    // an S, which name hard lines and steps.
+    const delimiter = rows[index + 1] ?? '';
+    const isTable = index < end
+      && tableCells(rows[index]).map((cell) => cell.toLowerCase()).join('|') === BINDINGS_COLUMNS.join('|')
+      && delimiter.trim().startsWith('|')
+      && tableCells(delimiter).length === BINDINGS_COLUMNS.length
+      && tableCells(delimiter).every((cell) => /^:?-+:?$/.test(cell));
+    if (isTable) {
       for (index += 2; index < end && rows[index].trim().startsWith('|'); index += 1) {
-        const [id, slot, kind, fallback] = tableCells(rows[index]);
-        if (!ID.test(id ?? '') || !SLOT_KIND.test(kind ?? '')) continue;
+        const cells = tableCells(rows[index]);
+        if (cells.length !== BINDINGS_COLUMNS.length) continue;
+        const [id, slot, kind, fallback] = cells;
+        if (!ID.test(id) || id[0] === 'H' || id[0] === 'S' || !SLOT_KIND.test(kind)) continue;
         const defaultSkill = (fallback ?? '').match(/^`([a-z0-9]+(?:-[a-z0-9]+)*)`$/)?.[1] ?? null;
         declare(slots, id, { id, file, slot, kind, default: fallback, required: kind.endsWith(', required'), skill: kind.startsWith('skill'), defaultSkill });
       }
@@ -482,15 +700,52 @@ export function parseDeclarations(files) {
 // the overlay
 
 /**
+ * Whether a line, read on its own, opens a part of an overlay: a section an overlay has, or an
+ * addition, a `### ` heading whose first word is an id. A fence open across one ends there. A
+ * `### ` heading indented one to three spaces counts, since Markdown reads it as a heading too:
+ * where the composer's fences and CommonMark's differ, as in an HTML comment or an ordered list
+ * item that cannot interrupt a paragraph, a fence the composer reads could otherwise hide a
+ * heading the copy shows.
+ */
+function opensOverlayPart(line) {
+  if (/^ {0,3}####/.test(line)) return false;
+  const addition = line.match(/^ {0,3}###\s+(\S+)/);
+  if (addition) return ID.test(addition[1].replace(/[.:,;]$/, ''));
+  const section = line.match(/^##\s+(.+?)\s*$/);
+  return Boolean(section) && OVERLAY_SECTIONS.has(section[1].toLowerCase());
+}
+
+/**
  * The overlay in its three parts: `## Bindings` (a two-column `| id | value |` table), `## Additions`
  * (one `### <id>` heading per step or hard line it adds to), and `## Project traps`. Anything
  * else would be dropped from the copy without a word, so it is refused instead.
+ *
+ * Fences are read as in a list item, the strictest way they could be meant, and a fence closes
+ * inside the addition or the section it opens in. One that does not would swallow every heading
+ * after it until something closed it, and with them every check those headings face, so it is
+ * refused, and read as text so that what follows is still read: a line that opens another part of
+ * the overlay ends it.
+ *
+ * An addition's heading starts at the left margin. Markdown also reads a `### ` line indented one
+ * to three spaces as a heading, so one whose first word is an id would show the lines after it as
+ * an addition to that id, which the checks read as part of what comes before; it is refused.
  */
 export function parseOverlay(source) {
   const text = lf(source);
   const problems = [];
   const rows = text.split('\n');
-  const plain = unfencedLines(text);
+  const fences = readFences(text, { ends: opensOverlayPart });
+  const plain = rows.map((line, index) => (fences.fenced[index] ? '' : line));
+  plain.forEach((line, index) => {
+    const indented = line.match(/^ {1,3}###[ \t]+(\S+)/);
+    const id = indented?.[1].replace(/[.:,;]$/, '');
+    // A hard line's heading is shown only in the addition to it (check 5), so indenting it further
+    // is no remedy for one.
+    const remedy = id?.startsWith('H') ? `start it at the left margin to add to ${id}; a heading for a hard line is shown only in the addition to it` : `start it at the left margin to add to ${id}, or indent it four spaces to show it as an example`;
+    if (id && ID.test(id)) problems.push(`overlay line ${index + 1}: "### ${id}" is indented, and Markdown still reads it as a heading: the copy would show the lines after it as an addition to ${id}, which the checks read as part of what comes before; ${remedy}`);
+  });
+  // Where each line sits, so a fence that does not close can be named by where it opened.
+  const where = new Map();
   const sections = new Map();
   let current = null;
   plain.forEach((line, index) => {
@@ -500,16 +755,18 @@ export function parseOverlay(source) {
       if (!OVERLAY_SECTIONS.has(key)) {
         problems.push(`overlay line ${index + 1}: unknown section "## ${heading[1]}" — an overlay has ## Bindings, ## Additions and ## Project traps, and nothing else reaches the copy`);
         // Its body is already refused with the heading, so it is not reported line by line.
-        current = { key: null, start: index + 1, lines: [] };
+        current = { key: null, name: heading[1], start: index + 1, lines: [] };
         return;
       }
       if (sections.has(key)) problems.push(`overlay line ${index + 1}: ## ${OVERLAY_SECTIONS.get(key)} appears twice`);
-      current = { key, start: index + 1, lines: [] };
+      current = { key, name: OVERLAY_SECTIONS.get(key), start: index + 1, lines: [] };
       sections.set(key, current);
       return;
     }
-    if (current) current.lines.push(index);
-    else if (rows[index].trim() !== '' && !/^#\s/.test(rows[index]) && !/^\s*<!--.*-->\s*$/.test(rows[index])) {
+    if (current) {
+      current.lines.push(index);
+      where.set(index, `under ## ${current.name}`);
+    } else if (rows[index].trim() !== '' && !/^#\s/.test(rows[index]) && !/^\s*<!--.*-->\s*$/.test(rows[index])) {
       problems.push(`overlay line ${index + 1}: text before the first section would not reach the copy; put it under ## Additions or ## Project traps`);
     }
   });
@@ -556,12 +813,15 @@ export function parseOverlay(source) {
           open = null;
           continue;
         }
-        open = { id, heading: rows[index], line: index + 1, lines: [] };
+        open = { id, heading: rows[index], line: index + 1, last: index + 1, lines: [] };
         additions.push(open);
         continue;
       }
-      if (open) open.lines.push(rows[index]);
-      else if (rows[index].trim() !== '') problems.push(`overlay line ${index + 1}: text under ## Additions sits under a ### <id> heading`);
+      if (open) {
+        open.lines.push(rows[index]);
+        open.last = index + 1;
+        where.set(index, `in the addition to ${open.id}`);
+      } else if (rows[index].trim() !== '') problems.push(`overlay line ${index + 1}: text under ## Additions sits under a ### <id> heading`);
     }
     for (const addition of additions) {
       addition.text = trimBlank(addition.lines.join('\n'));
@@ -575,6 +835,20 @@ export function parseOverlay(source) {
     }
   }
 
+  // A fence left open explains what else is refused around it, so it is named first.
+  problems.unshift(...fences.unclosed.map((fence) => {
+    let why = 'it never closes';
+    if (fence.why === 'ends') why = `line ${fence.at + 1} opens ${rows[fence.at].trim()} first`;
+    else if (fence.why === 'shallower') why = `line ${fence.at + 1} is indented less than the fence, which ends it`;
+    else if (fence.why === 'closes shallower') why = `line ${fence.at + 1} would close it, but is indented less than the fence, which in a list item ends the fence instead`;
+    let example = '';
+    if (fence.why === 'ends') {
+      const id = rows[fence.at].match(/^ {0,3}###\s+(\S+)/)?.[1].replace(/[.:,;]$/, '');
+      example = id?.startsWith('H') ? `; a heading for ${id}, a hard line, is shown only in the addition to ${id} (check 5)` : '; to show such a heading in an example, indent the fence and its lines four spaces';
+    }
+    return `overlay line ${fence.line + 1}: the fence opened ${where.get(fence.line) ?? 'before the first section'} does not close there (${why}); close it with a bare line of at least ${fence.fence.length} ${fence.fence[0] === '`' ? 'backticks' : 'tildes'}, indented as far as the fence, or it hides the headings after it from the checks${example}`;
+  }));
+
   return {
     text,
     problems,
@@ -584,6 +858,208 @@ export function parseOverlay(source) {
     additionsText: body('additions'),
     trapsText: body('project traps'),
   };
+}
+
+// How check 5 reads an id and the words of an exception: as a reader sees the text, not as it is
+// typed. A numeric character reference is decoded, and a named one that shows nothing (a soft
+// hyphen, a zero-width space) is dropped, any other read as a space; a compatibility form (a
+// full-width letter, a superscript digit) folds to what it shows; and a format character, which
+// shows nothing, is dropped. Emphasis, strikethrough, inline HTML and comments are read both ways
+// they can join what they split: removed, so `H<b></b>1` and `H*1*` read H1, and as a space, so
+// `H1<br>is lifted` keeps H1 a word of its own.
+const INVISIBLE_REFERENCES = new Set([
+  'shy', 'zwnj', 'zwj', 'lrm', 'rlm', 'ZeroWidthSpace', 'NegativeVeryThinSpace', 'NegativeThinSpace', 'NegativeMediumSpace',
+  'NegativeThickSpace', 'NoBreak', 'ApplyFunction', 'af', 'InvisibleTimes', 'it', 'InvisibleComma', 'ic',
+]);
+const HTML_TAG = /<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/][^<>]*)?>/g;
+
+function decodeReferences(text) {
+  return text
+    .replace(/&#(?:([0-9]{1,7})|[xX]([0-9A-Fa-f]{1,6}));/g, (whole, decimal, hex) => {
+      const code = decimal === undefined ? Number.parseInt(hex, 16) : Number(decimal);
+      return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : '�';
+    })
+    .replace(/&([A-Za-z][A-Za-z0-9]{0,31});/g, (whole, name) => (INVISIBLE_REFERENCES.has(name) ? '' : ' '));
+}
+
+/** A text with every HTML comment and tag in it replaced by `by`, read once from left to right. */
+function withoutMarkup(text, by) {
+  const parts = [];
+  let at = 0;
+  for (let open = text.indexOf('<!--'); open !== -1; open = text.indexOf('<!--', at)) {
+    const close = text.indexOf('-->', open + 4);
+    if (close === -1) break;
+    parts.push(text.slice(at, open), by);
+    at = close + 3;
+  }
+  parts.push(text.slice(at));
+  return parts.join('').replace(HTML_TAG, by);
+}
+
+/** The two readings of a text that check 5 matches an id and an exception in. */
+function readings(text) {
+  const shown = decodeReferences(text).normalize('NFKC').replace(/\p{Cf}/gu, '');
+  return [withoutMarkup(shown, '').replace(/[*_~]/g, ''), withoutMarkup(shown, ' ').replace(/[*_~]/g, ' ')];
+}
+
+// An id as a reader finds one: not run on from a letter or digit on either side. An underscore is
+// no part of it, so `_H1_` (emphasis) names H1, which `\b` would not see.
+const ID_MATCHERS = new Map();
+function idMatcher(id) {
+  if (!ID_MATCHERS.has(id)) ID_MATCHERS.set(id, new RegExp(`(?<![A-Za-z0-9])${id}(?![0-9A-Za-z])`));
+  return ID_MATCHERS.get(id);
+}
+const namesIn = (read, id) => read.some((reading) => idMatcher(id).test(reading));
+// A sentence that opens with the words of an exception (`Except the weekly digest.`) makes one to
+// the sentence before it.
+const EXCEPTION_OPENING = new RegExp(`^[^A-Za-z0-9]*${RELAXING.source}`, 'i');
+function relaxingIn(read) {
+  for (const reading of read) {
+    const word = reading.match(RELAXING);
+    if (word) return word;
+  }
+  return null;
+}
+
+// What reads as a heading in an overlay, for check 5, read on every line, fenced or not, and at any
+// indent: a fence the composer reads as code may not be one, a line indented four columns may sit in
+// a list item, and a heading the check skipped would be checked by nothing.
+const CONTAINER_MARKER = /^(?:>|[-+*](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))/;
+const ATX_HEADING = /^#{1,6}(?:[ \t]|$)/;
+const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t]*$/;
+const BOLD_ONLY = /^(?:(\*\*|__)(?=\S)(.*?\S)\1|<(b|strong)(?:\s[^<>]*)?>(.*?)<\/\3\s*>)[ \t]*(?:[.:][ \t]*)?$/i;
+const BOLD_PARAGRAPH = /^(?:(\*\*|__)(?=\S)([\s\S]*?\S)\1|<(b|strong)(?:\s[^<>]*)?>([\s\S]*?)<\/\3\s*>)\s*(?:[.:]\s*)?$/i;
+const HTML_HEADING = /<h([1-6])(?=[\s>/])[^<>]*>([\s\S]*?)(?:<\/h\1\s*>|$)/gi;
+// A line that opens with bold, as a skill declares a hard line (`- **H1. Contacts nobody.**`), and
+// the id a reading of it opens with.
+const LEAD_IN = /^(?:[*_~]*(?:\*\*|__)|<(?:b|strong)(?=[\s/>]))/i;
+const LEAD_ID = /^[^A-Za-z0-9]*([A-Z][1-9][0-9]*)(?![0-9A-Za-z])/;
+
+/** A line without the quote and list markers it opens with, and whether one of them opens a list item. */
+function inContainer(line) {
+  let rest = line.replace(/^[ \t]*/, '');
+  let item = false;
+  for (let marker = rest.match(CONTAINER_MARKER); marker; marker = rest.match(CONTAINER_MARKER)) {
+    if (marker[0] !== '>') item = true;
+    rest = rest.slice(marker[0].length).replace(/^[ \t]*/, '');
+  }
+  return { rest, item };
+}
+
+/**
+ * Every part of a text that reads as a heading, in any shape Markdown gives one: a `#` heading at
+ * any level, after any quote or list markers; a paragraph underlined with `=` or `-`; a line, or a
+ * paragraph, that is only bold; and an HTML `<h1>` to `<h6>`, its opening tag and its text over as
+ * many lines as they take. Each gives its first line and its last (1-based), the first line as
+ * written, and its text. Indentation is not read: four columns in, a heading may be code, or may sit
+ * in a list item. Each line is read once, and each paragraph once more, so a text is read in O(n).
+ */
+export function headingsIn(text) {
+  const lines = text.split('\n');
+  const found = new Map();
+  const add = (first, last, words) => {
+    if (!found.has(first)) found.set(first, { line: first + 1, last: last + 1, shown: lines[first].trim(), text: words });
+  };
+  let paragraph = -1;
+  const endParagraph = (end) => {
+    if (paragraph !== -1 && end - paragraph > 1) {
+      const bold = lines.slice(paragraph, end).map((row) => inContainer(row).rest).join('\n').match(BOLD_PARAGRAPH);
+      if (bold) add(paragraph, end - 1, bold[2] ?? bold[4]);
+    }
+    paragraph = -1;
+  };
+  lines.forEach((line, index) => {
+    const { rest } = inContainer(line);
+    if (rest === '') {
+      endParagraph(index);
+      return;
+    }
+    if (ATX_HEADING.test(rest)) {
+      endParagraph(index);
+      add(index, index, rest.replace(/^#+/, '').replace(/[ \t]#+[ \t]*$/, ''));
+      return;
+    }
+    if (paragraph !== -1 && SETEXT_UNDERLINE.test(rest)) {
+      add(paragraph, index, lines.slice(paragraph, index).map((row) => inContainer(row).rest).join('\n'));
+      paragraph = -1;
+      return;
+    }
+    const bold = rest.match(BOLD_ONLY);
+    if (bold) add(index, index, bold[2] ?? bold[4]);
+    if (paragraph === -1) paragraph = index;
+  });
+  endParagraph(lines.length);
+  let line = 0;
+  let at = 0;
+  for (const match of text.matchAll(HTML_HEADING)) {
+    for (; at < match.index; at += 1) if (text[at] === '\n') line += 1;
+    const first = line;
+    let last = line;
+    for (let end = at; end < match.index + match[0].length; end += 1) if (text[end] === '\n') last += 1;
+    add(first, Math.max(first, last - (match[0].endsWith('\n') ? 1 : 0)), match[2]);
+  }
+  return [...found.values()].sort((a, b) => a.line - b.line);
+}
+
+/**
+ * A text a block at a time, as check 5 reads the words of an exception: a paragraph, and a heading,
+ * a list item or a table row on its own. Each gives its first line and its last (1-based) and its
+ * lines.
+ */
+function blocksIn(text) {
+  const lines = text.split('\n');
+  const blocks = [];
+  let start = -1;
+  const close = (end) => {
+    if (start !== -1) blocks.push({ first: start + 1, last: end, lines: lines.slice(start, end) });
+    start = -1;
+  };
+  lines.forEach((line, index) => {
+    const { rest, item } = inContainer(line);
+    if (rest === '') {
+      close(index);
+      return;
+    }
+    const alone = ATX_HEADING.test(rest) || rest.startsWith('|');
+    if (alone || item) close(index);
+    if (start === -1) start = index;
+    if (alone || SETEXT_UNDERLINE.test(rest)) close(index + 1);
+  });
+  close(lines.length);
+  return blocks;
+}
+
+// A sentence ends at a full stop, a question mark or an exclamation mark, after any closing quote,
+// bracket or parenthesis, where white space follows. One inside emphasis, as in a lead-in written
+// `**H1.** In this repository`, ends none.
+const SENTENCE_END = /(?<=[.!?]["'”’)\]]*)\s+/g;
+
+/** The sentences of a block's lines, each with its text and the indexes of its first and last line. */
+function sentencesIn(lines) {
+  const text = lines.join('\n');
+  const sentences = [];
+  let line = 0;
+  let lineEnd = lines[0].length;
+  const lineAt = (offset) => {
+    while (offset > lineEnd && line < lines.length - 1) {
+      line += 1;
+      lineEnd += lines[line].length + 1;
+    }
+    return line;
+  };
+  let from = 0;
+  const push = (to) => {
+    if (to > from) {
+      const first = lineAt(from);
+      sentences.push({ text: text.slice(from, to), first, last: lineAt(to) });
+    }
+  };
+  for (const match of text.matchAll(SENTENCE_END)) {
+    push(match.index);
+    from = match.index + match[0].length;
+  }
+  push(text.length);
+  return sentences;
 }
 
 function trimBlank(text) {
@@ -596,20 +1072,45 @@ function trimBlank(text) {
 // ---------------------------------------------------------------------------------------------
 // links
 
-const INLINE_LINK = /(!?\[[^\]]*\]\()([^)\s]+)((?:\s+['"][^)]*['"])?\))/g;
-const LINK_DEFINITION = /^( {0,3}\[[^\]]+\]:[ \t]*)(\S+)/gm;
+// A link's destination as CommonMark reads one, after every `](`, whatever the brackets before it
+// hold, so an image inside a link (a badge) gives both: after spaces and at most one line ending,
+// with the quote markers that continue a quote (sixteen deep at most, so that a run of `>` is not
+// read again for every way to split it), in angle brackets, spaces allowed, or a run with no
+// space whose parentheses balance; then an optional title in quotes or parentheses, and the closing
+// parenthesis. A definition is read after any quote or list markers, at any indent, its destination
+// on its line or the next. The groups are what comes before the destination, the destination, and
+// what comes after it, so the rewriter moves only the destination. The parentheses of a bare
+// destination balance at any depth up to 32, the limit cmark sets, not one pair only; each level is
+// one character's choice, so a run of openings that never close is still read in linear time.
+const LINK_GAP = String.raw`[ \t]*(?:\r?\n(?:[ \t]*>){0,16}[ \t]*)?`;
+const LINK_TITLE = String.raw`"[^"\n]{0,2000}"|'[^'\n]{0,2000}'|\([^()\n]{0,2000}\)`;
+const LINK_NESTING = 32;
+const BARE_DESTINATION = (() => {
+  let part = String.raw`(?:[^\s()\\]|\\.)`;
+  for (let level = 0; level < LINK_NESTING; level += 1) part = String.raw`(?:[^\s()\\]|\\.|\(${part}*\))`;
+  return String.raw`(?!<)${part}+`;
+})();
+const INLINE_LINK = new RegExp(String.raw`(\]\(${LINK_GAP})(<[^<>\n]*>|${BARE_DESTINATION})((?:${LINK_GAP}(?:${LINK_TITLE}))?${LINK_GAP}\))`, 'g');
+const LINK_DEFINITION = new RegExp(String.raw`^((?:[ \t]*(?:>|[-+*](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*\[(?:[^\[\]\\\n]|\\.){1,999}\]:${LINK_GAP})(<[^<>\n]*>|\S+)`, 'gm');
 
 function splitTarget(target) {
   const wrapped = target.startsWith('<') && target.endsWith('>');
   const inner = wrapped ? target.slice(1, -1) : target;
-  if (!inner || inner.startsWith('#') || inner.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(inner)) return null;
+  if (!inner || inner.startsWith('#') || inner.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(inner)) return null;
   const cut = inner.search(/[#?]/);
   const pathname = cut === -1 ? inner : inner.slice(0, cut);
   if (!pathname) return null;
-  return { wrapped, pathname, suffix: cut === -1 ? '' : inner.slice(cut) };
+  return { wrapped, pathname, suffix: cut === -1 ? '' : inner.slice(cut), rooted: pathname.startsWith('/') };
 }
 
-/** Every relative link target in a Markdown text: inline links, images and link definitions. */
+/**
+ * Every link target in a Markdown text that is not a URL or an anchor: inline links, images and
+ * link definitions, fenced code included, as the pack's verifier reads a skill's files. A link this
+ * scan skipped would be checked by nothing, and no reading of fences by hand matches CommonMark, so
+ * an example writes a path as code instead. A target written from the root (`/docs/guide.md`) is
+ * read too, marked `rooted`, so check 10 can refuse it: where it lands depends on where the copy is
+ * read, not on the file that holds it.
+ */
 export function relativeLinks(text) {
   const found = [];
   for (const match of text.matchAll(INLINE_LINK)) {
@@ -625,15 +1126,16 @@ export function relativeLinks(text) {
 
 /**
  * A reference file becomes the body of SKILL.md at the folder root, so every relative link it
- * holds is rewritten for its new place. A link to its own skill's SKILL.md is refused: that file
- * is not carried, and the adapted SKILL.md that takes its place is not what the link meant.
+ * holds, fenced code included, is rewritten for its new place. A link to its own skill's SKILL.md
+ * is refused: that file is not carried, and the adapted SKILL.md that takes its place is not what
+ * the link meant.
  */
 export function rewriteEntryLinks(text, entry) {
   const from = posix.dirname(entry);
   const problems = [];
   const move = (target) => {
     const parts = splitTarget(target);
-    if (!parts) return target;
+    if (!parts || parts.rooted) return target;
     const resolved = posix.normalize(posix.join(from, parts.pathname));
     if (resolved === '..' || resolved.startsWith('../')) {
       problems.push(`${entry} links to ${target}, outside its skill`);
@@ -652,8 +1154,13 @@ export function rewriteEntryLinks(text, entry) {
   return { text: rewritten, problems };
 }
 
-/** Check 10: every relative link in the generated folder resolves, and none leaves the repository. */
-export function linkProblems(files, { folder, exists }) {
+/**
+ * Check 10: every relative link in the generated folder resolves, none leaves the repository, and
+ * none is written from the root. A link that leaves the generated folder is read from the
+ * repository: `exists` says whether its target is there, and `escapes` whether reaching it follows
+ * a symbolic link out of the repository, which a path that stays inside on paper can still do.
+ */
+export function linkProblems(files, { folder, exists, escapes = () => false }) {
   const problems = [];
   const directories = new Set();
   for (const file of files.keys()) {
@@ -665,12 +1172,17 @@ export function linkProblems(files, { folder, exists }) {
   }
   for (const [file, content] of sortedEntries(files)) {
     if (!/\.mdx?$/i.test(file)) continue;
-    for (const { pathname } of relativeLinks(utf8(content.bytes))) {
+    for (const { pathname, rooted } of relativeLinks(utf8(content.bytes))) {
+      if (rooted) {
+        problems.push(`${file} links to ${pathname}, a path from the root rather than from ${file}; write it relative to the file`);
+        continue;
+      }
       const resolved = posix.normalize(posix.join(posix.dirname(file), pathname)).replace(/\/$/, '');
       if (resolved === '.') continue;
       if (resolved === '..' || resolved.startsWith('../')) {
         const inRepository = posix.normalize(posix.join(folder, resolved));
         if (inRepository === '..' || inRepository.startsWith('../')) problems.push(`${file} links to ${pathname}, outside the repository`);
+        else if (escapes(inRepository)) problems.push(`${file} links to ${pathname}, which reaches outside the repository through a symbolic link`);
         else if (!exists(inRepository)) problems.push(`${file} links to ${pathname}, which does not resolve`);
         continue;
       }
@@ -690,7 +1202,10 @@ export function linkProblems(files, { folder, exists }) {
 export function validateAdapter(adapter, folderName) {
   const problems = [];
   if (!adapter || typeof adapter !== 'object' || Array.isArray(adapter)) return { problems: ['adapter.json is not a JSON object'] };
-  for (const key of Object.keys(adapter)) if (!ADAPTER_KEYS.has(key)) problems.push(`adapter.json has an unknown key "${key}"`);
+  for (const key of Object.keys(adapter)) {
+    if (key === 'widenTools') problems.push('adapter.json has "widenTools", which is not read: an adapted copy carries no allowed-tools line unless allowedTools names the tools, and then exactly those; name them there, or remove the key');
+    else if (!ADAPTER_KEYS.has(key)) problems.push(`adapter.json has an unknown key "${key}"`);
+  }
   if (adapter.version !== ADAPTER_VERSION) problems.push(`adapter.json version must be ${ADAPTER_VERSION}`);
   if (typeof adapter.name !== 'string' || !SKILL_NAME.test(adapter.name) || adapter.name.length > 64) problems.push('name must be a skill name: lowercase letters, digits and single hyphens, at most 64 characters');
   else if (folderName !== undefined && adapter.name !== folderName) problems.push(`name ${adapter.name} differs from its folder ${folderName}`);
@@ -710,8 +1225,13 @@ export function validateAdapter(adapter, folderName) {
     if (base.commit !== undefined && !(typeof base.commit === 'string' && FULL_SHA.test(base.commit))) problems.push('base.commit, when given, is the full commit sha');
     if (base.tree !== undefined && !(typeof base.tree === 'string' && FULL_SHA.test(base.tree))) problems.push('base.tree, when given, is the full tree sha');
   }
-  if (adapter.widenTools !== undefined && !(Array.isArray(adapter.widenTools) && adapter.widenTools.every((tool) => typeof tool === 'string' && /^\S+$/.test(tool)))) {
-    problems.push('widenTools must be a list of tool names, each one word');
+  if (adapter.allowedTools !== undefined) {
+    if (!(Array.isArray(adapter.allowedTools) && adapter.allowedTools.every((tool) => typeof tool === 'string' && /^\S+$/.test(tool)))) {
+      problems.push('allowedTools must be a list of tool names, each one word, as the allowed-tools line separates them by spaces');
+    } else {
+      const repeated = new Set(adapter.allowedTools.filter((tool, index, all) => all.indexOf(tool) !== index));
+      for (const tool of repeated) problems.push(`allowedTools names ${tool} twice`);
+    }
   }
   if (adapter.overlay !== undefined && (typeof adapter.overlay !== 'string' || !/^(?!\.\.?\/)[A-Za-z0-9._-]+\.md$/.test(adapter.overlay))) problems.push('overlay must name a Markdown file in the adapter folder');
   if (adapter.projectFiles !== undefined) {
@@ -743,7 +1263,7 @@ export function validateAdapter(adapter, folderName) {
       name: adapter.name,
       description: adapter.description,
       base: { source: base.source, skill: base.skill, entry: base.entry ?? 'SKILL.md', ref: base.ref, commit: base.commit ?? null, tree: base.tree ?? null },
-      widenTools: adapter.widenTools ?? [],
+      allowedTools: adapter.allowedTools ?? [],
       overlay: adapter.overlay ?? 'overlay.md',
       projectFiles: [...(adapter.projectFiles ?? [])].sort(),
       names: adapter.names ?? {},
@@ -956,23 +1476,83 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
       else notes.push(`For review: the overlay replaces ${addition.id} ("${addition.replaces.reason}").`);
     }
     if (addition.id[0] === 'H') {
-      const word = addition.text.match(RELAXING);
+      // The heading is read with the text: a heading can say as much as the line under it.
+      const word = relaxingIn(readings(`${addition.heading}\n${addition.text}`));
       if (word) fail(5, `overlay line ${addition.line}: the addition to ${addition.id} reads as relaxing it ("${word[0]}"); a hard line is only made stricter. If the text is stricter, say so without an exception word`);
       notes.push(`For review against ${addition.id}: the overlay adds to this hard line.`);
     }
   }
   const hardLines = [...declared.lines.values()].filter((line) => line.kind === 'H');
-  overlay.text.split('\n').forEach((line, index) => {
-    if (/^###\s/.test(line)) return;
+  const inAdditionTo = (id, line) => overlay.additions.some((addition) => addition.id === id && line >= addition.line && line <= addition.last);
+  // The words of an exception beside a hard line's id: on one line, in one sentence over the lines it
+  // wraps across, or opening the sentence after one that names it. A paragraph, list item, table row
+  // or heading in the addition to the hard line it names is the addition's to answer for, above. A
+  // paragraph that names a hard line in one sentence and holds the words of an exception in another
+  // is listed for review: the words may qualify something else, as in "a commentary, unless it
+  // changed. Every update carries the rows (H2)."
+  for (const block of blocksIn(overlay.text)) {
+    const read = readings(block.lines.join('\n'));
+    const word = relaxingIn(read);
+    if (!word) continue;
+    const ids = hardLines.map((hard) => hard.id).filter((id) => namesIn(read, id) && !inAdditionTo(id, block.first));
+    if (ids.length === 0) continue;
+    const lineReads = block.lines.map((line) => readings(line));
+    const refused = new Set();
+    const refuse = (id, named, relaxed, where) => {
+      if (refused.has(id)) return;
+      refused.add(id);
+      const shown = relaxingIn(lineReads[relaxed])?.[0] ?? word[0];
+      if (where === null) fail(5, `overlay line ${block.first + named} names ${id} and reads as relaxing it ("${shown}"); a hard line is only made stricter`);
+      else fail(5, `overlay line ${block.first + named} names ${id}, and line ${block.first + relaxed} reads as relaxing it ("${shown}") ${where}; a hard line is only made stricter`);
+    };
+    lineReads.forEach((lineRead, index) => {
+      if (relaxingIn(lineRead)) for (const id of ids) if (namesIn(lineRead, id)) refuse(id, index, index, null);
+    });
+    const sentences = sentencesIn(block.lines);
+    const firstLine = (sentence, holds) => {
+      for (let index = sentence.first; index <= sentence.last; index += 1) if (holds(lineReads[index])) return index;
+      return sentence.first;
+    };
+    sentences.forEach((sentence, index) => {
+      const sentenceRead = readings(sentence.text);
+      const next = sentences[index + 1];
+      const opensAnException = next !== undefined && readings(next.text).some((reading) => EXCEPTION_OPENING.test(reading));
+      for (const id of ids) {
+        if (!namesIn(sentenceRead, id)) continue;
+        const named = firstLine(sentence, (lineRead) => namesIn(lineRead, id));
+        if (relaxingIn(sentenceRead)) refuse(id, named, firstLine(sentence, relaxingIn), 'in the same sentence');
+        else if (opensAnException) refuse(id, named, next.first, 'in the sentence after it');
+      }
+    });
+    for (const id of ids) {
+      if (!refused.has(id)) notes.push(`For review against ${id}: overlay lines ${block.first} to ${block.last} name it in a paragraph that holds the words of an exception ("${word[0]}").`);
+    }
+  }
+  // A heading says what the lines under it are about, so outside the addition to a hard line, a
+  // heading that names one would show text for that hard line that no check reads as an addition
+  // to it. It is refused in every shape, wherever the id sits in it and at any indent, fenced or
+  // not: four columns in, a heading may sit in a list item. So is a line that opens with a hard
+  // line's id in bold, the form a skill declares one in.
+  const reported = new Set();
+  for (const heading of headingsIn(overlay.text)) {
+    const read = readings(heading.text);
     for (const hard of hardLines) {
-      if (!new RegExp(`\\b${hard.id}\\b`).test(line)) continue;
-      const inAddition = overlay.additions.some((addition) => addition.id === hard.id && addition.text.includes(line));
-      const word = line.match(RELAXING);
-      if (word && !inAddition) fail(5, `overlay line ${index + 1} names ${hard.id} and reads as relaxing it ("${word[0]}"); a hard line is only made stricter`);
+      if (!namesIn(read, hard.id) || inAdditionTo(hard.id, heading.line)) continue;
+      reported.add(`${heading.line} ${hard.id}`);
+      fail(5, `overlay line ${heading.line}: "${heading.shown}" reads as a heading for ${hard.id} outside the addition to ${hard.id}; the copy would show the lines under it as text for that hard line that no check reads as an addition to it. Add to ${hard.id} under ## Additions as ### ${hard.id}, or name it in a sentence`);
+    }
+  }
+  overlay.text.split('\n').forEach((line, index) => {
+    const { rest } = inContainer(line);
+    if (!LEAD_IN.test(rest)) return;
+    for (const id of new Set(readings(rest).map((reading) => reading.match(LEAD_ID)?.[1]))) {
+      if (!id || declared.lines.get(id)?.kind !== 'H' || inAdditionTo(id, index + 1) || reported.has(`${index + 1} ${id}`)) continue;
+      fail(5, `overlay line ${index + 1}: "${line.trim()}" opens with ${id} in bold, as a skill declares a hard line, outside the addition to ${id}; the copy would show it as a declaration of that hard line that no check reads as an addition to it. Add to ${id} under ## Additions as ### ${id}, or name it in a sentence`);
     }
   });
   for (const hard of hardLines) {
-    for (const id of bound.keys()) if (new RegExp(`\\b${id}\\b`).test(hard.text)) notes.push(`For review against ${hard.id}: it names ${id}, which the overlay binds.`);
+    const read = readings(hard.text);
+    for (const id of bound.keys()) if (namesIn(read, id)) notes.push(`For review against ${hard.id}: it names ${id}, which the overlay binds.`);
   }
 
   // Merge rule 2: a skill slot maps a name and never edits the text.
@@ -998,16 +1578,25 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   for (const other of others) if (other.name !== adapter.name) adaptedHere.set(other.skill, [...(adaptedHere.get(other.skill) ?? []), other.name]);
   for (const slot of declared.slots.values()) {
     if (!slot.skill || !slot.defaultSkill || !adaptedHere.has(slot.defaultSkill)) continue;
-    const adapters = adaptedHere.get(slot.defaultSkill);
-    const listed = adapters.map((name) => `\`${name}\``).join(' and ');
+    // A slot can hand work back to the skill this copy adapts, as a reference file written to be
+    // adapted on its own does when it sends the reader to the rest of its skill. A copy over that
+    // skill's SKILL.md carries the rest, so it is an adapted copy of the skill as much as any
+    // other, and in it the slot names the work this copy does itself (merge rule 2: the slot is
+    // bound to the adapted copy). A copy over a reference file does not carry the skill's SKILL.md,
+    // so it is never the copy its own slot hands work back to.
+    const itself = slot.defaultSkill === identity.skill && identity.entry === 'SKILL.md';
+    const adapters = itself ? [adapter.name, ...adaptedHere.get(slot.defaultSkill)] : adaptedHere.get(slot.defaultSkill);
+    const listed = adapters.map((name) => (name === adapter.name ? `\`${name}\` (this copy)` : `\`${name}\``)).join(' and ');
     const binding = bound.get(slot.id);
     // Bound to another skill than the adapted copy is refused too: the project keeps an adapted
     // copy of this skill for this work, so a different name is a typo or a second answer.
     if (binding && binding.skill !== slot.defaultSkill) {
-      if (!adapters.includes(binding.skill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}, and the overlay binds it to \`${binding.skill}\`; bind ${slot.id} to the adapted copy`);
+      if (adapters.includes(binding.skill)) continue;
+      const own = binding.skill === adapter.name ? `, this copy, which is over ${identity.entry} and does not carry ${identity.skill}'s SKILL.md` : '';
+      fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}, and the overlay binds it to \`${binding.skill}\`${own}; bind ${slot.id} to the adapted copy`);
       continue;
     }
-    if (!names.has(slot.defaultSkill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}; bind ${slot.id} to it, or the agent is sent to the generic copy`);
+    if (!names.has(slot.defaultSkill)) fail(4, `${slot.id} hands work to \`${slot.defaultSkill}\`, which this repository adapts as ${listed}; bind ${slot.id} to ${adapters.length > 1 ? 'one of them' : 'it'}, or the agent is sent to the generic copy`);
   }
   if (identity.entry !== 'SKILL.md' && adaptedHere.has(identity.skill) && base.entryText.includes(`\`${identity.skill}\``) && !names.has(identity.skill)) {
     fail(4, `${identity.entry} sends the reader to \`${identity.skill}\`, which this repository adapts as ${adaptedHere.get(identity.skill).map((name) => `\`${name}\``).join(' and ')}; map it in adapter.json names`);
@@ -1037,7 +1626,7 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   const lineCount = skillMarkdown.split('\n').length - 1;
   if (lineCount > LONG_SKILL_LINES) warnings.push(`SKILL.md is ${lineCount} lines, past the ${LONG_SKILL_LINES} that agents are asked to keep a skill under; move project traps into a project reference file`);
 
-  for (const problem of linkProblems(files, { folder: posix.join(layout.skillsRel, adapter.name), exists: layout.exists ?? (() => false) })) fail(10, problem);
+  for (const problem of linkProblems(files, { folder: posix.join(layout.skillsRel, adapter.name), exists: layout.exists ?? (() => false), escapes: layout.escapes ?? (() => false) })) fail(10, problem);
   // Over a reference file, this copy's SKILL.md holds that file's text. Another carried file that
   // links to the skill's SKILL.md is carried byte for byte, so its link resolves, and reaches the
   // wrong text; it cannot be rewritten without editing the skill, so it is named instead.
@@ -1045,13 +1634,20 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
     const named = new Set();
     for (const [file, content] of sortedEntries(base.carried)) {
       if (!/\.mdx?$/i.test(file)) continue;
-      for (const { pathname } of relativeLinks(utf8(content.bytes))) {
-        if (posix.normalize(posix.join(posix.dirname(file), pathname)) !== 'SKILL.md') continue;
+      for (const { pathname, rooted } of relativeLinks(utf8(content.bytes))) {
+        if (rooted || posix.normalize(posix.join(posix.dirname(file), pathname)) !== 'SKILL.md') continue;
         named.add(`${file} links to ${pathname}, ${identity.skill}'s own SKILL.md; it is carried byte for byte, so in this copy that link reaches the text of ${identity.entry}`);
       }
     }
     warnings.push(...named);
   }
+
+  // A pre-approval is a grant, so review sees every one the copy carries; and what the skill
+  // itself declares is said too, because the copy never takes it (merge rule 7).
+  const granted = allowedToolsOf(adapter);
+  const declaredTools = base.frontmatter['allowed-tools'] || null;
+  if (granted) notes.push(`For review: this copy pre-approves ${granted} while it is active, as allowedTools names; ${identity.skill} itself declares ${declaredTools ?? 'none'}.`);
+  else if (declaredTools) notes.push(`${identity.skill} declares allowed-tools ${declaredTools}; this copy pre-approves no tool, as adapter.json names none in allowedTools.`);
 
   const lock = {
     version: LOCK_VERSION,
@@ -1086,7 +1682,7 @@ function composeSkillMarkdown({ adapter, base, names, overlay, segment, layout }
   const { identity, frontmatter } = base;
   const lines = ['---', `name: ${adapter.name}`, `description: ${yamlString(adapter.description)}`];
   if (frontmatter.license) lines.push(`license: ${yamlString(frontmatter.license)}`);
-  const tools = widenTools(frontmatter['allowed-tools'], adapter.widenTools);
+  const tools = allowedToolsOf(adapter);
   if (tools) lines.push(`allowed-tools: ${yamlString(tools)}`);
   if (frontmatter.compatibility) lines.push(`compatibility: ${yamlString(frontmatter.compatibility)}`);
   lines.push(
@@ -1178,10 +1774,17 @@ export function integrityProblems(generated, lock) {
   return problems;
 }
 
-function writeGenerated(target, files) {
+/**
+ * Write a generated folder in place of the one there: the new files go into a staging folder beside
+ * it, the old folder is moved aside, and the staging folder is moved into its place. If that last
+ * move fails, the old folder is moved back, so a failed write never leaves the project with no copy;
+ * if it cannot be moved back either, the error says where it is kept. `rename` is for tests.
+ */
+export function writeGenerated(target, files, { rename = renameSync } = {}) {
   const parent = path.dirname(target);
   mkdirSync(parent, { recursive: true });
   const staging = mkdtempSync(path.join(parent, `.${path.basename(target)}.compose-`));
+  let previous = null;
   try {
     for (const [file, content] of files) {
       const full = path.join(staging, ...file.split('/'));
@@ -1189,14 +1792,23 @@ function writeGenerated(target, files) {
       writeFileSync(full, content.bytes);
       chmodSync(full, content.executable ? 0o755 : 0o644);
     }
-    const previous = existsSync(target) ? `${staging}.previous` : null;
-    if (previous) renameSync(target, previous);
-    renameSync(staging, target);
-    if (previous) rmSync(previous, { recursive: true, force: true });
+    if (existsSync(target)) {
+      rename(target, `${staging}.previous`);
+      previous = `${staging}.previous`;
+    }
+    rename(staging, target);
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
+    if (previous) {
+      try {
+        rename(previous, target);
+      } catch (restore) {
+        error.message = `${error.message}; the copy that was there is kept at ${previous}, and could not be moved back (${restore.message}): move it back to ${target} by hand`;
+      }
+    }
     throw error;
   }
+  if (previous) rmSync(previous, { recursive: true, force: true });
 }
 
 function composerBytes() {
@@ -1233,6 +1845,30 @@ function existsInRepository(layout) {
 }
 
 /**
+ * Whether a path in the repository that exists is reached, through some symbolic link on the way,
+ * outside it: both the path and the repository's root are read as real paths, so a link through
+ * `docs/external -> /elsewhere` is outside however it is spelt.
+ */
+function escapesRepository(layout) {
+  let root;
+  try {
+    root = realpathSync.native(layout.root);
+  } catch {
+    root = path.resolve(layout.root);
+  }
+  return (relative) => {
+    let real;
+    try {
+      real = realpathSync.native(path.join(layout.root, ...relative.split('/')));
+    } catch {
+      return false;
+    }
+    const from = path.relative(root, real);
+    return from === '..' || from.startsWith(`..${path.sep}`) || path.isAbsolute(from);
+  };
+}
+
+/**
  * `compose`: read each pin, compose, and print the change. With `--write`, write the generated
  * folder and vendor this file. It refuses to overwrite a folder that is not exactly what its own
  * lock says, so a hand edit is never lost without `--discard-hand-edits`.
@@ -1240,6 +1876,7 @@ function existsInRepository(layout) {
 export function runCompose(options, io) {
   const layout = { ...layoutFor(options) };
   layout.exists = existsInRepository(layout);
+  layout.escapes = escapesRepository(layout);
   const adapters = loadAdapters(layout);
   if (adapters.length === 0) {
     io.out(`No adapters under ${layout.adaptersRel}/. Each adapted skill is a folder there holding ${ADAPTER_FILE} and its overlay.`);
@@ -1385,14 +2022,21 @@ function baseFromCopy(lock, generated) {
   };
 }
 
-/** Check 9: the frontmatter follows the skill's, widened only by widenTools, with metadata a map. */
+/**
+ * Check 9: the frontmatter carries the skill's compatibility, `allowed-tools` only as allowedTools
+ * names it and only once, and metadata a map.
+ */
 function frontmatterProblems(skillMarkdown, lock, adapter) {
   const split = splitFrontmatter(skillMarkdown);
   if (!split) return ['SKILL.md has no frontmatter'];
   const problems = [];
   const recorded = lock.base.frontmatter ?? {};
-  const expectedTools = widenTools(recorded['allowed-tools'], adapter.widenTools) || null;
-  if ((frontmatterValue(split.frontmatter, 'allowed-tools') || null) !== expectedTools) problems.push(`allowed-tools is not ${recorded['allowed-tools'] ?? 'absent'}${adapter.widenTools.length ? ` widened by ${adapter.widenTools.join(' ')}` : ''}, as the skill and widenTools give`);
+  const granted = allowedToolsOf(adapter);
+  const toolLines = allowedToolsLines(split.frontmatter);
+  if (!granted) {
+    if (toolLines) problems.push('allowed-tools is in the frontmatter, but adapter.json names no tool in allowedTools: an adapted copy pre-approves only the tools its adapter names');
+  } else if (toolLines > 1) problems.push(`allowed-tools appears ${toolLines} times; the copy writes it once, as allowedTools names`);
+  else if (frontmatterValue(split.frontmatter, 'allowed-tools') !== granted) problems.push(`allowed-tools is not ${granted}, as allowedTools names`);
   if ((frontmatterValue(split.frontmatter, 'compatibility') || null) !== (recorded.compatibility || null)) problems.push('compatibility differs from the skill\'s');
   const metadata = split.frontmatter.split('\n');
   const at = metadata.findIndex((line) => line.startsWith('metadata:'));
@@ -1408,24 +2052,31 @@ function frontmatterProblems(skillMarkdown, lock, adapter) {
 export function runCheck(options, io) {
   const layout = { ...layoutFor(options) };
   layout.exists = existsInRepository(layout);
+  layout.escapes = escapesRepository(layout);
   const adapters = loadAdapters(layout);
   const running = composerBytes();
   const vendored = existsSync(layout.toolPath) ? readFileSync(layout.toolPath) : null;
   let failures = 0;
   let checked = 0;
 
+  // A generated folder whose adapter is gone fails the check of the whole repository, and the check
+  // of that one name; `--adapter` naming another adapter checks that adapter alone.
   const names = new Set(adapters.map((record) => record.folderName));
+  const orphans = [];
   if (existsSync(layout.skillsPath)) {
-    for (const entry of readdirSync(layout.skillsPath, { withFileTypes: true })) {
-      if (entry.isDirectory() && !names.has(entry.name) && existsSync(path.join(layout.skillsPath, entry.name, LOCK_FILE))) {
-        io.out(`${entry.name}: FAILED`);
-        io.out(`  [1] ${layout.skillsRel}/${entry.name} was composed from an adapter that is no longer in ${layout.adaptersRel}/; restore the adapter, or delete the folder`);
-        failures += 1;
-      }
+    for (const entry of readdirSync(layout.skillsPath, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      if (entry.isDirectory() && !names.has(entry.name) && existsSync(path.join(layout.skillsPath, entry.name, LOCK_FILE))) orphans.push(entry.name);
     }
   }
+  for (const orphan of orphans) {
+    if (options.adapter && options.adapter !== orphan) continue;
+    io.out(`${orphan}: FAILED`);
+    io.out(`  [1] ${layout.skillsRel}/${orphan} was composed from an adapter that is no longer in ${layout.adaptersRel}/; restore the adapter, or delete the folder`);
+    failures += 1;
+  }
+  const askedForOrphan = Boolean(options.adapter) && orphans.includes(options.adapter);
 
-  for (const record of selectAdapters(adapters, options.adapter)) {
+  for (const record of askedForOrphan ? [] : selectAdapters(adapters, options.adapter)) {
     checked += 1;
     const problems = [];
     const warnings = [];
