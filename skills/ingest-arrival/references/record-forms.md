@@ -268,7 +268,8 @@ EOF
 **`CONTENTS.txt`, ours whether or not the pack has a manifest.** `<full sha256> <bytes> <path>` for
 every member, run on the fresh unpack before anything is added to it. Each pack is extracted into
 `unpacked/<pack name>/` in the arrival's folder, so the walk reads `unpacked/` and nothing else, and
-each path starts with its pack's folder:
+each path starts with its pack's folder. A member that is not a regular file is listed as such and
+the command exits 3, so the unpack is looked at before anything lands:
 
 ```sh
 node -e '
@@ -277,11 +278,14 @@ const root = process.argv[1];
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+let odd = 0;
 for (const file of walk(root)) {
   const st = fs.lstatSync(file), rel = path.relative(root, file);
-  if (!st.isFile()) { console.log(`not a regular file: ${rel}`); continue; }
+  if (!st.isFile()) { console.log(`not a regular file: ${rel}`); odd += 1; continue; }
   console.log(`${crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")} ${st.size} ${rel}`);
-}' '<arrival folder>/unpacked' > '<arrival folder>/CONTENTS.txt'
+}
+// A link or a device in an unpack is not a member to land, and the guard should have stopped it.
+process.exit(odd ? 3 : 0);' '<arrival folder>/unpacked' > '<arrival folder>/CONTENTS.txt'
 ```
 
 **"N of N, and no file outside the manifest".** For a manifest of `<sha256>  <path>` lines, run on
@@ -477,7 +481,10 @@ printf '%s  %s\n' '<full sha256, from SHA256SUMS>' '<source>' | shasum -a 256 -c
 Each image command below writes into a new folder, made without `-p`, and the first two print one
 line per image (full sha256, bytes, name) and then the count, never the encoded bytes.
 
-**Embedded images from a Markdown export.** It checks the source hash itself:
+**Embedded images from a Markdown export.** It checks the source hash itself, takes each payload
+up to where the URI ends, never into the words after it, and counts a payload that is not wholly
+valid base64 without writing it. It exits 0 only when it kept every image it found; exit 3 means one
+was not kept, and its line is recorded as a gap:
 
 ```sh
 node -e '
@@ -487,39 +494,54 @@ const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const text = fs.readFileSync(source);
 if (sha(text) !== expected) { console.error(`${source}: sha256 is not ${expected}; nothing extracted`); process.exit(2); }
 fs.mkdirSync(out);
-let n = 0;
-for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([A-Za-z0-9+\/=\s]+)/g)) {
-  const bytes = Buffer.from(data.replace(/\s+/g, ""), "base64");
+let n = 0, broken = 0;
+// The payload runs to where the URI ends, at a space, a quote, a bracket or a tag: never into the
+// words after it, and never stopping early at a character that does not belong in it.
+for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([^\s)"\x27>\]<]*)/g)) {
+  const bytes = Buffer.from(data, "base64");
+  // Node decodes what it can of a broken payload; only one of base64 alone that encodes back to itself is whole.
+  if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(data) || bytes.toString("base64") !== data) { broken += 1; continue; }
   const name = `image-${String(++n).padStart(3, "0")}.${type.split("+")[0].replace("jpeg", "jpg")}`;
   fs.writeFileSync(path.join(out, name), bytes, { flag: "wx" });
   console.log(`${sha(bytes)} ${bytes.length} ${name}`);
 }
+if (broken) console.log(`${broken} not extracted: ${broken === 1 ? "its payload is" : "their payloads are"} not whole base64`);
 console.log(`${n} images`);
+// An image that could not be kept is a gap for the record (S7), so this does not end as a success.
+process.exit(broken ? 3 : 0);
 ' '<arrival folder>/<doc>.md' '<its full sha256>' '<arrival folder>/images-md'
 ```
 
-**Image parts from the raw email.** The same, for `message.eml`:
+**Image parts from the raw email.** The same, for `message.eml`, with the same exit 3 for a part it
+could not keep:
 
 ```sh
 python3 - '<arrival folder>/message.eml' '<its full sha256>' '<arrival folder>/images-eml' <<'EOF'
 import sys, os, hashlib, email
-from email import policy
+from email import errors, policy
 source, expected, out = sys.argv[1:4]
 data = open(source, 'rb').read()
 if hashlib.sha256(data).hexdigest() != expected:
     sys.exit(f'{source}: sha256 is not {expected}; nothing extracted')
 os.mkdir(out)
-n = 0
+n = broken = 0
 for part in email.message_from_bytes(data, policy=policy.default).walk():
     if part.get_content_maintype() != 'image':
         continue
-    n += 1
     body = part.get_payload(decode=True) or b''
+    # Python decodes what it can of a broken part and notes a defect; such a part, or an empty one, is not kept.
+    if not body or any(isinstance(d, (errors.InvalidBase64PaddingDefect, errors.InvalidBase64CharactersDefect, errors.InvalidBase64LengthDefect)) for d in part.defects):
+        broken += 1
+        continue
+    n += 1
     name = f'image-{n:03d}.{part.get_content_subtype().split("+")[0]}'
     with open(os.path.join(out, name), 'xb') as f:
         f.write(body)
     print(hashlib.sha256(body).hexdigest(), len(body), name)
+if broken:
+    print(broken, 'not extracted:', 'its payload does' if broken == 1 else 'their payloads do', 'not decode whole')
 print(n, 'image parts')
+sys.exit(3 if broken else 0)
 EOF
 ```
 

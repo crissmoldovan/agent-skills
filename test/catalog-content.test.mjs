@@ -789,6 +789,14 @@ test('ingest-arrival keeps the verbatim, contacts nobody, and its record-form co
     `${sha('A synthetic pack.\n')} 18 pack-a/README.md`,
     `${sha('id,v\n1,2\n')} 9 pack-a/data/a.csv`,
   ]);
+  // A member that is not a regular file is listed as such, and the walk does not end as a success.
+  const { symlink } = await import('node:fs/promises');
+  await symlink(`${arrival}/elsewhere`, `${arrival}/unpacked/pack-a/link`);
+  const odd = nodeCommand('**`CONTENTS.txt`, ours whether or not the pack has a manifest.**')(`${arrival}/unpacked`);
+  assert.equal(odd.status, 3, odd.stderr);
+  assert.match(odd.stdout, /^not a regular file: pack-a\/link$/m);
+  const { rm: remove } = await import('node:fs/promises');
+  await remove(`${arrival}/unpacked/pack-a/link`);
 
   // A derived file comes only from a checked source: the images are written, hashed and counted,
   // never printed, and a source whose hash differs gets nothing extracted.
@@ -1228,6 +1236,71 @@ fs.linkSync = (from, to) => { if (to === landing) ${made}; return link(from, to)
   }
   assert.equal(await readFile(`${dir}/raced.csv`, 'utf8'), 'someone else');
   assert.equal(await exists(`${dir}/raced-link.csv.elsewhere`), false, 'the copy went through a link');
+});
+
+// A data URI's payload ends where its base64 ends: prose after it, on the next line or right after
+// a closing bracket, is never decoded into the image, and a payload that is not whole base64 is
+// counted and left out, never written as an image.
+test('ingest-arrival extracts an embedded image byte for byte, and never decodes the words after it', async () => {
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const { spawnSync } = await import('node:child_process');
+  const { readFile, readdir, writeFile } = await import('node:fs/promises');
+  const start = forms.indexOf('**Embedded images from a Markdown export.**');
+  assert.notEqual(start, -1, 'record forms no longer carry the Markdown image extraction');
+  const code = forms.slice(start).match(/node -e '\n([^']*)'/)[1];
+  const one = Buffer.from('synthetic image one, long enough to pad'), two = Buffer.from('synthetic image two');
+  const doc = [
+    `A raw URI: data:image/png;base64,${one.toString('base64')}`,
+    '',
+    'A caption that follows it.',
+    `<img src="data:image/jpeg;base64,${two.toString('base64')}">and words right after`,
+    '![cut](data:image/png;base64,QUJ)',
+    'A whole quantum and then rubbish: data:image/png;base64,QUJD$ and on.',
+    '',
+  ].join('\n');
+  const dir = await tempDir('ingest-arrival-images-');
+  await writeFile(`${dir}/doc.md`, doc);
+  const result = spawnSync(process.execPath, ['-e', code, `${dir}/doc.md`, await sha256(doc), `${dir}/images-md`], { encoding: 'utf8' });
+  // An image it could not keep is a gap to record, so the command does not report success.
+  assert.equal(result.status, 3, result.stderr);
+  const sum = async (bytes) => sha256(bytes);
+  assert.deepEqual(result.stdout.trim().split('\n'), [
+    `${await sum(one)} ${one.length} image-001.png`,
+    `${await sum(two)} ${two.length} image-002.jpg`,
+    '2 not extracted: their payloads are not whole base64',
+    '2 images',
+  ]);
+  assert.deepEqual(await readFile(`${dir}/images-md/image-001.png`), one);
+  assert.deepEqual((await readdir(`${dir}/images-md`)).sort(), ['image-001.png', 'image-002.jpg']);
+});
+
+// The raw email's image parts the same way: a part whose base64 is broken, or that is empty, is
+// counted and not kept, never written as an image Python's lenient decoder made up.
+test("ingest-arrival keeps a raw email's image parts only when they decode whole", async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('python3', ['--version'], { encoding: 'utf8' }).status !== 0) {
+    t.skip('no python3 on this machine');
+    return;
+  }
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const start = forms.indexOf('**Image parts from the raw email.**');
+  assert.notEqual(start, -1, 'record forms no longer carry the raw-email image extraction');
+  const script = forms.slice(start).match(/python3 - '[^']*' '[^']*' '[^']*' <<'EOF'\n([\s\S]*?)\nEOF\n/);
+  assert.ok(script, 'no python3 heredoc under the raw-email image extraction');
+  const { readdir, writeFile } = await import('node:fs/promises');
+  const part = (body) => `--b\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\n\r\n${body}\r\n`;
+  const good = Buffer.from('synthetic image part');
+  const message = `MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="b"\r\n\r\n${part(good.toString('base64'))}${part('QUJ$$')}${part('')}--b--\r\n`;
+  const dir = await tempDir('ingest-arrival-eml-');
+  await writeFile(`${dir}/message.eml`, message);
+  const run = spawnSync('python3', ['-', `${dir}/message.eml`, await sha256(message), `${dir}/images-eml`], { input: script[1], encoding: 'utf8' });
+  assert.equal(run.status, 3, run.stderr);
+  assert.deepEqual(run.stdout.trim().split('\n'), [
+    `${await sha256(good)} ${good.length} image-001.png`,
+    '2 not extracted: their payloads do not decode whole',
+    '1 image parts',
+  ]);
+  assert.deepEqual(await readdir(`${dir}/images-eml`), ['image-001.png']);
 });
 
 // Two members that extract to one path: the later overwrites the earlier, and the walk after the
