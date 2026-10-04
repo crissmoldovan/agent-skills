@@ -214,27 +214,27 @@ takes the catalogue to thirty-one skills.
 
 ### A new skill, `visitor-session-forensics`: what named people did on a live site, evidenced row by row, consent first
 
-**What.** `visitor-session-forensics` answers what a named person did on a live site from the
-site's own records: the events, the session recordings, the timings of every file a page loaded,
-and the sign-in log. It opens with consent. The request is written down (who asks, the purpose,
-the people, the window and the site), some purposes are refused whoever asks (rating a person's
-effort, finding where someone is, identifying a visitor who did not sign in, reading what someone
-typed), and nothing is read until the person who may authorise the run has said yes to that run.
-A source that one of the project's standing limits rules out is read only on a go for that run
-from the person the limit names, and a yes to the run lifts no limit its question did not name.
-It then reads only the people, the window and the hosts named, filtered in the query, each person
-by the visits they signed in to and never by everything their browser sent, and proves every
-source's held range and every counter with a control before using it; each control is named
-in the question for the yes, and one over anyone else is read as a count with no identifiers. Per
-visit it says what the person did, whether the site loaded for them, whether they saw the live
-release or a copy their browser kept, and which way its signals lean between a person and an agent
-at the controls, worded alike on both sides and never naming who was there. Every number is a count
-of rows. The answers and the summary carry no network address, device detail,
-email address, session id or URL query, and a report that is published is fetched signed out at
-every address it is served at before its link goes to anyone, and taken down if one serves it.
+**What.** `visitor-session-forensics` answers what a named person did on a live site from the site's
+own records: the events, the session recordings, the timings of every file a page loaded, and the
+sign-in log. It opens with consent. The request is written down (who asks, the purpose, the people,
+the window and the site), some purposes are refused whoever asks (rating a person's effort, finding
+where someone is, identifying a visitor who did not sign in, reading what someone typed), and
+nothing is read until the person who may authorise the run has said yes to that run. A source that
+one of the project's standing limits rules out is read only on a go for that run from the person the
+limit names, and a yes to the run lifts no limit its question did not name. It then reads only the
+people, the window and the hosts named, filtered in the query, each person by the visits they signed
+in to and never by everything their browser sent, and proves every source's held range and every
+counter with a control before using it; each control is named in the question for the yes, and one
+over anyone else is read as a count with no identifiers. Per visit it says what the person did,
+whether the site loaded for them, whether they saw the live release or a copy their browser kept,
+and which way its signals lean between a person and an agent at the controls, worded alike on both
+sides and never naming who was there. Every number is a count of rows. The answers and the summary
+carry no network address, device detail, email address, session id, URL query or path segment that
+could hold a token, and a report that is published is fetched signed out at every address it is
+served at before its link goes to anyone, and taken down if one serves it.
 `references/evidence-signals.md` gives each signal with what it cannot prove, and labels every
-threshold uncalibrated; `references/query-contracts.md` gives each query's filters, row and
-control, with `{SOURCE_ID}`, `{TABLE}` and `example.com` placeholders.
+threshold uncalibrated; `references/query-contracts.md` gives each query's filters, row and control,
+with `{SOURCE_ID}`, `{TABLE}` and `example.com` placeholders.
 
 **Why.** The same records that answer "did it load for her" are a dossier on her, and the query
 is easy enough to run before anyone has said why. The answers also fail quietly. A count of clicks

@@ -888,9 +888,24 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
   assert.match(skill, /\*\*H4\. Raw rows stay in the run\.\*\*/);
   assert.match(skill, /\*\*H5\. Nothing outside the detail identifies anybody beyond the names asked about\.\*\*/);
   assert.match(skill, /never from a lookup service that is told the address/);
-  // A URL's query can carry a sign-in link's token, so a URL leaves the run as host and path only.
-  assert.match(skill, /A URL is cut to its host and path before it is written anywhere else/);
-  assert.match(contracts, /\*\*A URL is cut to its host and path\.\*\*/);
+  // A URL's query, fragment or a segment of its path can carry a sign-in link's token, so a URL
+  // leaves the run as its host and its route, every segment that could hold one replaced.
+  assert.match(skill, /A URL is cut to its host and route before it is written anywhere else/);
+  assert.match(contracts, /\*\*A URL is cut to its host and route\.\*\*/);
+  assert.doesNotMatch(contracts, /cut to its host and path/);
+  const route = contracts.slice(contracts.indexOf('**A URL is cut to its host and route.**'));
+  assert.match(route, /`\/verify\/<token>`/);
+  assert.match(route, /lowercase\s+letters\s+and\s+hyphens,\s+at\s+most\s+32\s+characters/);
+  assert.match(route, /replaced\s+by\s+`:segment`/);
+  // The illustrative cut, run here on the routes it must change and the ones it must keep.
+  const cut = (url) => {
+    const [, host, path] = url.match(/^[a-z]+:\/\/([^/?#]+)([^?#]*)/);
+    return `${host}${path.split('/').map((s) => (s === '' || /^[a-z-]{1,32}$/.test(s) ? s : ':segment')).join('/')}`;
+  };
+  assert.equal(cut('https://app.example.com/verify/q1W2e3R4t5Y6?next=/home#x'), 'app.example.com/verify/:segment');
+  assert.equal(cut('https://app.example.com/users/dana@example.com/settings'), 'app.example.com/users/:segment/settings');
+  assert.equal(cut('https://app.example.com/reports/monthly-summary'), 'app.example.com/reports/monthly-summary');
+  assert.match(route, /match\(s, \x27\^\[a-z-\]\{1,32\}\$\x27\), s, \x27:segment\x27/);
   // The check can only follow the publication, so it gates the link, and a failure has its remedy.
   assert.match(skill, /\*\*H9\. A published report's link goes to nobody until every address that serves it refuses a\s+reader who is not signed in\.\*\*/);
   assert.match(skill, /the report is taken down at once/);

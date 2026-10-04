@@ -39,9 +39,17 @@ A real source id, table name or host goes in the project's overlay, never in thi
   which source and why (H2).
 - **Saved as returned.** A result the tool wrote to a file is copied; a small one shown inline is
   copied, never retyped.
-- **A URL is cut to its host and path.** A page address or a referrer can carry a sign-in link's
-  token, an email address or an id in its query or fragment. Cut it in the query where the store
-  can; where it cannot, cut it before the row leaves the run directory (H4).
+- **A URL is cut to its host and route.** A page address, a referrer or a request the page made can
+  carry a sign-in link's token, an email address or an id: in its query, in its fragment, or as a
+  segment of its path (`/verify/<token>`). So the query and the fragment are dropped, and each
+  segment of the path is kept only when it is a plain word of the site's routes, lowercase letters
+  and hyphens, at most 32 characters; any other segment (one holding a digit, a capital, an `@`, a
+  `%`, a `.` or an `=`, or a longer run) is replaced by `:segment`. The one exception is a script, a
+  stylesheet, a font or an image a page loaded from the site's own hosts: its path is kept, because
+  its name carries the version tag Q5 compares with the release (R1), and its query is still
+  dropped. Cut it in the query where the store can, as in
+  `concat(domain(url), arrayStringConcat(arrayMap(s -> if(s = '' OR match(s, '^[a-z-]{1,32}$'), s, ':segment'), splitByChar('/', path(url))), '/'))`;
+  where it cannot, cut it before the row leaves the run directory (H4).
 - **Controls are named, and read no more than they must.** Each control is one the yes named (H3).
   A control over anyone other than the named people, or over a time outside the window, returns a
   count and no identifiers. A control need not fall in the window: the same query, over the
@@ -135,7 +143,7 @@ clicked shows clicks. A control visit that is not a named person's returns the t
 `["<visit>", "<full visit id>", "<identity>", "<screen size>", "<window size>", "<pixel ratio>", automated, ["<masked address>", …], "<entry referrer>", "<release>"]`.
 
 - Addresses are masked in the query where the store can (H4); where it cannot, they are masked
-  before the row leaves the run directory. The entry referrer is cut to its host and path the same
+  before the row leaves the run directory. The entry referrer is cut to its host and route the same
   way.
 - `automated` is the browser's own report (the evidence signals say what it does not prove).
 
@@ -181,6 +189,8 @@ clicked shows clicks. A control visit that is not a named person's returns the t
 - The three sizes are the browser's Resource Timing values; the evidence signals give their
   meaning.
 - `status` separates a refused file (401, 403) from a missing one (404) and a failed one (5xx).
+- `<path>` is cut to its route as every URL is, except for a script, a stylesheet, a font or an
+  image from the site's own hosts, whose path is kept for its version tag; no query is returned.
 
 **Control.** A file of a few kilobytes or more that the control visit loaded for the first time
 shows a transfer above its encoded size.
@@ -189,7 +199,7 @@ shows a transfer above its encoded size.
 
 **Returns** one row per page load:
 `["<identity>", ms, duration_s, largest_contentful_paint_s, "<referrer>", visible_at_start, "<connection type>"]`,
-with the referrer cut to its host and path.
+with the referrer cut to its host and route.
 
 **Control.** The control visit's first page load has a row.
 

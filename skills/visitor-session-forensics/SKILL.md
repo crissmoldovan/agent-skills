@@ -111,12 +111,13 @@ skill beside others whose `B` slots would be read as its own.
   for IPv6, to its first two octets for IPv4), and the network's owner is read from the registry
   with `whois` on the masked block, never from a lookup service that is told the address; of what
   the registry returns, only the owner and whether it is a hosting provider are kept, never a
-  location. A URL is cut to its host and path before it is written anywhere else, because its query
-  and fragment can carry a sign-in link's token, an email address or an id.
+  location. A URL is cut to its host and route before it is written anywhere else, because its
+  query, its fragment and a segment of its path can carry a sign-in link's token, an email address
+  or an id: every segment that could hold one is replaced (the rule is in the query contracts).
 - **H5. Nothing outside the detail identifies anybody beyond the names asked about.** The answers
   that lead the report and the summary carry no network addresses, network names, device details,
-  email addresses, session ids or URL queries. The detail, which may carry them, goes only to those
-  bound as F10, and the report says plainly what the detail carries.
+  email addresses, session ids, URL queries or path segments. The detail, which may carry them, goes
+  only to those bound as F10, and the report says plainly what the detail carries.
 - **H6. Nothing invented.** Every number is a count of rows or arithmetic over rows, and every claim
   names its rows. A query that returns nothing is "none in the window", never "did nothing"; a visit
   with no recording is "no recording stored"; a mechanism that no row shows is not described.
@@ -325,7 +326,7 @@ Filling a query contract, with the placeholders the contracts use:
 - [ ] The person-or-agent section gives both sides, says the signals are uncalibrated, and says
   what they cannot rule out.
 - [ ] The answers and the summary carry no network address, network name, device detail, email
-  address, session id or URL query.
+  address, session id, URL query or path segment the route cut replaces.
 - [ ] Nothing was published without a yes, and its link went to nobody before every address it is
   served at refused a signed-out fetch; an address that did not was taken down and recorded.
 - [ ] The raw rows stayed in the run directory and their deletion is recorded.
