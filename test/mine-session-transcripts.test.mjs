@@ -9,6 +9,7 @@ import { encodeProjectPath as onboardEncode } from '../skills/onboard-project/sc
 import {
   classify,
   encodeProjectPath,
+  enqueuedWords,
   findTranscripts,
   normalise,
   readMessages,
@@ -22,7 +23,8 @@ import { tempDir } from './helpers/temp-dir.mjs';
  * written once by a script and committed. They hold one of each record a transcript carries beside
  * a person's words (references/record-shapes.md says which were observed on a real harness), plus
  * the traps the skill exists for: a queued message, a slash command's arguments, an older harness
- * with no origin marks, a subagent's dispatch and a relayed copy, a workflow journal, a lossy
+ * with no origin marks, a subagent's dispatch and a subagent message with its parent's words, a
+ * workflow journal, a lossy
  * directory name shared with another checkout, a session that moved into a worktree, a sibling
  * repository, messages that hold secrets, an editor selection sharing a turn with the person's
  * words, and a message enqueued while a turn ran that never reached the session.
@@ -124,7 +126,7 @@ test('a repository with no history directory exits 2 and says unknown, never a c
 test("messages counts typed, queued and slash-command words, and every other record by its kind", async () => {
   const found = await findTranscripts({ repo: REPO, history: HISTORY });
   const totals = await readMessages(found);
-  assert.deepEqual(totals.messages, { typed: 15, queued: 1, 'command-args': 1 });
+  assert.deepEqual(totals.messages, { typed: 15, queued: 2, 'command-args': 1 });
   assert.equal(totals.fallback, 1, 'the older harness turn with no origin is taken, and counted as a fallback');
   assert.equal(totals.screened, 1, "the editor selection beside a person's words is screened out, and counted");
   assert.equal(totals.unparsable, 1);
@@ -146,11 +148,21 @@ test("messages counts typed, queued and slash-command words, and every other rec
     interruption: 1,
     'queue-bookkeeping': 3,
     'record:last-prompt': 1,
-    'relayed-copy': 1,
     'duplicate-record': 1,
   })) {
     assert.equal(totals.exclusions[kind], count, `exclusions[${kind}]`);
   }
+  assert.equal(totals.exclusions['relayed-copy'], undefined, 'no message is dropped for repeating its parent session');
+});
+
+test("a subagent message with its parent session's words is kept and counted apart, since no record shows it was relayed", async () => {
+  const found = await findTranscripts({ repo: REPO, history: HISTORY });
+  const seen = [];
+  const totals = await readMessages(found, { visit: (message) => seen.push(message) });
+  assert.equal(totals.sameAsParent, 1);
+  const repeated = seen.filter((message) => normalise(message.text) === normalise('Also, keep CSV as the default format for every export, whatever the screen.'));
+  assert.deepEqual(repeated.map((message) => [message.where, message.kind, message.sameAsParent]), [['session', 'queued', false], ['subagent', 'queued', true]]);
+  assert.ok(seen.filter((message) => message.where === 'subagent').every((message) => message.sameAsParent), 'only the repeat is marked');
 });
 
 test('a repeated message is two messages: nothing is deduplicated by its text', async () => {
@@ -172,15 +184,16 @@ test('a headless prompt is left out unless asked for, and the window applies to 
 
   const windowed = await readMessages(found, { since: '2030-01-08T00:00:00Z' });
   assert.equal(Object.values(windowed.messages).reduce((sum, n) => sum + n, 0), 10);
-  assert.equal(windowed.outsideWindow, 7);
+  assert.equal(windowed.outsideWindow, 8);
   assert.equal(windowed.first, '2030-01-08T10:00:00.000Z');
 });
 
 test('the messages command prints counts and coverage, and no message text', () => {
   const result = run('messages', ...selection);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /a person's messages: 17/);
+  assert.match(result.stdout, /a person's messages: 18/);
   assert.match(result.stdout, /of which taken by the fallback \(no origin marked\): 1/);
+  assert.match(result.stdout, /^ {2}of which in a subagent, with the same words as a message of its parent session \(kept: no record shows whether it was relayed\): 1$/m);
   assert.match(result.stdout, /harness elements screened out of those turns \(an editor selection, a reminder\): 1/);
   assert.match(result.stdout, /left out, by kind:/);
   assert.match(result.stdout, /unparsable lines: 1/);
@@ -192,14 +205,15 @@ test('the messages command prints counts and coverage, and no message text', () 
 test('locate gives the line, time, session and kind of each hit, never the text, and says where else the phrase occurs', () => {
   const result = run('locate', ...selection, '--phrase', 'keep CSV as the default format', '--zone', 'UTC');
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^2 messages from a person contain the phrase$/m);
-  assert.match(result.stdout, /-srv-example-repo\/00000000-0000-4000-8000-0000000000a1\.jsonl:5 {2}2030-01-07T09:01:30Z \| .*\(UTC\) {2}session 00000000-0000-4000-8000-0000000000a1 {2}queued/);
+  assert.match(result.stdout, /^3 messages from a person contain the phrase$/m);
+  assert.match(result.stdout, /-srv-example-repo\/00000000-0000-4000-8000-0000000000a1\.jsonl:5 {2}2030-01-07T09:01:30Z \| .*\(UTC\) {2}session 00000000-0000-4000-8000-0000000000a1 {2}queued$/m);
+  assert.match(result.stdout, /\/subagents\/workflows\/wf_example\/agent-b0000000000000001\.jsonl:2 .* {2}queued \(in a subagent, with the same words as a message of its parent session\)$/m);
   assert.match(result.stdout, /-srv-example-repo--claude-worktrees-feature\/00000000-0000-4000-8000-0000000000f6\.jsonl:3 .* typed/);
   // The sibling repository says the same words, and is never read.
   assert.doesNotMatch(result.stdout, /0000000000a8/);
   assert.match(result.stdout, /also occurs in records that are not a person's: .*1 compact-summary/);
   assert.match(result.stdout, /1 queue-bookkeeping/);
-  assert.match(result.stdout, /1 relayed-copy/);
+  assert.doesNotMatch(result.stdout, /relayed-copy/);
   assert.match(result.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
   assertNoMessageText(result.stdout, 'locate');
 });
@@ -214,13 +228,121 @@ test('locate says when a message enqueued while a turn ran never reached its ses
   const json = JSON.parse(run('locate', ...selection, '--phrase', 'rename the export tab', '--json').stdout);
   assert.deepEqual(json.queued, {
     enqueued: 1,
+    delivered: 0,
     undelivered: [{ file: '-srv-example-repo/00000000-0000-4000-8000-0000000000d4.jsonl', line: 6, timestamp: '2030-01-08T10:05:00.000Z', session: '00000000-0000-4000-8000-0000000000d4' }],
+    unknown: [],
   });
   // Delivered one second after the window closes: still delivered, since delivery is looked for past it.
   const late = run('locate', ...selection, '--phrase', 'keep CSV as the default format', '--until', '2030-01-07T09:01:29.500Z');
   assert.equal(late.status, 0, late.stderr);
   assert.match(late.stdout, /^0 messages from a person contain the phrase$/m);
   assert.match(late.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+});
+
+/**
+ * A history written by the test itself, for a repository at /srv/example/queue, holding one session's
+ * records in the order given. The words are invented, like every fixture's.
+ */
+const QUEUE_REPO = '/srv/example/queue';
+const QUEUE_SESSION = '00000000-0000-4000-8000-000000000101';
+async function queueHistory(records) {
+  const history = await tempDir('mine-queue-');
+  const dir = path.join(history, encodeProjectPath(QUEUE_REPO));
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, `${QUEUE_SESSION}.jsonl`), `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+  return history;
+}
+let queueUuid = 0;
+const queueTime = (minute) => `2030-02-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
+const queueBase = (minute) => {
+  queueUuid += 1;
+  return { uuid: `00000000-0000-4000-8000-${String(queueUuid).padStart(12, '0')}`, timestamp: queueTime(minute), sessionId: QUEUE_SESSION, cwd: QUEUE_REPO, version: '2.1.286' };
+};
+const typedAt = (minute, content) => ({ ...queueBase(minute), type: 'user', origin: { kind: 'human' }, message: { role: 'user', content } });
+const queuedAt = (minute, prompt) => ({ ...queueBase(minute), type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt } });
+const commandAt = (minute, name, args) => ({ ...queueBase(minute), type: 'user', message: { role: 'user', content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>` } });
+const enqueueAt = (minute, content) => ({ type: 'queue-operation', operation: 'enqueue', timestamp: queueTime(minute), sessionId: QUEUE_SESSION, content });
+
+test('an enqueue is delivered only by a later message with its whole words, one enqueue to a message, never by one that shares the phrase', async () => {
+  const history = await queueHistory([
+    typedAt(0, 'start on the preview build'),
+    enqueueAt(1, 'status? please deploy the preview'),
+    enqueueAt(2, 'status?'),
+    queuedAt(3, 'status?'),
+    enqueueAt(4, 'status?'),
+    enqueueAt(5, 'ship it'),
+    typedAt(6, 'ship it and tag the release'),
+    enqueueAt(7, '/goal finish the preview build'),
+    commandAt(8, 'goal', 'finish the preview build'),
+  ]);
+  const at = ['--repo', QUEUE_REPO, '--history', history];
+  const file = `${encodeProjectPath(QUEUE_REPO)}/${QUEUE_SESSION}.jsonl`;
+
+  // A later "status?" holds the phrase of the first enqueue, and is not its delivery; it delivers the
+  // second enqueue, which has its whole words, and so cannot deliver the third too.
+  const status = run('locate', ...at, '--phrase', 'status?');
+  assert.equal(status.status, 0, status.stderr);
+  assert.match(status.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(status.stdout, /^enqueued while a turn was running: 3; 1 reached that session as a person's message; 2 never reached that session as a person's message:$/m);
+  assert.match(status.stdout, new RegExp(`^ {2}${file}:2 {2}2030-02-01T10:01:00Z {2}session ${QUEUE_SESSION} {2}enqueued, not delivered$`, 'm'));
+  assert.match(status.stdout, new RegExp(`^ {2}${file}:5 {2}2030-02-01T10:04:00Z {2}session ${QUEUE_SESSION} {2}enqueued, not delivered$`, 'm'));
+  const json = JSON.parse(run('locate', ...at, '--phrase', 'status?', '--json').stdout);
+  assert.equal(json.queued.enqueued, 3);
+  assert.equal(json.queued.delivered, 1);
+  assert.deepEqual(json.queued.undelivered.map((entry) => entry.line), [2, 5]);
+  assert.deepEqual(json.queued.unknown, []);
+
+  // Words inside a longer later message may be several queued messages delivered as one turn, or
+  // not: the records cannot tell, and the answer says so rather than either.
+  const ship = run('locate', ...at, '--phrase', 'ship it');
+  assert.equal(ship.status, 0, ship.stderr);
+  assert.match(ship.stdout, /^enqueued while a turn was running: 1; 1 cannot be told from these records:$/m);
+  assert.match(ship.stdout, new RegExp(`^ {2}${file}:6 {2}2030-02-01T10:05:00Z {2}session ${QUEUE_SESSION} {2}enqueued, delivery unknown: its words are inside a longer message later in that session$`, 'm'));
+
+  // A slash command typed while a turn ran arrives as the command's markup, its name and arguments.
+  const goal = run('locate', ...at, '--phrase', 'finish the preview build');
+  assert.equal(goal.status, 0, goal.stderr);
+  assert.match(goal.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(goal.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+  assertNoMessageText(`${status.stdout}${ship.stdout}${goal.stdout}`, 'locate');
+  for (const words of ['please deploy the preview', 'tag the release']) assert.ok(!`${status.stdout}${ship.stdout}`.includes(words), `locate printed ${words}`);
+});
+
+test("an enqueue is screened as a person's turn is: the harness's own elements are not its words, nor what decides its delivery", async () => {
+  const reminder = '<system-reminder>The person opened a file in the editor.</system-reminder>';
+  const selection = '<ide_selection>The person selected line 3 of totals.js: const total = 0</ide_selection>';
+  const history = await queueHistory([
+    typedAt(0, 'start on the totals page'),
+    enqueueAt(1, `please rename the footer link ${reminder}`),
+    queuedAt(2, `please rename the footer link ${reminder}`),
+    enqueueAt(3, `${selection}why is the total zero`),
+    typedAt(4, [{ type: 'text', text: selection }, { type: 'text', text: 'why is the total zero' }]),
+    enqueueAt(5, reminder),
+  ]);
+  const at = ['--repo', QUEUE_REPO, '--history', history];
+
+  // Delivered word for word, reminder and all: the enqueue and the turn are both screened, so they match.
+  const rename = run('locate', ...at, '--phrase', 'rename the footer link');
+  assert.equal(rename.status, 0, rename.stderr);
+  assert.match(rename.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(rename.stdout, /:3 {2}2030-02-01T10:02:00Z {2}session \S+ {2}queued$/m);
+  assert.match(rename.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+  const why = run('locate', ...at, '--phrase', 'why is the total zero');
+  assert.match(why.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(why.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
+
+  // Words only inside a reminder are no person's, in an enqueue as in a turn: no enqueue is listed for them.
+  const opened = run('locate', ...at, '--phrase', 'opened a file');
+  assert.equal(opened.status, 0, opened.stderr);
+  assert.match(opened.stdout, /^0 messages from a person contain the phrase$/m);
+  assert.doesNotMatch(opened.stdout, /enqueued while a turn was running/);
+  assert.match(opened.stdout, /also occurs in records that are not a person's: .*1 harness-segment/);
+  assert.match(opened.stdout, /2 queue-bookkeeping/);
+  assert.doesNotMatch(`${rename.stdout}${why.stdout}${opened.stdout}`, /const total|footer link|total zero/);
+
+  assert.deepEqual(enqueuedWords(enqueueAt(1, `please rename the footer link ${reminder}`)), { text: 'please rename the footer link', screened: [reminder] });
+  assert.equal(enqueuedWords(enqueueAt(5, reminder)), null, 'an enqueue that is wholly the harness\'s holds no words of a person\'s');
+  assert.equal(enqueuedWords({ type: 'queue-operation', operation: 'remove', reason: 'delivered_to_agent' }), null);
 });
 
 test("an editor selection or a reminder that shares a turn with the person's words is not theirs", () => {

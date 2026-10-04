@@ -120,10 +120,11 @@ the options.
    kinds: typed at the prompt, queued while a turn was running, and the arguments of a slash
    command. Everything else is counted by its kind and left out: tool results, injected skill
    bodies, summaries, task notifications, the queue's own bookkeeping, a subagent's dispatch prompt,
-   a subagent's copy of a message its parent already holds, and a turn with no words, such as an
-   image sent alone, which has its own kind. The harness's own elements that share a turn with the
-   person's words, such as an editor selection or a reminder, are screened out of the message and
-   counted. Messages are never deduplicated by text: "status?" sent twice is two messages. How
+   and a turn with no words, such as an image sent alone, which has its own kind. The harness's own
+   elements that share a turn with the person's words, such as an editor selection or a reminder,
+   are screened out of the message and counted. Messages are never deduplicated by text: "status?"
+   sent twice is two messages, and a subagent's message with the same words as one in its parent
+   session is kept and counted apart, since no record shows whether it was relayed. How
    each kind is recognised, and on which harness versions, is in
    [record shapes](references/record-shapes.md).
    **Complete when:** the count says how many messages of each kind, how many were taken by the
@@ -136,7 +137,10 @@ the options.
    a pattern. Several hits are narrowed by the window (`--since`, `--until`) and the kind, not by
    reading them all. When the phrase was enqueued while a turn was running, it also says whether
    each enqueued copy reached that session as a person's message, and gives the file, line and time
-   of any that never did: that answers whether the session got a message sent while it was busy.
+   of any that never did, and of any the records cannot settle: that answers whether the session
+   got a message sent while it was busy. A delivery has the enqueue's whole words, not just the
+   phrase, and one message delivers one enqueue. The harness's own elements are screened out of an
+   enqueue as they are out of a turn (S3), so words only inside a reminder are no one's.
    **Complete when:** each message the question is about is known by its file, line, time and
    session, or the phrase is reported not found in the stated coverage, and, for a message sent
    while the agent was busy, whether it was delivered.
@@ -211,7 +215,9 @@ node <skill-folder>/scripts/transcripts.mjs documented --repo . --corpus . --con
 - **Reading a subagent's prompt as the person's.** A subagent's first user turn is what its parent
   or a script wrote. It is counted as a dispatch, never as a message.
 - **Deduplicating by text.** People repeat themselves, and each repeat is a message. Only one
-  record seen twice, and a subagent's copy of its parent's message, are dropped.
+  record seen twice is dropped. A subagent's message with its parent session's words is kept and
+  counted apart: the same words may have been relayed to it or sent to both, and no record says
+  which.
 - **Trusting the directory name.** It is lossy, and a session that changes directory is filed by
   where it went. Confirm by the paths the records carry.
 - **Taking a relay for the person's own words.** A typed turn proves who pasted it and when, not

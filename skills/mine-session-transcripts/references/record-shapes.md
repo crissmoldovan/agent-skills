@@ -60,7 +60,10 @@ is the whole turn: an editor selection (`<ide_selection>…</ide_selection>`) or
 a record with the words the person typed, as a block of its own or inside the same string. The
 element is taken out, from its opening tag to its closing one, and what is left is the message. A
 turn left with no words is counted as `harness-markup`, or as `attachment-only` when an image or a
-document is attached. The elements screened out of messages are counted, and never shown.
+document is attached. The elements screened out of messages are counted, and never shown. The text
+of an `enqueue` is screened the same way, as a queued prompt is, before `locate` matches it against
+the phrase or against its delivery: an enqueue holding a reminder, delivered word for word, matches
+its delivered turn, and words only inside the reminder are no person's in either.
 (Guarded: the script was built against a constructed record, and how often real transcripts mix the
 two was not measured.)
 
@@ -89,7 +92,7 @@ count of user records alone would have missed every one of them.
 | `attachment-only`, `queued:attachment-only` | a person's turn or queued prompt with an `image` or `document` block and no text: an image sent alone. Counted under its own kind and not as a message, since there are no words to locate, show or check; add it to a count of messages sent when images count as messages | NOT OBSERVED alone |
 | `empty`, `queued:empty` | a user record or queued prompt with no text and nothing attached | guarded |
 | `queue-bookkeeping` | `type: "queue-operation"` with `operation` `enqueue` (holding the text as `content`), `dequeue`, or `remove` (with `reason` `absorbed_mid_turn` or `delivered_to_agent`). It repeats a queued message; the delivered message is the `queued_command` | OBSERVED |
-| enqueued, never delivered | an `enqueue` whose text no person's message of the same session holds, at or after it: a message sent while a turn was running that never reached the session, as a queued prompt or as the next turn. `locate` lists each one that holds its phrase, by file, line and time, and looks for the delivery past the window too. Delivery is matched by the phrase, so the same words delivered later in that session hide an earlier enqueue that was lost | NOT OBSERVED |
+| enqueued, never delivered | an `enqueue` that no person's message of the same session delivers, at or after it: a message sent while a turn was running that never reached the session, as a queued prompt or as the next turn. `locate` lists each one that holds its phrase, by file, line and time, and looks for the delivery past the window too. A delivery is a message with the enqueue's whole words, compared with only spacing evened out, never one that merely holds the phrase; a slash command counts by its name and arguments together; and each message delivers one enqueue at most, the earliest. An enqueue whose words sit inside a longer later message, as several queued messages delivered as one turn might, is reported as unknown, never as either. The same whole message sent again later in that session still reads as its delivery | NOT OBSERVED |
 | `record:last-prompt` | `type: "last-prompt"` with `lastPrompt`: a copy of the latest prompt | OBSERVED |
 | `record:<type>`, `attachment:<type>` | every other record: `assistant`, `system`, `ai-title`, `custom-title`, `mode`, `file-history-snapshot`, `worktree-state`, and attachments such as `file`, `edited_text_file`, `hook_success`, `skill_listing`, `total_tokens_reminder` | OBSERVED |
 | `unparsable` | a line that is not JSON, such as a line cut off when a session ended. Counted, never fatal | guarded |
@@ -100,4 +103,4 @@ count of user records alone would have missed every one of them.
 |---|---|
 | The same text is often sent more than once: as a typed turn and again as a queued message, minutes to days apart, and short messages such as "status?" many times. Each is a message, so nothing is deduplicated by text. | OBSERVED |
 | One record (one `uuid`) in two transcripts. Not seen across about 1,900 typed turns. The script drops the second if it appears, counted as `duplicate-record`. | NOT OBSERVED |
-| A person's message relayed into a subagent as a queued prompt. Not seen in the subagent transcripts read, where every queued prompt was a task notification or a coordinator's message. If one appears whose normalised text equals a message in its parent session, the script counts it once, at the parent, and the copy as `relayed-copy`. | NOT OBSERVED |
+| A person's message relayed into a subagent as a queued prompt. Not seen in the subagent transcripts read, where every queued prompt was a task notification or a coordinator's message. Equal text does not prove a relay: a person can send the same short correction to both sessions, and normalising makes more texts equal. So a subagent's message whose normalised text equals a message in its parent session is kept, as every repeat is, and counted apart: `messages` says how many, and `locate` and `documented` mark each one. | NOT OBSERVED |
