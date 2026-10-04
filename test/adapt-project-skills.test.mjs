@@ -1024,6 +1024,18 @@ const REFUSALS = [
     message: /\[4\] SKILL\.md declares S1 a second time/,
   },
   {
+    name: 'a pack skill whose code block meets a line less indented than it before it closes',
+    refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', `${readText(pack, 'skills/notes/SKILL.md')}\n  \`\`\`markdown\n4. **S1. Again.** An example step.\n  \`\`\`\n`)),
+    accepted: AT_V2,
+    message: /\[4\] SKILL\.md: line (\d+) is less indented than the code block opened on line (\d+); indent it or close the block/,
+  },
+  {
+    name: 'a pack skill whose code block never closes',
+    refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', `${readText(pack, 'skills/notes/SKILL.md')}\n\`\`\`markdown\n4. **S1. Again.** An example step.\n`)),
+    accepted: AT_V2,
+    message: /\[4\] SKILL\.md: the code block opened on line \d+ never closes; close it/,
+  },
+  {
     name: 'a pack skill whose text holds the marker that fences it',
     refused: releaseWith((pack) => write(pack, 'skills/notes/SKILL.md', `${readText(pack, 'skills/notes/SKILL.md')}\n<!-- base:end -->\n`)),
     accepted: AT_V2,
@@ -1421,15 +1433,19 @@ test('a base with a required slot is refused with an empty overlay for that slot
 // second S1 and a second S2 after a line that may or may not open a fence; a reader that reads the
 // second one reports it as declared twice. Fences as the verifier reads them: one hides lines only
 // when it closes, at a bare line indented at most three columns more than it, before any line
-// indented less than it, and a backtick fence whose info string holds a backtick is no fence.
+// indented less than it, and a backtick fence whose info string holds a backtick is no fence. A fence
+// that meets a less indented line first, or never closes, could be code on GitHub where a reading of
+// its lines as text would declare them, so both refuse the file, naming the line and where the block
+// opened, and read nothing in it.
 const DECLARATIONS_HEAD = '# Part\n\n## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n| B1 | where a part goes | value | ask once |\n\n## Steps\n\n1. **S1. File the part.**\n2. **S2. Count the parts.**\n\n';
 const FENCE_READINGS = {
   'indented code that shows a fence': ['Shown as code:\n\n    ```markdown\n\n- **S1. Again.**\n- **S2. After it.**\n', { S1: true, S2: true }],
-  'a fence left open': ['```text\nan example that never closes\n\n- **S1. Again.**\n- **S2. After it.**\n', { S1: true, S2: true }],
+  'a fence left open': ['```text\nan example that never closes\n\n- **S1. Again.**\n- **S2. After it.**\n', 'the code block opened on line 14 never closes; close it'],
   'a bare line indented past the fence, which does not close it': ['```\nfenced\n       ```\n- **S1. Again.**\n```\n- **S2. After it.**\n', { S1: false, S2: true }],
-  'a backtick fence whose info string holds a backtick': ['```js`x\n- **S1. Again.**\n```\n- **S2. After it.**\n', { S1: true, S2: true }],
+  'a backtick fence whose info string holds a backtick': ['```js`x\n- **S1. Again.**\n- **S2. After it.**\n```\n', { S1: true, S2: true }],
   'a fence in a list item': ['- Example:\n\n  ```markdown\n  - **S1. Again.**\n  ```\n\n- **S2. After it.**\n', { S1: false, S2: true }],
-  'a fence ended by a line less indented than it': ['  ```\n  - **S1. Again.**\n```\n\n- **S2. After it.**\n', { S1: true, S2: true }],
+  'a fence closed at a line less indented than it': ['  ```\n  - **S1. Again.**\n```\n\n- **S2. After it.**\n', 'line 16 is less indented than the code block opened on line 14; indent it or close the block'],
+  'a fence indented two spaces that holds an unindented line': ['  ```markdown\n- **S1. Again.**\n  ```\n\n- **S2. After it.**\n', 'line 15 is less indented than the code block opened on line 14; indent it or close the block'],
 };
 
 test('the composer reads declarations through fences exactly as the pack\'s verifier does', async () => {
@@ -1442,14 +1458,29 @@ test('the composer reads declarations through fences exactly as the pack\'s veri
     write(root, 'skills/parts/references/fit.json', `${JSON.stringify({ version: 1, kind: 'general', useWhen: 'a fixture' })}\n`);
     write(root, 'skills/parts/references/part.md', text);
     const verifier = spawnSync(process.execPath, ['scripts/verify-skills.mjs'], { cwd: root, encoding: 'utf8' });
-    const composer = parseDeclarations([{ path: 'references/part.md', text }]).problems;
+    const composer = parseDeclarations([{ path: 'references/part.md', text }]);
+    if (typeof reads === 'string') {
+      const line = reads.match(/\d+/)[0];
+      assert.ok(verifier.stderr.includes(`skills/parts/references/part.md:${line}: ${reads}`), `${shape}: the verifier did not refuse it\n${verifier.stderr}`);
+      assert.doesNotMatch(verifier.stderr, /declared twice/, `${shape}: the verifier read the block's lines`);
+      assert.deepEqual(composer.problems, [`references/part.md: ${reads}`], `${shape}: the composer did not refuse it as the verifier does`);
+      assert.deepEqual([...composer.slots.keys(), ...composer.lines.keys()], [], `${shape}: the composer read ids in a file it refuses`);
+      continue;
+    }
     for (const id of ['S1', 'S2']) {
       const verifierRead = new RegExp(`id ${id} is declared twice in this skill`).test(verifier.stderr);
-      const composerRead = composer.includes(`references/part.md declares ${id} a second time`);
+      const composerRead = composer.problems.includes(`references/part.md declares ${id} a second time`);
       assert.equal(verifierRead, reads[id], `${shape}: the verifier ${reads[id] ? 'did not read' : 'read'} the second ${id}\n${verifier.stderr}`);
       assert.equal(composerRead, verifierRead, `${shape}: the composer ${composerRead ? 'read' : 'did not read'} the second ${id}, and the verifier ${verifierRead ? 'did' : 'did not'}`);
     }
   }
+});
+
+// As the verifier, the composer reads ids only in a file that declares Bindings, so a block it could
+// not read one way in any other file is left alone.
+test('the composer leaves a code block it cannot read one way alone in a file that declares no Bindings', () => {
+  const example = '# Example\n\n  ```markdown\n- **S1. An example step.**\n  ```\n\n```markdown\n- **S2. Left open.**\n';
+  assert.deepEqual(parseDeclarations([{ path: 'references/example.md', text: example }]).problems, []);
 });
 
 // A table or an id the verifier refuses declares nothing to the composer either, so an overlay
@@ -2218,7 +2249,7 @@ for (const shape of [
 }
 
 for (const name of [
-  'a fence at the top level indented two columns and closed at the margin',
+  'a fence that shows a closing line indented four columns more than it',
   'a fence in a list item indented past the item\'s text, with a deeper closing line inside it',
 ]) {
   test(`a reference file as the entry: a live link after ${name} moves with it`, async () => {
@@ -2235,6 +2266,19 @@ for (const name of [
     assert.equal(checked.status, EXIT_OK, checked.stdout);
   });
 }
+
+// A carried file that declares Bindings is read as the pack's verifier reads it, so a fence at the
+// top level indented two columns and closed at the margin refuses it at [4]: in a list item the
+// margin line would end the item and open a fence of its own, and the verifier does not read lists.
+test('a reference file as the entry that holds a fence indented two columns and closed at the margin is refused at [4], as the verifier refuses it', async () => {
+  const pack = await packWithPartTail(`\n${LIVE_LINK_SHAPES['a fence at the top level indented two columns and closed at the margin']('[the guide](guide.md)')}`);
+  const adapter = { version: 1, name: 'parts-here', description: 'File the parts that reach this repository.', base: { source: pack, skill: 'notes', entry: 'references/part.md', ref: 'v2.0.1' } };
+  const project = await addAdapter({ pack, folder: 'parts-here', adapter, overlay: PART_OVERLAY, files: {} });
+
+  const refused = compose(project, '--write');
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[4\] references\/part\.md: line (\d+) is less indented than the code block opened on line (\d+); indent it or close the block/);
+});
 
 // Under ## Bindings, a fence that showed a closing line indented four columns more than it closed
 // there, and the real closing line opened a fence that hid the table after it from check 4.
