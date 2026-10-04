@@ -195,6 +195,8 @@ leaves the run), and counts of what the product stored for it in the window. Cou
 the contents of a person's own records, and nothing about the account dated before or after the
 window.
 
+- A session's time that falls outside the window, such as the creation of one that began before
+  it, is shown as `before the window` or `after the window`, never as its value.
 - An account's history outside the window (when it was created or invited, a sign-in before or
   after, its sessions then) is read only when the request names it and the yes covers it (S2), as
   a read of its own. Otherwise the report says it was not read.

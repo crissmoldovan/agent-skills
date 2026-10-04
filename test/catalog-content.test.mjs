@@ -969,6 +969,8 @@ test("visitor-session-forensics reads a named person's account within the window
   assert.doesNotMatch(a1, /its last sign-in|counts of\s+what the product stores for it\./);
   // Even a yes or no about the account before the window is read from dates before it.
   assert.doesNotMatch(a1, /existed|when the window opened/);
+  // A session that overlaps the window can begin before it: its time outside is not read out either.
+  assert.match(a1, /shown as `before the window` or `after the window`, never as its value/);
   assert.match(a1, /only when the request names it and the yes covers it \(S2\)/);
   assert.doesNotMatch(a1, /last sign-in is in or after the window/);
   const a2 = contracts.slice(contracts.indexOf('## A2. Sign-in log'), contracts.indexOf('## R1. Releases'));
