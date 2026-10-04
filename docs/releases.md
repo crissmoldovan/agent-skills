@@ -80,29 +80,30 @@ with one of ten extensions, and not at all in `packages/agent-lifecycle`. A `.to
 `.sh` helper, a `.jsonl` capture or an extensionless config was never read, and this
 repository's own `Cargo.toml` fixture was one of them. It now reads every file the repository
 would publish, whatever its name: in a git checkout, every tracked file, wherever it sits, and
-every untracked file git does not ignore outside generated output, so a local `.env` cannot
-fail the run. A tracked file missing from the working tree, deleted without the deletion staged
-or outside a sparse checkout, is read from the index, which is what a commit publishes. Both
-patterns are ASCII, so every file is searched whatever its encoding. A
-binary file is searched as bytes, which finds a path in an image's metadata, and is named for a
-person to look at, since what an image shows is not read. One lifecycle test file, whose token
-fields are fixtures, is read for paths but not for the secret pattern, and the run names it. A
-pass no longer suggests that a file was read when it was not.
+every untracked file git does not ignore outside generated output, so a local `.env` cannot fail
+the run. A commit publishes the index and a push publishes HEAD, so where either holds another
+copy of a tracked file than the working tree, because a deletion or an edit is not yet staged or
+committed, that copy is read too. Both patterns are ASCII, so every file is searched whatever
+its encoding. A binary file is searched as bytes, which finds a path in an image's metadata, and
+is named for a person to look at, since what an image shows is not read. One lifecycle test
+file, whose token fields are fixtures, is read for paths but not for the secret pattern, and the
+run names it. A pass no longer suggests that a file was read when it was not.
 
 Most of what leaks from real work has no shape a public validator can hold: a client's name, a
 person's handle, an internal host, an account id. `scripts/scan-denylist.mjs` checks what a
 branch adds against a list of terms that each contributor keeps outside every repository and
 passes with `--denylist`. It reads every added line (fixtures included), every changed file's
 name, every commit message and the branch name; with `--worktree`, uncommitted changes and
-untracked files too, and a nested repository by its name only. A term matches
-case-insensitively as a word, and an underscore, a hyphen, a camelCase hump or a change between
-letters and digits counts as a word break, so a numbered host is found. Any other spelling
-(joined, abbreviated, or in capitals run on into the next word) is listed as a term of its own.
-Binary files are searched as bytes and listed for a person to look at. Each hit is named by
-where it is and by its line in the list, never by the term itself. A term inside a printed path
-is masked, and `--show-matches` prints the matched text for a local terminal. The scan exits 2
-instead of passing when the list is missing, empty, or inside the repository or any of its
-worktrees. CONTRIBUTING asks for it before every push.
+untracked files too, each of the commits, the index and the working tree read on its own so that
+an unstaged edit cannot hide what a commit holds, and a nested repository by its name only. A
+term matches case-insensitively as a word, and an underscore, a hyphen, a camelCase hump or a
+change between letters and digits counts as a word break, so a numbered host is found. Any other
+spelling (joined, abbreviated, or in capitals run on into the next word) is listed as a term of
+its own. Binary files are searched as bytes and listed for a person to look at. Each hit is
+named by where it is and by its line in the list, never by the term itself. A term inside a
+printed path is masked, and `--show-matches` prints the matched text for a local terminal. The
+scan exits 2 instead of passing when the list is missing, empty, or inside the repository or any
+of its worktrees. CONTRIBUTING asks for it before every push.
 
 Nothing installed changes. Both scripts are contributor tooling and ship in no skill.
 

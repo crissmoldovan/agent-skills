@@ -13,9 +13,10 @@
  * - every changed file's name;
  * - every commit message in `<merge base>..HEAD`;
  * - the branch name;
- * - with `--worktree`, uncommitted changes and untracked files as well. An untracked repository
- *   nested inside this one would be added as a link to one of its commits, so only its name is
- *   read, and the run says so.
+ * - with `--worktree`, uncommitted changes and untracked files as well. The commits, the index
+ *   and the working tree are each read on their own, so an edit not yet staged or committed
+ *   cannot hide what a commit or the index holds. An untracked repository nested inside this one
+ *   would be added as a link to one of its commits, so only its name is read, and the run says so.
  * A line already on the base, or removed, is not read: it is not this branch's to fix.
  * A binary file is searched as bytes, which finds a name in image metadata but not one drawn
  * in the pixels, so every binary file is listed for a person to look at.
@@ -321,13 +322,43 @@ function main(argv) {
     });
   }
 
-  const range = options.worktree ? [mergeBase] : [mergeBase, 'HEAD'];
-  const files = changedFiles(top, range, options.worktree);
+  // What the commits add, and with `--worktree` what the index and the working tree add as well,
+  // each read on its own: a push publishes HEAD and a commit the index, so an edit not yet staged
+  // or committed cannot hide what a commit, or the index, already holds.
+  const views = [{ range: [mergeBase, 'HEAD'], copy: (path) => `HEAD:${path}` }];
+  if (options.worktree) {
+    views.push({ range: ['--cached', mergeBase], copy: (path) => `:${path}` });
+    views.push({ range: [mergeBase], copy: null });
+  }
+  const byPath = new Map();
+  views.forEach((view, index) => {
+    const withUntracked = options.worktree && index === views.length - 1;
+    for (const entry of changedFiles(top, view.range, withUntracked)) {
+      const known = byPath.get(entry.path);
+      if (known) {
+        known.binary ||= entry.binary;
+        // A path HEAD holds that the index no longer tracks can be back in the working tree as an
+        // untracked file: both copies are read.
+        if (entry.tracked) known.views.push(view);
+        else known.untracked = true;
+      } else {
+        byPath.set(entry.path, { ...entry, views: entry.tracked ? [view] : [] });
+      }
+    }
+  });
+  const files = [...byPath.values()];
   for (const { path } of files) scanText(path, (term, found) => hit('file name', path, term, found.match));
 
-  const diff = git(top, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--diff-filter=d', '-U0', '--src-prefix=a/', '--dst-prefix=b/', ...range]);
-  const lines = addedLines(diff);
-  for (const file of files.filter((entry) => !entry.tracked && !entry.binary && !entry.nested)) {
+  // A line read in an earlier view is not read again from a later one.
+  const lines = [];
+  const read = new Set();
+  for (const view of views) {
+    const diff = git(top, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--diff-filter=d', '-U0', '--src-prefix=a/', '--dst-prefix=b/', ...view.range]);
+    const own = addedLines(diff).filter((entry) => !read.has(`${entry.path}\0${entry.text}`));
+    lines.push(...own);
+    for (const entry of own) read.add(`${entry.path}\0${entry.text}`);
+  }
+  for (const file of files.filter((entry) => (!entry.tracked || entry.untracked) && !entry.binary && !entry.nested)) {
     workingBytes(top, file.path).toString('utf8').split('\n').forEach((text, index, all) => {
       if (index < all.length - 1 || text !== '') lines.push({ path: file.path, line: index + 1, text });
     });
@@ -338,11 +369,20 @@ function main(argv) {
 
   const binaries = files.filter((entry) => entry.binary);
   const nested = files.filter((entry) => entry.nested);
-  for (const { path, tracked } of binaries) {
-    const bytes = tracked && !options.worktree ? git(top, ['cat-file', 'blob', `HEAD:${path}`], { buffer: true }) : workingBytes(top, path);
-    const latin1 = bytes.toString('latin1');
-    for (const term of terms) {
-      for (const found of find(latin1, term, term.bytes)) hit('binary file', `${path} byte ${found.index}`, term, found.match);
+  for (const { path, tracked, untracked, views: held } of binaries) {
+    const copies = held.map((view) => (view.copy ? git(top, ['cat-file', 'blob', view.copy(path)], { buffer: true }) : workingBytes(top, path)));
+    if (!tracked || untracked) copies.push(workingBytes(top, path));
+    const found = new Set();
+    for (const bytes of copies) {
+      const latin1 = bytes.toString('latin1');
+      for (const term of terms) {
+        for (const match of find(latin1, term, term.bytes)) {
+          const where = `${path} byte ${match.index}`;
+          if (found.has(`${where}\0${term.line}`)) continue;
+          found.add(`${where}\0${term.line}`);
+          hit('binary file', where, term, match.match);
+        }
+      }
     }
   }
 
@@ -360,7 +400,7 @@ function main(argv) {
     }
   }
   out.push('');
-  const what = options.worktree ? 'HEAD and the working tree add' : 'this branch adds';
+  const what = options.worktree ? 'HEAD, the index and the working tree add' : 'this branch adds';
   const branchNote = branch ? 'and the branch name' : 'and the branch name was not scanned: HEAD is detached (pass --branch <name>)';
   out.push(
     `Scanned what ${what} to ${options.base} (merge base ${mergeBase.slice(0, 12)}) against ${plural(terms.length, 'denylist term')}: `

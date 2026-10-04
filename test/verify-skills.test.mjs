@@ -181,31 +181,46 @@ test('in a git checkout the verifier reads what git tracks or would add, and not
   assert.match(result.stdout, /\(the files git tracks or would add\)/);
 });
 
-// A tracked file deleted from the working tree without the deletion being staged, or left out of a
-// sparse checkout, is still in the index, so it is committed and published as it stands there: the
-// scan reads that copy. A deletion that is staged or committed leaves nothing to publish.
-test('in a git checkout the verifier reads a tracked file missing from the working tree from the index', async () => {
+// A commit publishes the index and a push publishes HEAD, so where either holds another copy of a
+// tracked file than the working tree does, that copy is read as well: a file deleted from the
+// working tree only, one with a clean edit not yet staged over it, one whose clean edit hides a
+// staged secret, and one whose deletion is staged but not committed. A committed deletion leaves
+// nothing to publish.
+test('in a git checkout the verifier reads the index and HEAD copies where they differ from the working tree', async () => {
   const { rm } = await import('node:fs/promises');
   const root = await fixture();
   const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
   const assignment = ['to', 'ken'].join('');
   const realisticToken = ['prod', 'token', 'value', '1234567890'].join('-');
-  await writeFile(path.join(root, 'kept.toml'), `${assignment} = "${realisticToken}"\n`);
-  await writeFile(path.join(root, 'kept.txt'), `see ${personalPath}\n`);
-  await writeFile(path.join(root, 'removed.toml'), `${assignment} = "${realisticToken}"\n`);
+  const leaked = `${assignment} = "${realisticToken}"\n`;
+  await writeFile(path.join(root, 'deleted.toml'), leaked);
+  await writeFile(path.join(root, 'deleted.txt'), `see ${personalPath}\n`);
+  await writeFile(path.join(root, 'overwritten.toml'), leaked);
+  await writeFile(path.join(root, 'staged.toml'), 'clean = true\n');
+  await writeFile(path.join(root, 'unstaged-removal.toml'), leaked);
+  await writeFile(path.join(root, 'committed-removal.toml'), leaked);
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'fixture');
-  await rm(path.join(root, 'kept.toml'));
-  await rm(path.join(root, 'kept.txt'));
-  git(root, 'rm', '-q', 'removed.toml');
+  git(root, 'rm', '-q', 'committed-removal.toml');
+  git(root, 'commit', '-q', '-m', 'remove it');
+  await rm(path.join(root, 'deleted.toml'));
+  await rm(path.join(root, 'deleted.txt'));
+  await writeFile(path.join(root, 'overwritten.toml'), 'clean = true\n');
+  await writeFile(path.join(root, 'staged.toml'), leaked);
+  git(root, 'add', 'staged.toml');
+  await writeFile(path.join(root, 'staged.toml'), 'clean = true\n');
+  git(root, 'rm', '-q', 'unstaged-removal.toml');
 
   const result = await verify(root);
 
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /- kept\.toml: contains a likely secret/);
-  assert.match(result.stderr, /- kept\.txt: contains a machine-specific absolute path/);
-  assert.doesNotMatch(result.stderr, /removed\.toml/);
+  assert.match(result.stderr, /- deleted\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- deleted\.txt: contains a machine-specific absolute path/);
+  assert.match(result.stderr, /- overwritten\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- staged\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- unstaged-removal\.toml: contains a likely secret/);
+  assert.doesNotMatch(result.stderr, /committed-removal\.toml/);
 });
 
 test('verifier accepts neutral credential fixtures', async () => {

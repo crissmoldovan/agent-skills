@@ -229,6 +229,25 @@ test('--worktree adds uncommitted changes and untracked files; without it they a
   assert.match(withTree.stdout, new RegExp(`untracked\\.md:1:1\\s+denylist line ${lineOf('Jane Roe')}`));
 });
 
+// A push publishes HEAD and a commit the index, so under --worktree an edit not yet staged or
+// committed must not hide what a commit or the index already holds.
+test('--worktree still reads what the commits and the index add when the working tree hides it', async () => {
+  const { repo, denylist } = await fixture();
+  await commit(repo, { 'committed.md': 'neutral\nnow globex\n', 'staged.md': 'neutral\n' });
+  await writeFile(path.join(repo, 'committed.md'), 'neutral\n');
+  await writeFile(path.join(repo, 'staged.md'), 'neutral\nJane Roe\n');
+  git(repo, 'add', 'staged.md');
+  await writeFile(path.join(repo, 'staged.md'), 'neutral\n');
+
+  const result = scan(repo, '--denylist', denylist, '--base', 'main', '--worktree');
+
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.stdout, new RegExp(`committed\\.md:2:5\\s+denylist line ${lineOf('Globex')}`));
+  assert.match(result.stdout, new RegExp(`staged\\.md:2:1\\s+denylist line ${lineOf('Jane Roe')}`));
+  assert.match(result.stdout, /Scanned what HEAD, the index and the working tree add/);
+  assertNoTermPrinted(result.output);
+});
+
 test('--worktree reads an untracked symbolic link as git would store it, dangling or not', async () => {
   const { repo, denylist } = await fixture();
   await commit(repo, { 'g.md': 'neutral\n' });

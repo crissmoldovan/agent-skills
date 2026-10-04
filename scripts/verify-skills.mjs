@@ -237,16 +237,24 @@ function filesToScan() {
   }
   const paths = (listing) => listing.stdout.split('\0').filter(Boolean).map((path) => path.split('/').join(sep));
   const added = paths(untracked).filter((path) => !path.split(sep).some((segment) => ignoredDirectories.has(segment)));
-  const indexed = new Set(paths(tracked));
-  return { from: 'the files git tracks or would add', files: [...new Set([...indexed, ...added])], indexed };
+  // A commit publishes the index, and a push publishes HEAD, so where either holds another copy
+  // of a tracked file than the working tree does, that copy is read as well: one deleted from the
+  // working tree without the deletion being staged, or left out of a sparse checkout, one with a
+  // clean edit not yet staged over it, and one whose deletion is staged but not committed.
+  const unstaged = run(['diff', '-z', '--name-only', '--no-renames']);
+  const staged = run(['diff', '-z', '--name-only', '--no-renames', '--cached']);
+  const copies = new Map();
+  const copy = (path, object) => copies.set(path, [...(copies.get(path) ?? []), object]);
+  if (unstaged.status === 0) for (const path of paths(unstaged)) copy(path, `:${path.split(sep).join('/')}`);
+  if (staged.status === 0) for (const path of paths(staged)) copy(path, `HEAD:${path.split(sep).join('/')}`);
+  return { from: 'the files git tracks or would add', files: [...new Set([...paths(tracked), ...added, ...copies.keys()])], copies };
 }
 
-// A tracked file that is not in the working tree, deleted without the deletion being staged or
-// left out of a sparse checkout, is still in the index, and is committed and published as it
-// stands there, so its index copy is what is read. A deletion that is staged or committed is not
-// in the index and leaves nothing to publish. A submodule's entry has no blob, and is not read.
-function indexCopy(relativeFile) {
-  const read = spawnSync('git', ['cat-file', 'blob', `:${relativeFile.split(sep).join('/')}`], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+// The bytes of one copy git holds (`:path` in the index, `HEAD:path` in the last commit), or null
+// where it holds none: a deletion, or a submodule's entry, which has no blob. A symbolic link's
+// copy is the path it stores, and is read as text like any other.
+function gitCopy(object) {
+  const read = spawnSync('git', ['cat-file', 'blob', object], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
   return !read.error && read.status === 0 ? read.stdout : null;
 }
 
@@ -254,39 +262,44 @@ const scan = filesToScan();
 const binaries = [];
 let scanned = 0;
 let exemptRead = false;
+const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
+// A path may follow a control character as well as a space or a quote: a binary format
+// separates its metadata fields with NUL bytes.
+const absolutePath = /(?:^|[\s'"`(\x00-\x1f])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)\x00]+/m;
 for (const relativeFile of scan.files) {
   if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
   const file = resolve(root, relativeFile);
+  const sources = [];
+  let binary = false;
   let stat = null;
   try {
     stat = lstatSync(file);
   } catch {
-    stat = null;
+    stat = null; // not in this working tree; a copy git holds may still be
   }
-  const fromIndex = stat === null && scan.indexed?.has(relativeFile) ? indexCopy(relativeFile) : null;
-  if (stat === null && fromIndex === null) continue; // neither in this working tree nor in the index
-  let source;
   if (stat?.isSymbolicLink()) {
     // Git stores a symbolic link as the path it points to, and publishes that path.
-    source = readlinkSync(file);
-    scanned += 1;
-  } else if (fromIndex !== null || stat.isFile()) {
-    // An index copy of a symbolic link is the path it stores, read here as text like any other.
-    const bytes = fromIndex ?? readFileSync(file);
-    const binary = bytes.includes(0);
-    source = bytes.toString(binary ? 'latin1' : 'utf8');
-    if (binary) binaries.push(relativeFile);
-    else scanned += 1;
-  } else {
+    sources.push(readlinkSync(file));
+  } else if (stat?.isFile()) {
+    const bytes = readFileSync(file);
+    binary ||= bytes.includes(0);
+    sources.push(bytes);
+  } else if (stat !== null) {
     continue; // a submodule or a nested repository: its files are not this repository's to publish
   }
-  const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
+  for (const object of scan.copies?.get(relativeFile) ?? []) {
+    const bytes = gitCopy(object);
+    if (bytes === null) continue;
+    binary ||= bytes.includes(0);
+    sources.push(bytes);
+  }
+  if (sources.length === 0) continue; // in neither the working tree nor the index nor HEAD
+  const texts = sources.map((source) => (typeof source === 'string' ? source : source.toString(binary ? 'latin1' : 'utf8')));
+  if (binary) binaries.push(relativeFile);
+  else scanned += 1;
   if (relativeFile === secretPatternExempt) exemptRead = true;
-  else if (secret.test(source)) fail(`${relativeFile}: contains a likely secret`);
-  // A path may follow a control character as well as a space or a quote: a binary format
-  // separates its metadata fields with NUL bytes.
-  const absolutePath = /(?:^|[\s'"`(\x00-\x1f])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)\x00]+/m;
-  if (absolutePath.test(source)) fail(`${relativeFile}: contains a machine-specific absolute path`);
+  else if (texts.some((text) => secret.test(text))) fail(`${relativeFile}: contains a likely secret`);
+  if (texts.some((text) => absolutePath.test(text))) fail(`${relativeFile}: contains a machine-specific absolute path`);
 }
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
