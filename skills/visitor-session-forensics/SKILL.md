@@ -179,17 +179,21 @@ what it filters on, the row it returns, and its control.
 4. **S4. Find the people in the sources.** Run the "who is there" query over the hosts bound as F4,
    chosen by each page's own host and never by an environment field, and filtered to the named
    people's sign-in identities; it lists every account in the window only when the request asked
-   about everyone. Map each person to the browser identifiers seen with their sign-in. One person
-   may use several browsers and machines, so a device is read per browser and never per person.
-   An account bound as F5 that turns up (a request about everyone, or a browser a named person
-   shares with a test account) is left out and counted. A visitor the records do not name is
-   "unnamed", never matched by a guess.
-   **Complete when:** each named person has zero or more browser identifiers, each with its first
-   and last time, and any account left out is counted.
+   about everyone. Map each person to the visits their sign-in is seen in, and each visit to its
+   browser. The later queries read those visits, never everything a browser sent: a browser
+   outlives a sign-out, so it can carry another person's visit or one nobody signed in to. A visit
+   that also carries another identity (a shared machine, an account switched within the visit) is
+   left out and counted, never split by a guess; the query returns that identity as a count, never
+   a name. One person may use several browsers and machines, so a device is read per browser and
+   never per person. An account bound as F5 that turns up (a request about everyone, or a browser a
+   named person shares with a test account) is left out and counted. A visitor the records do not
+   name is "unnamed", never matched by a guess.
+   **Complete when:** each named person has zero or more visits, each with its browser and its
+   first and last time, and any visit or account left out is counted.
 
 5. **S5. Pull the rows, as returned.** Run the queries the questions need (events, visit facts,
    devices, recordings, files loaded, page loads, accounts, sign-ins, releases), over the people's
-   identifiers, the hosts and the window only. Save each result in the run directory (F9) exactly as
+   visits (S4), the hosts and the window only. Save each result in the run directory (F9) exactly as
    the tool returned it. A large result the tool wrote to a file is copied, not printed again; a
    small one is copied, never retyped, because a digit changed by hand is a fault nobody can find
    later. A store that keeps recent rows apart from older ones is read in both places with the

@@ -15,7 +15,7 @@ the translation.
 | `{FROM}`, `{TO}` | the window, in UTC | `'2026-01-06 12:00:00'`, `'2026-01-06 18:00:00'` |
 | `{HOSTS}` | the hosts bound as F4, quoted | `'app.example.com'` |
 | `{IDENTITIES}` | the named people's sign-in identities, quoted | `'dana@example.com', 'sam@example.com'` |
-| `{VISITORS}` | the browser identifiers the "who is there" query found for them | `'00000000-0000-4000-8000-000000000001'` |
+| `{VISITS}` | the visits the "who is there" query tied to the named people: a visit in which a named identity signed in and no other identity appears | `'00000000-0000-4000-8000-000000000101'` |
 
 A real source id, table name or host goes in the project's overlay, never in this file.
 
@@ -54,26 +54,51 @@ WITH visits AS (
     SELECT dt, raw FROM {ARCHIVE_TABLE}
       WHERE source_id = {SOURCE_ID} AND dt BETWEEN {FROM} AND {TO}
   )
-  WHERE JSONExtractString(raw, 'visitor_id') IN ({VISITORS})
+  WHERE JSONExtractString(raw, 'visit_id') IN ({VISITS})
     AND domain(JSONExtractString(raw, 'page_url')) IN ({HOSTS})
 )
 ```
 
-Q0 has no `{VISITORS}` yet, because finding them is its job: it starts from the same shape with
-the visitor line replaced by the sign-in identity, `IN ({IDENTITIES})`. Where the store keeps no
-archive apart, both read `{TABLE}` alone.
+Q0 has no `{VISITS}` yet, because finding them is its job: it starts from the same shape without
+the visit line. Where the store keeps no archive apart, both read `{TABLE}` alone.
+
+**The visit, never the browser.** A browser identifier outlives a sign-out: one browser can carry a
+named person's visit, then another person's, then a visitor who never signed in. A filter on the
+browser reads all three as the named person's. So every query after Q0 reads the visits Q0 tied to
+the named people and nothing else their browsers sent. A visit that also carries another identity,
+as a shared machine or an account switched within one visit does, is left out and counted, never
+split by a guess. Events of a kept visit sent before its sign-in carry no identity and are read as
+that visit's; the report says so.
 
 ## Q0. Who is there
 
-**Reads** the events in the window over `{HOSTS}`, filtered to `{IDENTITIES}`. Only when the
-request asked about everyone in the window is that filter dropped.
+**Reads** the events in the window over `{HOSTS}`, filtered to `{IDENTITIES}`, and for the visit
+rows every event of a visit a named identity signed in to. Only when the request asked about
+everyone in the window is that filter dropped.
 
 **Returns** one row per identity and browser:
-`["<identity>", "<name the page recorded>", "<visitor id>", visits, events, "<first seen>", "<last seen>"]`.
+`["<identity>", "<name the page recorded>", "<visitor id>", visits, events, "<first seen>", "<last seen>"]`,
+and one row per visit in which a named identity signed in:
+`["<identity>", "<visit id>", "<visitor id>", "<first seen>", "<last seen>", other_identities]`.
 
 - The identity and the name are per visit: an event sent before sign-in carries neither. A visitor
   with no identity is reported *unnamed*, never matched by a guess.
+- `other_identities` is how many other identities the visit's events carry, read in the query
+  over every event of that visit and returned as a count, never a name (H3).
+- `{VISITS}` is the visits whose `other_identities` is 0. A visit with more is left out of every
+  later query and counted, and the report gives the count and never whose the other identity is.
 - Accounts bound as F5 are counted and left out.
+
+```sql
+-- the filter above, without its visit line; then, one row per visit a named identity signed in to:
+SELECT JSONExtractString(raw, 'visit_id') AS visit,
+  any(JSONExtractString(raw, 'visitor_id')) AS browser,
+  groupUniqArrayIf(JSONExtractString(raw, 'identity'), JSONExtractString(raw, 'identity') IN ({IDENTITIES})) AS named,
+  uniqIf(JSONExtractString(raw, 'identity'),
+    JSONExtractString(raw, 'identity') != '' AND JSONExtractString(raw, 'identity') NOT IN ({IDENTITIES})) AS other_identities,
+  min(dt) AS first_seen, max(dt) AS last_seen
+FROM visits GROUP BY visit HAVING length(named) > 0
+```
 
 **Control.** The same query, with `{IDENTITIES}` set to a control identity the yes named (the
 person bound as F1, or an account bound as F5) and the window set to a time that identity is known

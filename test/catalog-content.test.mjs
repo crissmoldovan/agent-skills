@@ -908,6 +908,31 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
   assert.match(readme, /\[Evidence signals\]\(skills\/visitor-session-forensics\/references\/evidence-signals\.md\)/);
 });
 
+// A browser identifier outlives a sign-out: one browser can carry a named person's visit, then
+// another person's, then an unnamed visitor's. So the queries after "who is there" read the visits
+// tied to the named people, never everything a browser sent, and a visit that carries another
+// identity too is left out and counted, never split by a guess.
+test("visitor-session-forensics reads the named people's visits, never everything their browsers sent", async () => {
+  const skill = await read('skills/visitor-session-forensics/SKILL.md');
+  const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
+  const lead = contracts.indexOf('The filter every events query after Q0 starts from:');
+  assert.notEqual(lead, -1, 'the contracts no longer carry the shared filter');
+  const filter = contracts.slice(lead).match(/```sql\n([\s\S]*?)```/)[1];
+  assert.match(filter, /JSONExtractString\(raw, 'visit_id'\) IN \(\{VISITS\}\)/);
+  assert.doesNotMatch(filter, /visitor_id/, 'the shared filter widens to a browser again');
+  assert.doesNotMatch(contracts, /\{VISITORS\}/, 'a query still filters on the browsers');
+  assert.match(section(contracts, 'Placeholders'), /^\| `\{VISITS\}` \| .*no other identity/m);
+  const q0 = contracts.slice(contracts.indexOf('## Q0. Who is there'), contracts.indexOf('## Q1. Events'));
+  assert.match(q0, /other_identities/);
+  assert.match(q0, /a count, never a name/);
+  assert.match(q0, /left out of every\s+later query and counted/);
+  assert.match(contracts, /\*\*The visit, never the browser\.\*\*/);
+  const s4 = skill.slice(skill.indexOf('**S4. Find the people in the sources.**'), skill.indexOf('**S5. Pull the rows, as returned.**'));
+  assert.match(s4, /never everything a browser sent/);
+  assert.match(s4, /left out and counted, never split by a guess/);
+  assert.match(s4, /\*\*Complete when:\*\* each named person has zero or more visits/);
+});
+
 // A pack lands only by a guarded copy: the archived pack is checked against CONTENTS.txt before it is
 // copied, and every member is checked again where it landed, so a partial copy, a source changed
 // since the unpack or an altered landing is caught before anything is written beside it or committed.

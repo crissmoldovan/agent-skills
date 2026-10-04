@@ -222,8 +222,9 @@ effort, finding where someone is, identifying a visitor who did not sign in, rea
 typed), and nothing is read until the person who may authorise the run has said yes to that run.
 A source that one of the project's standing limits rules out is read only on a go for that run
 from the person the limit names, and a yes to the run lifts no limit its question did not name.
-It then reads only the people, the window and the hosts named, filtered in the query, and proves
-every source's held range and every counter with a control before using it; each control is named
+It then reads only the people, the window and the hosts named, filtered in the query, each person
+by the visits they signed in to and never by everything their browser sent, and proves every
+source's held range and every counter with a control before using it; each control is named
 in the question for the yes, and one over anyone else is read as a count with no identifiers. Per
 visit it says what the person did, whether the site loaded for them, whether they saw the live
 release or a copy their browser kept, and whether a person or an agent was at the controls. Every
