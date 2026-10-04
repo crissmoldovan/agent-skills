@@ -181,6 +181,74 @@ test('in a git checkout the verifier reads what git tracks or would add, and not
   assert.match(result.stdout, /\(the files git tracks or would add\)/);
 });
 
+// A commit publishes the index and a push publishes HEAD, so where either holds another copy of a
+// tracked file than the working tree does, that copy is read as well: a file deleted from the
+// working tree only, one left out of a sparse checkout, one with a clean edit not yet staged over
+// it, one whose clean edit hides a staged secret, and one whose deletion is staged but not
+// committed. A committed deletion leaves nothing to publish.
+test('in a git checkout the verifier reads the index and HEAD copies where they differ from the working tree', async () => {
+  const { rm } = await import('node:fs/promises');
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  const assignment = ['to', 'ken'].join('');
+  const realisticToken = ['prod', 'token', 'value', '1234567890'].join('-');
+  const leaked = `${assignment} = "${realisticToken}"\n`;
+  await writeFile(path.join(root, 'deleted.toml'), leaked);
+  await writeFile(path.join(root, 'deleted.txt'), `see ${personalPath}\n`);
+  await writeFile(path.join(root, 'overwritten.toml'), leaked);
+  await writeFile(path.join(root, 'staged.toml'), 'clean = true\n');
+  await writeFile(path.join(root, 'unstaged-removal.toml'), leaked);
+  await writeFile(path.join(root, 'committed-removal.toml'), leaked);
+  await writeFile(path.join(root, 'sparse.toml'), leaked);
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'fixture');
+  git(root, 'rm', '-q', 'committed-removal.toml');
+  git(root, 'commit', '-q', '-m', 'remove it');
+  await rm(path.join(root, 'deleted.toml'));
+  await rm(path.join(root, 'deleted.txt'));
+  await writeFile(path.join(root, 'overwritten.toml'), 'clean = true\n');
+  await writeFile(path.join(root, 'staged.toml'), leaked);
+  git(root, 'add', 'staged.toml');
+  await writeFile(path.join(root, 'staged.toml'), 'clean = true\n');
+  git(root, 'rm', '-q', 'unstaged-removal.toml');
+  // Outside a sparse checkout: the index marks the file skip-worktree, and git diff names nothing.
+  git(root, 'update-index', '--skip-worktree', 'sparse.toml');
+  await rm(path.join(root, 'sparse.toml'));
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /- deleted\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- deleted\.txt: contains a machine-specific absolute path/);
+  assert.match(result.stderr, /- overwritten\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- staged\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- unstaged-removal\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- sparse\.toml: contains a likely secret/);
+  assert.doesNotMatch(result.stderr, /committed-removal\.toml/);
+});
+
+// A tracked file is published wherever it sits, under node_modules/ as much as anywhere, and a
+// path that merely begins with the name is an ordinary file.
+test('in a git checkout the verifier reads a tracked file under node_modules, and a path that only begins with the name', async () => {
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  const assignment = ['to', 'ken'].join('');
+  const realisticToken = ['prod', 'token', 'value', '1234567890'].join('-');
+  await mkdir(path.join(root, 'node_modules', 'vendored'), { recursive: true });
+  await writeFile(path.join(root, 'node_modules', 'vendored', 'index.js'), `const ${assignment} = "${realisticToken}";\n`);
+  await writeFile(path.join(root, 'node_modules-notes.txt'), `see ${personalPath}\n`);
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'fixture');
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`- ${escapeRegExp(path.join('node_modules', 'vendored', 'index.js'))}: contains a likely secret`));
+  assert.match(result.stderr, /- node_modules-notes\.txt: contains a machine-specific absolute path/);
+});
+
 test('verifier accepts neutral credential fixtures', async () => {
   const root = await fixture();
   const assignment = ['to', 'ken'].join('');
