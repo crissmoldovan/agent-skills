@@ -482,8 +482,8 @@ Each image command below writes into a new folder, made without `-p`, and the fi
 line per image (full sha256, bytes, name) and then the count, never the encoded bytes.
 
 **Embedded images from a Markdown export.** It checks the source hash itself, takes each payload
-only as far as its base64 runs, never into the words after it, and counts a payload that is not
-whole base64 without writing it. It exits 0 only when it kept every image it found; exit 3 means one
+up to where the URI ends, never into the words after it, and counts a payload that is not wholly
+valid base64 without writing it. It exits 0 only when it kept every image it found; exit 3 means one
 was not kept, and its line is recorded as a gap:
 
 ```sh
@@ -495,11 +495,12 @@ const text = fs.readFileSync(source);
 if (sha(text) !== expected) { console.error(`${source}: sha256 is not ${expected}; nothing extracted`); process.exit(2); }
 fs.mkdirSync(out);
 let n = 0, broken = 0;
-// The payload ends where its base64 ends, at a space, a quote or a bracket: never in the words after it.
-for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([A-Za-z0-9+\/]*={0,2})/g)) {
+// The payload runs to where the URI ends, at a space, a quote, a bracket or a tag: never into the
+// words after it, and never stopping early at a character that does not belong in it.
+for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([^\s)"\x27>\]<]*)/g)) {
   const bytes = Buffer.from(data, "base64");
-  // Node decodes what it can of a broken payload; only one that encodes back to itself is whole.
-  if (data === "" || bytes.toString("base64") !== data) { broken += 1; continue; }
+  // Node decodes what it can of a broken payload; only one of base64 alone that encodes back to itself is whole.
+  if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(data) || bytes.toString("base64") !== data) { broken += 1; continue; }
   const name = `image-${String(++n).padStart(3, "0")}.${type.split("+")[0].replace("jpeg", "jpg")}`;
   fs.writeFileSync(path.join(out, name), bytes, { flag: "wx" });
   console.log(`${sha(bytes)} ${bytes.length} ${name}`);

@@ -1073,6 +1073,7 @@ test('ingest-arrival extracts an embedded image byte for byte, and never decodes
     'A caption that follows it.',
     `<img src="data:image/jpeg;base64,${two.toString('base64')}">and words right after`,
     '![cut](data:image/png;base64,QUJ)',
+    'A whole quantum and then rubbish: data:image/png;base64,QUJD$ and on.',
     '',
   ].join('\n');
   const dir = await tempDir('ingest-arrival-images-');
@@ -1084,7 +1085,7 @@ test('ingest-arrival extracts an embedded image byte for byte, and never decodes
   assert.deepEqual(result.stdout.trim().split('\n'), [
     `${await sum(one)} ${one.length} image-001.png`,
     `${await sum(two)} ${two.length} image-002.jpg`,
-    '1 not extracted: its payload is not whole base64',
+    '2 not extracted: their payloads are not whole base64',
     '2 images',
   ]);
   assert.deepEqual(await readFile(`${dir}/images-md/image-001.png`), one);
