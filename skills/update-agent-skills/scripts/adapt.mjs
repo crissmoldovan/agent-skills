@@ -1115,8 +1115,13 @@ export function rewriteEntryLinks(text, entry) {
   return { text: rewritten, problems };
 }
 
-/** Check 10: every relative link in the generated folder resolves, none leaves the repository, and none is written from the root. */
-export function linkProblems(files, { folder, exists }) {
+/**
+ * Check 10: every relative link in the generated folder resolves, none leaves the repository, and
+ * none is written from the root. A link that leaves the generated folder is read from the
+ * repository: `exists` says whether its target is there, and `escapes` whether reaching it follows
+ * a symbolic link out of the repository, which a path that stays inside on paper can still do.
+ */
+export function linkProblems(files, { folder, exists, escapes = () => false }) {
   const problems = [];
   const directories = new Set();
   for (const file of files.keys()) {
@@ -1138,6 +1143,7 @@ export function linkProblems(files, { folder, exists }) {
       if (resolved === '..' || resolved.startsWith('../')) {
         const inRepository = posix.normalize(posix.join(folder, resolved));
         if (inRepository === '..' || inRepository.startsWith('../')) problems.push(`${file} links to ${pathname}, outside the repository`);
+        else if (escapes(inRepository)) problems.push(`${file} links to ${pathname}, which reaches outside the repository through a symbolic link`);
         else if (!exists(inRepository)) problems.push(`${file} links to ${pathname}, which does not resolve`);
         continue;
       }
@@ -1581,7 +1587,7 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
   const lineCount = skillMarkdown.split('\n').length - 1;
   if (lineCount > LONG_SKILL_LINES) warnings.push(`SKILL.md is ${lineCount} lines, past the ${LONG_SKILL_LINES} that agents are asked to keep a skill under; move project traps into a project reference file`);
 
-  for (const problem of linkProblems(files, { folder: posix.join(layout.skillsRel, adapter.name), exists: layout.exists ?? (() => false) })) fail(10, problem);
+  for (const problem of linkProblems(files, { folder: posix.join(layout.skillsRel, adapter.name), exists: layout.exists ?? (() => false), escapes: layout.escapes ?? (() => false) })) fail(10, problem);
   // Over a reference file, this copy's SKILL.md holds that file's text. Another carried file that
   // links to the skill's SKILL.md is carried byte for byte, so its link resolves, and reaches the
   // wrong text; it cannot be rewritten without editing the skill, so it is named instead.
@@ -1784,6 +1790,30 @@ function existsInRepository(layout) {
 }
 
 /**
+ * Whether a path in the repository that exists is reached, through some symbolic link on the way,
+ * outside it: both the path and the repository's root are read as real paths, so a link through
+ * `docs/external -> /elsewhere` is outside however it is spelt.
+ */
+function escapesRepository(layout) {
+  let root;
+  try {
+    root = realpathSync.native(layout.root);
+  } catch {
+    root = path.resolve(layout.root);
+  }
+  return (relative) => {
+    let real;
+    try {
+      real = realpathSync.native(path.join(layout.root, ...relative.split('/')));
+    } catch {
+      return false;
+    }
+    const from = path.relative(root, real);
+    return from === '..' || from.startsWith(`..${path.sep}`) || path.isAbsolute(from);
+  };
+}
+
+/**
  * `compose`: read each pin, compose, and print the change. With `--write`, write the generated
  * folder and vendor this file. It refuses to overwrite a folder that is not exactly what its own
  * lock says, so a hand edit is never lost without `--discard-hand-edits`.
@@ -1791,6 +1821,7 @@ function existsInRepository(layout) {
 export function runCompose(options, io) {
   const layout = { ...layoutFor(options) };
   layout.exists = existsInRepository(layout);
+  layout.escapes = escapesRepository(layout);
   const adapters = loadAdapters(layout);
   if (adapters.length === 0) {
     io.out(`No adapters under ${layout.adaptersRel}/. Each adapted skill is a folder there holding ${ADAPTER_FILE} and its overlay.`);
@@ -1966,6 +1997,7 @@ function frontmatterProblems(skillMarkdown, lock, adapter) {
 export function runCheck(options, io) {
   const layout = { ...layoutFor(options) };
   layout.exists = existsInRepository(layout);
+  layout.escapes = escapesRepository(layout);
   const adapters = loadAdapters(layout);
   const running = composerBytes();
   const vendored = existsSync(layout.toolPath) ? readFileSync(layout.toolPath) : null;

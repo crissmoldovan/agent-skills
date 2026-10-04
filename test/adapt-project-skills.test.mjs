@@ -2018,6 +2018,37 @@ test('the link scan and the link rewriter read a long text in linear time', () =
   }
 });
 
+// "Outside the repository" is where a reader lands, not how the path is spelt: a symbolic link the
+// repository holds can take a link that stays inside it on paper to a file outside it.
+test('a link that reaches outside the repository through a symbolic link in it is refused at [10], at compose and at check', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const outside = await tempDir('adapt-outside-');
+  write(outside, 'shared/notes.md', '# Shared notes\n');
+  const linked = (folder) => `${OVERLAY}| see [the shared notes](../../../docs/${folder}/notes.md) | nothing |\n`;
+  const project = await addAdapter({ pack, overlay: linked('external') });
+  write(project, 'records/shared/notes.md', '# Notes kept here\n');
+  mkdirSync(path.join(project, 'docs'), { recursive: true });
+  symlinkSync(path.join(outside, 'shared'), path.join(project, 'docs', 'external'));
+  symlinkSync(path.join('..', 'records', 'shared'), path.join(project, 'docs', 'internal'));
+
+  const refused = compose(project);
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[10\] SKILL\.md links to \.\.\/\.\.\/\.\.\/docs\/external\/notes\.md, which reaches outside the repository through a symbolic link/);
+
+  // A symbolic link that stays inside the repository is followed like any other path.
+  write(project, `${ADAPTERS}/notes-here/overlay.md`, linked('internal'));
+  const accepted = compose(project, '--write');
+  assert.equal(accepted.status, EXIT_OK, accepted.stdout);
+  assert.equal(check(project).status, EXIT_OK);
+
+  // Pointed outside after the copy was composed, the link fails the offline check too.
+  rmSync(path.join(project, 'docs', 'internal'));
+  symlinkSync(path.join(outside, 'shared'), path.join(project, 'docs', 'internal'));
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_FAILED, checked.stdout);
+  assert.match(checked.stdout, /\[10\] SKILL\.md links to \.\.\/\.\.\/\.\.\/docs\/internal\/notes\.md, which reaches outside the repository through a symbolic link/);
+});
+
 test('a link written from the root is read, never moved, and refused at [10] wherever it sits', () => {
   assert.deepEqual(relativeLinks('[a](/guide.md) [b](//example.com/x.md)').map(({ pathname, rooted }) => [pathname, Boolean(rooted)]), [['/guide.md', true]]);
   assert.equal(rewriteEntryLinks('[a](/guide.md)', 'references/part.md').text, '[a](/guide.md)');
