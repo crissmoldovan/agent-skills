@@ -28,7 +28,7 @@ The weighing of one visit, from its clicks and taps, its recording, and its brow
 | a software graphics renderer, or almost no installed fonts | an agent in a headless browser | the renderer names a software rasteriser | a locked-down or virtual desktop looks the same |
 | a data-centre network | an agent | the registry names a hosting or cloud provider (H4: `whois` on the masked block; keep the owner and "hosting provider: yes or no", never the location it also returns) | a person on a company VPN or a remote desktop exits from one; and a masked block can span several registrants, so the owner named may not be the visitor's network |
 | the pointer moved between clicks | a person | any pointer positions recorded between clicks | an agent that drives the real pointer moves it too |
-| keys were pressed | a person | any key press recorded (what had focus is recorded; the keys never are) | an agent that types does this too |
+| keys were pressed | a person | any key press counted (what had focus is read; the keys and what they typed never are) | an agent that types does this too |
 | the window's focus changed | a person | any blur or focus recorded | an agent switching tabs does this too |
 | text was selected | a person | any selection recorded | |
 | right clicks, double clicks, rage clicks | a person | any | |
@@ -141,8 +141,8 @@ reasons a count cannot tell apart.
 Said in the report wherever it applies, so a reader does not take a gap for an answer:
 
 - A recording does not cover every minute of a visit. Say which minutes each recording covers.
-- Typed text is masked, and a field's input sends no event, so what a person typed is never
-  recorded (H2 refuses reading it anyway).
+- What a person typed is not read (H2), whether or not the source recorded it: S3 says which
+  sources record it, and the queries leave it out.
 - Another site's files hide their sizes.
 - The auth store sees the site's servers, not the visitor's browser, wherever sign-in runs on the
   server.

@@ -172,9 +172,12 @@ what it filters on, the row it returns, and its control.
    time it is known to have been there within the source's held range, has to find it. A control
    over anyone other than the named people, or over a time outside the window, is run as a count
    and returns no identifiers (H3). A counter that does not find its control is not used, and the
-   report says why.
-   **Complete when:** every source has its held range, every counter has found its control, and
-   every control read was one the yes named.
+   report says why. For each source, also settle whether it records what is typed (input or change
+   events, field values in a recording), from its own settings or schema, never from anyone's rows.
+   A source that does is read only through queries that leave every typed value out, its recording
+   links are left out, and one whose queries cannot leave them out is not read (H2).
+   **Complete when:** every source has its held range and its answer on typed text, every counter
+   has found its control, and every control read was one the yes named.
 
 4. **S4. Find the people in the sources.** Run the "who is there" query over the hosts bound as F4,
    chosen by each page's own host and never by an environment field, and filtered to the named
@@ -210,8 +213,8 @@ what it filters on, the row it returns, and its control.
 
 7. **S7. Answer each question from its rows.** One section per question the request asked, each
    citing the rows it counts and saying what its source cannot show: a recording does not cover
-   every minute, typed text is masked, another site's files hide their sizes, and a sign-in made on
-   the server shows the site's servers rather than the visitor's browser.
+   every minute, typed text is never read, another site's files hide their sizes, and a sign-in
+   made on the server shows the site's servers rather than the visitor's browser.
    - **What they did.** Visits, screens and the time on each, clicks and taps, the order, the gaps.
    - **Whether it loaded for them.** The did-not-load signals, each counted, and the reasons listed.
    - **Live or cached.** Per file, the bytes transferred against its encoded size, and the version

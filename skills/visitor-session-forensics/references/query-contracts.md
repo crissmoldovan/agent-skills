@@ -30,8 +30,13 @@ A real source id, table name or host goes in the project's overlay, never in thi
 - **Both stores, once.** Where recent rows and older rows are kept apart, read both and take the
   distinct rows, because for a while the two hold the same ones.
 - **A click is `click` or `tap`.** A touch device sends taps and no clicks at all. A rage click
-  arrives on top of the clicks it is made of. A form field's input, a select and a text area send
-  no event.
+  arrives on top of the clicks it is made of.
+- **Typed text is never read.** Some sources record what is typed, as input or change events or as
+  field values inside a recording, and some do not; that is a property of the source, so S3 checks
+  it per source, from the source's own settings or schema, before the first query. Every query
+  names the fields it returns and leaves out any input value, field value or keystroke payload, and
+  a source that cannot leave typed values out of what a query returns is not read; the report says
+  which source and why (H2).
 - **Saved as returned.** A result the tool wrote to a file is copied; a small one shown inline is
   copied, never retyped.
 - **A URL is cut to its host and path.** A page address or a referrer can carry a sign-in link's
@@ -157,11 +162,14 @@ clicked shows clicks. A control visit that is not a named person's returns the t
 
 - `first_ms` and `last_ms` say which minutes the recording covers. A recording is not the whole
   visit.
-- What had focus when a key was pressed may be read from the recording's breadcrumbs. The keys
-  themselves are never recorded.
+- A recording is read only as these counts and times: never a key, a value or a frame of what was
+  on screen. What had focus when a key was pressed may be read from the recording's breadcrumbs,
+  as the element and not what it held.
 - `api_calls` counts requests to the site's own paths that the questions are about, such as an
   assistant's endpoint or a sign-in renewal.
 - The link opens the recording in the store and needs a sign-in there; it goes in the detail only.
+  Where S3 did not confirm that the source masks typed text in its recordings, the link is left out,
+  because whoever opens it would see what was typed.
 
 **Control.** The control visit has a recording that covers it, with pointer positions.
 

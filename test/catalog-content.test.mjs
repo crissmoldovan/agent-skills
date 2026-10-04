@@ -977,6 +977,26 @@ test("visitor-session-forensics reads a named person's account within the window
   assert.match(a2, /\*\*Reads\*\* the auth provider's log, filtered to the people's account ids or identities\s+and\s+to\s+the\s+window/);
 });
 
+// Some sources record what is typed: input and change events, or field values in a recording. That a
+// sender emits none is a property of one source, so it is checked per source before the first query,
+// and every query leaves typed values out of what it returns, or the source is not read.
+test('visitor-session-forensics never reads what a person typed, and checks each source for it before reading', async () => {
+  const skill = await read('skills/visitor-session-forensics/SKILL.md');
+  const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
+  const signals = await read('skills/visitor-session-forensics/references/evidence-signals.md');
+  for (const text of [contracts, signals]) {
+    assert.doesNotMatch(text, /send\s+no\s+event|sends\s+no\s+event|keys\s+themselves\s+are\s+never\s+recorded|the\s+keys\s+never\s+are/);
+  }
+  assert.match(contracts, /\*\*Typed text is never read\.\*\*/);
+  assert.match(contracts, /a\s+source\s+that\s+cannot\s+leave\s+typed\s+values\s+out\s+of\s+what\s+a\s+query\s+returns\s+is\s+not\s+read/i);
+  const q4 = contracts.slice(contracts.indexOf('## Q4. Recordings'), contracts.indexOf('## Q5. Files loaded'));
+  assert.match(q4, /never\s+a\s+key,\s+a\s+value\s+or\s+a\s+frame/);
+  assert.match(q4, /link\s+is\s+left\s+out/);
+  const s3 = skill.slice(skill.indexOf('**S3. Prove each source'), skill.indexOf('**S4. Find the people'));
+  assert.match(s3, /whether\s+it\s+records\s+what\s+is\s+typed/);
+  assert.match(s3, /from\s+its\s+own\s+settings\s+or\s+schema,\s+never\s+from\s+anyone's\s+rows/);
+});
+
 // The commands in ingest-arrival's record forms that copy, land or check a pack, run as written.
 async function arrivalCommands() {
   const forms = await read('skills/ingest-arrival/references/record-forms.md');
