@@ -15,6 +15,7 @@ the translation.
 | `{FROM}`, `{TO}` | the window, in UTC | `'2026-01-06 12:00:00'`, `'2026-01-06 18:00:00'` |
 | `{HOSTS}` | the hosts bound as F4, quoted | `'app.example.com'` |
 | `{IDENTITIES}` | the named people's sign-in identities, quoted | `'dana@example.com', 'sam@example.com'` |
+| `{RELEASE_FILES}` | the paths of the files the releases live in the window ship, from R1: the files whose path a loaded file may keep | `'/assets/app-3f2a9c.js'` |
 | `{VISITS}` | the visits the "who is there" query tied to the named people: a visit in which a named identity signed in and no other identity appears | `'00000000-0000-4000-8000-000000000101'` |
 
 A real source id, table name or host goes in the project's overlay, never in this file.
@@ -44,10 +45,12 @@ A real source id, table name or host goes in the project's overlay, never in thi
   segment of its path (`/verify/<token>`). So the query and the fragment are dropped, and each
   segment of the path is kept only when it is a plain word of the site's routes, lowercase letters
   and hyphens, at most 32 characters; any other segment (one holding a digit, a capital, an `@`, a
-  `%`, a `.` or an `=`, or a longer run) is replaced by `:segment`. The one exception is a script, a
-  stylesheet, a font or an image a page loaded from the site's own hosts: its path is kept, because
-  its name carries the version tag Q5 compares with the release (R1), and its query is still
-  dropped. Cut it in the query where the store can, as in
+  `%`, a `.` or an `=`, or a longer run) is replaced by `:segment`. The one exception is a file a
+  page loaded from the site's own hosts, which keeps its path only when it is one of
+  `{RELEASE_FILES}`, the files the release ships, because its name carries the version tag Q5
+  compares with the release (R1); an avatar named for an account or an export named for a token is
+  not one, and is cut like any URL. Its query is dropped either way. Cut it in the query where the
+  store can, as in
   `concat(domain(url), arrayStringConcat(arrayMap(s -> if(s = '' OR match(s, '^[a-z-]{1,32}$'), s, ':segment'), splitByChar('/', path(url))), '/'))`;
   where it cannot, cut it before the row leaves the run directory (H4).
 - **Controls are named, and read no more than they must.** Each control is one the yes named (H3).
@@ -189,8 +192,8 @@ clicked shows clicks. A control visit that is not a named person's returns the t
 - The three sizes are the browser's Resource Timing values; the evidence signals give their
   meaning.
 - `status` separates a refused file (401, 403) from a missing one (404) and a failed one (5xx).
-- `<path>` is cut to its route as every URL is, except for a script, a stylesheet, a font or an
-  image from the site's own hosts, whose path is kept for its version tag; no query is returned.
+- `<path>` is cut to its route as every URL is, unless it is one of `{RELEASE_FILES}`, whose path
+  is kept for its version tag; no query is returned. R1 runs first, to give that list.
 
 **Control.** A file of a few kilobytes or more that the control visit loaded for the first time
 shows a transfer above its encoded size.
@@ -248,7 +251,8 @@ git rev-list -1 --first-parent --before=<UTC time> <release branch>   # the rele
 git show <commit>:<file> | sha256sum | cut -c1-16                     # that file's tag, where the served file is committed as served
 ```
 
-**Returns** the merges with their times, and per release the version tags its files would carry.
+**Returns** the merges with their times, and per release the paths of the files it ships
+(`{RELEASE_FILES}`) and the version tags they would carry.
 
 - A merge time is a release time give or take the deploy; the report says so.
 - The tag's length and hash are the project's; read them from its build, never assume them.

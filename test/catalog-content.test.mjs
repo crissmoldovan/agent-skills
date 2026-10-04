@@ -906,6 +906,13 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
   assert.equal(cut('https://app.example.com/users/dana@example.com/settings'), 'app.example.com/users/:segment/settings');
   assert.equal(cut('https://app.example.com/reports/monthly-summary'), 'app.example.com/reports/monthly-summary');
   assert.match(route, /match\(s, \x27\^\[a-z-\]\{1,32\}\$\x27\), s, \x27:segment\x27/);
+  // A file the page loaded keeps its path only when the release ships it: an avatar named for an
+  // account id, or an export named for a signed token, is cut like any other URL.
+  assert.match(route, /only\s+when\s+it\s+is\s+one\s+of\s+`\{RELEASE_FILES\}`/);
+  assert.match(section(contracts, 'Placeholders'), /^\| `\{RELEASE_FILES\}` \| /m);
+  assert.doesNotMatch(contracts, /its path is kept, because/);
+  const q5 = contracts.slice(contracts.indexOf('## Q5. Files loaded'), contracts.indexOf('## Q6.'));
+  assert.match(q5, /`\{RELEASE_FILES\}`/);
   // The check can only follow the publication, so it gates the link, and a failure has its remedy.
   assert.match(skill, /\*\*H9\. A published report's link goes to nobody until every address that serves it refuses a\s+reader who is not signed in\.\*\*/);
   assert.match(skill, /the report is taken down at once/);
