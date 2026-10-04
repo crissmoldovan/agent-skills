@@ -964,6 +964,20 @@ fs.mkdirSync = (target, options) => { if (target === landing && !fs.existsSync(l
   assert.match(raced.stderr, /exists already; nothing landed/);
   assert.deepEqual(await readdir(`${repo}/pack-a-5`), ['theirs.txt']);
   assert.deepEqual(await leftovers(), []);
+  // Something put inside the claimed folder after the claim is not this command's, and a landing
+  // that fails removes only what the command made: beside the members, or under a member's name.
+  for (const [name, theirs] of [['pack-a-6', 'theirs.txt'], ['pack-a-7', 'README.md']]) {
+    const inside = `${arrival}/inside-${name}.cjs`;
+    await writeFile(inside, `const fs = require("node:fs"), path = require("node:path"); const temp = fs.mkdtempSync; const landing = process.argv[3];
+fs.mkdtempSync = (prefix, options) => { fs.writeFileSync(path.join(landing, ${JSON.stringify(theirs)}), "someone else"); return temp(prefix, options); };\n`);
+    const shared = landPack([arrival, 'pack-a', `${repo}/${name}`], inside);
+    assert.equal(shared.status, 2, shared.stdout);
+    assert.match(shared.stderr, /nothing landed; write no RECEIVED\.md and commit nothing/);
+    assert.match(shared.stderr, /holds what this command did not make, and is left as it is/);
+    assert.deepEqual(await readdir(`${repo}/${name}`), [theirs]);
+    assert.equal(await readFile(`${repo}/${name}/${theirs}`, 'utf8'), 'someone else');
+    assert.deepEqual(await leftovers(), []);
+  }
 
   assert.match(skill, /\*\*Land by the guarded copy\.\*\*/);
   assert.match(skill, /Landing a pack, guarded/);
