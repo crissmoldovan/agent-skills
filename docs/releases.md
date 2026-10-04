@@ -133,7 +133,8 @@ data that has to be withdrawn, and per-skill tags `<skill>-vX.Y.Z` may sit besid
 page classes every change to a declared id as major, minor or patch, and says which number moves:
 the catalogue's, and a per-skill tag's where the skill has one, with a major change moving the
 middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
-removing an id is major among its pitfalls, which is the only change to an installed skill.
+removing an id is major among its pitfalls, which is the only change to an installed skill, and
+its metadata version moves from 1.0.0 to 1.0.1 for that line.
 
 ## Release checklist
 
