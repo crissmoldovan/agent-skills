@@ -2,14 +2,24 @@
 /**
  * Validate the public skill catalog without external dependencies.
  */
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
 import { resolve, relative, dirname, sep } from 'node:path';
 
 const root = process.cwd();
 const skillsRoot = resolve(root, 'skills');
-const runtimeRoot = resolve(root, 'packages', 'agent-lifecycle');
+// The one file read for machine paths but not for likely secrets: the lifecycle package's tests
+// write lock files with `token: '<owner>'` fields, which read as a likely secret and are none.
+// The run names it whenever it reads it, so the exception is never silent.
+const secretPatternExempt = ['packages', 'agent-lifecycle', 'test', 'lifecycle.test.ts'].join(sep);
 const failures = [];
-const textExtensions = new Set(['.md', '.mdx', '.txt', '.json', '.yml', '.yaml', '.js', '.mjs', '.cjs', '.ts']);
+// Every file the repository would publish is scanned for secrets and machine paths, whatever its
+// name. An extension list used to decide, and it missed what nobody listed: a .toml fixture, a
+// .sh helper, a .jsonl capture, an extensionless config. Both patterns are ASCII, so the bytes are
+// searched whatever their encoding: a text file (no NUL byte) is decoded as UTF-8 with
+// replacement, so a Latin-1 file is read too, and a binary file (a NUL byte) one character per
+// byte, which finds a path in an image's metadata. What an image shows is not read, so the run
+// names every binary file for a person to look at.
 // A SKILL.md body — everything after the frontmatter — is capped so that detail lives in
 // carried reference files instead of the always-loaded instruction file.
 const MAX_BODY_LINES = 484;
@@ -206,23 +216,111 @@ for (const file of skillFiles) {
   }
 }
 
-for (const file of walk(root)) {
-  const relativeFile = relative(root, file);
-  if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
-  if (isWithin(file, runtimeRoot)) continue;
-  const extension = relativeFile.slice(relativeFile.lastIndexOf('.')).toLowerCase();
-  if (!textExtensions.has(extension) && !['README', 'LICENSE', 'CONTRIBUTING', 'SECURITY'].includes(relativeFile)) continue;
-  const source = readFileSync(file, 'utf8');
-  const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
-  if (secret.test(source)) fail(`${relativeFile}: contains a likely secret`);
-  const absolutePath = /(?:^|[\s'"`(])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)]+/m;
-  if (absolutePath.test(source)) fail(`${relativeFile}: contains a machine-specific absolute path`);
+// What the scan reads. In a git checkout, what the repository would publish: every file git
+// tracks, wherever it sits, and every untracked file `git add -A` would take outside the
+// generated and temporary directories above. A file git ignores is never published, so a local
+// `.env` cannot fail the run. Outside a git checkout (an exported tree, a test fixture), every
+// file outside those directories. Paths come back relative to the root.
+function filesToScan() {
+  const run = (args) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const top = run(['rev-parse', '--show-toplevel']);
+  let isTop = false;
+  try {
+    isTop = !top.error && top.status === 0 && realpathSync(top.stdout.trim()) === realpathSync(root);
+  } catch {
+    isTop = false;
+  }
+  const tracked = isTop ? run(['ls-files', '-z', '--cached']) : null;
+  const untracked = isTop ? run(['ls-files', '-z', '--others', '--exclude-standard']) : null;
+  if (!tracked || tracked.status !== 0 || untracked.status !== 0) {
+    return { from: 'every file under this directory', files: walk(root).map((file) => relative(root, file)) };
+  }
+  const paths = (listing) => listing.stdout.split('\0').filter(Boolean).map((path) => path.split('/').join(sep));
+  const added = paths(untracked).filter((path) => !path.split(sep).some((segment) => ignoredDirectories.has(segment)));
+  // A commit publishes the index, and a push publishes HEAD, so where either holds another copy
+  // of a tracked file than the working tree does, that copy is read as well: one deleted from the
+  // working tree without the deletion being staged, or left out of a sparse checkout, one with a
+  // clean edit not yet staged over it, and one whose deletion is staged but not committed.
+  const unstaged = run(['diff', '-z', '--name-only', '--no-renames']);
+  const staged = run(['diff', '-z', '--name-only', '--no-renames', '--cached']);
+  const copies = new Map();
+  const copy = (path, object) => copies.set(path, [...(copies.get(path) ?? []), object]);
+  if (unstaged.status === 0) for (const path of paths(unstaged)) copy(path, `:${path.split(sep).join('/')}`);
+  if (staged.status === 0) for (const path of paths(staged)) copy(path, `HEAD:${path.split(sep).join('/')}`);
+  // A file left out of a sparse checkout is in the index but not in the working tree, and git diff
+  // does not name it, so a tracked file the working tree lacks is read from the index whatever
+  // git diff says.
+  const indexed = new Set(paths(tracked));
+  return { from: 'the files git tracks or would add', files: [...new Set([...indexed, ...added, ...copies.keys()])], copies, indexed };
+}
+
+// The bytes of one copy git holds (`:path` in the index, `HEAD:path` in the last commit), or null
+// where it holds none: a deletion, or a submodule's entry, which has no blob. A symbolic link's
+// copy is the path it stores, and is read as text like any other.
+function gitCopy(object) {
+  const read = spawnSync('git', ['cat-file', 'blob', object], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+  return !read.error && read.status === 0 ? read.stdout : null;
+}
+
+const scan = filesToScan();
+const binaries = [];
+let scanned = 0;
+let exemptRead = false;
+const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
+// A path may follow a control character as well as a space or a quote: a binary format
+// separates its metadata fields with NUL bytes.
+const absolutePath = /(?:^|[\s'"`(\x00-\x1f])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)\x00]+/m;
+for (const relativeFile of scan.files) {
+  if (relativeFile.split(sep).includes('.git')) continue;
+  const file = resolve(root, relativeFile);
+  const sources = [];
+  let binary = false;
+  let stat = null;
+  try {
+    stat = lstatSync(file);
+  } catch {
+    stat = null; // not in this working tree; a copy git holds may still be
+  }
+  if (stat?.isSymbolicLink()) {
+    // Git stores a symbolic link as the path it points to, and publishes that path.
+    sources.push(readlinkSync(file));
+  } else if (stat?.isFile()) {
+    const bytes = readFileSync(file);
+    binary ||= bytes.includes(0);
+    sources.push(bytes);
+  } else if (stat !== null) {
+    continue; // a submodule or a nested repository: its files are not this repository's to publish
+  }
+  const held = [...(scan.copies?.get(relativeFile) ?? [])];
+  const indexCopy = `:${relativeFile.split(sep).join('/')}`;
+  if (stat === null && scan.indexed?.has(relativeFile) && !held.includes(indexCopy)) held.push(indexCopy);
+  for (const object of held) {
+    const bytes = gitCopy(object);
+    if (bytes === null) continue;
+    binary ||= bytes.includes(0);
+    sources.push(bytes);
+  }
+  if (sources.length === 0) continue; // in neither the working tree nor the index nor HEAD
+  const texts = sources.map((source) => (typeof source === 'string' ? source : source.toString(binary ? 'latin1' : 'utf8')));
+  if (binary) binaries.push(relativeFile);
+  else scanned += 1;
+  if (relativeFile === secretPatternExempt) exemptRead = true;
+  else if (texts.some((text) => secret.test(text))) fail(`${relativeFile}: contains a likely secret`);
+  if (texts.some((text) => absolutePath.test(text))) fail(`${relativeFile}: contains a machine-specific absolute path`);
+}
+
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+let coverage = `${plural(scanned, 'text file')} scanned for secrets and machine paths (${scan.from})`;
+if (exemptRead) coverage += `; ${secretPatternExempt} read for machine paths only, as its token fields are fixtures`;
+if (binaries.length) {
+  coverage += `; ${plural(binaries.length, 'binary file')} searched as bytes, which cannot see what an image shows, so look at each: ${binaries.sort().join(', ')}`;
 }
 
 if (failures.length) {
   console.error(`Skill verification failed (${failures.length} issue${failures.length === 1 ? '' : 's'}):`);
   for (const message of failures) console.error(`- ${message}`);
+  console.log(`${coverage}.`);
   process.exitCode = 1;
 } else {
-  console.log(`Skill verification passed: ${skillFiles.length} skill${skillFiles.length === 1 ? '' : 's'} discovered.`);
+  console.log(`Skill verification passed: ${plural(skillFiles.length, 'skill')} discovered; ${coverage}.`);
 }

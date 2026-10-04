@@ -21,6 +21,6 @@ Do not commit:
 
 ## Review standard
 
-Treat examples as executable guidance. A reviewer must be able to conclude that the content is public, portable, and safe before it is merged. The automated validator catches common secret patterns and absolute paths, but it is a backstop—not a substitute for review.
+Treat examples as executable guidance. A reviewer must be able to conclude that the content is public, portable, and safe before it is merged. The automated validator catches common secret patterns and absolute paths, but it is a backstop—not a substitute for review. Names have no pattern it could hold, so contributors also run `scripts/scan-denylist.mjs` against a private list of the names their work must keep out, as [CONTRIBUTING](../CONTRIBUTING.md) describes; it is a backstop too.
 
 If content might be sensitive, do not commit it. Ask a maintainer for a safe public abstraction or report an accidental disclosure using [SECURITY.md](../SECURITY.md).

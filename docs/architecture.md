@@ -27,13 +27,14 @@ repository README and in [releases](releases.md).
 
 ## Verification boundary
 
-`scripts/verify-skills.mjs` is dependency-free and is run locally and in CI. It enforces discovery structure, minimal frontmatter, local-link containment, carried-file existence for every bare `references/`, `scripts/`, or `assets/` token, a 484-line cap on the `SKILL.md` body so detail lives in carried files, likely-secret detection, and local absolute-path detection. It intentionally does not claim to prove that content is safe; human review and the [public-content policy](public-content-policy.md) remain required.
+`scripts/verify-skills.mjs` is dependency-free and is run locally and in CI. It enforces discovery structure, minimal frontmatter, local-link containment, carried-file existence for every bare `references/`, `scripts/`, or `assets/` token, a 484-line cap on the `SKILL.md` body so detail lives in carried files, and likely-secret and local absolute-path detection in every file the repository would publish, whatever its extension: in a git checkout, every tracked file wherever it sits, and every untracked file that git does not ignore and that is not under a generated or temporary directory such as `build/`, `dist/` or `tmp/`; outside a checkout, every file not under such a directory. A binary file is searched as bytes and named for a person to look at, because what an image shows is not read; one lifecycle test file, named in the output, is read for paths but not for the secret pattern, because its token fields are fixtures. It intentionally does not claim to prove that content is safe; human review and the [public-content policy](public-content-policy.md) remain required. A name has no pattern a public validator could hold, so `scripts/scan-denylist.mjs` scans what a branch adds against a list of terms each contributor keeps outside every repository, and prints no term it matched unless asked to.
 
 ## Adapters and hooks
 
 `adapters/` is not part of the catalog. Nothing in it is discovered as a skill, nothing in it
-is installed by `npx skills add`, and `scripts/verify-skills.mjs` does not look at it — it
-validates `skills/` only. What lives there is harness-specific glue: code that runs outside
+is installed by `npx skills add`, and `scripts/verify-skills.mjs` checks it only by the scan for
+secrets and machine paths it runs over every text file; its other checks are for `skills/`
+only. What lives there is harness-specific glue: code that runs outside
 the conversation, in a hook the user wired into their own harness.
 
 - `adapters/claude-code/journal-hook.{sh,mjs}` translates Claude Code's hook payloads into
