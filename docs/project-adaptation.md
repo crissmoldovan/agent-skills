@@ -188,7 +188,9 @@ In this order:
 3. the names map, from the bound `skill` slots;
 4. the overlay's bindings;
 5. the entry's text between markers, byte for byte but for the links a reference-file entry has
-   rewritten ([below](#when-the-entry-is-a-reference-file));
+   rewritten ([below](#when-the-entry-is-a-reference-file)). For a `SKILL.md` entry that text is its
+   body, everything after the `---` that closes its frontmatter, since item 1 is the copy's only
+   frontmatter; a reference file has none, and its whole text is the entry's;
 6. the overlay's additions under their ids, then its traps.
 
 The **entry** is the file of the skill that the project adapts, and it is usually `SKILL.md`. Beside
