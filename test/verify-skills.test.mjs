@@ -464,6 +464,24 @@ test('verifier refuses a Bindings section with no table, a different header, or 
   }
 });
 
+// GitHub keeps a pipe written after any backslash in its cell, so `\|` and `\\|` both stay inside
+// one cell there; Markdown's own escape rule reads `\\` as one backslash and leaves the pipe to
+// split the row. A slot must not depend on which reading a renderer takes, so a pipe after two or
+// more backslashes is refused, and an escaped pipe, which every reading keeps in its cell, passes.
+test('verifier refuses a Bindings row with a pipe after two or more backslashes, and keeps an escaped pipe in its cell', async () => {
+  for (const row of [
+    '| B1 | path \\\\| owner | value | ask once |',
+    '| B1 | a slot | value | ask \\\\\\\\| once |',
+  ]) {
+    const result = await verify(await adaptableFixture(adaptableBody([row])));
+
+    assert.equal(result.status, 1, `${row} passed verification`);
+    assert.match(result.stderr, /a ## Bindings row has a pipe after two or more backslashes/, row);
+  }
+  const escaped = await verify(await adaptableFixture(adaptableBody(['| B1 | path \\| owner | value | ask once |'])));
+  assert.equal(escaped.status, 0, escaped.stderr);
+});
+
 test('verifier refuses an id declared twice, within a file or across the files of a skill', async () => {
   const twiceInOneFile = await adaptableFixture(adaptableBody([...goodRows, '| B2 | another slot | value | ask once |']));
   let result = await verify(twiceInOneFile);

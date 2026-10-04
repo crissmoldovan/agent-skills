@@ -285,6 +285,13 @@ function validateBindingsTable(lines, heading, where, declare, slotLetters, ship
   let rows = 0;
   for (index += 2; index < end && lines[index].trim().startsWith('|'); index += 1) {
     rows += 1;
+    // GitHub keeps a pipe after any backslash in its cell, which is how `tableCells` reads it;
+    // Markdown's own escape rule reads `\\` as one backslash and leaves the pipe to split the row.
+    // A slot must not depend on which reading a renderer takes, so that pipe is refused.
+    if (/\\\\\|/.test(lines[index])) {
+      fail(`${where(index)}: a ## Bindings row has a pipe after two or more backslashes, which renderers split differently — write the cell without it, or escape the pipe with one backslash`);
+      continue;
+    }
     const row = tableCells(lines[index]);
     if (row.length !== BINDINGS_COLUMNS.length) {
       fail(`${where(index)}: a ## Bindings row has ${row.length} cells; the table has ${BINDINGS_COLUMNS.length}`);
