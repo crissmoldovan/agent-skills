@@ -330,12 +330,13 @@ A manifest in another shape is read by its own rules, and the result is still st
 
 **Landing a pack, guarded.** Where B4 says a pack lands, it is copied from its archived unpack by
 this command and no other. It checks the archived pack against `CONTENTS.txt` first, then claims
-the landing folder by making it, which fails when anything is already there, so nothing is ever
-replaced. It copies the pack into a new folder beside it, checks every member there (the same bytes
-and hash, none missing, and no other file), puts the members into the folder it claimed, each
-folder made and each file linked so that nothing there is replaced, and checks them again. A copy that fails or does not match is removed with the folder it claimed, so
-nothing is left behind. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing
-is written beside the landing, no `RECEIVED.md`, and nothing is committed:
+the landing folder by making it, which fails when anything is already there. It copies the pack
+into a new folder beside it, checks every member there (the same bytes and hash, none missing, and
+no other file), puts the members into the folder it claimed, each folder made and each file linked
+so that nothing there is replaced, and checks them again. When anything fails or does not match,
+it removes what it made and nothing else, and says so if the landing place holds anything it did
+not make. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written
+beside the landing, no `RECEIVED.md`, and nothing is committed:
 
 ```sh
 node -e '
@@ -371,11 +372,21 @@ try { fs.mkdirSync(landing); } catch (error) {
   console.error(error.code === "EEXIST" ? `${landing} exists already; nothing landed` : `${landing} cannot be made (${error.code}); nothing landed`);
   process.exit(2);
 }
+// What this command made at the landing place, so that a failure removes that and nothing else:
+// a folder only once it is empty, and a file only while it is still the one this command linked.
+const made = [{ target: landing }];
 let copy = null;
 const fail = (why) => {
+  for (const { target, ino } of made.reverse()) {
+    try {
+      const st = fs.lstatSync(target);
+      if (ino === undefined && st.isDirectory()) fs.rmdirSync(target);
+      else if (ino !== undefined && st.ino === ino) fs.unlinkSync(target);
+    } catch {}
+  }
   if (copy) fs.rmSync(copy, { recursive: true, force: true });
-  fs.rmSync(landing, { recursive: true, force: true });
-  console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`);
+  const left = fs.existsSync(landing) ? `; ${landing} holds what this command did not make, and is left as it is` : "";
+  console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing${left}`);
   process.exit(2);
 };
 try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) { fail(`no folder could be made beside it (${error.code})`); }
@@ -385,7 +396,8 @@ if (after.length) fail(`${after.join("\n")}\nthe landing is not what CONTENTS.tx
 // Each folder by mkdir and each file by link(): both fail when anything is there, so nothing is replaced.
 const place = (from, to) => { for (const e of fs.readdirSync(from, { withFileTypes: true })) {
   const a = path.join(from, e.name), b = path.join(to, e.name);
-  if (e.isDirectory()) { fs.mkdirSync(b); place(a, b); } else fs.linkSync(a, b);
+  if (e.isDirectory()) { fs.mkdirSync(b); made.push({ target: b }); place(a, b); }
+  else { fs.linkSync(a, b); made.push({ target: b, ino: fs.lstatSync(a).ino }); }
 } };
 try { place(copy, landing); } catch (error) { fail(`the copy could not be put in place without replacing anything (${error.code})`); }
 const placed = differences("landing", measure(landing));
