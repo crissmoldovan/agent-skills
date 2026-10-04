@@ -399,6 +399,23 @@ test('verifier refuses a slot with no default, or a placeholder in its place', a
   }
 });
 
+// A placeholder is still a placeholder when it is wrapped in code, emphasis or strikethrough, or
+// escaped: what the reader is left with is `TBD`. A real default wrapped the same way still passes.
+test('verifier refuses a placeholder default wrapped in Markdown formatting, and keeps a formatted real one', async () => {
+  for (const placeholder of ['`TBD`', '`?`', '`-`', '``todo``', '*TBD*', '**n/a**', '_TBD_', '***?***', '~~TBD~~', '` `', '\\?', '**`TBD`**']) {
+    const root = await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${placeholder} |`]));
+
+    const result = await verify(root);
+
+    assert.equal(result.status, 1, `default "${placeholder}" passed verification`);
+    assert.match(result.stderr, /slot B1 has no default/, placeholder);
+  }
+  for (const fallback of ['`UTC only`', '*ask once*', '**nobody**, and the run says so']) {
+    const result = await verify(await adaptableFixture(adaptableBody([`| B1 | a slot | value | ${fallback} |`])));
+    assert.equal(result.status, 0, `default "${fallback}" was refused: ${result.stderr}`);
+  }
+});
+
 test('verifier refuses a slot kind other than value or skill, with an optional ", required"', async () => {
   for (const kind of ['list', 'Value', 'value required', 'skill, optional', '']) {
     const root = await adaptableFixture(adaptableBody([`| B1 | a slot | ${kind} | ask once |`]));
@@ -433,6 +450,9 @@ test('verifier refuses a Bindings section with no table, a different header, or 
     ['## Bindings\n\n| id | value |\n|---|---|\n| B1 | ask once |\n', /columns \| id \| slot \| kind \| default \|/],
     ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n\nNo rows.\n', /## Bindings declares no slot/],
     ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|\n| B1 | a slot | value |\n', /row has 3 cells; the table has 4/],
+    // A delimiter row with another number of cells than the header is not a table to a renderer.
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|\n| B1 | a slot | value | ask once |\n', /delimiter row has 1 cell; the table has 4/],
+    ['## Bindings\n\n| id | slot | kind | default |\n|---|---|---|---|---|\n| B1 | a slot | value | ask once |\n', /delimiter row has 5 cells; the table has 4/],
   ];
   for (const [section, expected] of cases) {
     const root = await adaptableFixture(frontmatter + section);
@@ -495,6 +515,43 @@ test('verifier refuses a malformed hard-line or step id, and slots under two let
   // Another letter than B is allowed, as long as the skill uses only that one.
   const ownLetter = await adaptableFixture(adaptableBody(['| F1 | the event source | value | ask once |', '| F2 | the table | value | ask once |']));
   result = await verify(ownLetter);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+// An id written with a separator or in lower case (`S-1`, `H_1`, `s4`) is a malformed id, not
+// prose: it fails rather than passing unread. A heading or lead-in where a letter follows the H or
+// S is a word (`## Hard lines`, `- **Sweep the day.**`) and stays ordinary text.
+test('verifier refuses an id written with a separator or in lower case, and leaves a word after H or S alone', async () => {
+  const cases = [
+    ['- **S-1. Do work.** A hyphen.', /S-1 is not a well-formed step id/],
+    ['### H_1 — Guard', /H_1 is not a well-formed hard-line id/],
+    ['1. **S.5 Dotted.** A full stop.', /S\.5 is not a well-formed step id/],
+    ['### S 6 — Spaced', /S 6 is not a well-formed step id/],
+    ['- **H–3. An en dash.**', /H–3 is not a well-formed hard-line id/],
+    ['- **s4. Lower case.**', /s4 is not a well-formed step id/],
+    ['### h2 — Lower case', /h2 is not a well-formed hard-line id/],
+  ];
+  for (const [line, expected] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${line}\n`)));
+
+    assert.equal(result.status, 1, `${line} passed verification`);
+    assert.match(result.stderr, expected, line);
+  }
+
+  const words = [
+    '## Scope',
+    '',
+    '### Sweep the day',
+    '',
+    '- **Severity: the evidence decides it.**',
+    '- **Hash it before and after.**',
+    '- **Signed in, or not.**',
+    '- **S-curve:** a word, not an id.',
+    '1. **How this was checked.**',
+    '#### H-bridge',
+    '',
+  ].join('\n');
+  const result = await verify(await adaptableFixture(adaptableBody(goodRows, words)));
   assert.equal(result.status, 0, result.stderr);
 });
 
@@ -581,6 +638,48 @@ test('verifier leaves out a fence nested in a list item, and reads a level-one h
   result = await verify(await adaptableFixture(adaptableBody(goodRows, '# S2 — The same step, at level one\n')));
   assert.equal(result.status, 1);
   assert.match(result.stderr, /id S2 is declared twice in this skill/);
+});
+
+// A fence hides lines only when it closes before a line indented less than its opener. A line that
+// only looks like a fence (indented code showing one, a fence never closed, backticks in the info
+// string) would otherwise hide every declaration after it, so a step declared twice would pass.
+test('verifier reads past a line that only looks like a fence, so a declaration after it is still held', async () => {
+  const cases = [
+    ['an indented code line showing a fence', ['    ```', '', '- **S2. Read it again.** A second S2.']],
+    ['an indented code line, then a real fenced example', ['    ```', '', '- **S2. Read it again.** A second S2.', '', '```markdown', 'An example.', '```']],
+    ['a fence never closed', ['```markdown', '- **S2. Read it again.** A second S2.']],
+    ['backticks in a backtick fence\'s info string', ['``` `inline` code, which is not a fence', '- **S2. Read it again.** A second S2.', '```']],
+  ];
+  for (const [name, rest] of cases) {
+    const result = await verify(await adaptableFixture(adaptableBody(goodRows, `${rest.join('\n')}\n`)));
+
+    assert.equal(result.status, 1, `after ${name}, a second S2 passed verification`);
+    assert.match(result.stderr, /id S2 is declared twice in this skill/, name);
+  }
+});
+
+// A fence-shaped line indented more than three columns past the opener is the fence's content, so
+// it does not close the fence, and an example after it stays code. Indented code showing a whole
+// fenced example is code too.
+test('verifier keeps a fence open past a deeper fence-shaped line, and leaves out indented code showing a fence', async () => {
+  const deeper = [
+    '```markdown',
+    '- An example that shows a fence of its own:',
+    '',
+    '    ```js',
+    '    code',
+    '    ```',
+    '',
+    '- **S1. An example step, still inside the outer fence.**',
+    '```',
+    '',
+  ].join('\n');
+  let result = await verify(await adaptableFixture(adaptableBody(goodRows, deeper)));
+  assert.equal(result.status, 0, result.stderr);
+
+  const indented = ['    ```markdown', '    - **S1. An example step in indented code.**', '    ```', ''].join('\n');
+  result = await verify(await adaptableFixture(adaptableBody(goodRows, indented)));
+  assert.equal(result.status, 0, result.stderr);
 });
 
 // Only a declaration opens a list item with an id in bold. A citation written as a bold lead-in
