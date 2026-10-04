@@ -927,6 +927,11 @@ test("visitor-session-forensics reads the named people's visits, never everythin
   assert.match(q0, /a count, never a name/);
   assert.match(q0, /left out of every\s+later query and counted/);
   assert.match(contracts, /\*\*The visit, never the browser\.\*\*/);
+  // A visit's events before its sign-in carry no identity, and on a shared machine may be someone
+  // else's: they are reported apart, never as the person's.
+  assert.match(contracts, /before its sign-in[^.]*reported apart[^.]*never as the person's/);
+  assert.match(q0, /"<signed in>"/);
+  assert.match(q0, /minIf\(dt, JSONExtractString\(raw, 'identity'\) IN \(\{IDENTITIES\}\)\) AS signed_in/);
   const s4 = skill.slice(skill.indexOf('**S4. Find the people in the sources.**'), skill.indexOf('**S5. Pull the rows, as returned.**'));
   assert.match(s4, /never everything a browser sent/);
   assert.match(s4, /left out and counted, never split by a guess/);

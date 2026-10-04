@@ -184,7 +184,7 @@ what it filters on, the row it returns, and its control.
    outlives a sign-out, so it can carry another person's visit or one nobody signed in to. A visit
    that also carries another identity (a shared machine, an account switched within the visit) is
    left out and counted, never split by a guess; the query returns that identity as a count, never
-   a name. One person may use several browsers and machines, so a device is read per browser and
+   a name. A kept visit's events before its sign-in are reported apart, never as the person's. One person may use several browsers and machines, so a device is read per browser and
    never per person. An account bound as F5 that turns up (a request about everyone, or a browser a
    named person shares with a test account) is left out and counted. A visitor the records do not
    name is "unnamed", never matched by a guess.

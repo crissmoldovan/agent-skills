@@ -67,8 +67,9 @@ named person's visit, then another person's, then a visitor who never signed in.
 browser reads all three as the named person's. So every query after Q0 reads the visits Q0 tied to
 the named people and nothing else their browsers sent. A visit that also carries another identity,
 as a shared machine or an account switched within one visit does, is left out and counted, never
-split by a guess. Events of a kept visit sent before its sign-in carry no identity and are read as
-that visit's; the report says so.
+split by a guess. Events of a kept visit sent before its sign-in carry no identity, and on a shared
+machine may be whoever used the browser first: they are reported apart, as the visit's before
+sign-in, never as the person's own.
 
 ## Q0. Who is there
 
@@ -79,7 +80,8 @@ everyone in the window is that filter dropped.
 **Returns** one row per identity and browser:
 `["<identity>", "<name the page recorded>", "<visitor id>", visits, events, "<first seen>", "<last seen>"]`,
 and one row per visit in which a named identity signed in:
-`["<identity>", "<visit id>", "<visitor id>", "<first seen>", "<last seen>", other_identities]`.
+`["<identity>", "<visit id>", "<visitor id>", "<first seen>", "<signed in>", "<last seen>", other_identities]`,
+where `<signed in>` is the time of the visit's first event that carries the identity.
 
 - The identity and the name are per visit: an event sent before sign-in carries neither. A visitor
   with no identity is reported *unnamed*, never matched by a guess.
@@ -96,7 +98,7 @@ SELECT JSONExtractString(raw, 'visit_id') AS visit,
   groupUniqArrayIf(JSONExtractString(raw, 'identity'), JSONExtractString(raw, 'identity') IN ({IDENTITIES})) AS named,
   uniqIf(JSONExtractString(raw, 'identity'),
     JSONExtractString(raw, 'identity') != '' AND JSONExtractString(raw, 'identity') NOT IN ({IDENTITIES})) AS other_identities,
-  min(dt) AS first_seen, max(dt) AS last_seen
+  min(dt) AS first_seen, minIf(dt, JSONExtractString(raw, 'identity') IN ({IDENTITIES})) AS signed_in, max(dt) AS last_seen
 FROM visits GROUP BY visit HAVING length(named) > 0
 ```
 
@@ -116,6 +118,7 @@ short prefix of the visit id, enough to keep visits apart; the full id goes in Q
 - The label is the first of these the element carries: the site's own tracking attribute, its
   accessible label, its navigation target, its selector.
 - Clicks are counted as `event IN ('click', 'tap')`.
+- An event before its visit's `<signed in>` (Q0) is counted apart, as the visit's before sign-in.
 
 **Control.** A visit known to have used a touch device shows taps, and a visit known to have
 clicked shows clicks. A control visit that is not a named person's returns the two counts only.
