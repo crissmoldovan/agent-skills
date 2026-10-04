@@ -477,7 +477,9 @@ printf '%s  %s\n' '<full sha256, from SHA256SUMS>' '<source>' | shasum -a 256 -c
 Each image command below writes into a new folder, made without `-p`, and the first two print one
 line per image (full sha256, bytes, name) and then the count, never the encoded bytes.
 
-**Embedded images from a Markdown export.** It checks the source hash itself:
+**Embedded images from a Markdown export.** It checks the source hash itself, takes each payload
+only as far as its base64 runs, never into the words after it, and counts a payload that is not
+whole base64 without writing it:
 
 ```sh
 node -e '
@@ -487,13 +489,17 @@ const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const text = fs.readFileSync(source);
 if (sha(text) !== expected) { console.error(`${source}: sha256 is not ${expected}; nothing extracted`); process.exit(2); }
 fs.mkdirSync(out);
-let n = 0;
-for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([A-Za-z0-9+\/=\s]+)/g)) {
-  const bytes = Buffer.from(data.replace(/\s+/g, ""), "base64");
+let n = 0, broken = 0;
+// The payload ends where its base64 ends, at a space, a quote or a bracket: never in the words after it.
+for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-]+);base64,([A-Za-z0-9+\/]*={0,2})/g)) {
+  const bytes = Buffer.from(data, "base64");
+  // Node decodes what it can of a broken payload; only one that encodes back to itself is whole.
+  if (data === "" || bytes.toString("base64") !== data) { broken += 1; continue; }
   const name = `image-${String(++n).padStart(3, "0")}.${type.split("+")[0].replace("jpeg", "jpg")}`;
   fs.writeFileSync(path.join(out, name), bytes, { flag: "wx" });
   console.log(`${sha(bytes)} ${bytes.length} ${name}`);
 }
+if (broken) console.log(`${broken} not extracted: ${broken === 1 ? "its payload is" : "their payloads are"} not whole base64`);
 console.log(`${n} images`);
 ' '<arrival folder>/<doc>.md' '<its full sha256>' '<arrival folder>/images-md'
 ```

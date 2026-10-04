@@ -1048,6 +1048,40 @@ fs.linkSync = (from, to) => { if (to === landing) ${made}; return link(from, to)
   assert.equal(await exists(`${dir}/raced-link.csv.elsewhere`), false, 'the copy went through a link');
 });
 
+// A data URI's payload ends where its base64 ends: prose after it, on the next line or right after
+// a closing bracket, is never decoded into the image, and a payload that is not whole base64 is
+// counted and left out, never written as an image.
+test('ingest-arrival extracts an embedded image byte for byte, and never decodes the words after it', async () => {
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const { spawnSync } = await import('node:child_process');
+  const { readFile, readdir, writeFile } = await import('node:fs/promises');
+  const start = forms.indexOf('**Embedded images from a Markdown export.**');
+  assert.notEqual(start, -1, 'record forms no longer carry the Markdown image extraction');
+  const code = forms.slice(start).match(/node -e '\n([^']*)'/)[1];
+  const one = Buffer.from('synthetic image one, long enough to pad'), two = Buffer.from('synthetic image two');
+  const doc = [
+    `A raw URI: data:image/png;base64,${one.toString('base64')}`,
+    '',
+    'A caption that follows it.',
+    `<img src="data:image/jpeg;base64,${two.toString('base64')}">and words right after`,
+    '![cut](data:image/png;base64,QUJ)',
+    '',
+  ].join('\n');
+  const dir = await tempDir('ingest-arrival-images-');
+  await writeFile(`${dir}/doc.md`, doc);
+  const result = spawnSync(process.execPath, ['-e', code, `${dir}/doc.md`, await sha256(doc), `${dir}/images-md`], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const sum = async (bytes) => sha256(bytes);
+  assert.deepEqual(result.stdout.trim().split('\n'), [
+    `${await sum(one)} ${one.length} image-001.png`,
+    `${await sum(two)} ${two.length} image-002.jpg`,
+    '1 not extracted: its payload is not whole base64',
+    '2 images',
+  ]);
+  assert.deepEqual(await readFile(`${dir}/images-md/image-001.png`), one);
+  assert.deepEqual((await readdir(`${dir}/images-md`)).sort(), ['image-001.png', 'image-002.jpg']);
+});
+
 // Two members that extract to one path: the later overwrites the earlier, and the walk after the
 // unpack sees only the winner, so the guard refuses them before anything is extracted.
 test("ingest-arrival's pack guard refuses two members that would extract to one path", async (t) => {
