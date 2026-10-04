@@ -299,9 +299,9 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
    - **Land by the guarded copy.** A pack lands only through "Landing a pack, guarded" in
      [record forms](references/record-forms.md), and a single file through its single-file form:
      the archived copy is checked against `CONTENTS.txt` or `SHA256SUMS`, copied beside the landing
-     place, checked again member by member, and moved into place only when it matches; a copy that
-     fails or differs is removed. Until that prints `N of N`, or `landed`, nothing is written beside
-     it and nothing is committed.
+     place, checked again member by member, and moved into place only when it matches, never over
+     anything already there; a copy that fails or differs is removed. Until that prints `N of N`, or
+     `landed`, nothing is written beside it and nothing is committed.
    - **Each surface names the others.**
    - **An issue id**, where the project keeps them (the default B6 skill keeps none), is linked only
      when the arrival itself cites it or B1 names it. That an arrival belongs under an existing id is

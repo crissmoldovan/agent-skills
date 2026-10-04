@@ -329,12 +329,13 @@ for (const problem of [...parse, ...walked, ...compare]) console.log(problem);
 A manifest in another shape is read by its own rules, and the result is still stated in this form.
 
 **Landing a pack, guarded.** Where B4 says a pack lands, it is copied from its archived unpack by
-this command and no other. It checks the archived pack against `CONTENTS.txt` first, copies it into
-a new folder beside the landing place, checks every member there (the same bytes and hash, none
-missing, and no other file), and only then moves that folder into place. A landing place that
-exists already is refused, and a copy that fails or does not match is removed, so nothing is left
-behind. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written beside
-the landing, no `RECEIVED.md`, and nothing is committed:
+this command and no other. It checks the archived pack against `CONTENTS.txt` first, then claims
+the landing folder by making it, which fails when anything is already there, so nothing is ever
+replaced. It copies the pack into a new folder beside it, checks every member there (the same bytes
+and hash, none missing, and no other file), puts the members into the folder it claimed, each
+folder made and each file linked so that nothing there is replaced, and checks them again. A copy that fails or does not match is removed with the folder it claimed, so
+nothing is left behind. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing
+is written beside the landing, no `RECEIVED.md`, and nothing is committed:
 
 ```sh
 node -e '
@@ -362,28 +363,41 @@ const differences = (where, found) => [
   ...[...listed].filter(([rel, want]) => found.get(rel) !== want).map(([rel]) => `${where}: ${found.has(rel) ? "differs" : "missing"}: ${rel}`),
   ...[...found.keys()].filter((rel) => !listed.has(rel)).map((rel) => `${where}: not in CONTENTS.txt: ${rel}`),
 ];
-const taken = (target) => { try { fs.lstatSync(target); return true; } catch { return false; } };
 const source = path.join(arrival, "unpacked", pack);
 const before = differences("archive", measure(source));
 if (before.length) { console.error(`${before.join("\n")}\nthe archived pack is not what CONTENTS.txt lists; nothing landed`); process.exit(2); }
-if (taken(landing)) { console.error(`${landing} exists already; nothing landed`); process.exit(2); }
-let copy;
-try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) {
-  console.error(`${landing} cannot be made beside (${error.code}); nothing landed`);
+// The claim: mkdir makes the folder or fails, so nothing at the landing place is ever replaced.
+try { fs.mkdirSync(landing); } catch (error) {
+  console.error(error.code === "EEXIST" ? `${landing} exists already; nothing landed` : `${landing} cannot be made (${error.code}); nothing landed`);
   process.exit(2);
 }
-const fail = (why) => { fs.rmSync(copy, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
+let copy = null;
+const fail = (why) => {
+  if (copy) fs.rmSync(copy, { recursive: true, force: true });
+  fs.rmSync(landing, { recursive: true, force: true });
+  console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`);
+  process.exit(2);
+};
+try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) { fail(`no folder could be made beside it (${error.code})`); }
 try { fs.cpSync(source, copy, { recursive: true, errorOnExist: true, force: false }); } catch (error) { fail(`the copy failed (${error.code ?? error.message})`); }
 const after = differences("landing", measure(copy));
 if (after.length) fail(`${after.join("\n")}\nthe landing is not what CONTENTS.txt lists`);
-if (taken(landing)) fail(`${landing} appeared during the copy`);
-try { fs.renameSync(copy, landing); } catch (error) { fail(`the copy could not be moved into place (${error.code})`); }
+// Each folder by mkdir and each file by link(): both fail when anything is there, so nothing is replaced.
+const place = (from, to) => { for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+  const a = path.join(from, e.name), b = path.join(to, e.name);
+  if (e.isDirectory()) { fs.mkdirSync(b); place(a, b); } else fs.linkSync(a, b);
+} };
+try { place(copy, landing); } catch (error) { fail(`the copy could not be put in place without replacing anything (${error.code})`); }
+const placed = differences("landing", measure(landing));
+if (placed.length) fail(`${placed.join("\n")}\nthe landing changed as it was moved into place`);
+fs.rmSync(copy, { recursive: true, force: true });
 console.log(`${listed.size} of ${listed.size} members landed, each matching CONTENTS.txt, and no other file`);
 ' '<arrival folder>' '<pack name>' '<the landing folder B4 names, not yet made>'
 ```
 
-**Landing a single file, guarded.** The same checks, with its full sha256 from `SHA256SUMS`. Nothing
-at the landing path is written over, a link included:
+**Landing a single file, guarded.** The same checks, with its full sha256 from `SHA256SUMS`. The
+checked copy is put at the landing path by `link()`, which fails when anything is there, a link
+included, so nothing is ever written over:
 
 ```sh
 node -e '
@@ -403,8 +417,9 @@ const copy = path.join(folder, path.basename(landing));
 const fail = (why) => { fs.rmSync(folder, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
 try { fs.copyFileSync(file, copy, fs.constants.COPYFILE_EXCL); } catch (error) { fail(`the copy failed (${error.code ?? error.message})`); }
 if (sha(copy) !== sum) fail("the copy differs from SHA256SUMS");
-if (taken(landing)) fail(`${landing} appeared during the copy`);
-try { fs.renameSync(copy, landing); } catch (error) { fail(`the copy could not be moved into place (${error.code})`); }
+try { fs.linkSync(copy, landing); } catch (error) {
+  fail(error.code === "EEXIST" ? `${landing} exists already` : `the copy could not be put in place without replacing anything (${error.code})`);
+}
 fs.rmSync(folder, { recursive: true, force: true });
 console.log("landed, matching SHA256SUMS");
 ' '<full sha256, from SHA256SUMS>' '<archived file>' '<landing path>'
