@@ -479,7 +479,8 @@ line per image (full sha256, bytes, name) and then the count, never the encoded 
 
 **Embedded images from a Markdown export.** It checks the source hash itself, takes each payload
 only as far as its base64 runs, never into the words after it, and counts a payload that is not
-whole base64 without writing it:
+whole base64 without writing it. It exits 0 only when it kept every image it found; exit 3 means one
+was not kept, and its line is recorded as a gap:
 
 ```sh
 node -e '
@@ -501,31 +502,41 @@ for (const [, type, data] of text.toString("utf8").matchAll(/data:image\/([\w.+-
 }
 if (broken) console.log(`${broken} not extracted: ${broken === 1 ? "its payload is" : "their payloads are"} not whole base64`);
 console.log(`${n} images`);
+// An image that could not be kept is a gap for the record (S7), so this does not end as a success.
+process.exit(broken ? 3 : 0);
 ' '<arrival folder>/<doc>.md' '<its full sha256>' '<arrival folder>/images-md'
 ```
 
-**Image parts from the raw email.** The same, for `message.eml`:
+**Image parts from the raw email.** The same, for `message.eml`, with the same exit 3 for a part it
+could not keep:
 
 ```sh
 python3 - '<arrival folder>/message.eml' '<its full sha256>' '<arrival folder>/images-eml' <<'EOF'
 import sys, os, hashlib, email
-from email import policy
+from email import errors, policy
 source, expected, out = sys.argv[1:4]
 data = open(source, 'rb').read()
 if hashlib.sha256(data).hexdigest() != expected:
     sys.exit(f'{source}: sha256 is not {expected}; nothing extracted')
 os.mkdir(out)
-n = 0
+n = broken = 0
 for part in email.message_from_bytes(data, policy=policy.default).walk():
     if part.get_content_maintype() != 'image':
         continue
-    n += 1
     body = part.get_payload(decode=True) or b''
+    # Python decodes what it can of a broken part and notes a defect; such a part, or an empty one, is not kept.
+    if not body or any(isinstance(d, (errors.InvalidBase64PaddingDefect, errors.InvalidBase64CharactersDefect, errors.InvalidBase64LengthDefect)) for d in part.defects):
+        broken += 1
+        continue
+    n += 1
     name = f'image-{n:03d}.{part.get_content_subtype().split("+")[0]}'
     with open(os.path.join(out, name), 'xb') as f:
         f.write(body)
     print(hashlib.sha256(body).hexdigest(), len(body), name)
+if broken:
+    print(broken, 'not extracted:', 'its payload does' if broken == 1 else 'their payloads do', 'not decode whole')
 print(n, 'image parts')
+sys.exit(3 if broken else 0)
 EOF
 ```
 
