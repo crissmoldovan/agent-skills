@@ -512,7 +512,7 @@ export async function readMessages(found, { since = null, until = null, includeH
       const result = classify(record, { subagent });
       let kind = result.person;
       if (!kind && result.kind === 'headless' && includeHeadless) kind = 'headless';
-      const at = { file, line: number, where: subagent ? 'subagent' : 'session' };
+      const at = { file, line: number };
       if (!kind) {
         exclude(result.kind);
         if (visitOther) visitOther(result.kind, record, at);
@@ -727,8 +727,10 @@ async function commandLocate(options, out) {
   const elsewhere = {};
   const count = (kind) => { elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; };
   // A message typed while a turn runs is enqueued first and delivered later, as a queued prompt or
-  // as the next turn. An enqueue is delivered by a person's message of the same session, at or after
-  // it, that has its whole words: a later message that only shares the phrase is not its delivery.
+  // as the next turn, into the same transcript. An enqueue is delivered by a person's message at a
+  // later line of its own transcript that has its whole words: a later message that only shares the
+  // phrase is not its delivery, and neither is one in another transcript, though a subagent's
+  // carries its parent's session id.
   // Each message delivers one enqueue at most, the earliest it can. An enqueue whose words sit inside
   // a longer later message may have been delivered with others or not, and is reported as unknown.
   // Delivery is looked for past the window, since a message enqueued inside it can arrive after it,
@@ -765,7 +767,6 @@ async function commandLocate(options, out) {
       enqueues.push({
         file: at.file,
         line: at.line,
-        where: at.where,
         timestamp: record.timestamp ?? null,
         session: record.sessionId ?? path.basename(at.file, '.jsonl'),
         text: words.text,
@@ -774,27 +775,13 @@ async function commandLocate(options, out) {
     },
   });
   const comparable = (text) => String(text).normalize('NFC').replace(/\s+/g, ' ').trim();
-  const timeOf = (entry) => {
-    const at = Date.parse(entry.timestamp ?? '');
-    return Number.isNaN(at) ? Infinity : at;
-  };
-  const byTime = (a, b) => {
-    const apart = timeOf(a) - timeOf(b);
-    return (Number.isNaN(apart) ? 0 : apart) || a.file.localeCompare(b.file) || a.line - b.line;
-  };
-  // At or after the enqueue. In one transcript a later line settles a tie or a missing time; across
-  // two, a missing time orders nothing.
-  const after = (message, entry) => {
-    const sent = Date.parse(message.timestamp ?? '');
-    const queued = Date.parse(entry.timestamp ?? '');
-    if (message.file === entry.file && (Number.isNaN(sent) || Number.isNaN(queued) || sent === queued)) return message.line > entry.line;
-    return sent >= queued;
-  };
-  candidates.sort(byTime);
+  // The harness appends to a transcript as the session runs, so its lines are in the order written.
+  const byPosition = (a, b) => a.file.localeCompare(b.file) || a.line - b.line;
+  candidates.sort(byPosition);
   const taken = new Set();
-  for (const entry of enqueues.sort(byTime)) {
+  for (const entry of enqueues.sort(byPosition)) {
     const words = comparable(entry.text);
-    const later = candidates.filter((message) => message.session === entry.session && message.where === entry.where && after(message, entry));
+    const later = candidates.filter((message) => message.file === entry.file && message.line > entry.line);
     const delivery = later.find((message) => !taken.has(message) && formsOf(message).some((text) => comparable(text) === words));
     if (delivery) {
       taken.add(delivery);
@@ -834,7 +821,7 @@ async function commandLocate(options, out) {
       : "each reached that session as a person's message";
     out(`enqueued while a turn was running: ${enqueued.length}; ${outcome}`);
     for (const entry of undelivered) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, not delivered`);
-    for (const entry of unknown) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, delivery unknown: its words are inside a longer message later in that session`);
+    for (const entry of unknown) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, delivery unknown: its words are inside a longer message later in that transcript`);
   }
   for (const line of coverageLines(found, totals)) out(line);
   return 0;

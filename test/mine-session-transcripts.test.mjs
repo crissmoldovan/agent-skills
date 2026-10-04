@@ -245,11 +245,14 @@ test('locate says when a message enqueued while a turn ran never reached its ses
  */
 const QUEUE_REPO = '/srv/example/queue';
 const QUEUE_SESSION = '00000000-0000-4000-8000-000000000101';
-async function queueHistory(records) {
+async function queueHistory(records, subagents = {}) {
   const history = await tempDir('mine-queue-');
   const dir = path.join(history, encodeProjectPath(QUEUE_REPO));
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, `${QUEUE_SESSION}.jsonl`), `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+  const lines = (list) => `${list.map((record) => JSON.stringify(record)).join('\n')}\n`;
+  await mkdir(path.join(dir, QUEUE_SESSION, 'subagents'), { recursive: true });
+  await writeFile(path.join(dir, `${QUEUE_SESSION}.jsonl`), lines(records));
+  // A subagent's transcript carries its parent's sessionId, as the fixtures' do.
+  for (const [agent, list] of Object.entries(subagents)) await writeFile(path.join(dir, QUEUE_SESSION, 'subagents', `agent-${agent}.jsonl`), lines(list));
   return history;
 }
 let queueUuid = 0;
@@ -297,7 +300,7 @@ test('an enqueue is delivered only by a later message with its whole words, one 
   const ship = run('locate', ...at, '--phrase', 'ship it');
   assert.equal(ship.status, 0, ship.stderr);
   assert.match(ship.stdout, /^enqueued while a turn was running: 1; 1 cannot be told from these records:$/m);
-  assert.match(ship.stdout, new RegExp(`^ {2}${file}:6 {2}2030-02-01T10:05:00Z {2}session ${QUEUE_SESSION} {2}enqueued, delivery unknown: its words are inside a longer message later in that session$`, 'm'));
+  assert.match(ship.stdout, new RegExp(`^ {2}${file}:6 {2}2030-02-01T10:05:00Z {2}session ${QUEUE_SESSION} {2}enqueued, delivery unknown: its words are inside a longer message later in that transcript$`, 'm'));
 
   // A slash command typed while a turn ran arrives as the command's markup, its name and arguments.
   const goal = run('locate', ...at, '--phrase', 'finish the preview build');
@@ -306,6 +309,19 @@ test('an enqueue is delivered only by a later message with its whole words, one 
   assert.match(goal.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
   assertNoMessageText(`${status.stdout}${ship.stdout}${goal.stdout}`, 'locate');
   for (const words of ['please deploy the preview', 'tag the release']) assert.ok(!`${status.stdout}${ship.stdout}`.includes(words), `locate printed ${words}`);
+});
+
+test('an enqueue is delivered only in its own transcript: two subagents share their parent\'s session id, and not their messages', async () => {
+  const history = await queueHistory([typedAt(0, 'start on the totals page')], {
+    a0000000000000101: [enqueueAt(1, 'check the totals page twice')],
+    b0000000000000101: [queuedAt(2, 'check the totals page twice')],
+  });
+  const located = run('locate', '--repo', QUEUE_REPO, '--history', history, '--phrase', 'check the totals page');
+  assert.equal(located.status, 0, located.stderr);
+  assert.match(located.stdout, /^1 message from a person contains the phrase$/m);
+  assert.match(located.stdout, /agent-b0000000000000101\.jsonl:1 .* {2}queued \(in a subagent\)$/m);
+  assert.match(located.stdout, /^enqueued while a turn was running: 1; 1 never reached that session as a person's message:$/m);
+  assert.match(located.stdout, /agent-a0000000000000101\.jsonl:1 {2}2030-02-01T10:01:00Z {2}session \S+ {2}enqueued, not delivered$/m);
 });
 
 test("an enqueue is screened as a person's turn is: the harness's own elements are not its words, nor what decides its delivery", async () => {
