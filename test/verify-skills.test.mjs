@@ -228,6 +228,27 @@ test('in a git checkout the verifier reads the index and HEAD copies where they 
   assert.doesNotMatch(result.stderr, /committed-removal\.toml/);
 });
 
+// A tracked file is published wherever it sits, under node_modules/ as much as anywhere, and a
+// path that merely begins with the name is an ordinary file.
+test('in a git checkout the verifier reads a tracked file under node_modules, and a path that only begins with the name', async () => {
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  const assignment = ['to', 'ken'].join('');
+  const realisticToken = ['prod', 'token', 'value', '1234567890'].join('-');
+  await mkdir(path.join(root, 'node_modules', 'vendored'), { recursive: true });
+  await writeFile(path.join(root, 'node_modules', 'vendored', 'index.js'), `const ${assignment} = "${realisticToken}";\n`);
+  await writeFile(path.join(root, 'node_modules-notes.txt'), `see ${personalPath}\n`);
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'fixture');
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`- ${escapeRegExp(path.join('node_modules', 'vendored', 'index.js'))}: contains a likely secret`));
+  assert.match(result.stderr, /- node_modules-notes\.txt: contains a machine-specific absolute path/);
+});
+
 test('verifier accepts neutral credential fixtures', async () => {
   const root = await fixture();
   const assignment = ['to', 'ken'].join('');

@@ -271,7 +271,7 @@ const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret
 // separates its metadata fields with NUL bytes.
 const absolutePath = /(?:^|[\s'"`(\x00-\x1f])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)\x00]+/m;
 for (const relativeFile of scan.files) {
-  if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
+  if (relativeFile.split(sep).includes('.git')) continue;
   const file = resolve(root, relativeFile);
   const sources = [];
   let binary = false;
