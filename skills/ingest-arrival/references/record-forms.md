@@ -297,6 +297,65 @@ comm -13 <(sed -E 's/^[0-9a-fA-F]{64} [ *]?//; s#^\./##' MANIFEST.sha256 | sort)
 
 A manifest in another shape is read by its own rules, and the result is still stated in this form.
 
+**Landing a pack, guarded.** Where B4 says a pack lands, it is copied from its archived unpack by
+this command and no other. It checks the archived pack against `CONTENTS.txt` first, makes the
+landing folder itself (it refuses one that exists), copies the pack into it, and checks every member
+where it landed: the same bytes and hash, none missing, and no other file. Run it after
+`CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written beside the landing, no
+`RECEIVED.md`, and nothing is committed:
+
+```sh
+node -e '
+const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+const [arrival, pack, landing] = process.argv.slice(1);
+if (!arrival || !pack || !landing) { console.error("usage: <arrival folder> <pack name> <landing folder, not yet made>"); process.exit(2); }
+const listed = new Map();
+for (const line of fs.readFileSync(path.join(arrival, "CONTENTS.txt"), "utf8").split("\n")) {
+  const m = line.match(/^([0-9a-f]{64}) (\d+) (.+)$/);
+  if (m && m[3].startsWith(`${pack}/`)) listed.set(m[3].slice(pack.length + 1), `${m[1]} ${m[2]}`);
+}
+if (listed.size === 0) { console.error(`CONTENTS.txt lists no member of ${pack}; nothing landed`); process.exit(2); }
+const measure = (root) => {
+  const found = new Map();
+  const walk = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, e.name), rel = path.relative(root, file).split(path.sep).join("/");
+    if (e.isDirectory()) walk(file);
+    else if (e.isFile()) found.set(rel, `${crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")} ${fs.statSync(file).size}`);
+    else found.set(rel, "not a regular file");
+  } };
+  if (fs.existsSync(root)) walk(root);
+  return found;
+};
+const differences = (where, found) => [
+  ...[...listed].filter(([rel, want]) => found.get(rel) !== want).map(([rel]) => `${where}: ${found.has(rel) ? "differs" : "missing"}: ${rel}`),
+  ...[...found.keys()].filter((rel) => !listed.has(rel)).map((rel) => `${where}: not in CONTENTS.txt: ${rel}`),
+];
+const source = path.join(arrival, "unpacked", pack);
+const before = differences("archive", measure(source));
+if (before.length) { console.error(`${before.join("\n")}\nthe archived pack is not what CONTENTS.txt lists; nothing landed`); process.exit(2); }
+try { fs.mkdirSync(landing); } catch (error) {
+  console.error(error.code === "EEXIST" ? `${landing} exists already; nothing landed` : `${landing} cannot be made (${error.code}); nothing landed`);
+  process.exit(2);
+}
+fs.cpSync(source, landing, { recursive: true, errorOnExist: true, force: false });
+const after = differences("landing", measure(landing));
+if (after.length) { console.error(`${after.join("\n")}\nthe landing is not what CONTENTS.txt lists: write no RECEIVED.md, commit nothing, and remove ${landing}`); process.exit(2); }
+console.log(`${listed.size} of ${listed.size} members landed, each matching CONTENTS.txt, and no other file`);
+' '<arrival folder>' '<pack name>' '<the landing folder B4 names, not yet made>'
+```
+
+**Landing a single file, guarded.** The same three checks, with its full sha256 from `SHA256SUMS`
+(`sha256sum -c --status -` on Linux):
+
+```sh
+sum='<full sha256, from SHA256SUMS>'
+printf '%s  %s\n' "$sum" '<archived file>' | shasum -a 256 -c --status - \
+  && [ ! -e '<landing path>' ] && cp '<archived file>' '<landing path>' \
+  && printf '%s  %s\n' "$sum" '<landing path>' | shasum -a 256 -c --status - \
+  && echo 'landed, matching SHA256SUMS' \
+  || echo 'not landed as archived: write no RECEIVED.md, commit nothing' >&2
+```
+
 **The facts only the raw email holds.** The `Message-ID`, the `Date:` header, the topmost
 `Received:` hop and the image parts:
 
