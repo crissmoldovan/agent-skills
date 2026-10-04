@@ -214,6 +214,28 @@ test('a binary file is searched as bytes, and listed as not looked at as a pictu
   assertNoTermPrinted(result.output);
 });
 
+// A term the base already holds in a binary file is not this branch's: changing other bytes of
+// the file adds nothing, and only a copy that holds the term more often than the base is a hit.
+test('a binary file that already held a term on the base is a hit only when the branch adds one', async () => {
+  const { repo, denylist } = await fixture();
+  const withTerm = (extra) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]), Buffer.from('tEXtAuthor\0Jane Roe\0'), Buffer.from(extra)]);
+  git(repo, 'checkout', '-q', 'main');
+  await commit(repo, { 'assets/old.png': withTerm([0x01]), 'assets/grown.png': withTerm([0x01]) }, 'base images');
+  git(repo, 'checkout', '-q', 'feature/work');
+  git(repo, 'merge', '-q', '--ff-only', 'main');
+  await commit(repo, {
+    'assets/old.png': withTerm([0x02, 0x03]),
+    'assets/grown.png': Buffer.concat([withTerm([0x02]), Buffer.from('Jane Roe\0')]),
+  });
+
+  const result = scan(repo, '--denylist', denylist, '--base', 'main');
+
+  assert.equal(result.status, 1, result.output);
+  assert.doesNotMatch(result.stdout, /binary file\s+assets\/old\.png/);
+  assert.match(result.stdout, new RegExp(`binary file\\s+assets/grown\\.png byte \\d+\\s+denylist line ${lineOf('Jane Roe')}`));
+  assertNoTermPrinted(result.output);
+});
+
 test('--worktree adds uncommitted changes and untracked files; without it they are not read', async () => {
   const { repo, denylist } = await fixture();
   await commit(repo, { 'tracked.md': 'neutral\n' });

@@ -19,7 +19,8 @@
  *   would be added as a link to one of its commits, so only its name is read, and the run says so.
  * A line already on the base, or removed, is not read: it is not this branch's to fix.
  * A binary file is searched as bytes, which finds a name in image metadata but not one drawn
- * in the pixels, so every binary file is listed for a person to look at.
+ * in the pixels, so every binary file is listed for a person to look at. It has no lines, so a
+ * term in it is a hit only where it occurs more often than in the base's copy of the file.
  *
  * The list is one term per line; blank lines and lines starting with `#` are ignored. A term
  * matches case-insensitively where it stands as a word: not inside a longer run of letters, or
@@ -372,11 +373,18 @@ function main(argv) {
   for (const { path, tracked, untracked, views: held } of binaries) {
     const copies = held.map((view) => (view.copy ? git(top, ['cat-file', 'blob', view.copy(path)], { buffer: true }) : workingBytes(top, path)));
     if (!tracked || untracked) copies.push(workingBytes(top, path));
+    // A binary file has no added lines, so a term the base already holds in it is told apart by
+    // count: a copy is a hit for a term only where it holds the term more often than the merge
+    // base's copy of the file does.
+    const base = git(top, ['cat-file', 'blob', `${mergeBase}:${path}`], { buffer: true, allowFailure: true });
+    const before = (term) => (base ? [...find(base.toString('latin1'), term, term.bytes)].length : 0);
     const found = new Set();
     for (const bytes of copies) {
       const latin1 = bytes.toString('latin1');
       for (const term of terms) {
-        for (const match of find(latin1, term, term.bytes)) {
+        const matches = [...find(latin1, term, term.bytes)];
+        if (matches.length <= before(term)) continue;
+        for (const match of matches) {
           const where = `${path} byte ${match.index}`;
           if (found.has(`${where}\0${term.line}`)) continue;
           found.add(`${where}\0${term.line}`);
