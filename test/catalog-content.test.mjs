@@ -859,7 +859,11 @@ test("ingest-arrival checks a supplier's manifest against the files it finds, an
     await writeFile(`${pack}/MANIFEST.sha256`, `${[...lines, ...extra].join('\n')}\n`);
     const result = manifest([pack]);
     assert.equal(result.stderr, '');
-    return result.stdout.trim().split('\n');
+    const printed = result.stdout.trim().split('\n');
+    // It stops what follows it unless the pack is the manifest's, whole: `check && import`.
+    const clean = printed.length === 1 && /^(\d+) of \1$/.test(printed[0]);
+    assert.equal(result.status, clean ? 0 : 2, `exit ${result.status} for ${printed.join(' | ')}`);
+    return printed;
   };
 
   assert.deepEqual(await check(), ['2 of 2']);
@@ -1072,7 +1076,13 @@ test("ingest-arrival's pack guard refuses two members that would extract to one 
     assert.equal(made.status, 0, made.stderr);
     return spawnSync('python3', ['-', `${dir}/${name}.zip`], { input: guard[1], encoding: 'utf8' });
   };
-  assert.equal(pack('clean', ['README.md', 'data/a.csv', 'data/b.csv']).stdout.trim(), 'clean');
+  const clean = pack('clean', ['README.md', 'data/a.csv', 'data/b.csv']);
+  assert.equal(clean.stdout.trim(), 'clean');
+  assert.equal(clean.status, 0);
+  // Anything it prints stops what follows it: `guard && unzip` never extracts an unsafe pack.
+  for (const [name, members] of [['twice-status', ['a.csv', 'a.csv']], ['unsafe-status', ['../outside.csv']], ['folder-status', ['data', 'data/a.csv']]]) {
+    assert.equal(pack(name, members).status, 1, `${name} exits 0`);
+  }
   assert.match(pack('twice', ['data/file.csv', 'data/file.csv']).stdout, /^two members extract to one path: data\/file\.csv and data\/file\.csv$/m);
   assert.match(pack('case', ['Data/File.csv', 'data/file.csv']).stdout, /^two members extract to one path: Data\/File\.csv and data\/file\.csv$/m);
   assert.match(pack('forms', ['café.csv', 'café.csv']).stdout, /^two members extract to one path: /m);

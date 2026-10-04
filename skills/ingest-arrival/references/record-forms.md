@@ -240,7 +240,8 @@ would extract to one path are unsafe too: the later overwrites the earlier, and 
 unpack sees only the winner. So each path is compared the way a disk that folds case or Unicode
 forms would store it: `\` read as `/`, `.` and empty parts dropped, the Unicode form evened out,
 and case folded. On a disk that folds neither, such a pair would not collide, and it stops the
-extraction all the same, because the archive may be unpacked again on one that does:
+extraction all the same, because the archive may be unpacked again on one that does. It exits 0
+only when it prints `clean`, so `<the guard> && <the extraction>` extracts nothing it refused:
 
 ```sh
 python3 - '<pack>.zip' <<'EOF'
@@ -259,6 +260,7 @@ for i in zipfile.ZipFile(sys.argv[1]).infolist():
     else: files[key(parts)] = n
 bad += [f'a file and a folder extract to one path: {n}' for k, n in files.items() if k in folders]
 print('\n'.join(bad) or 'clean')
+sys.exit(1 if bad else 0)
 EOF
 ```
 
@@ -286,7 +288,8 @@ the pack's own folder (`unpacked/<pack name>/`, or where it landed). The manifes
 claim, and so are its paths: none is opened. The command walks the folder itself, never following a
 link, and compares what it finds with the manifest's lines. A path that is absolute or climbs out
 with `..` is refused, and so is one listed twice, compared as the pack guard compares members. The
-first line must read `N of N`, and nothing may follow it:
+first line must read `N of N`, and nothing may follow it; the command exits 0 only then, so it can
+stand in front of whatever reads the pack:
 
 ```sh
 node -e '
@@ -321,8 +324,10 @@ for (const [rel, sum] of listed) {
   else compare.push(`${found.has(rel) ? "differs from the manifest" : "missing"}: ${rel}`);
 }
 console.log(`${ok} of ${total}`);
-for (const rel of found.keys()) if (!listed.has(rel)) console.log(`outside the manifest: ${rel}`);
+const outside = [...found.keys()].filter((rel) => !listed.has(rel));
+for (const rel of outside) console.log(`outside the manifest: ${rel}`);
 for (const problem of [...parse, ...walked, ...compare]) console.log(problem);
+process.exit(ok === total && outside.length + parse.length + walked.length + compare.length === 0 ? 0 : 2);
 ' '<the pack folder>'
 ```
 
