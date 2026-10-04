@@ -31,8 +31,9 @@
  * The shapes, and the harness versions they were observed on, are in references/record-shapes.md.
  *
  * NEVER DEDUPLICATED BY TEXT. People repeat themselves ("status?", "continue"), and each is a
- * message. The only duplicate dropped is one record (one `uuid`) seen twice, and a subagent's copy
- * of a message its parent session already holds, which is the same message relayed.
+ * message. The only duplicate dropped is one record (one `uuid`) seen twice. A subagent's message
+ * with the same words as one its parent session holds is kept too, and counted apart: it may be the
+ * parent's message relayed, or the same words sent to both, and no record shows which.
  *
  * Exit codes: 0 ran; 1 bad arguments; 2 no transcripts for these paths, which is unknown and not
  * zero; 3 refused (a secret in the message asked for, or a control that failed).
@@ -246,6 +247,19 @@ export function classify(record, { subagent = false } = {}) {
     // Command arguments are known by their markup; only a plain unmarked turn rests on the fallback.
     fallback: origin === undefined && screened.person === true,
   };
+}
+
+/**
+ * The person's words in a `queue-operation` enqueue, screened as a queued prompt is: the harness's
+ * own elements, such as a reminder or an editor selection, are taken out wherever they sit, so an
+ * enqueue is matched against a phrase and against its delivery by the words the person typed.
+ * Null for any other record, and for an enqueue that holds no words of a person's.
+ */
+export function enqueuedWords(record) {
+  if (record?.type !== 'queue-operation' || record.operation !== 'enqueue') return null;
+  const { text, attached } = contentOf(record.content);
+  const screened = screenText(text, { marked: true, attached });
+  return screened.person ? { text: screened.text, screened: screened.screened ?? [] } : null;
 }
 
 const hashOf = (text) => createHash('sha256').update(normalise(text)).digest('hex');
@@ -466,7 +480,7 @@ export function formatTimes(timestamp, zones = []) {
  * line, for a caller that counts where else a phrase occurs.
  */
 export async function readMessages(found, { since = null, until = null, includeHeadless = false, visit = () => {}, visitOutside = null, visitOther = null } = {}) {
-  const totals = { messages: {}, fallback: 0, screened: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
+  const totals = { messages: {}, fallback: 0, sameAsParent: 0, screened: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
   const exclude = (kind) => { totals.exclusions[kind] = (totals.exclusions[kind] ?? 0) + 1; };
   const seenUuids = new Set();
   const sinceMs = since ? Date.parse(since) : null;
@@ -481,6 +495,7 @@ export async function readMessages(found, { since = null, until = null, includeH
     }
     totals.messages[message.kind] = (totals.messages[message.kind] ?? 0) + 1;
     if (message.fallback) totals.fallback += 1;
+    if (message.sameAsParent) totals.sameAsParent += 1;
     totals.screened += message.screened.length;
     if (message.timestamp && (!totals.first || message.timestamp < totals.first)) totals.first = message.timestamp;
     if (message.timestamp && (!totals.last || message.timestamp > totals.last)) totals.last = message.timestamp;
@@ -510,11 +525,9 @@ export async function readMessages(found, { since = null, until = null, includeH
       }
       if (record.uuid) seenUuids.add(record.uuid);
       const hash = hashOf(result.text);
-      if (subagent && parentHashes.has(hash)) {
-        exclude('relayed-copy');
-        if (visitOther) visitOther('relayed-copy', record, at);
-        continue;
-      }
+      // Kept, and marked: the same words in a subagent may be the parent's message relayed to it, or
+      // the same short correction sent to both. Only a shared record (one uuid, above) proves a copy.
+      const sameAsParent = subagent && parentHashes.has(hash);
       hashes.add(hash);
       take({
         file,
@@ -523,6 +536,7 @@ export async function readMessages(found, { since = null, until = null, includeH
         session: record.sessionId ?? path.basename(file, '.jsonl'),
         kind,
         where: subagent ? 'subagent' : 'session',
+        sameAsParent,
         fallback: Boolean(result.fallback),
         attached: result.attached ?? [],
         command: result.command ?? null,
@@ -689,6 +703,7 @@ async function commandMessages(options, out) {
   out(`a person's messages: ${total}`);
   for (const [kind, n] of sorted(totals.messages)) out(`  ${String(n).padStart(6)}  ${kind}`);
   out(`  of which taken by the fallback (no origin marked): ${totals.fallback}`);
+  out(`  of which in a subagent, with the same words as a message of its parent session (kept: no record shows whether it was relayed): ${totals.sameAsParent}`);
   out(`  harness elements screened out of those turns (an editor selection, a reminder): ${totals.screened}`);
   out('left out, by kind:');
   for (const [kind, n] of sorted(totals.exclusions)) out(`  ${String(n).padStart(6)}  ${kind}`);
@@ -712,20 +727,27 @@ async function commandLocate(options, out) {
   const elsewhere = {};
   const count = (kind) => { elsewhere[kind] = (elsewhere[kind] ?? 0) + 1; };
   // A message typed while a turn runs is enqueued first and delivered later, as a queued prompt or
-  // as the next turn. An enqueued copy of the phrase that no person's message of the same session
-  // holds, at or after it, is a message that never reached the session. Delivery is looked for
-  // past the window as well, since a message enqueued inside it can arrive after it.
-  const delivered = [];
-  const enqueued = [];
+  // as the next turn, into the same transcript. An enqueue is delivered by a person's message at a
+  // later line of its own transcript that has its whole words: a later message that only shares the
+  // phrase is not its delivery, and neither is one in another transcript, though a subagent's
+  // carries its parent's session id.
+  // Each message delivers one enqueue at most, the earliest it can. An enqueue whose words sit inside
+  // a longer later message may have been delivered with others or not, and is reported as unknown.
+  // Delivery is looked for past the window, since a message enqueued inside it can arrive after it,
+  // and enqueues before the window are matched too, so that none takes another's delivery.
+  const candidates = [];
+  const enqueues = [];
   const sinceMs = options.since ? Date.parse(options.since) : null;
   const untilMs = options.until ? Date.parse(options.until) : null;
   const inWindow = (timestamp) => {
     const at = Date.parse(timestamp ?? '');
     return !((sinceMs !== null && !(at >= sinceMs)) || (untilMs !== null && !(at <= untilMs)));
   };
+  // A slash command typed while a turn ran is enqueued as typed, and arrives as the command's markup.
+  const formsOf = (message) => (message.command ? [message.text, `${message.command} ${message.text}`] : [message.text]);
   const seeMessage = (message, { inside }) => {
+    if (formsOf(message).some(has)) candidates.push(message);
     if (has(message.text)) {
-      delivered.push(message);
       if (inside) hits.push(message);
     } else if (message.screened.some(has)) {
       count('harness-segment');
@@ -740,31 +762,66 @@ async function commandLocate(options, out) {
     visitOther: (kind, record, at) => {
       if (!stringsOf(record).some(has)) return;
       count(kind);
-      if (record.type === 'queue-operation' && record.operation === 'enqueue' && stringsOf(record.content).some(has) && inWindow(record.timestamp)) {
-        enqueued.push({ file: at.file, line: at.line, timestamp: record.timestamp ?? null, session: record.sessionId ?? path.basename(at.file, '.jsonl') });
-      }
+      const words = enqueuedWords(record);
+      if (!words || !has(words.text)) return;
+      enqueues.push({
+        file: at.file,
+        line: at.line,
+        timestamp: record.timestamp ?? null,
+        session: record.sessionId ?? path.basename(at.file, '.jsonl'),
+        text: words.text,
+        inside: inWindow(record.timestamp),
+      });
     },
   });
-  const undelivered = enqueued.filter((entry) => !delivered.some((message) => message.session === entry.session
-    && (!entry.timestamp || !message.timestamp || Date.parse(message.timestamp) >= Date.parse(entry.timestamp))));
+  const comparable = (text) => String(text).normalize('NFC').replace(/\s+/g, ' ').trim();
+  // The harness appends to a transcript as the session runs, so its lines are in the order written.
+  const byPosition = (a, b) => a.file.localeCompare(b.file) || a.line - b.line;
+  candidates.sort(byPosition);
+  const taken = new Set();
+  for (const entry of enqueues.sort(byPosition)) {
+    const words = comparable(entry.text);
+    const later = candidates.filter((message) => message.file === entry.file && message.line > entry.line);
+    const delivery = later.find((message) => !taken.has(message) && formsOf(message).some((text) => comparable(text) === words));
+    if (delivery) {
+      taken.add(delivery);
+      entry.delivery = 'delivered';
+    } else {
+      entry.delivery = later.some((message) => ` ${comparable(message.text)} `.includes(` ${words} `)) ? 'unknown' : 'not delivered';
+    }
+  }
+  const enqueued = enqueues.filter((entry) => entry.inside);
+  const undelivered = enqueued.filter((entry) => entry.delivery === 'not delivered');
+  const unknown = enqueued.filter((entry) => entry.delivery === 'unknown');
+  const delivered = enqueued.length - undelivered.length - unknown.length;
+  const position = ({ file, line, timestamp, session }) => ({ file: path.relative(found.history, file), line, timestamp, session });
   if (options.json) {
     out(JSON.stringify({
       hits: hits.map(({ text, hash, screened, ...rest }) => ({ ...rest, chars: text.length })),
       elsewhere,
-      queued: { enqueued: enqueued.length, undelivered: undelivered.map((entry) => ({ ...entry, file: path.relative(found.history, entry.file) })) },
+      queued: { enqueued: enqueued.length, delivered, undelivered: undelivered.map(position), unknown: unknown.map(position) },
       coverage: coverageLines(found, totals),
     }, null, 1));
     return 0;
   }
   out(`${hits.length} message${hits.length === 1 ? ' from a person contains' : 's from a person contain'} the phrase`);
   for (const message of hits) {
-    out(`  ${where(found, message)}  ${formatTimes(message.timestamp, options.zone)}  session ${message.session}  ${message.kind}${message.where === 'subagent' ? ' (in a subagent)' : ''}`);
+    const subagent = message.sameAsParent ? ' (in a subagent, with the same words as a message of its parent session)' : ' (in a subagent)';
+    out(`  ${where(found, message)}  ${formatTimes(message.timestamp, options.zone)}  session ${message.session}  ${message.kind}${message.where === 'subagent' ? subagent : ''}`);
   }
   const other = sorted(elsewhere);
   if (other.length) out(`the phrase also occurs in records that are not a person's: ${other.map(([kind, n]) => `${n} ${kind}`).join(', ')}`);
   if (enqueued.length) {
-    out(`enqueued while a turn was running: ${enqueued.length}; ${undelivered.length ? `${undelivered.length} never reached that session as a person's message:` : "each reached that session as a person's message"}`);
+    const outcome = undelivered.length || unknown.length
+      ? `${[
+        delivered ? `${delivered} reached that session as a person's message` : null,
+        undelivered.length ? `${undelivered.length} never reached that session as a person's message` : null,
+        unknown.length ? `${unknown.length} cannot be told from these records` : null,
+      ].filter(Boolean).join('; ')}:`
+      : "each reached that session as a person's message";
+    out(`enqueued while a turn was running: ${enqueued.length}; ${outcome}`);
     for (const entry of undelivered) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, not delivered`);
+    for (const entry of unknown) out(`  ${where(found, entry)}  ${formatTimes(entry.timestamp, options.zone)}  session ${entry.session}  enqueued, delivery unknown: its words are inside a longer message later in that transcript`);
   }
   for (const line of coverageLines(found, totals)) out(line);
   return 0;
@@ -941,6 +998,7 @@ async function commandDocumented(options, out) {
       timestamp: message.timestamp,
       session: message.session,
       kind: message.kind,
+      sameAsParent: message.sameAsParent,
       chars: message.text.length,
       runs: runs.length,
       found: hits,
@@ -984,7 +1042,7 @@ async function commandDocumented(options, out) {
   const listed = options.all ? rows : rows.filter((row) => row.pct !== null && row.pct < 20);
   out(options.all ? 'every message:' : 'not written down:');
   for (const row of listed) {
-    out(`  ${row.file}:${row.line}  ${formatTimes(row.timestamp, options.zone)}  ${row.kind}  ${row.chars} chars  ${row.pct === null ? 'too short' : `${row.pct}%`}${row.relays ? '  relays' : ''}`);
+    out(`  ${row.file}:${row.line}  ${formatTimes(row.timestamp, options.zone)}  ${row.kind}  ${row.chars} chars  ${row.pct === null ? 'too short' : `${row.pct}%`}${row.relays ? '  relays' : ''}${row.sameAsParent ? "  same words as its parent session's" : ''}`);
   }
   if (options.out) out(`register written to ${options.out} (positions and counts, no message text; it names this machine's paths and the sessions' ids)`);
   for (const line of coverageLines(found, totals)) out(line);

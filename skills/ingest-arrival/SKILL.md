@@ -164,7 +164,9 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
    kept, measured before and after the copy, and they match.
 
 4. **S4. Give each pack its own folder.** Two packs are never unpacked into one.
-   - Before extracting, check for an absolute path, a `..`, a symlink or encryption. An encrypted pack
+   - Before extracting, check for an absolute path, a `..`, a symlink, encryption, and two members
+     that would extract to one path, which unzipping keeps as one without a word. Anything the guard
+     in record forms prints stops the extraction, and B1 is told which members. An encrypted pack
      stops the run: its password is not ours to look for. When B1 supplies one, it goes through B13,
      never into a record.
    - Extract it into `unpacked/<pack name>/` inside the arrival's folder, the pack's own folder made
@@ -289,10 +291,15 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
    | surface | what goes there | rule |
    |---|---|---|
    | the archive record (B3) | a record of the email, or of anything else, beside the verbatim copy, its `SHA256SUMS` and the evidence file | always; outside every repository, because it can hold personal or client data; addresses go here |
-   | the landing place (B4) | the pack's tree unchanged, our own record beside it under a name the pack does not use, and the manifest | only when a tool or the product reads it; never edited after landing. If the importer does not check the source hash, run the manifest check in the same command, just before it, and record the importer's gap |
+   | the landing place (B4) | the pack's tree unchanged, our own record beside it under a name the pack does not use, and the manifest | only when a tool or the product reads it, and only by the guarded copy below; never edited after landing. If the importer does not check the source hash, run the manifest check in the same command, just before it, and record the importer's gap |
    | the register (B5) | one record per arrival | run its verifier after every change |
    | the work's own list (B8) | one row per arrival, saying which moment each time is | none |
 
+   - **Land by the guarded copy.** A pack lands only through "Landing a pack, guarded" in
+     [record forms](references/record-forms.md), and a single file through its single-file form:
+     the archived copy is checked against `CONTENTS.txt` or `SHA256SUMS`, copied into a place made
+     for it, and checked again member by member where it landed. Until that prints `N of N`, or
+     `landed`, nothing is written beside it and nothing is committed.
    - **Each surface names the others.**
    - **An issue id**, where the project keeps them (the default B6 skill keeps none), is linked only
      when the arrival itself cites it or B1 names it. That an arrival belongs under an existing id is

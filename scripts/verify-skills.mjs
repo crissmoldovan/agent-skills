@@ -47,12 +47,18 @@ const BINDINGS_COLUMNS = ['id', 'slot', 'kind', 'default'];
 const WELL_FORMED_ID = /^[A-Z][1-9][0-9]*$/;
 const SLOT_KIND = /^(?:value|skill)(?:, required)?$/;
 const NO_DEFAULT = /^(?:|[-–—]+|tbd|todo|n\/a|\?)$/i;
+// A default is held to NO_DEFAULT as the reader is left with it: a backslash escape undone, and
+// code, emphasis or strikethrough marks around it taken off, so `TBD` in backticks is still TBD.
+const DEFAULT_MARKS = /^[\s`*_~]+|[\s`*_~]+$/g;
 // A hard line (H) or a step (S) is declared by a list item that opens with its id in bold, or by a
 // heading of any level that opens with it: `- **H1. Contacts nobody.**`, `1. **S2. Hash it.**`,
-// `### S3 — Keep it`. The candidate is read wider than the form, so a malformed id (`S04`, `H2a`)
-// fails rather than passing unread. So is a citation written as a bold lead-in (`- **S2 skipped:**`),
-// which the page tells authors not to write: it fails as a second declaration.
-const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HS][0-9][0-9A-Za-z]*)/;
+// `### S3 — Keep it`. The candidate is read wider than the form, so a malformed id fails rather
+// than passing unread: H or S in either case, then a digit, straight after the letter or after up
+// to three characters that are neither a letter nor a digit (`S04`, `H2a`, `S-1`, `H_1`, `S 6`,
+// `s4`). A letter after the H or S makes it a word (`## Hard lines`, `- **Sweep the day.**`), which
+// stays ordinary text. A citation written as a bold lead-in (`- **S2 skipped:**`), which the page
+// tells authors not to write, is read too: it fails as a second declaration.
+const LINE_ID = /^\s*(?:(?:[-*+]|\d+[.)])\s+\*\*|#{1,6}\s+)([HhSs][^\p{L}\p{N}*`]{0,3}[0-9][0-9A-Za-z]*)/u;
 const LINE_ID_KIND = { H: 'hard-line', S: 'step' };
 const LINE_ID_NAMES = { H: 'hard lines', S: 'steps' };
 const ignoredDirectories = new Set(['.git', '.cache', '.next', '.superpowers', '.tmp', '.turbo', '.vite', '.wrangler', 'build', 'coverage', 'dist', 'node_modules', 'out', 'tmp']);
@@ -192,24 +198,55 @@ function validateLinks(source, file, skillDirectory) {
   }
 }
 
+/** The column a run of leading whitespace reaches, a tab moving to the next multiple of four. */
+function indentColumns(whitespace) {
+  let column = 0;
+  for (const character of whitespace) column = character === '\t' ? column + 4 - (column % 4) : column + 1;
+  return column;
+}
+
 /**
  * The file's lines with every fenced code block blanked, so line numbers still match. A fence is
  * read at any indentation, because one nested in a list item sits past the three spaces a fence at
- * the top level may have, and is code all the same.
+ * the top level may have, and is code all the same. Without reading the lists around it, a fence is
+ * taken the strictest way it could be meant, so that it never hides a line Markdown would show: it
+ * closes at a bare run of at least as many of its character, indented at most three columns more
+ * than it, and only if that comes before any line that is not blank and is indented less than it. A
+ * fence that does not close so opens nothing: its line is read as text, and so are the lines after
+ * it. That is an indented code line that merely shows a fence, or a fence left open, which would
+ * otherwise hide every declaration after it. A less indented line that would have closed it is the
+ * closing line its writer meant, so it does not open a fence of its own. A backtick fence whose info
+ * string holds a backtick is not a fence.
  */
 function unfencedLines(source) {
-  let fence = null;
-  return source.split('\n').map((line) => {
-    if (fence === null) {
-      const open = line.match(/^\s*(`{3,}|~{3,})/);
-      if (!open) return line;
-      fence = open[1];
-      return '';
+  const lines = source.split('\n');
+  const result = [...lines];
+  const meantToClose = new Set();
+  for (let at = 0; at < lines.length; at += 1) {
+    const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
+    if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
+    const [, lead, fence] = open;
+    const indent = indentColumns(lead);
+    let end = -1;
+    for (let next = at + 1; next < lines.length; next += 1) {
+      if (lines[next].trim() === '') continue;
+      const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
+      const closes = close !== null && close[2][0] === fence[0] && close[2].length >= fence.length;
+      const depth = indentColumns(lines[next].match(/^\s*/)[0]);
+      if (depth < indent) {
+        if (closes) meantToClose.add(next);
+        break;
+      }
+      if (closes && depth <= indent + 3) {
+        end = next;
+        break;
+      }
     }
-    const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
-    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-    return '';
-  });
+    if (end < 0) continue;
+    result.fill('', at, end + 1);
+    at = end;
+  }
+  return result;
 }
 
 /** A table row's cells, split on every pipe that is not escaped, as GitHub's tables split them. */
@@ -238,6 +275,13 @@ function validateBindingsTable(lines, heading, where, declare, slotLetters, ship
     fail(`${where(index + 1)}: the ## Bindings table needs a delimiter row under its header`);
     return;
   }
+  // A renderer takes the lines as a table only when the delimiter row has as many cells as the
+  // header, so a table a composer or a reader would not see is not accepted here either.
+  const delimiterCells = tableCells(delimiter).length;
+  if (delimiterCells !== BINDINGS_COLUMNS.length) {
+    fail(`${where(index + 1)}: the ## Bindings delimiter row has ${delimiterCells} cell${delimiterCells === 1 ? '' : 's'}; the table has ${BINDINGS_COLUMNS.length}`);
+    return;
+  }
   let rows = 0;
   for (index += 2; index < end && lines[index].trim().startsWith('|'); index += 1) {
     rows += 1;
@@ -261,7 +305,7 @@ function validateBindingsTable(lines, heading, where, declare, slotLetters, ship
     if (!SLOT_KIND.test(kind)) {
       fail(`${where(index)}: slot ${id} has kind "${kind}" — use value or skill, optionally followed by ", required"`);
     }
-    if (NO_DEFAULT.test(fallback)) {
+    if (NO_DEFAULT.test(fallback.replace(/\\(\p{P}|\p{S})/gu, '$1').replace(DEFAULT_MARKS, ''))) {
       fail(`${where(index)}: slot ${id} has no default — every slot needs one, and "ask once" is one`);
       continue;
     }
@@ -300,7 +344,10 @@ function validateAdaptation(skillDirectory, shipped) {
       if (!match) return;
       const id = match[1];
       if (WELL_FORMED_ID.test(id)) declare(id, index);
-      else fail(`${where(index)}: ${id} is not a well-formed ${LINE_ID_KIND[id[0]]} id — one capital letter and a number from 1, no leading zero (${id[0]}1, ${id[0]}12)`);
+      else {
+        const letter = id[0].toUpperCase();
+        fail(`${where(index)}: ${id} is not a well-formed ${LINE_ID_KIND[letter]} id — one capital letter and a number from 1, no leading zero (${letter}1, ${letter}12)`);
+      }
     });
   }
   if (slotLetters.size > 1) {

@@ -479,6 +479,11 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   // What the copy carries, a reference file as its entry, and how an id is cited rather than declared.
   const copy = section(adaptation, 'The adapted copy');
   assert.match(copy, /`LICENSE`, the MIT text/);
+  // The record lists the sha256 of the files the copy carries; it cannot list its own, since writing
+  // that digest would change it.
+  assert.match(copy, /the record of its pin \(below\), with the sha256 of every other file it\s+carries/);
+  assert.match(copy, /The record does not\s+hash itself/);
+  assert.match(section(adaptation, 'Pinning a skill'), /\*\*sha256 of every file\*\* carried, but for the record that holds them/);
   assert.match(copy, /### When the entry is a reference file/);
   assert.match(copy, /relative link in it is rewritten for its new place/);
   assert.match(copy, /An id declared only in the\s+skill's `SKILL\.md` is refused/);
@@ -901,6 +906,162 @@ test('visitor-session-forensics asks before it reads, labels its signals uncalib
     assert.ok(skill.includes(carried), `SKILL.md does not name ${carried}`);
   }
   assert.match(readme, /\[Evidence signals\]\(skills\/visitor-session-forensics\/references\/evidence-signals\.md\)/);
+});
+
+// A pack lands only by a guarded copy: the archived pack is checked against CONTENTS.txt before it is
+// copied, and every member is checked again where it landed, so a partial copy, a source changed
+// since the unpack or an altered landing is caught before anything is written beside it or committed.
+test("ingest-arrival lands a pack only by a guarded copy, checked against CONTENTS.txt before and after", async () => {
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const skill = await read('skills/ingest-arrival/SKILL.md');
+  const { spawnSync } = await import('node:child_process');
+  const { access, mkdir, readFile, rm, writeFile } = await import('node:fs/promises');
+  const exists = (file) => access(file).then(() => true, () => false);
+  const commandUnder = (lead) => {
+    const start = forms.indexOf(lead);
+    assert.notEqual(start, -1, `record forms no longer carry: ${lead}`);
+    const code = forms.slice(start).match(/node -e '\n([^']*)'/);
+    assert.ok(code, `no node -e command under: ${lead}`);
+    return (...args) => spawnSync(process.execPath, ['-e', code[1], ...args], { encoding: 'utf8' });
+  };
+  const contents = commandUnder('**`CONTENTS.txt`, ours whether or not the pack has a manifest.**');
+  const land = commandUnder('**Landing a pack, guarded.**');
+
+  const arrival = await tempDir('ingest-arrival-land-');
+  await mkdir(`${arrival}/unpacked/pack-a/data`, { recursive: true });
+  await mkdir(`${arrival}/unpacked/pack-b`, { recursive: true });
+  await writeFile(`${arrival}/unpacked/pack-a/README.md`, 'A synthetic pack.\n');
+  await writeFile(`${arrival}/unpacked/pack-a/data/a.csv`, 'id,v\n1,2\n');
+  await writeFile(`${arrival}/unpacked/pack-b/b.csv`, 'id,w\n3,4\n');
+  const listed = contents(`${arrival}/unpacked`);
+  assert.equal(listed.status, 0, listed.stderr);
+  await writeFile(`${arrival}/CONTENTS.txt`, listed.stdout);
+  const repo = await tempDir('ingest-arrival-repo-');
+
+  // Clean: every member of the one pack lands, and only that pack.
+  const landed = land(arrival, 'pack-a', `${repo}/pack-a`);
+  assert.equal(landed.status, 0, landed.stderr);
+  assert.equal(landed.stdout.trim(), '2 of 2 members landed, each matching CONTENTS.txt, and no other file');
+  assert.equal(await readFile(`${repo}/pack-a/data/a.csv`, 'utf8'), 'id,v\n1,2\n');
+  assert.equal(await exists(`${repo}/pack-a/b.csv`), false);
+
+  // A landing folder that exists already is refused: nothing is copied over another landing.
+  const again = land(arrival, 'pack-a', `${repo}/pack-a`);
+  assert.equal(again.status, 2);
+  assert.match(again.stderr, /exists already; nothing landed/);
+
+  // A source changed since CONTENTS.txt was written lands nothing at all.
+  await writeFile(`${arrival}/unpacked/pack-a/data/a.csv`, 'id,v\n1,9\n');
+  await writeFile(`${arrival}/unpacked/pack-a/extra.txt`, 'not in the pack\n');
+  const changed = land(arrival, 'pack-a', `${repo}/pack-a-2`);
+  assert.equal(changed.status, 2);
+  assert.match(changed.stderr, /^archive: differs: data\/a\.csv$/m);
+  assert.match(changed.stderr, /^archive: not in CONTENTS\.txt: extra\.txt$/m);
+  assert.match(changed.stderr, /nothing landed/);
+  assert.equal(await exists(`${repo}/pack-a-2`), false, 'a refused source leaves no landing behind');
+  await writeFile(`${arrival}/unpacked/pack-a/data/a.csv`, 'id,v\n1,2\n');
+  await rm(`${arrival}/unpacked/pack-a/extra.txt`);
+
+  // A pack CONTENTS.txt does not list lands nothing.
+  const unknown = land(arrival, 'pack-z', `${repo}/pack-z`);
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /CONTENTS\.txt lists no member of pack-z; nothing landed/);
+
+  // The landing is checked member by member after the copy. A copy that comes out short is the case
+  // the check is for; here the pack's bytes are read once for the source and once for the landing,
+  // so a member altered between the two reads stands in for it.
+  const tamper = `${arrival}/tamper.cjs`;
+  await writeFile(tamper, `const fs = require("node:fs"); const copy = fs.cpSync;
+fs.cpSync = (from, to, options) => { copy(from, to, options); fs.writeFileSync(require("node:path").join(to, "data", "a.csv"), "id,v\\n1,\\n"); };\n`);
+  const code = forms.slice(forms.indexOf('**Landing a pack, guarded.**')).match(/node -e '\n([^']*)'/)[1];
+  const short = spawnSync(process.execPath, ['--require', tamper, '-e', code, arrival, 'pack-a', `${repo}/pack-a-3`], { encoding: 'utf8' });
+  assert.equal(short.status, 2);
+  assert.match(short.stderr, /^landing: differs: data\/a\.csv$/m);
+  assert.match(short.stderr, /write no RECEIVED\.md, commit nothing/);
+  // A copy that fails part of the way says the same, and what it left behind.
+  const failing = `${arrival}/failing.cjs`;
+  await writeFile(failing, `const fs = require("node:fs"); fs.cpSync = () => { const error = new Error("no space left"); error.code = "ENOSPC"; throw error; };\n`);
+  const broken = spawnSync(process.execPath, ['--require', failing, '-e', code, arrival, 'pack-a', `${repo}/pack-a-4`], { encoding: 'utf8' });
+  assert.equal(broken.status, 2);
+  assert.match(broken.stderr, /the copy failed \(ENOSPC\): write no RECEIVED\.md, commit nothing, and remove /);
+
+  assert.match(skill, /\*\*Land by the guarded copy\.\*\*/);
+  assert.match(skill, /Landing a pack, guarded/);
+});
+
+test('ingest-arrival lands a single file only when its hash matches SHA256SUMS before and after the copy', async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('shasum', ['--version'], { encoding: 'utf8' }).status !== 0) {
+    t.skip('no shasum on this machine');
+    return;
+  }
+  const { createHash } = await import('node:crypto');
+  const { access, readFile, writeFile } = await import('node:fs/promises');
+  const exists = (file) => access(file).then(() => true, () => false);
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const start = forms.indexOf('**Landing a single file, guarded.**');
+  assert.notEqual(start, -1, 'record forms no longer carry the single-file landing');
+  const script = forms.slice(start).match(/```sh\n([\s\S]*?)```/)[1];
+  const dir = await tempDir('ingest-arrival-file-');
+  await writeFile(`${dir}/prices.csv`, 'sku,price\n1,2\n');
+  const sum = createHash('sha256').update('sku,price\n1,2\n').digest('hex');
+  const land = (expected, target) => spawnSync('bash', ['-c', script
+    .replaceAll('<full sha256, from SHA256SUMS>', expected)
+    .replaceAll('<archived file>', `${dir}/prices.csv`)
+    .replaceAll('<landing path>', target)], { encoding: 'utf8' });
+
+  const landed = land(sum, `${dir}/landed.csv`);
+  assert.equal(landed.stdout.trim(), 'landed, matching SHA256SUMS', landed.stderr);
+  assert.equal(await readFile(`${dir}/landed.csv`, 'utf8'), 'sku,price\n1,2\n');
+  // A source whose hash is not the archived one is not copied at all.
+  const changed = land(createHash('sha256').update('another file').digest('hex'), `${dir}/changed.csv`);
+  assert.match(changed.stderr, /not landed as archived/);
+  assert.equal(await exists(`${dir}/changed.csv`), false);
+  // A landing path that exists is never written over.
+  await writeFile(`${dir}/taken.csv`, 'someone else\n');
+  const taken = land(sum, `${dir}/taken.csv`);
+  assert.match(taken.stderr, /not landed as archived/);
+  assert.equal(await readFile(`${dir}/taken.csv`, 'utf8'), 'someone else\n');
+  // Nor is a link left at the landing path, even one that points nowhere yet.
+  const { symlink } = await import('node:fs/promises');
+  await symlink(`${dir}/elsewhere.csv`, `${dir}/linked.csv`);
+  const linked = land(sum, `${dir}/linked.csv`);
+  assert.match(linked.stderr, /not landed as archived/);
+  assert.equal(await exists(`${dir}/elsewhere.csv`), false, 'the copy went through a link');
+});
+
+// Two members that extract to one path: the later overwrites the earlier, and the walk after the
+// unpack sees only the winner, so the guard refuses them before anything is extracted.
+test("ingest-arrival's pack guard refuses two members that would extract to one path", async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
+  if (python.status !== 0) {
+    t.skip('no python3 on this machine');
+    return;
+  }
+  const forms = await read('skills/ingest-arrival/references/record-forms.md');
+  const start = forms.indexOf('**The pack guard, before extracting.**');
+  assert.notEqual(start, -1, 'record forms no longer carry the pack guard');
+  const guard = forms.slice(start).match(/python3 - '<pack>\.zip' <<'EOF'\n([\s\S]*?)\nEOF\n/);
+  assert.ok(guard, 'no python3 heredoc under the pack guard');
+  const dir = await tempDir('ingest-arrival-guard-');
+  // Each pack is written by Python's own zipfile, which keeps a duplicate name when told to.
+  const pack = (name, members) => {
+    const made = spawnSync('python3', ['-W', 'ignore', '-c', [
+      'import sys, json, zipfile',
+      'with zipfile.ZipFile(sys.argv[1], "w") as z:',
+      '    for name in json.loads(sys.argv[2]): z.writestr(name, "x")',
+    ].join('\n'), `${dir}/${name}.zip`, JSON.stringify(members)], { encoding: 'utf8' });
+    assert.equal(made.status, 0, made.stderr);
+    return spawnSync('python3', ['-', `${dir}/${name}.zip`], { input: guard[1], encoding: 'utf8' });
+  };
+  assert.equal(pack('clean', ['README.md', 'data/a.csv', 'data/b.csv']).stdout.trim(), 'clean');
+  assert.match(pack('twice', ['data/file.csv', 'data/file.csv']).stdout, /^two members extract to one path: data\/file\.csv and data\/file\.csv$/m);
+  assert.match(pack('case', ['Data/File.csv', 'data/file.csv']).stdout, /^two members extract to one path: Data\/File\.csv and data\/file\.csv$/m);
+  assert.match(pack('forms', ['café.csv', 'café.csv']).stdout, /^two members extract to one path: /m);
+  assert.match(pack('dotted', ['data/a.csv', './data//a.csv']).stdout, /^two members extract to one path: data\/a\.csv and \.\/data\/\/a\.csv$/m);
+  assert.match(pack('folder', ['data', 'data/a.csv']).stdout, /^a file and a folder extract to one path: data$/m);
+  assert.match(pack('unsafe', ['../outside.csv']).stdout, /^unsafe path: \.\.\/outside\.csv$/m);
 });
 
 // Blocks caught this on the catalog rewrite: the `blocks` entry's first ask read
