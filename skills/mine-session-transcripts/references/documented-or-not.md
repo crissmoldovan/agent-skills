@@ -9,7 +9,8 @@ about the code, for the skill bound as B10.
 ## The method
 
 1. **The messages.** Every message the procedure's S3 counts: typed, queued and slash command
-   arguments, with relayed copies and other records left out.
+   arguments, with other records left out. A subagent's message with its parent session's words is
+   judged too, and its row says so, since it may be the same message relayed.
 2. **Normalise both sides with one function.** Lower case, Unicode-normalised, every run of
    characters that are not letters turned into one space. The same function, the same code path, for
    the messages, the corpus and the controls.

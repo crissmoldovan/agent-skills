@@ -31,8 +31,9 @@
  * The shapes, and the harness versions they were observed on, are in references/record-shapes.md.
  *
  * NEVER DEDUPLICATED BY TEXT. People repeat themselves ("status?", "continue"), and each is a
- * message. The only duplicate dropped is one record (one `uuid`) seen twice, and a subagent's copy
- * of a message its parent session already holds, which is the same message relayed.
+ * message. The only duplicate dropped is one record (one `uuid`) seen twice. A subagent's message
+ * with the same words as one its parent session holds is kept too, and counted apart: it may be the
+ * parent's message relayed, or the same words sent to both, and no record shows which.
  *
  * Exit codes: 0 ran; 1 bad arguments; 2 no transcripts for these paths, which is unknown and not
  * zero; 3 refused (a secret in the message asked for, or a control that failed).
@@ -466,7 +467,7 @@ export function formatTimes(timestamp, zones = []) {
  * line, for a caller that counts where else a phrase occurs.
  */
 export async function readMessages(found, { since = null, until = null, includeHeadless = false, visit = () => {}, visitOutside = null, visitOther = null } = {}) {
-  const totals = { messages: {}, fallback: 0, screened: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
+  const totals = { messages: {}, fallback: 0, sameAsParent: 0, screened: 0, exclusions: {}, unparsable: 0, files: 0, subagentFiles: 0, outsideWindow: 0, first: null, last: null };
   const exclude = (kind) => { totals.exclusions[kind] = (totals.exclusions[kind] ?? 0) + 1; };
   const seenUuids = new Set();
   const sinceMs = since ? Date.parse(since) : null;
@@ -481,6 +482,7 @@ export async function readMessages(found, { since = null, until = null, includeH
     }
     totals.messages[message.kind] = (totals.messages[message.kind] ?? 0) + 1;
     if (message.fallback) totals.fallback += 1;
+    if (message.sameAsParent) totals.sameAsParent += 1;
     totals.screened += message.screened.length;
     if (message.timestamp && (!totals.first || message.timestamp < totals.first)) totals.first = message.timestamp;
     if (message.timestamp && (!totals.last || message.timestamp > totals.last)) totals.last = message.timestamp;
@@ -510,11 +512,9 @@ export async function readMessages(found, { since = null, until = null, includeH
       }
       if (record.uuid) seenUuids.add(record.uuid);
       const hash = hashOf(result.text);
-      if (subagent && parentHashes.has(hash)) {
-        exclude('relayed-copy');
-        if (visitOther) visitOther('relayed-copy', record, at);
-        continue;
-      }
+      // Kept, and marked: the same words in a subagent may be the parent's message relayed to it, or
+      // the same short correction sent to both. Only a shared record (one uuid, above) proves a copy.
+      const sameAsParent = subagent && parentHashes.has(hash);
       hashes.add(hash);
       take({
         file,
@@ -523,6 +523,7 @@ export async function readMessages(found, { since = null, until = null, includeH
         session: record.sessionId ?? path.basename(file, '.jsonl'),
         kind,
         where: subagent ? 'subagent' : 'session',
+        sameAsParent,
         fallback: Boolean(result.fallback),
         attached: result.attached ?? [],
         command: result.command ?? null,
@@ -689,6 +690,7 @@ async function commandMessages(options, out) {
   out(`a person's messages: ${total}`);
   for (const [kind, n] of sorted(totals.messages)) out(`  ${String(n).padStart(6)}  ${kind}`);
   out(`  of which taken by the fallback (no origin marked): ${totals.fallback}`);
+  out(`  of which in a subagent, with the same words as a message of its parent session (kept: no record shows whether it was relayed): ${totals.sameAsParent}`);
   out(`  harness elements screened out of those turns (an editor selection, a reminder): ${totals.screened}`);
   out('left out, by kind:');
   for (const [kind, n] of sorted(totals.exclusions)) out(`  ${String(n).padStart(6)}  ${kind}`);
@@ -758,7 +760,8 @@ async function commandLocate(options, out) {
   }
   out(`${hits.length} message${hits.length === 1 ? ' from a person contains' : 's from a person contain'} the phrase`);
   for (const message of hits) {
-    out(`  ${where(found, message)}  ${formatTimes(message.timestamp, options.zone)}  session ${message.session}  ${message.kind}${message.where === 'subagent' ? ' (in a subagent)' : ''}`);
+    const subagent = message.sameAsParent ? ' (in a subagent, with the same words as a message of its parent session)' : ' (in a subagent)';
+    out(`  ${where(found, message)}  ${formatTimes(message.timestamp, options.zone)}  session ${message.session}  ${message.kind}${message.where === 'subagent' ? subagent : ''}`);
   }
   const other = sorted(elsewhere);
   if (other.length) out(`the phrase also occurs in records that are not a person's: ${other.map(([kind, n]) => `${n} ${kind}`).join(', ')}`);
@@ -941,6 +944,7 @@ async function commandDocumented(options, out) {
       timestamp: message.timestamp,
       session: message.session,
       kind: message.kind,
+      sameAsParent: message.sameAsParent,
       chars: message.text.length,
       runs: runs.length,
       found: hits,
@@ -984,7 +988,7 @@ async function commandDocumented(options, out) {
   const listed = options.all ? rows : rows.filter((row) => row.pct !== null && row.pct < 20);
   out(options.all ? 'every message:' : 'not written down:');
   for (const row of listed) {
-    out(`  ${row.file}:${row.line}  ${formatTimes(row.timestamp, options.zone)}  ${row.kind}  ${row.chars} chars  ${row.pct === null ? 'too short' : `${row.pct}%`}${row.relays ? '  relays' : ''}`);
+    out(`  ${row.file}:${row.line}  ${formatTimes(row.timestamp, options.zone)}  ${row.kind}  ${row.chars} chars  ${row.pct === null ? 'too short' : `${row.pct}%`}${row.relays ? '  relays' : ''}${row.sameAsParent ? "  same words as its parent session's" : ''}`);
   }
   if (options.out) out(`register written to ${options.out} (positions and counts, no message text; it names this machine's paths and the sessions' ids)`);
   for (const line of coverageLines(found, totals)) out(line);

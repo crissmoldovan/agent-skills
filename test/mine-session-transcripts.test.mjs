@@ -22,7 +22,8 @@ import { tempDir } from './helpers/temp-dir.mjs';
  * written once by a script and committed. They hold one of each record a transcript carries beside
  * a person's words (references/record-shapes.md says which were observed on a real harness), plus
  * the traps the skill exists for: a queued message, a slash command's arguments, an older harness
- * with no origin marks, a subagent's dispatch and a relayed copy, a workflow journal, a lossy
+ * with no origin marks, a subagent's dispatch and a subagent message with its parent's words, a
+ * workflow journal, a lossy
  * directory name shared with another checkout, a session that moved into a worktree, a sibling
  * repository, messages that hold secrets, an editor selection sharing a turn with the person's
  * words, and a message enqueued while a turn ran that never reached the session.
@@ -124,7 +125,7 @@ test('a repository with no history directory exits 2 and says unknown, never a c
 test("messages counts typed, queued and slash-command words, and every other record by its kind", async () => {
   const found = await findTranscripts({ repo: REPO, history: HISTORY });
   const totals = await readMessages(found);
-  assert.deepEqual(totals.messages, { typed: 15, queued: 1, 'command-args': 1 });
+  assert.deepEqual(totals.messages, { typed: 15, queued: 2, 'command-args': 1 });
   assert.equal(totals.fallback, 1, 'the older harness turn with no origin is taken, and counted as a fallback');
   assert.equal(totals.screened, 1, "the editor selection beside a person's words is screened out, and counted");
   assert.equal(totals.unparsable, 1);
@@ -146,11 +147,21 @@ test("messages counts typed, queued and slash-command words, and every other rec
     interruption: 1,
     'queue-bookkeeping': 3,
     'record:last-prompt': 1,
-    'relayed-copy': 1,
     'duplicate-record': 1,
   })) {
     assert.equal(totals.exclusions[kind], count, `exclusions[${kind}]`);
   }
+  assert.equal(totals.exclusions['relayed-copy'], undefined, 'no message is dropped for repeating its parent session');
+});
+
+test("a subagent message with its parent session's words is kept and counted apart, since no record shows it was relayed", async () => {
+  const found = await findTranscripts({ repo: REPO, history: HISTORY });
+  const seen = [];
+  const totals = await readMessages(found, { visit: (message) => seen.push(message) });
+  assert.equal(totals.sameAsParent, 1);
+  const repeated = seen.filter((message) => normalise(message.text) === normalise('Also, keep CSV as the default format for every export, whatever the screen.'));
+  assert.deepEqual(repeated.map((message) => [message.where, message.kind, message.sameAsParent]), [['session', 'queued', false], ['subagent', 'queued', true]]);
+  assert.ok(seen.filter((message) => message.where === 'subagent').every((message) => message.sameAsParent), 'only the repeat is marked');
 });
 
 test('a repeated message is two messages: nothing is deduplicated by its text', async () => {
@@ -172,15 +183,16 @@ test('a headless prompt is left out unless asked for, and the window applies to 
 
   const windowed = await readMessages(found, { since: '2030-01-08T00:00:00Z' });
   assert.equal(Object.values(windowed.messages).reduce((sum, n) => sum + n, 0), 10);
-  assert.equal(windowed.outsideWindow, 7);
+  assert.equal(windowed.outsideWindow, 8);
   assert.equal(windowed.first, '2030-01-08T10:00:00.000Z');
 });
 
 test('the messages command prints counts and coverage, and no message text', () => {
   const result = run('messages', ...selection);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /a person's messages: 17/);
+  assert.match(result.stdout, /a person's messages: 18/);
   assert.match(result.stdout, /of which taken by the fallback \(no origin marked\): 1/);
+  assert.match(result.stdout, /^ {2}of which in a subagent, with the same words as a message of its parent session \(kept: no record shows whether it was relayed\): 1$/m);
   assert.match(result.stdout, /harness elements screened out of those turns \(an editor selection, a reminder\): 1/);
   assert.match(result.stdout, /left out, by kind:/);
   assert.match(result.stdout, /unparsable lines: 1/);
@@ -192,14 +204,15 @@ test('the messages command prints counts and coverage, and no message text', () 
 test('locate gives the line, time, session and kind of each hit, never the text, and says where else the phrase occurs', () => {
   const result = run('locate', ...selection, '--phrase', 'keep CSV as the default format', '--zone', 'UTC');
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^2 messages from a person contain the phrase$/m);
-  assert.match(result.stdout, /-srv-example-repo\/00000000-0000-4000-8000-0000000000a1\.jsonl:5 {2}2030-01-07T09:01:30Z \| .*\(UTC\) {2}session 00000000-0000-4000-8000-0000000000a1 {2}queued/);
+  assert.match(result.stdout, /^3 messages from a person contain the phrase$/m);
+  assert.match(result.stdout, /-srv-example-repo\/00000000-0000-4000-8000-0000000000a1\.jsonl:5 {2}2030-01-07T09:01:30Z \| .*\(UTC\) {2}session 00000000-0000-4000-8000-0000000000a1 {2}queued$/m);
+  assert.match(result.stdout, /\/subagents\/workflows\/wf_example\/agent-b0000000000000001\.jsonl:2 .* {2}queued \(in a subagent, with the same words as a message of its parent session\)$/m);
   assert.match(result.stdout, /-srv-example-repo--claude-worktrees-feature\/00000000-0000-4000-8000-0000000000f6\.jsonl:3 .* typed/);
   // The sibling repository says the same words, and is never read.
   assert.doesNotMatch(result.stdout, /0000000000a8/);
   assert.match(result.stdout, /also occurs in records that are not a person's: .*1 compact-summary/);
   assert.match(result.stdout, /1 queue-bookkeeping/);
-  assert.match(result.stdout, /1 relayed-copy/);
+  assert.doesNotMatch(result.stdout, /relayed-copy/);
   assert.match(result.stdout, /^enqueued while a turn was running: 1; each reached that session as a person's message$/m);
   assertNoMessageText(result.stdout, 'locate');
 });
