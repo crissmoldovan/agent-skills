@@ -337,7 +337,10 @@ try { fs.mkdirSync(landing); } catch (error) {
   console.error(error.code === "EEXIST" ? `${landing} exists already; nothing landed` : `${landing} cannot be made (${error.code}); nothing landed`);
   process.exit(2);
 }
-fs.cpSync(source, landing, { recursive: true, errorOnExist: true, force: false });
+try { fs.cpSync(source, landing, { recursive: true, errorOnExist: true, force: false }); } catch (error) {
+  console.error(`the copy failed (${error.code ?? error.message}): write no RECEIVED.md, commit nothing, and remove ${landing}`);
+  process.exit(2);
+}
 const after = differences("landing", measure(landing));
 if (after.length) { console.error(`${after.join("\n")}\nthe landing is not what CONTENTS.txt lists: write no RECEIVED.md, commit nothing, and remove ${landing}`); process.exit(2); }
 console.log(`${listed.size} of ${listed.size} members landed, each matching CONTENTS.txt, and no other file`);
@@ -345,12 +348,12 @@ console.log(`${listed.size} of ${listed.size} members landed, each matching CONT
 ```
 
 **Landing a single file, guarded.** The same three checks, with its full sha256 from `SHA256SUMS`
-(`sha256sum -c --status -` on Linux):
+(`sha256sum -c --status -` on Linux). Nothing at the landing path is written over, a link included:
 
 ```sh
 sum='<full sha256, from SHA256SUMS>'
 printf '%s  %s\n' "$sum" '<archived file>' | shasum -a 256 -c --status - \
-  && [ ! -e '<landing path>' ] && cp '<archived file>' '<landing path>' \
+  && [ ! -e '<landing path>' ] && [ ! -L '<landing path>' ] && cp '<archived file>' '<landing path>' \
   && printf '%s  %s\n' "$sum" '<landing path>' | shasum -a 256 -c --status - \
   && echo 'landed, matching SHA256SUMS' \
   || echo 'not landed as archived: write no RECEIVED.md, commit nothing' >&2

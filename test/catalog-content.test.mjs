@@ -885,6 +885,12 @@ fs.cpSync = (from, to, options) => { copy(from, to, options); fs.writeFileSync(r
   assert.equal(short.status, 2);
   assert.match(short.stderr, /^landing: differs: data\/a\.csv$/m);
   assert.match(short.stderr, /write no RECEIVED\.md, commit nothing/);
+  // A copy that fails part of the way says the same, and what it left behind.
+  const failing = `${arrival}/failing.cjs`;
+  await writeFile(failing, `const fs = require("node:fs"); fs.cpSync = () => { const error = new Error("no space left"); error.code = "ENOSPC"; throw error; };\n`);
+  const broken = spawnSync(process.execPath, ['--require', failing, '-e', code, arrival, 'pack-a', `${repo}/pack-a-4`], { encoding: 'utf8' });
+  assert.equal(broken.status, 2);
+  assert.match(broken.stderr, /the copy failed \(ENOSPC\): write no RECEIVED\.md, commit nothing, and remove /);
 
   assert.match(skill, /\*\*Land by the guarded copy\.\*\*/);
   assert.match(skill, /Landing a pack, guarded/);
@@ -923,6 +929,12 @@ test('ingest-arrival lands a single file only when its hash matches SHA256SUMS b
   const taken = land(sum, `${dir}/taken.csv`);
   assert.match(taken.stderr, /not landed as archived/);
   assert.equal(await readFile(`${dir}/taken.csv`, 'utf8'), 'someone else\n');
+  // Nor is a link left at the landing path, even one that points nowhere yet.
+  const { symlink } = await import('node:fs/promises');
+  await symlink(`${dir}/elsewhere.csv`, `${dir}/linked.csv`);
+  const linked = land(sum, `${dir}/linked.csv`);
+  assert.match(linked.stderr, /not landed as archived/);
+  assert.equal(await exists(`${dir}/elsewhere.csv`), false, 'the copy went through a link');
 });
 
 // Two members that extract to one path: the later overwrites the earlier, and the walk after the
