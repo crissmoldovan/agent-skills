@@ -3,7 +3,7 @@ name: update-agent-skills
 description: "Update installed Agent Skills wherever they live — project, global, plugin and manual copies — after correcting the changelog, README and release notes that describe them, and compose a project's adapted copy of a pack skill from a pinned release and the project's overlay. Symptoms: update my skills, sync this skill everywhere, bring my agents to the latest version, is my skill pack stale, reinstall the pack, adapt a pack skill to this project. It moves installed copies; it does not publish a new release — that is publish-agent-skill."
 license: MIT
 compatibility: "Agent Skills-compatible agents; the generic Skills CLI for managed project/global installs; native plugin/package updaters or manual artifact channels where applicable; Node.js 22 or newer and git for the composer, scripts/adapt.mjs."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 

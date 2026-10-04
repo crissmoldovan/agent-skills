@@ -204,7 +204,7 @@ changes, and the wording keeps its meaning, so this is a patch for those six ski
 **Who should update.** Anyone adapting a pack skill to a project. The skill's description gains
 the symptom "adapt a pack skill to this project", and its `compatibility` names Node.js 22 and git
 for the composer. Nothing installed changes behaviour: the freshness check without `--repo`
-behaves as before.
+behaves as before. The skill's metadata version moves from 1.0.0 to 1.1.0, for the composer.
 
 ## Release checklist
 
