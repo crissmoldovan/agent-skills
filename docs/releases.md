@@ -227,8 +227,9 @@ by the visits they signed in to and never by everything their browser sent, and 
 source's held range and every counter with a control before using it; each control is named
 in the question for the yes, and one over anyone else is read as a count with no identifiers. Per
 visit it says what the person did, whether the site loaded for them, whether they saw the live
-release or a copy their browser kept, and whether a person or an agent was at the controls. Every
-number is a count of rows. The answers and the summary carry no network address, device detail,
+release or a copy their browser kept, and which way its signals lean between a person and an agent
+at the controls, worded alike on both sides and never naming who was there. Every number is a count
+of rows. The answers and the summary carry no network address, device detail,
 email address, session id or URL query, and a report that is published is fetched signed out at
 every address it is served at before its link goes to anyone, and taken down if one serves it.
 `references/evidence-signals.md` gives each signal with what it cannot prove, and labels every

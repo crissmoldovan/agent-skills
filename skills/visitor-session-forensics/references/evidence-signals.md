@@ -6,7 +6,7 @@ S7 of the skill, one question at a time.
 **UNCALIBRATED.** Every threshold in this file was set by judgement over a handful of real visits.
 None has been measured against visits whose answer was known (a person, an agent, a page that did
 not load), so none has a known rate of false alarms or of misses. They put the evidence in order;
-they do not classify a visit. A signal that leans towards an agent sends the reader to the
+they do not classify a visit. A signal that leans either way sends the reader to the rows and the
 recording, never to a conclusion, and the report says the thresholds are uncalibrated wherever it
 uses them. A project that calibrates them records how, and against which visits, in its own
 overlay, and keeps this label until it has.
@@ -39,13 +39,21 @@ The weighing of one visit, from its clicks and taps, its recording, and its brow
 **The weighing**, in this order:
 
 1. No clicks or taps: *too little activity to judge*.
-2. Any signal that leans towards an agent: *check the recording*, naming each signal that fired.
-3. Otherwise, any signal that leans towards a person: *a person, on these signals*, naming each
-   one, with *(no recording stored)* when there is none.
+2. Any signal that leans towards an agent: *leans towards an agent, on these signals; who was at the
+   controls is not established*, naming each signal that fired on either side, and sending the
+   reader to the recording.
+3. Otherwise, any signal that leans towards a person: *leans towards a person, on these signals; who
+   was at the controls is not established*, naming each signal that fired on either side, with
+   *(no recording stored)* when there is none.
 4. No signal on either side, as with a few clicks and no recording: *too little to judge, on these
    signals*. An absence of signals is never read as a person.
 
-**What none of them rules out**, said in every report that weighs a visit:
+Neither leaning is a finding about anyone (H7): the thresholds behind both are uncalibrated, and a
+leaning towards a person is no more evidence that the named person acted than a leaning towards an
+agent is that they did not.
+
+**What none of them rules out**, said in every report that weighs a visit. A leaning either way
+says how the controls were driven, never who drove them:
 
 - someone else at the person's computer, or using their account;
 - an agent that drives the real pointer and keyboard of the person's own machine, which moves the

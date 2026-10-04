@@ -1,6 +1,6 @@
 ---
 name: visitor-session-forensics
-description: "Find out what named people did on a live site from its own records (events, session recordings, page loads, sign-ins), evidenced row by row, consent first: write down the purpose and get a yes for this run before any query; read only the people, window and hosts named; prove every counter with a control; say whether the site loaded for them, whether they saw the live release or a cached copy, and whether a person or an agent was at the controls, weighing signals that are uncalibrated and never proof; keep addresses, devices and email addresses out of the summary; and check a published report signed out. Symptoms: what did X do on the site, show me their sessions, it would not load for her, did they see the new release, was that a person or an agent, did they really sign in. It reads records and contacts nobody; what someone said in an agent session is mine-session-transcripts', and fixing a problem a visitor reported is resolve-problem-report's."
+description: "Find out what named people did on a live site from its own records (events, session recordings, page loads, sign-ins), evidenced row by row, consent first: write down the purpose and get a yes for this run before any query; read only the people, window and hosts named; prove every counter with a control; say whether the site loaded for them, whether they saw the live release or a cached copy, and which way uncalibrated signals lean between a person and an agent at the controls, never naming who; keep addresses, devices and email addresses out of the summary; and check a published report signed out. Symptoms: what did X do on the site, show me their sessions, it would not load for her, did they see the new release, was that a person or an agent, did they really sign in. It reads records and contacts nobody; what someone said in an agent session is mine-session-transcripts', and fixing a problem a visitor reported is resolve-problem-report's."
 license: MIT
 compatibility: "Any site that records its visitors where the agent can read the records read-only: an analytics or observability store (events, session recordings, file timings) and an auth provider's sign-in log. The query contracts in references/query-contracts.md use a generic SQL, translated to each store's own. No script and nothing installed; it writes only the report and the run directory bound as F9."
 metadata: "group=workflow; lifecycle=investigation; version=1.0.0; author=crissmoldovan"
@@ -217,7 +217,8 @@ what it filters on, the row it returns, and its control.
    - **Live or cached.** Per file, the bytes transferred against its encoded size, and the version
      it was loaded at against the release live at that minute (F7).
    - **Person or agent.** The signals on both sides, labelled uncalibrated, and what none of them
-     rules out (H7).
+     rules out (H7). The answer is a leaning about how the controls were driven, never who drove
+     them.
    - **Signed in, or a tab left open.** Sign-ins and renewals against screens and clicks in the
      same minutes.
 

@@ -933,6 +933,23 @@ test("visitor-session-forensics reads the named people's visits, never everythin
   assert.match(s4, /\*\*Complete when:\*\* each named person has zero or more visits/);
 });
 
+// "A person, on these signals" said about a named person's visit reads as "they did it", from
+// thresholds nobody has measured. Both leanings are worded alike, and neither names who was there.
+test('visitor-session-forensics weighs person or agent as a leaning on both sides, and never names who was at the controls', async () => {
+  const skill = await read('skills/visitor-session-forensics/SKILL.md');
+  const signals = await read('skills/visitor-session-forensics/references/evidence-signals.md');
+  const weighing = signals.slice(signals.indexOf('**The weighing**'), signals.indexOf('**What none of them rules out**'));
+  assert.doesNotMatch(weighing, /\*a person, on these signals\*/);
+  assert.match(weighing, /\*leans towards an agent, on these signals; who was at the\s+controls is not established\*/);
+  assert.match(weighing, /\*leans towards a person, on these signals; who\s+was at the controls is not established\*/);
+  assert.equal((weighing.match(/naming each signal that fired on either\s+side/g) ?? []).length, 2);
+  const limits = signals.slice(signals.indexOf('**What none of them rules out**'), signals.indexOf('## Whether it loaded for them'));
+  assert.match(limits, /A leaning either way\s+says how the controls were driven, never who drove them/);
+  const s7 = skill.slice(skill.indexOf('**S7. Answer each question from its rows.**'), skill.indexOf('**S8.'));
+  assert.match(s7, /\*\*Person or agent\.\*\*[^]*?a leaning about how the controls were driven, never who drove\s+them/);
+  for (const text of [skill, readme, releases]) assert.doesNotMatch(text, /and whether a person or an agent was at the controls/);
+});
+
 // The commands in ingest-arrival's record forms that copy, land or check a pack, run as written.
 async function arrivalCommands() {
   const forms = await read('skills/ingest-arrival/references/record-forms.md');
