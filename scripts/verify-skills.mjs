@@ -237,7 +237,17 @@ function filesToScan() {
   }
   const paths = (listing) => listing.stdout.split('\0').filter(Boolean).map((path) => path.split('/').join(sep));
   const added = paths(untracked).filter((path) => !path.split(sep).some((segment) => ignoredDirectories.has(segment)));
-  return { from: 'the files git tracks or would add', files: [...new Set([...paths(tracked), ...added])] };
+  const indexed = new Set(paths(tracked));
+  return { from: 'the files git tracks or would add', files: [...new Set([...indexed, ...added])], indexed };
+}
+
+// A tracked file that is not in the working tree, deleted without the deletion being staged or
+// left out of a sparse checkout, is still in the index, and is committed and published as it
+// stands there, so its index copy is what is read. A deletion that is staged or committed is not
+// in the index and leaves nothing to publish. A submodule's entry has no blob, and is not read.
+function indexCopy(relativeFile) {
+  const read = spawnSync('git', ['cat-file', 'blob', `:${relativeFile.split(sep).join('/')}`], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+  return !read.error && read.status === 0 ? read.stdout : null;
 }
 
 const scan = filesToScan();
@@ -247,19 +257,22 @@ let exemptRead = false;
 for (const relativeFile of scan.files) {
   if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
   const file = resolve(root, relativeFile);
-  let stat;
+  let stat = null;
   try {
     stat = lstatSync(file);
   } catch {
-    continue; // tracked, but deleted from this working tree or outside a sparse checkout
+    stat = null;
   }
+  const fromIndex = stat === null && scan.indexed?.has(relativeFile) ? indexCopy(relativeFile) : null;
+  if (stat === null && fromIndex === null) continue; // neither in this working tree nor in the index
   let source;
-  if (stat.isSymbolicLink()) {
+  if (stat?.isSymbolicLink()) {
     // Git stores a symbolic link as the path it points to, and publishes that path.
     source = readlinkSync(file);
     scanned += 1;
-  } else if (stat.isFile()) {
-    const bytes = readFileSync(file);
+  } else if (fromIndex !== null || stat.isFile()) {
+    // An index copy of a symbolic link is the path it stores, read here as text like any other.
+    const bytes = fromIndex ?? readFileSync(file);
     const binary = bytes.includes(0);
     source = bytes.toString(binary ? 'latin1' : 'utf8');
     if (binary) binaries.push(relativeFile);

@@ -81,7 +81,9 @@ with one of ten extensions, and not at all in `packages/agent-lifecycle`. A `.to
 repository's own `Cargo.toml` fixture was one of them. It now reads every file the repository
 would publish, whatever its name: in a git checkout, every tracked file, wherever it sits, and
 every untracked file git does not ignore outside generated output, so a local `.env` cannot
-fail the run. Both patterns are ASCII, so every file is searched whatever its encoding. A
+fail the run. A tracked file missing from the working tree, deleted without the deletion staged
+or outside a sparse checkout, is read from the index, which is what a commit publishes. Both
+patterns are ASCII, so every file is searched whatever its encoding. A
 binary file is searched as bytes, which finds a path in an image's metadata, and is named for a
 person to look at, since what an image shows is not read. One lifecycle test file, whose token
 fields are fixtures, is read for paths but not for the secret pattern, and the run names it. A

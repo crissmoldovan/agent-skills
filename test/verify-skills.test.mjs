@@ -181,6 +181,33 @@ test('in a git checkout the verifier reads what git tracks or would add, and not
   assert.match(result.stdout, /\(the files git tracks or would add\)/);
 });
 
+// A tracked file deleted from the working tree without the deletion being staged, or left out of a
+// sparse checkout, is still in the index, so it is committed and published as it stands there: the
+// scan reads that copy. A deletion that is staged or committed leaves nothing to publish.
+test('in a git checkout the verifier reads a tracked file missing from the working tree from the index', async () => {
+  const { rm } = await import('node:fs/promises');
+  const root = await fixture();
+  const personalPath = ['', 'Users', 'alice', 'private', 'catalog'].join('/');
+  const assignment = ['to', 'ken'].join('');
+  const realisticToken = ['prod', 'token', 'value', '1234567890'].join('-');
+  await writeFile(path.join(root, 'kept.toml'), `${assignment} = "${realisticToken}"\n`);
+  await writeFile(path.join(root, 'kept.txt'), `see ${personalPath}\n`);
+  await writeFile(path.join(root, 'removed.toml'), `${assignment} = "${realisticToken}"\n`);
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'fixture');
+  await rm(path.join(root, 'kept.toml'));
+  await rm(path.join(root, 'kept.txt'));
+  git(root, 'rm', '-q', 'removed.toml');
+
+  const result = await verify(root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /- kept\.toml: contains a likely secret/);
+  assert.match(result.stderr, /- kept\.txt: contains a machine-specific absolute path/);
+  assert.doesNotMatch(result.stderr, /removed\.toml/);
+});
+
 test('verifier accepts neutral credential fixtures', async () => {
   const root = await fixture();
   const assignment = ['to', 'ken'].join('');
