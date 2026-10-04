@@ -151,7 +151,8 @@ sections: the percentage, counted from a named register just before writing, in 
 work blocked on a person in the denominator and never in the numerator, and the ceiling without
 them; and the ETA in agent-hours, then wall-clock at the agents the running section counts, then
 a clock time in each reader's zone, pasted from a command, dated when it is not today there, and
-labelled as an estimate with its basis. A new reference,
+labelled as an estimate with its basis. With no agent running, the ETA is agent-hours alone, and a
+clock time that leaves part of the work out says what it covers. A new reference,
 [`percentage-eta-cadence.md`](../skills/report-progress/references/percentage-eta-cadence.md),
 has the shape, the arithmetic, the clock commands, and what keeps updates on a cadence coming:
 a tick strictly inside the harness's cap on background time, re-armed before each update is
@@ -180,7 +181,8 @@ it, where the standing order is written, and the three sibling skills it hands w
 rules, that nothing in the skill installs or arms the gate, and the two above), and its eleven
 steps as S1 to S11. Every slot's default is what the skill does on its own, so a project that
 binds nothing gets the same procedure. Nothing needs migrating: no project could adapt the skill
-before it declared these ids.
+before it declared these ids. The skill's metadata version moves from 1.0.0 to 1.1.0, for the head
+line, the cadence and the slots.
 
 ### `resolve-problem-report` answers severity, priority and effort as three questions, and does not call a released fix verified
 

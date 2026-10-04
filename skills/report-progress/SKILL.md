@@ -3,7 +3,7 @@ name: report-progress
 description: "Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn, or when the reader asks for a percentage, an ETA, or updates at a set interval."
 license: MIT
 compatibility: "Any agent that writes prose to a user; nothing to install, plus an optional user-installed Claude Code Stop-hook gate. A count is verified only where the agent can run its command; elsewhere it is labelled as someone else's claim. Running rows come from agent-lifecycle evidence, or its no-evidence sentence stands in. Output is the report, checked against its checklist; on a cadence the agent also arms a timed tick and writes a standing order into the file the work is tracked in."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 
@@ -272,10 +272,12 @@ describes. A slot nobody binds keeps its default.
    "Progress not measured: no register of the work" (H7). Give the ETA in agent-hours, then
    wall-clock at the agents actually running, as the running section counts them (B7), then a
    clock time in each reader's zone (B2), every time and zone label pasted from a command. With
-   no lifecycle evidence, divide by the agents dispatched and say they were not observed. Label
-   it an estimate with its basis (H8), and make it cover all the work to the goal, with a fix
-   round for each review still to come. `references/percentage-eta-cadence.md` has the shape
-   and the commands.
+   no lifecycle evidence, divide by the agents dispatched and say they were not observed. With
+   evidence that shows no agent running, give agent-hours alone and say the wall-clock and the
+   clock time are not measured, and why (H7). Label it an estimate with its basis (H8), and make
+   it cover all the work to the goal, with a fix round for each review still to come; a clock
+   time that leaves part of it out says what it covers. `references/percentage-eta-cadence.md`
+   has the shape and the commands.
    **Complete when:** the head line sits under the first line and each number in it states its
    basis, or the report has none because nobody asked for either and no cadence runs.
 
