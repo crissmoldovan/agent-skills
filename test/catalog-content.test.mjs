@@ -888,10 +888,16 @@ test("ingest-arrival checks a supplier's manifest against the files it finds, an
   assert.deepEqual(await check([await line('not the pack\n', 'data/link.txt')]), ['2 of 3', 'not a regular file: data/link.txt', 'missing: data/link.txt']);
 });
 
-// A pack lands only by a guarded copy: the archived pack is checked against CONTENTS.txt before it is
-// copied, the copy is made beside the landing place and checked member by member, and only a copy
-// that matches is moved into place. Anything else leaves nothing behind.
-test("ingest-arrival lands a pack only by a guarded copy, checked against CONTENTS.txt before and after", async () => {
+// A pack lands only by a guarded copy: the archived pack is checked against CONTENTS.txt, copied
+// into a folder of the run's own and checked member by member there, and only then published at the
+// landing place in one step that fails rather than replace anything. Until that step the landing
+// place does not exist, so nothing can read a pack half copied; a failure never touches it.
+test("ingest-arrival lands a pack only by a guarded copy, checked against CONTENTS.txt before and after", async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('python3', ['--version'], { encoding: 'utf8' }).status !== 0) {
+    t.skip('no python3 on this machine');
+    return;
+  }
   const { contents, landPack } = await arrivalCommands();
   const skill = await read('skills/ingest-arrival/SKILL.md');
   const { access, mkdir, readdir, readFile, rm, writeFile } = await import('node:fs/promises');
@@ -908,18 +914,28 @@ test("ingest-arrival lands a pack only by a guarded copy, checked against CONTEN
   await writeFile(`${arrival}/CONTENTS.txt`, listed.stdout);
   const repo = await tempDir('ingest-arrival-repo-');
   const leftovers = async () => (await readdir(repo)).filter((name) => name.includes('.landing-'));
+  // Runs before the command, and says whether the landing place existed while the copy was made.
+  const watch = `${arrival}/watch.cjs`;
+  await writeFile(watch, `const fs = require("node:fs"); const copy = fs.cpSync; const landing = process.argv[3];
+fs.cpSync = (from, to, options) => { copy(from, to, options); fs.writeFileSync(landing + ".seen", String(fs.existsSync(landing))); };\n`);
 
-  // Clean: every member of the one pack lands, and only that pack.
-  const landed = landPack([arrival, 'pack-a', `${repo}/pack-a`]);
+  // Clean: every member of the one pack lands, and only that pack, and the landing place did not
+  // exist until the pack was whole and checked.
+  const landed = landPack([arrival, 'pack-a', `${repo}/pack-a`], watch);
   assert.equal(landed.status, 0, landed.stderr);
   assert.equal(landed.stdout.trim(), '2 of 2 members landed, each matching CONTENTS.txt, and no other file');
   assert.equal(await readFile(`${repo}/pack-a/data/a.csv`, 'utf8'), 'id,v\n1,2\n');
-  assert.equal(await exists(`${repo}/pack-a/b.csv`), false);
+  assert.deepEqual((await readdir(`${repo}/pack-a`)).sort(), ['README.md', 'data']);
+  assert.equal(await readFile(`${repo}/pack-a.seen`, 'utf8'), 'false', 'the landing place existed while the copy was made');
+  assert.deepEqual(await leftovers(), []);
 
-  // A landing folder that exists already is refused: nothing is copied over another landing.
+  // Anything at the landing place is refused and left as it is: a folder, even an empty one, or a file.
   const again = landPack([arrival, 'pack-a', `${repo}/pack-a`]);
   assert.equal(again.status, 2);
   assert.match(again.stderr, /exists already; nothing landed/);
+  await mkdir(`${repo}/empty`);
+  assert.match(landPack([arrival, 'pack-a', `${repo}/empty`]).stderr, /exists already; nothing landed/);
+  assert.deepEqual(await readdir(`${repo}/empty`), []);
 
   // A source changed since CONTENTS.txt was written lands nothing at all.
   await writeFile(`${arrival}/unpacked/pack-a/data/a.csv`, 'id,v\n1,9\n');
@@ -938,8 +954,7 @@ test("ingest-arrival lands a pack only by a guarded copy, checked against CONTEN
   assert.equal(unknown.status, 2);
   assert.match(unknown.stderr, /CONTENTS\.txt lists no member of pack-z; nothing landed/);
 
-  // A copy that comes out short is caught member by member, and nothing is left at the landing
-  // place or beside it.
+  // A copy that comes out short, or fails part of the way, is caught before anything is published.
   const short = `${arrival}/short.cjs`;
   await writeFile(short, `const fs = require("node:fs"), path = require("node:path"); const copy = fs.cpSync;
 fs.cpSync = (from, to, options) => { copy(from, to, options); fs.writeFileSync(path.join(to, "data", "a.csv"), "id,v\\n1,"); };\n`);
@@ -949,7 +964,6 @@ fs.cpSync = (from, to, options) => { copy(from, to, options); fs.writeFileSync(p
   assert.match(cut.stderr, /nothing landed; write no RECEIVED\.md and commit nothing/);
   assert.equal(await exists(`${repo}/pack-a-3`), false);
   assert.deepEqual(await leftovers(), []);
-  // So is a copy that fails part of the way.
   const failing = `${arrival}/failing.cjs`;
   await writeFile(failing, `const fs = require("node:fs"), path = require("node:path"); const copy = fs.copyFileSync;
 fs.cpSync = (from, to) => { fs.mkdirSync(path.join(to, "data"), { recursive: true }); copy(path.join(from, "README.md"), path.join(to, "README.md")); const error = new Error("no space left"); error.code = "ENOSPC"; throw error; };\n`);
@@ -958,39 +972,22 @@ fs.cpSync = (from, to) => { fs.mkdirSync(path.join(to, "data"), { recursive: tru
   assert.match(broken.stderr, /the copy failed \(ENOSPC\); nothing landed; write no RECEIVED\.md and commit nothing/);
   assert.equal(await exists(`${repo}/pack-a-4`), false);
   assert.deepEqual(await leftovers(), []);
-  // Something made at the landing place at the last moment is never replaced: the folder is claimed
-  // by an exclusive mkdir, which fails when anything is there, a file or a folder.
-  const racer = `${arrival}/racer.cjs`;
-  await writeFile(racer, `const fs = require("node:fs"), path = require("node:path"); const make = fs.mkdirSync; const landing = process.argv[3];
-fs.mkdirSync = (target, options) => { if (target === landing && !fs.existsSync(landing)) { make(landing); fs.writeFileSync(path.join(landing, "theirs.txt"), "someone else"); } return make(target, options); };\n`);
-  const raced = landPack([arrival, 'pack-a', `${repo}/pack-a-5`], racer);
-  assert.equal(raced.status, 2);
-  assert.match(raced.stderr, /exists already; nothing landed/);
-  assert.deepEqual(await readdir(`${repo}/pack-a-5`), ['theirs.txt']);
-  assert.deepEqual(await leftovers(), []);
-  // Once the folder is claimed, nothing at the landing place is ever removed: a failure there leaves
-  // it as it is, because a path names no owner. Here something else adds a file beside the members,
-  // or one under a member's own name, or replaces a folder the command made, after the claim.
-  const afterClaim = async (name, act) => {
-    const hook = `${arrival}/after-${name}.cjs`;
-    await writeFile(hook, `const fs = require("node:fs"), path = require("node:path"); const make = fs.mkdirSync; const landing = process.argv[3];
-fs.mkdirSync = (target, options) => { const made = make(target, options); if (target === landing) { ${act} } return made; };\n`);
-    return landPack([arrival, 'pack-a', `${repo}/${name}`], hook);
-  };
-  for (const [name, theirs] of [['pack-a-6', 'theirs.txt'], ['pack-a-7', 'README.md']]) {
-    const shared = await afterClaim(name, `fs.writeFileSync(path.join(landing, ${JSON.stringify(theirs)}), "someone else");`);
-    assert.equal(shared.status, 2, shared.stdout);
-    assert.match(shared.stderr, /nothing landed; write no RECEIVED\.md and commit nothing/);
-    assert.match(shared.stderr, /changed while this command filled it, and is left as it is/);
-    assert.equal(await readFile(`${repo}/${name}/${theirs}`, 'utf8'), 'someone else');
+
+  // Something made at the landing place at the last moment, after the check and before the publish,
+  // is never replaced: an empty folder, a folder with a file, or a file.
+  for (const [name, made] of [['pack-a-5', 'fs.mkdirSync(landing)'], ['pack-a-6', 'fs.mkdirSync(landing); fs.writeFileSync(landing + "/theirs.txt", "someone else")'], ['pack-a-7', 'fs.writeFileSync(landing, "someone else")']]) {
+    const racer = `${arrival}/racer-${name}.cjs`;
+    await writeFile(racer, `const fs = require("node:fs"), child = require("node:child_process"); const spawn = child.spawnSync; const landing = process.argv[3];
+child.spawnSync = (...args) => { if (!fs.existsSync(landing)) { ${made}; } return spawn(...args); };\n`);
+    const raced = landPack([arrival, 'pack-a', `${repo}/${name}`], racer);
+    assert.equal(raced.status, 2, raced.stdout);
+    assert.match(raced.stderr, /exists already; nothing landed; write no RECEIVED\.md and commit nothing/);
     assert.deepEqual(await leftovers(), []);
   }
-  const replaced = await afterClaim('pack-a-8', `const data = path.join(landing, "data"); const make2 = fs.mkdirSync;
-  fs.mkdirSync = (target, options) => { const made = make2(target, options); if (target === data) { fs.rmdirSync(data); make2(data); fs.writeFileSync(path.join(landing, "theirs.txt"), "someone else"); fs.writeFileSync(landing + ".ino", String(fs.statSync(data).ino)); } return made; };`);
-  assert.equal(replaced.status, 2, replaced.stdout);
-  const { stat } = await import('node:fs/promises');
-  assert.equal(String((await stat(`${repo}/pack-a-8/data`)).ino), await readFile(`${repo}/pack-a-8.ino`, 'utf8'), 'a folder another process put in place was removed');
-  assert.deepEqual(await leftovers(), []);
+  assert.deepEqual(await readdir(`${repo}/pack-a-5`), []);
+  assert.equal(await readFile(`${repo}/pack-a-6/theirs.txt`, 'utf8'), 'someone else');
+  assert.deepEqual(await readdir(`${repo}/pack-a-6`), ['theirs.txt']);
+  assert.equal(await readFile(`${repo}/pack-a-7`, 'utf8'), 'someone else');
 
   assert.match(skill, /\*\*Land by the guarded copy\.\*\*/);
   assert.match(skill, /Landing a pack, guarded/);
