@@ -965,8 +965,10 @@ test("visitor-session-forensics reads a named person's account within the window
   const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
   const a1 = contracts.slice(contracts.indexOf('## A1. Accounts'), contracts.indexOf('## A2. Sign-in log'));
   assert.match(a1, /\*\*Reads\*\* the auth store, filtered to `\{IDENTITIES\}` and to the window/);
-  assert.match(a1, /sessions\s+active\s+in\s+the\s+window:\s+created\s+at\s+or\s+before\s+`\{TO\}`,\s+and\s+renewed\s+or\s+ended\s+at\s+or\s+after\s+`\{FROM\}`/);
+  assert.match(a1, /sessions\s+active\s+in\s+the\s+window,\s+created\s+at\s+or\s+before\s+`\{TO\}`\s+and\s+renewed\s+or\s+ended\s+at\s+or\s+after\s+`\{FROM\}`/);
   assert.doesNotMatch(a1, /its last sign-in|counts of\s+what the product stores for it\./);
+  // Even a yes or no about the account before the window is read from dates before it.
+  assert.doesNotMatch(a1, /existed|when the window opened/);
   assert.match(a1, /only when the request names it and the yes covers it \(S2\)/);
   assert.doesNotMatch(a1, /last sign-in is in or after the window/);
   const a2 = contracts.slice(contracts.indexOf('## A2. Sign-in log'), contracts.indexOf('## R1. Releases'));

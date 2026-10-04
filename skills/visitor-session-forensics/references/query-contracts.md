@@ -189,11 +189,11 @@ with the referrer cut to its host and path.
 
 **Reads** the auth store, filtered to `{IDENTITIES}` and to the window, as every other query is.
 
-**Returns** one row per account: whether it existed and was confirmed when the window opened (yes or
-no, not the dates), its sessions active in the window: created at or before `{TO}`, and renewed or
-ended at or after `{FROM}` (created, renewed, user agent, address, masked before it leaves the
-run), and counts of what the product stored for it in the window. Counts only: never the contents
-of a person's own records.
+**Returns** one row per account: its sessions active in the window, created at or before `{TO}`
+and renewed or ended at or after `{FROM}` (created, renewed, user agent, address, masked before it
+leaves the run), and counts of what the product stored for it in the window. Counts only: never
+the contents of a person's own records, and nothing about the account dated before or after the
+window.
 
 - An account's history outside the window (when it was created or invited, a sign-in before or
   after, its sessions then) is read only when the request names it and the yes covers it (S2), as
