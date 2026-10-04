@@ -168,7 +168,8 @@ assumption.
 ## Commands that fill the forms
 
 Each was run on synthetic files before it was written here. Node 22+ and Python 3 run them on any
-platform; the shell lines are written for macOS, and the Linux equivalent is named where it differs.
+platform, except the pack's landing, which needs macOS or Linux for its rename that refuses to
+replace; the shell lines are written for macOS, and the Linux equivalent is named where it differs.
 
 **One instant in UTC and in B2.** Takes an ISO time or a Date header, with a numeric offset or a
 zone name RFC 5322 defines, and refuses a value with no zone, which would otherwise be read in the
@@ -334,19 +335,19 @@ process.exit(ok === total && outside.length + parse.length + walked.length + com
 A manifest in another shape is read by its own rules, and the result is still stated in this form.
 
 **Landing a pack, guarded.** Where B4 says a pack lands, it is copied from its archived unpack by
-this command and no other. It checks the archived pack against `CONTENTS.txt`, copies it into a new
-folder of its own beside the landing place, and checks every member there: the same bytes and hash,
-none missing, and no other file. Only then does it claim the landing folder by making it, which
-fails when anything is already there, put the members in (each folder made and each file linked, so
-that nothing there is replaced) and check them again. A failure before the claim leaves nothing at
-the landing place. After the claim nothing there is ever removed, because a path does not say who
-made what is at it: a landing that something else changed while it was filled is left as it is,
-and the command says so. Run it after `CONTENTS.txt` is written. Unless it prints `N of N`, nothing
-is written beside the landing, no `RECEIVED.md`, and nothing is committed:
+this command and no other. It checks the archived pack against `CONTENTS.txt`, copies it into a
+folder of the run's own beside the landing place, and checks every member there: the same bytes and
+hash, none missing, and no other file. Only then is the checked folder published at the landing
+place, in one step that fails when anything is there, an empty folder included, rather than replace
+it: `renamex_np` with `RENAME_EXCL` on macOS, `renameat2` with `RENAME_NOREPLACE` on Linux, called
+through Python. Until that step the landing place does not exist, so nothing can read a pack half
+copied, and a failure never touches it. Where neither call exists, nothing lands. Run it after
+`CONTENTS.txt` is written. Unless it prints `N of N`, nothing is written beside the landing, no
+`RECEIVED.md`, and nothing is committed:
 
 ```sh
 node -e '
-const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto"), child = require("node:child_process");
 const [arrival, pack, landing] = process.argv.slice(1);
 if (!arrival || !pack || !landing) { console.error("usage: <arrival folder> <pack name> <landing folder, not yet made>"); process.exit(2); }
 const listed = new Map();
@@ -375,29 +376,33 @@ const source = path.join(arrival, "unpacked", pack);
 const before = differences("archive", measure(source));
 if (before.length) { console.error(`${before.join("\n")}\nthe archived pack is not what CONTENTS.txt lists; nothing landed`); process.exit(2); }
 if (taken(landing)) { console.error(`${landing} exists already; nothing landed`); process.exit(2); }
-// The copy is made and checked in a folder of its own, unique to this run, before the landing place is touched.
-let copy;
-try { copy = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) {
+// The copy is made and checked in a folder this run owns, beside the landing place and on its disk.
+let own;
+try { own = fs.mkdtempSync(path.join(path.dirname(landing), `.${path.basename(landing)}.landing-`)); } catch (error) {
   console.error(`no folder could be made beside ${landing} (${error.code}); nothing landed`);
   process.exit(2);
 }
-const fail = (why) => { fs.rmSync(copy, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
+const copy = path.join(own, "pack");
+const fail = (why) => { fs.rmSync(own, { recursive: true, force: true }); console.error(`${why}; nothing landed; write no RECEIVED.md and commit nothing`); process.exit(2); };
 try { fs.cpSync(source, copy, { recursive: true, errorOnExist: true, force: false }); } catch (error) { fail(`the copy failed (${error.code ?? error.message})`); }
 const after = differences("copy", measure(copy));
 if (after.length) fail(`${after.join("\n")}\nthe copy is not what CONTENTS.txt lists`);
-// The claim: mkdir makes the folder or fails, so nothing already at the landing place is replaced.
-try { fs.mkdirSync(landing); } catch (error) { fail(error.code === "EEXIST" ? `${landing} exists already` : `${landing} cannot be made (${error.code})`); }
-// Each folder by mkdir and each file by link(): both fail when anything is there. From here on,
-// nothing at the landing place is removed, whatever happens.
-const leftAsItIs = `${landing} changed while this command filled it, and is left as it is for a person to look at`;
-const place = (from, to) => { for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-  const a = path.join(from, e.name), b = path.join(to, e.name);
-  if (e.isDirectory()) { fs.mkdirSync(b); place(a, b); } else fs.linkSync(a, b);
-} };
-try { place(copy, landing); } catch (error) { fail(`the copy could not be put in place without replacing anything (${error.code}); ${leftAsItIs}`); }
-const placed = differences("landing", measure(landing));
-if (placed.length) fail(`${placed.join("\n")}\n${leftAsItIs}`);
-fs.rmSync(copy, { recursive: true, force: true });
+// The publish: one rename that fails, rather than replace, when anything is at the landing place.
+const publish = `
+import ctypes, ctypes.util, errno, os, sys
+source, target = (name.encode() for name in sys.argv[1:3])
+if sys.platform == "darwin":
+    done = ctypes.CDLL(None, use_errno=True).renamex_np(source, target, 0x4)
+elif sys.platform.startswith("linux") and hasattr(ctypes.CDLL(ctypes.util.find_library("c")), "renameat2"):
+    done = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True).renameat2(-100, source, -100, target, 1)
+else:
+    sys.exit("no rename that refuses to replace is available here")
+code = ctypes.get_errno()
+sys.exit(0 if done == 0 else ("exists" if code in (errno.EEXIST, errno.ENOTEMPTY) else f"{os.strerror(code)} ({code})"))
+`;
+const moved = child.spawnSync("python3", ["-c", publish, copy, landing], { encoding: "utf8" });
+if (moved.status !== 0) fail(moved.stderr.trim() === "exists" ? `${landing} exists already` : `the checked copy could not be published (${moved.stderr.trim() || moved.error?.code})`);
+fs.rmSync(own, { recursive: true, force: true });
 console.log(`${listed.size} of ${listed.size} members landed, each matching CONTENTS.txt, and no other file`);
 ' '<arrival folder>' '<pack name>' '<the landing folder B4 names, not yet made>'
 ```
