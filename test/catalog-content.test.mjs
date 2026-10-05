@@ -323,6 +323,64 @@ test('release-notes owns the semver call, the destinations, and the limits of it
   assert.doesNotMatch(releaseNotes, /\bCUE\b|\bRGC\b/);
 });
 
+test('release-notes versions a product with no API, treats a bump judge as advice, and can be adapted', async () => {
+  const versioning = await read('skills/release-notes/references/versioning-a-product.md');
+  assert.match(releaseNotes, /references\/versioning-a-product\.md/);
+  // The slots, hard lines and steps a project's overlay cites, each under its id.
+  assert.match(releaseNotes, /^## Bindings$/m);
+  for (const id of ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8']) assert.match(releaseNotes, new RegExp(`^\\| ${id} \\|`, 'm'));
+  for (const id of ['H1', 'H2', 'H3', 'H4']) assert.match(releaseNotes, new RegExp(`^- \\*\\*${id}\\. `, 'm'));
+  for (const id of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']) assert.match(releaseNotes, new RegExp(`^\\d+\\. \\*\\*${id}\\. `, 'm'));
+  assert.match(releaseNotes, /\| B6 \|[^\n]*\| skill \| `describe-changes` \|/);
+  assert.match(releaseNotes, /\| B7 \|[^\n]*\| skill \| `release-ledger` \|/);
+  assert.match(releaseNotes, /\| B8 \| where a product with no API keeps its was-and-now ledger \| value \|/);
+  assert.match(versioning, /takes it as the slot B8/);
+  // An installed copy carries no docs/, so the guide is cited by a URL that resolves anywhere.
+  assert.match(releaseNotes, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+  // A number ruled against the impact analysis ships with both readings, never unexplained, and
+  // only a person a project names may rule it: unbound, the analysis alone sets the number.
+  assert.match(releaseNotes, /\| B5 \|[^\n]*\| value \| nobody: the impact analysis alone sets the number/);
+  assert.match(releaseNotes, /records both readings and the\s+ruling of the person bound as B5/);
+  // The ruling counts once the person has seen what the analysis found and kept their number.
+  assert.match(releaseNotes, /show them what the analysis found, and if they keep their number,\s+stamp theirs/);
+  assert.match(versioning, /show them what it found, and the words a judge quoted if one\s+ran/);
+  // A person who cannot be shown it is waited for: neither number is the agent's to stamp.
+  assert.match(releaseNotes, /the release waits for their answer: stamping either number\s+without it would be the agent's ruling/);
+  assert.match(versioning, /the release waits for their answer: stamping\s+their number unseen, or the analysis's instead, would be the agent's ruling/);
+  // A judge is weighed against the analysis, never against a ruled number, and a judge found right
+  // corrects the analysis as well as the number, so S3's check can still pass.
+  assert.match(versioning, /\*\*the analysis is wrong\*\*: correct it, then fix the number/);
+  assert.match(versioning, /never with a number the person bound as B5 has ruled/);
+  assert.match(releaseNotes, /correct the analysis and the number, or overrule the\s+judge on the\s+record/);
+  assert.match(releaseNotes, /judge \(B4\)\s+is advice/);
+  // Untrue words are corrected on the record; words are never reworded to move the number.
+  assert.match(releaseNotes, /never reworded to move its number/);
+  assert.match(versioning, /A\s+correction makes the words true; a rewording only makes the judge agree/);
+  assert.match(versioning, /what does a reader rely on/i);
+  assert.match(versioning, /false, broken or never\s+seen/);
+  assert.match(versioning, /Write the ledger first, as was and now/);
+  assert.match(versioning, /## A bump judge is advice/);
+  assert.match(versioning, /Never reword the ledger to move the number/);
+  assert.match(versioning, /records both readings/);
+  assert.match(versioning, /name the number they become/);
+  assert.match(versioning, /restart is recorded once/);
+  assert.match(versioning, /leave one out/);
+  // The reference against the same organisation markers as release-notes' own block above, read
+  // from that block so the two cannot drift and a new line need not restate them.
+  const ownSource = await read('test/catalog-content.test.mjs');
+  const markerSource = ownSource.match(/assert\.doesNotMatch\(releaseNotes, \/(.+?)\/\);/);
+  assert.ok(markerSource, "release-notes' block no longer checks for organisation markers");
+  const organisationMarkers = new RegExp(markerSource[1]);
+  assert.match(' CUE ', organisationMarkers, 'the markers read from that block are the pattern the blocks above use');
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
+  for (const text of [releaseNotes, versioning]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 const documentingRunCarriers = ['investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery'];
 
 async function assertRunRecordCopiesIdentical(directory) {

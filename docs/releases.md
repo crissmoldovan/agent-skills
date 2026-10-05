@@ -129,8 +129,8 @@ file. This change ships no composer; the page is the contract that any composer 
 `scripts/verify-skills.mjs` now checks every file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It requires well-formed ids, unique across the skill, one
 letter for all of a skill's slots, a known kind and a default for every slot, and a `skill` slot
-that defaults to a skill this catalogue ships. No skill declares the section yet, so nothing that
-passed before fails now.
+that defaults to a skill this catalogue ships. No skill declared the section before this release,
+so nothing that passed before fails now.
 
 The pins rely on a tag policy that had never been written down, and this file now carries it under
 [Tags](#tags): a published tag is never moved or deleted, unless it carries personal or client
@@ -140,6 +140,48 @@ the catalogue's, and a per-skill tag's where the skill has one, with a major cha
 middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
 removing an id is major among its pitfalls, which is the only change to an installed skill, and
 its metadata version moves from 1.0.0 to 1.0.1 for that line.
+
+### `release-notes` versions a product that has no API, treats a bump judge as advice, and can be adapted
+
+`release-notes` judged the level of a release by its API: an export removed, an argument made
+required, a return shape changed. An app, a site, a dashboard or a report has readers rather than
+callers, so the checklist had nothing to say about most of what such a release changes. A new
+reference, [`versioning-a-product.md`](../skills/release-notes/references/versioning-a-product.md),
+judges it by what a reader relies on: removed, reversed or redefined is a major, a new capability
+a minor, a correction a patch, and a removal is a patch only when the record says what went was
+false, broken or never seen. The level is read from a ledger written first, one was-and-now entry
+per change a reader can reach, whose words have to be true before anything reads them. The
+reference also covers pre-release numbers, which name the number they become; a renumbering
+restart, recorded once, in the release that makes it; and why a back-test of a version judge on
+the releases its rules were written from proves little, with two hold-out checks to run instead.
+One new line says that a version or a judgement computed from the working tree counts every
+uncommitted change, so `git status` is read first, and the Migration question now names a reader's
+steps too: where a moved screen or figure is now, and what replaces what was removed.
+
+Some projects run a tool that proposes the level. The skill now treats it as advice: read the
+words it quotes, then either correct the impact analysis and the number with it, or overrule the
+tool on the record, and never reword a change until it agrees. A change's words that are untrue
+are still corrected, on the record with the reason, even when the correction moves the number.
+
+A project can now name the person who rules the number. When that person departs from the impact
+analysis, they are shown what it found; if they keep their number, the number is theirs, and the
+note is honest when it records both readings and the ruling. When they cannot be shown it before
+the release, the release waits for their answer, because stamping either number without it would
+be the agent's ruling. A mismatch shipped without both readings, or on the agent's own say-so, is
+still dishonest. A project that names nobody keeps the rule as it was: the impact analysis sets
+the number, and when it disagrees with the plan, the bump changes or the release does. So no
+existing guidance changes meaning, and this is new guidance, a minor change under
+[Versioning](#versioning). The procedure's third and fifth steps, its pitfalls and its third
+verification check say the same.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: eight slots, B1 to B8 (where the version is read from, the destinations, the release
+checklist, the bump judge, who rules the number, the two sibling skills it hands work to,
+`describe-changes` for a change that already landed and `release-ledger` for a what's-new feature
+inside a product, and where a product with no API keeps its ledger), four hard lines, H1 to H4,
+and its seven steps as S1 to S7. Every slot's default is what the skill does on its own, so a
+project that binds nothing gets the same procedure. Nothing needs migrating: no project could
+adapt the skill before it declared these ids. The `release-notes` gate is unchanged.
 
 ### `request-answers` shows the screen each question is about, gives the reader the answered rows, and can be adapted
 
