@@ -573,6 +573,8 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   // that digest would change it.
   assert.match(copy, /the record of its pin \(below\), with the sha256 of every other file it\s+carries/);
   assert.match(copy, /The record does not\s+hash itself/);
+  // A SKILL.md entry's text is its body: the copy's frontmatter is the merged one, written once.
+  assert.match(copy, /For a `SKILL\.md` entry that text is its\s+body, everything after the `---` that closes its frontmatter, since item 1 is the copy's only\s+frontmatter/);
   assert.match(section(adaptation, 'Pinning a skill'), /\*\*sha256 of every file\*\* carried, but for the record that holds them/);
   assert.match(copy, /### When the entry is a reference file/);
   assert.match(copy, /relative link in it is rewritten for its new place/);
