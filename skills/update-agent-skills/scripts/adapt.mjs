@@ -1724,6 +1724,9 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
       ...sortedEntries(projectFiles).map(([file, content]) => [file, sha256(content.bytes)]),
     ].sort(([a], [b]) => (a < b ? -1 : 1))),
     files: Object.fromEntries(sortedEntries(files).map(([file, content]) => [file, sha256(content.bytes)])),
+    // A hash says nothing of the mode, and a script that lost its executable bit no longer runs as
+    // composed, so check 1 holds each file to this list as well.
+    executable: sortedEntries(files).filter(([, content]) => content.executable).map(([file]) => file),
   };
   files.set(LOCK_FILE, { bytes: Buffer.from(`${JSON.stringify(lock, null, 2)}\n`, 'utf8'), executable: false });
 
@@ -1813,14 +1816,22 @@ function readLock(folder) {
   }
 }
 
-/** Check 1: the folder holds exactly the files its lock lists, each with the recorded sha256. */
+/**
+ * Check 1: the folder holds exactly the files its lock lists, each with the recorded sha256, and
+ * executable exactly where the lock records it. A lock written before modes were recorded lists
+ * none, and its copy is held to its hashes alone until it is composed again.
+ */
 export function integrityProblems(generated, lock) {
   const problems = [];
   const expected = new Map(Object.entries(lock.files ?? {}));
+  const executable = Array.isArray(lock.executable) ? new Set(lock.executable) : null;
   for (const [file, content] of sortedEntries(generated)) {
     if (file === LOCK_FILE) continue;
     if (!expected.has(file)) problems.push(`${file} is not in the lock: added by hand`);
     else if (sha256(content.bytes) !== expected.get(file)) problems.push(`${file} differs from the lock: edited by hand, or composed by something else`);
+    else if (executable && content.executable !== executable.has(file)) {
+      problems.push(`${file} is ${content.executable ? '' : 'not '}executable, and the lock records it as ${executable.has(file) ? '' : 'not '}executable: its mode was changed by hand`);
+    }
   }
   for (const file of expected.keys()) if (!generated.has(file)) problems.push(`${file} is in the lock and missing from the folder`);
   return problems;
@@ -2058,7 +2069,7 @@ export function runCompose(options, io) {
         if (!before.has(file)) {
           io.out(`  + ${file}`);
           changes += 1;
-        } else if (!before.get(file).bytes.equals(content.bytes)) {
+        } else if (!before.get(file).bytes.equals(content.bytes) || before.get(file).executable !== content.executable) {
           io.out(`  ~ ${file}`);
           changes += 1;
         }
