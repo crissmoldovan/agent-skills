@@ -85,7 +85,7 @@ const PROJECT_DIRS = ['references/project/', 'scripts/project/', 'assets/project
 const BASE_BEGIN = '<!-- base:begin';
 const BASE_END = '<!-- base:end -->';
 const ADAPTER_KEYS = new Set(['version', 'name', 'description', 'base', 'allowedTools', 'overlay', 'projectFiles', 'names']);
-const BASE_KEYS = new Set(['source', 'skill', 'entry', 'ref', 'commit', 'tree']);
+const BASE_KEYS = new Set(['source', 'skill', 'path', 'entry', 'ref', 'commit', 'tree']);
 const OVERLAY_SECTIONS = new Map([['bindings', 'Bindings'], ['additions', 'Additions'], ['project traps', 'Project traps']]);
 
 // Read exactly as the pack's verifier reads a skill (scripts/verify-skills.mjs in the pack), so
@@ -300,6 +300,14 @@ export function sourceLabel(source) {
 }
 
 /**
+ * The skill's folder in its source: `base.path` for a source that keeps the skill elsewhere, such as
+ * `skills/<category>/skills/<skill>`, and `skills/<skill>` otherwise.
+ */
+function folderOf(base) {
+  return typeof base.path === 'string' ? base.path : `skills/${base.skill}`;
+}
+
+/**
  * Open the repository a pin is read from: a local clone named by `--pack`, a local source, or a
  * shallow fetch of exactly one ref from GitHub into a throwaway bare repository.
  */
@@ -353,7 +361,7 @@ export function resolvePin(reader, base) {
     throw new AdaptError(`the pack has no tag ${base.ref}${/^[0-9a-f]{7,39}$/.test(base.ref) ? '; an abbreviated sha is refused, give all of it' : ''}`);
   }
   if (!commit) throw new AdaptError(`cannot resolve ${base.ref} to a commit`);
-  const folder = `skills/${base.skill}`;
+  const folder = folderOf(base);
   const tree = reader.treeAt(commit, folder);
   if (!tree) throw new AdaptError(`the pack has no ${folder} at ${base.ref}`);
   if (base.commit && base.commit !== commit) {
@@ -362,7 +370,7 @@ export function resolvePin(reader, base) {
   if (base.tree && base.tree !== tree) {
     throw new AdaptError(`adapter.json records tree ${short(base.tree)} for ${folder}, but ${base.ref} has ${short(tree)}. Read the change, then set base.tree to the new value, or remove it`);
   }
-  return { source: base.source, skill: base.skill, entry: base.entry, ref: base.ref, commit, tree };
+  return { source: base.source, skill: base.skill, path: folder, entry: base.entry, ref: base.ref, commit, tree };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1250,6 +1258,10 @@ export function validateAdapter(adapter, folderName) {
     if (sourceIssue) problems.push(sourceIssue);
     // A name that is the skill's own is check 6's to refuse, at compose and at check.
     if (typeof base.skill !== 'string' || !SKILL_NAME.test(base.skill)) problems.push('base.skill must be the pack skill\'s name');
+    // Read as git reads a path in a tree, so it names a folder inside the source and nothing else.
+    if (base.path !== undefined && !(typeof base.path === 'string' && /^[A-Za-z0-9._/-]+$/.test(base.path) && posix.normalize(base.path) === base.path && base.path !== '.' && !base.path.startsWith('/') && !base.path.endsWith('/') && !base.path.split('/').includes('..'))) {
+      problems.push('base.path, when given, is the relative path of the skill\'s folder inside its source, with no .. and no leading /, such as skills/<category>/skills/<skill>; left out, it is skills/<skill>');
+    }
     if (base.entry !== undefined && !(typeof base.entry === 'string' && /^[A-Za-z0-9._/-]+\.md$/.test(base.entry) && posix.normalize(base.entry) === base.entry && !base.entry.startsWith('/') && !base.entry.split('/').includes('..'))) {
       problems.push('base.entry must be SKILL.md or the relative path of a Markdown file inside the skill');
     }
@@ -1294,7 +1306,7 @@ export function validateAdapter(adapter, folderName) {
       version: adapter.version,
       name: adapter.name,
       description: adapter.description,
-      base: { source: base.source, skill: base.skill, entry: base.entry ?? 'SKILL.md', ref: base.ref, commit: base.commit ?? null, tree: base.tree ?? null },
+      base: { source: base.source, skill: base.skill, path: folderOf(base), entry: base.entry ?? 'SKILL.md', ref: base.ref, commit: base.commit ?? null, tree: base.tree ?? null },
       allowedTools: adapter.allowedTools ?? [],
       overlay: adapter.overlay ?? 'overlay.md',
       projectFiles: [...(adapter.projectFiles ?? [])].sort(),
@@ -1411,7 +1423,7 @@ export function layoutFor({ repo = '.', adaptersDir = DEFAULT_ADAPTERS_DIR, skil
 
 /** The pack skill at a resolved pin: its files, its frontmatter, its entry text and the licence. */
 export function readBase(reader, pin) {
-  const folder = `skills/${pin.skill}`;
+  const folder = folderOf(pin);
   const files = new Map();
   for (const entry of reader.listFolder(pin.commit, folder)) {
     if (entry.mode === '120000') throw new AdaptError(`${folder}/${entry.path} is a symbolic link; the composer carries files only`);
@@ -1709,6 +1721,9 @@ export function composeAdapted({ adapter, overlay: overlaySource, projectFiles =
     base: {
       source: identity.source,
       skill: identity.skill,
+      // Only a folder other than skills/<skill> is recorded, so a lock over the default reads as one
+      // composed before a source could keep its skills elsewhere.
+      ...(folderOf(identity) === `skills/${identity.skill}` ? {} : { path: folderOf(identity) }),
       entry: identity.entry,
       ref: identity.ref,
       commit: identity.commit,
@@ -1742,7 +1757,7 @@ function composeSkillMarkdown({ adapter, base, names, overlay, segment, layout }
   if (frontmatter.compatibility) lines.push(`compatibility: ${yamlString(frontmatter.compatibility)}`);
   lines.push(
     'metadata:',
-    `  adapted-from: ${JSON.stringify(`${identity.source} skills/${identity.skill}`)}`,
+    `  adapted-from: ${JSON.stringify(`${identity.source} ${folderOf(identity)}`)}`,
     `  entry: ${JSON.stringify(identity.entry)}`,
     `  ref: ${JSON.stringify(identity.ref)}`,
     `  commit: ${JSON.stringify(identity.commit)}`,
@@ -2059,8 +2074,8 @@ export function runCompose(options, io) {
           continue;
         }
         if (was.ref === pin.ref && was.commit === pin.commit) io.out('  pin unchanged');
-        else if (was.tree === pin.tree) io.out(`  pin moves from ${was.ref} to ${pin.ref}; skills/${pin.skill} is unchanged, so there is nothing to review`);
-        else io.out(`  pin moves from ${was.ref} to ${pin.ref}; skills/${pin.skill} changed (tree ${short(was.tree)} -> ${short(pin.tree)}): read \`git diff ${was.ref} ${pin.ref} -- skills/${pin.skill}\` in the pack, then the diff below`);
+        else if (was.tree === pin.tree) io.out(`  pin moves from ${was.ref} to ${pin.ref}; ${pin.path} is unchanged, so there is nothing to review`);
+        else io.out(`  pin moves from ${was.ref} to ${pin.ref}; ${pin.path} changed (tree ${short(was.tree)} -> ${short(pin.tree)}): read \`git diff ${was.ref} ${pin.ref} -- ${pin.path}\` in the pack, then the diff below`);
       } else io.out('  first compose');
 
       const before = existing?.files ?? new Map();
@@ -2131,7 +2146,7 @@ function baseFromCopy(lock, generated) {
   if (recorded.license && !license) return { problem: 'LICENSE is missing from the copy' };
   return {
     base: {
-      identity: { source: recorded.source, skill: recorded.skill, entry: recorded.entry, ref: recorded.ref, commit: recorded.commit, tree: recorded.tree },
+      identity: { source: recorded.source, skill: recorded.skill, path: folderOf(recorded), entry: recorded.entry, ref: recorded.ref, commit: recorded.commit, tree: recorded.tree },
       frontmatter: recorded.frontmatter ?? {},
       entryText,
       skillText: null,
@@ -2227,6 +2242,7 @@ export function runCheck(options, io) {
 
       if (adapter) {
         const stale = ['source', 'skill', 'entry', 'ref'].filter((key) => adapter.base[key] !== lock.base[key]);
+        if (adapter.base.path !== folderOf(lock.base)) stale.push('path');
         if (adapter.base.commit && adapter.base.commit !== lock.base.commit) stale.push('commit');
         if (adapter.base.tree && adapter.base.tree !== lock.base.tree) stale.push('tree');
         if (stale.length) add(3, `adapter.json pins ${adapter.base.skill} at ${adapter.base.ref}, but the copy was composed from ${lock.base.skill} at ${lock.base.ref} (${stale.join(', ')} differ): compose again`);
@@ -2328,6 +2344,7 @@ export function runOutdated(options, io) {
       continue;
     }
     const pinned = lock.base;
+    const folder = folderOf(pinned);
     io.out(`${record.folderName} adapts ${pinned.skill} at ${pinned.ref} (commit ${short(pinned.commit)}, tree ${short(pinned.tree)}) from ${sourceLabel(pinned.source)}`);
     if (record.adapter && (record.adapter.base.ref !== pinned.ref || record.adapter.base.skill !== pinned.skill)) {
       io.out(`  adapter.json now pins ${record.adapter.base.skill} at ${record.adapter.base.ref}; compose to adopt it`);
@@ -2369,19 +2386,19 @@ export function runOutdated(options, io) {
         const reader = readerFor();
         fetchRef(reader, `+refs/tags/${tag}:refs/tags/${tag}`);
         const commit = reader.commitOf(`refs/tags/${tag}`);
-        const tree = commit ? reader.treeAt(commit, `skills/${pinned.skill}`) : null;
+        const tree = commit ? reader.treeAt(commit, folder) : null;
         // A version orders tags of one family only; against a sha, or across families, the trees
         // can only differ, so the line says which to read and never claims the tag is newer.
         const ordered = pinFamily !== null && tagVersion(tag, pinned.skill)?.family === pinFamily;
         if (!tree) {
-          io.out(`  ${tag} exists, and skills/${pinned.skill} is gone from it: read the release notes before moving the pin`);
+          io.out(`  ${tag} exists, and ${folder} is gone from it: read the release notes before moving the pin`);
           attention = true;
-        } else if (tree === pinned.tree) io.out(`  ${tag} exists; skills/${pinned.skill} unchanged: moving the pin is a no-op`);
+        } else if (tree === pinned.tree) io.out(`  ${tag} exists; ${folder} unchanged: moving the pin is a no-op`);
         else if (ordered) {
-          io.out(`  ${tag} exists; skills/${pinned.skill} changed (tree ${short(pinned.tree)} -> ${short(tree)}): read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\``);
+          io.out(`  ${tag} exists; ${folder} changed (tree ${short(pinned.tree)} -> ${short(tree)}): read \`git diff ${pinned.ref} ${tag} -- ${folder}\``);
           attention = true;
         } else {
-          io.out(`  ${tag} exists; skills/${pinned.skill} differs (tree ${short(pinned.tree)} -> ${short(tree)}), and ${pinFamily ? 'a per-skill tag' : 'a commit'} is not ordered against ${tag}: read \`git diff ${pinned.ref} ${tag} -- skills/${pinned.skill}\` and the release notes before moving the pin`);
+          io.out(`  ${tag} exists; ${folder} differs (tree ${short(pinned.tree)} -> ${short(tree)}), and ${pinFamily ? 'a per-skill tag' : 'a commit'} is not ordered against ${tag}: read \`git diff ${pinned.ref} ${tag} -- ${folder}\` and the release notes before moving the pin`);
           attention = true;
         }
       }
@@ -2427,8 +2444,9 @@ function verifyAgainstUpstream(reader, lock, folder) {
   const problems = [];
   const pinned = lock.base;
   if (!reader.commitOf(pinned.commit)) return [`the source has no commit ${pinned.commit}`];
-  const tree = reader.treeAt(pinned.commit, `skills/${pinned.skill}`);
-  if (tree !== pinned.tree) problems.push(`skills/${pinned.skill} at ${short(pinned.commit)} is tree ${short(tree)}, and the lock records ${short(pinned.tree)}`);
+  const skillFolder = folderOf(pinned);
+  const tree = reader.treeAt(pinned.commit, skillFolder);
+  if (tree !== pinned.tree) problems.push(`${skillFolder} at ${short(pinned.commit)} is tree ${short(tree)}, and the lock records ${short(pinned.tree)}`);
   const upstream = readBase(reader, { ...pinned });
   const generated = readGenerated(folder).files;
   for (const [file, hash] of Object.entries(upstream.hashes)) if (pinned.files?.[file] !== hash) problems.push(`the lock records another hash for ${file}`);

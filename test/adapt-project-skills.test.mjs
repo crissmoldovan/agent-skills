@@ -1009,6 +1009,12 @@ const REFUSALS = [
     message: /\[pin\] the pack has no skills\/absent at v1\.0\.0/,
   },
   {
+    name: 'a skill folder the ref does not have, named in base.path',
+    refused: { adapter: { base: { path: 'skills/team/skills/notes' } } },
+    accepted: { adapter: { base: { path: 'skills/notes' } } },
+    message: /\[pin\] the pack has no skills\/team\/skills\/notes at v1\.0\.0/,
+  },
+  {
     name: 'a recorded tree the ref no longer gives',
     refused: async (pack) => ({ adapter: { base: { tree: git(pack, 'rev-parse', 'v1.2.0:skills/notes') } } }),
     accepted: async (pack) => ({ adapter: { base: { tree: git(pack, 'rev-parse', 'v1.0.0:skills/notes') } } }),
@@ -1135,6 +1141,24 @@ const REFUSALS = [
     refused: { adapter: { base: { entry: '../SKILL.md' } } },
     accepted: { adapter: { base: { entry: 'references/part.md' } }, overlay: PART_OVERLAY },
     message: /\[adapter\] base\.entry must be SKILL\.md or the relative path of a Markdown file inside the skill/,
+  },
+  {
+    name: 'a skill folder outside the source',
+    refused: { adapter: { base: { path: 'skills/../../notes' } } },
+    accepted: { adapter: { base: { path: 'skills/notes' } } },
+    message: /\[adapter\] base\.path, when given, is the relative path of the skill's folder inside its source, with no \.\. and no leading \/, such as skills\/<category>\/skills\/<skill>/,
+  },
+  {
+    name: 'a skill folder written from the root',
+    refused: { adapter: { base: { path: '/skills/notes' } } },
+    accepted: { adapter: { base: { path: 'skills/notes' } } },
+    message: /\[adapter\] base\.path, when given, is the relative path of the skill's folder inside its source/,
+  },
+  {
+    name: 'a skill folder that is the source itself',
+    refused: { adapter: { base: { path: '.' } } },
+    accepted: { adapter: { base: { path: 'skills/notes' } } },
+    message: /\[adapter\] base\.path, when given, is the relative path of the skill's folder inside its source/,
   },
   {
     name: 'a ref shaped like an option',
@@ -2619,6 +2643,96 @@ test('outdated --verify: the copy is the upstream bytes, and a forgery the offli
   const verified = outdated(project, '--verify');
   assert.equal(verified.status, EXIT_FAILED, verified.stdout);
   assert.match(verified.stdout, /references\/guide\.md differs from upstream/);
+});
+
+/**
+ * A source that keeps each skill at skills/<category>/skills/<name>, not skills/<name>, as a
+ * repository that sorts its skills into categories does. It carries the notes skill, tagged v1.0.0.
+ */
+async function buildCategorisedSource() {
+  const source = await tempDir('adapt-source-');
+  const folder = 'skills/team/skills/notes';
+  write(source, 'LICENSE', LICENSE);
+  write(source, `${folder}/SKILL.md`, NOTES_SKILL);
+  write(source, `${folder}/references/guide.md`, '# Guide\n\nBack to [the steps](../SKILL.md).\n');
+  write(source, `${folder}/references/part.md`, PART);
+  write(source, `${folder}/scripts/count.mjs`, 'console.log("count");\n', 0o755);
+  git(source, 'init', '--quiet', '.');
+  git(source, 'add', '-A');
+  git(source, 'commit', '--quiet', '-m', 'one');
+  git(source, 'tag', 'v1.0.0');
+  return { source, folder };
+}
+
+test('base.path: a skill kept at skills/<category>/skills/<name> composes, checks, and is compared at that folder', async () => {
+  const { source, folder } = await buildCategorisedSource();
+
+  // Without base.path the folder is skills/<skill>, which this source does not have.
+  const unpathed = compose(await addAdapter({ pack: source }));
+  assert.equal(unpathed.status, EXIT_FAILED, unpathed.stdout);
+  assert.match(unpathed.stdout, /\[pin\] the pack has no skills\/notes at v1\.0\.0/);
+
+  const project = await addAdapter({ pack: source, adapter: adapterJson(source, { base: { path: folder } }) });
+  const composed = compose(project, '--write');
+  assert.equal(composed.status, EXIT_OK, composed.stdout);
+  assert.match(composed.stdout, /notes-here: notes at v1\.0\.0 \(commit [0-9a-f]{12}, tree [0-9a-f]{12}\)/);
+
+  const skill = readText(project, generated(project, 'SKILL.md'));
+  assert.match(splitFrontmatter(skill).frontmatter, /^ {2}adapted-from: ".+ skills\/team\/skills\/notes"$/m);
+  const segment = skill.slice(skill.indexOf('\n', skill.indexOf('<!-- base:begin')) + 1, skill.indexOf('<!-- base:end -->'));
+  assert.equal(segment, splitFrontmatter(NOTES_SKILL).body, 'the skill text is not byte for byte');
+  for (const file of ['references/guide.md', 'references/part.md', 'scripts/count.mjs', 'LICENSE']) {
+    const upstream = file === 'LICENSE' ? file : `${folder}/${file}`;
+    assert.ok(read(project, generated(project, file)).equals(read(source, upstream)), `${file} is not the source's bytes`);
+  }
+  assert.notEqual(statSync(path.join(project, generated(project, 'scripts/count.mjs'))).mode & 0o111, 0, 'an executable script lost its mode');
+  const lock = JSON.parse(readText(project, generated(project, LOCK_FILE)));
+  assert.equal(lock.base.path, folder);
+  assert.equal(lock.base.tree, git(source, 'rev-parse', `v1.0.0:${folder}`));
+
+  // check reads no source: it holds the copy to its lock, the recorded folder included.
+  const checked = check(project);
+  assert.equal(checked.status, EXIT_OK, checked.stdout);
+  assert.match(checked.stdout, /notes-here: ok \(notes at v1\.0\.0/);
+  assert.equal(vendored(project, ['check', '--repo', project]).status, EXIT_OK);
+
+  // outdated and --verify read that folder, at the pinned commit and at a newer tag.
+  const current = outdated(project, '--verify');
+  assert.equal(current.status, EXIT_OK, current.stdout);
+  assert.match(current.stdout, /no newer release than v1\.0\.0/);
+  assert.match(current.stdout, /verify: every carried file is the upstream bytes/);
+  write(source, `${folder}/SKILL.md`, NOTES_SKILL.replace('Copy it, never move it.', 'Copy it, never move it, and hash it.'));
+  git(source, 'commit', '--quiet', '-am', 'two');
+  git(source, 'tag', 'v1.1.0');
+  const changed = outdated(project);
+  assert.equal(changed.status, EXIT_ATTENTION, changed.stdout);
+  assert.match(changed.stdout, /v1\.1\.0 exists; skills\/team\/skills\/notes changed \(tree [0-9a-f]{12} -> [0-9a-f]{12}\): read `git diff v1\.0\.0 v1\.1\.0 -- skills\/team\/skills\/notes`/);
+
+  // A folder changed in adapter.json without composing is a stale pin, as a changed ref is.
+  updateJson(project, `${ADAPTERS}/notes-here/adapter.json`, (adapter) => { delete adapter.base.path; });
+  const stale = check(project);
+  assert.equal(stale.status, EXIT_FAILED, stale.stdout);
+  assert.match(stale.stdout, /\[3\] adapter\.json pins notes at v1\.0\.0, but the copy was composed from notes at v1\.0\.0 \(path differ\): compose again/);
+});
+
+test('base.path: naming skills/<skill> composes what leaving it out does, and the lock records a folder only when it is another', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const plain = await addAdapter({ pack });
+  const named = await addAdapter({ pack, adapter: adapterJson(pack, { base: { path: 'skills/notes' } }) });
+  assert.equal(compose(plain, '--write').status, EXIT_OK);
+  assert.equal(compose(named, '--write').status, EXIT_OK);
+
+  const plainFiles = tree(path.join(plain, generated(plain)));
+  const namedFiles = tree(path.join(named, generated(named)));
+  assert.deepEqual([...namedFiles.keys()].sort(), [...plainFiles.keys()].sort());
+  // The lock differs only in the hash of adapter.json, which names the folder in one of them.
+  for (const [file, bytes] of plainFiles) if (file !== LOCK_FILE) assert.ok(namedFiles.get(file).equals(bytes), `${file} differs`);
+  const plainLock = JSON.parse(plainFiles.get(LOCK_FILE).toString('utf8'));
+  const namedLock = JSON.parse(namedFiles.get(LOCK_FILE).toString('utf8'));
+  assert.deepEqual(namedLock.base, plainLock.base);
+  assert.equal(Object.hasOwn(plainLock.base, 'path'), false, 'a lock over skills/<skill> records a folder, so it no longer reads as one composed before base.path');
+  assert.equal(check(plain).status, EXIT_OK);
+  assert.equal(check(named).status, EXIT_OK);
 });
 
 test('newer tags: a catalogue pin is compared with catalogue tags, a per-skill pin with its own and the newest catalogue tag, a sha pin with the newest of each kind', () => {

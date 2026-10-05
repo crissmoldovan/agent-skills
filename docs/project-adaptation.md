@@ -279,6 +279,11 @@ An adapted copy names the skill it came from by three identities:
   names the recorded commit, or looking for newer tags, does.
 - Moving a pin is a review. With the same tree there is nothing to read. With a changed tree, read
   `git diff <old ref> <new ref> -- skills/<skill>`, then compose again.
+- A source that keeps a skill elsewhere than `skills/<skill>`, such as
+  `skills/<category>/skills/<skill>` in a repository that sorts its skills into categories, names
+  that folder in the adapter's `base.path`: relative to the source's root, with no `..`, and inside
+  the source. The tree is then that folder's, every diff above is read for it, and the record of the
+  pin names it.
 - The `version=` in a skill's metadata is not a pin, because it is not bumped on every change.
 
 ## Changing a skill that projects adapt
