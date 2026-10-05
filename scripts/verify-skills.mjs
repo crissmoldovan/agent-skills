@@ -43,6 +43,7 @@ const FIT_KINDS = new Set(['signals', 'general', 'requestOnly']);
 // so every such file is read, and its ids are held unique across all of them, because "S4" has to
 // mean one step wherever the skill or an overlay cites it. Fenced code is not read, at any
 // indentation, so a fence nested in a list item counts: an example of a table is not a declaration.
+// Such a file whose code blocks GitHub could read otherwise than this check does is refused instead.
 const BINDINGS_COLUMNS = ['id', 'slot', 'kind', 'default'];
 const WELL_FORMED_ID = /^[A-Z][1-9][0-9]*$/;
 const SLOT_KIND = /^(?:value|skill)(?:, required)?$/;
@@ -206,28 +207,41 @@ function indentColumns(whitespace) {
 }
 
 /**
- * The file's lines with every fenced code block blanked, so line numbers still match. A fence is
- * read at any indentation, because one nested in a list item sits past the three spaces a fence at
- * the top level may have, and is code all the same. Without reading the lists around it, a fence is
- * taken the strictest way it could be meant, so that it never hides a line Markdown would show: it
- * closes at a bare run of at least as many of its character, indented at most three columns more
- * than it, and only if that comes before any line that is not blank and is indented less than it. A
- * fence that does not close so opens nothing: its line is read as text, and so are the lines after
- * it. That is an indented code line that merely shows a fence, or a fence left open, which would
- * otherwise hide every declaration after it. A less indented line that would have closed it is the
- * closing line its writer meant, so it does not open a fence of its own. A backtick fence whose info
- * string holds a backtick is not a fence.
+ * The file's lines with every fenced code block blanked, so line numbers still match, and the first
+ * block GitHub could read otherwise than these lines do, as a `refusal` to report instead of reading
+ * the file. A fence is read at any indentation, because one nested in a list item sits past the
+ * three spaces a fence at the top level may have, and is code all the same. It closes at a bare run
+ * of at least as many of its character, indented at most three columns more than it, before any line
+ * that is not blank and is indented less than it. A fence that does not close so is not blanked: its
+ * line is read as text, and so are the lines after it.
+ *
+ * Reading those lines as text is right only where GitHub shows them as text too, and whether it does
+ * can depend on a list around the fence, which this check does not read. A line indented less than
+ * the fence stays inside the block outside a list, and in a list item ends the item and the block
+ * with it, so the lines between are code either way; and a fence that never closes is code to the
+ * end of the file. So a fence that meets a less indented line first is refused, naming that line
+ * and the line the block opened on, and so is one that never closes. Two layouts read the same with
+ * or without a list, and are read as text without a refusal: a fence-shaped line with nothing after
+ * it, and one indented four or more columns with only blank lines under it before a line indented
+ * less than two columns that would not close it. The second is indented code that shows a fence, or
+ * a block in a list item that the line ends at once, since a list item's text starts at least two
+ * columns in. A less indented line that would have closed a fence is the closing line its writer
+ * meant, so it does not open a fence of its own. A backtick fence whose info string holds a backtick
+ * is not a fence.
  */
 function unfencedLines(source) {
   const lines = source.split('\n');
   const result = [...lines];
   const meantToClose = new Set();
+  let refusal = null;
   for (let at = 0; at < lines.length; at += 1) {
     const open = lines[at].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
     if (!open || meantToClose.has(at) || (open[2][0] === '`' && open[3].includes('`'))) continue;
     const [, lead, fence] = open;
     const indent = indentColumns(lead);
     let end = -1;
+    let content = false;
+    let shallower = null;
     for (let next = at + 1; next < lines.length; next += 1) {
       if (lines[next].trim() === '') continue;
       const close = lines[next].match(/^(\s*)(`{3,}|~{3,})\s*$/);
@@ -235,18 +249,30 @@ function unfencedLines(source) {
       const depth = indentColumns(lines[next].match(/^\s*/)[0]);
       if (depth < indent) {
         if (closes) meantToClose.add(next);
+        shallower = { line: next, depth, closes };
         break;
       }
       if (closes && depth <= indent + 3) {
         end = next;
         break;
       }
+      content = true;
     }
-    if (end < 0) continue;
+    if (end < 0) {
+      refusal ??= unreadableFence(at, indent, content, shallower);
+      continue;
+    }
     result.fill('', at, end + 1);
     at = end;
   }
-  return result;
+  return { lines: result, refusal };
+}
+
+/** Why GitHub could read a fence that does not close otherwise than as text, or null where it cannot. */
+function unreadableFence(at, indent, content, shallower) {
+  if (shallower === null) return content ? { line: at, reason: `the code block opened on line ${at + 1} never closes; close it` } : null;
+  if (!content && indent >= 4 && shallower.depth < 2 && !shallower.closes) return null;
+  return { line: shallower.line, reason: `line ${shallower.line + 1} is less indented than the code block opened on line ${at + 1}; indent it or close the block` };
 }
 
 /** A table row's cells, split on every pipe that is not escaped, as GitHub's tables split them. */
@@ -285,6 +311,13 @@ function validateBindingsTable(lines, heading, where, declare, slotLetters, ship
   let rows = 0;
   for (index += 2; index < end && lines[index].trim().startsWith('|'); index += 1) {
     rows += 1;
+    // GitHub keeps a pipe after any backslash in its cell, which is how `tableCells` reads it;
+    // Markdown's own escape rule reads `\\` as one backslash and leaves the pipe to split the row.
+    // A slot must not depend on which reading a renderer takes, so that pipe is refused.
+    if (/\\\\\|/.test(lines[index])) {
+      fail(`${where(index)}: a ## Bindings row has a pipe after two or more backslashes, which renderers split differently — write the cell without it, or escape the pipe with one backslash`);
+      continue;
+    }
     const row = tableCells(lines[index]);
     if (row.length !== BINDINGS_COLUMNS.length) {
       fail(`${where(index)}: a ## Bindings row has ${row.length} cells; the table has ${BINDINGS_COLUMNS.length}`);
@@ -328,10 +361,15 @@ function validateAdaptation(skillDirectory, shipped) {
   const declared = new Map();
   const slotLetters = new Map();
   for (const file of files) {
-    const lines = unfencedLines(readFileSync(file, 'utf8'));
+    const { lines, refusal } = unfencedLines(readFileSync(file, 'utf8'));
     const headings = lines.flatMap((line, index) => (/^##\s+Bindings\s*$/.test(line) ? [index] : []));
     if (headings.length === 0) continue;
     const where = (index) => `${relative(root, file)}:${index + 1}`;
+    // What the file declares depends on how its code blocks are read, so it is refused, not read.
+    if (refusal) {
+      fail(`${where(refusal.line)}: ${refusal.reason}`);
+      continue;
+    }
     const declare = (id, index) => {
       const first = declared.get(id);
       if (first) fail(`${where(index)}: id ${id} is declared twice in this skill (first at ${first})`);
@@ -420,43 +458,76 @@ function filesToScan() {
   }
   const paths = (listing) => listing.stdout.split('\0').filter(Boolean).map((path) => path.split('/').join(sep));
   const added = paths(untracked).filter((path) => !path.split(sep).some((segment) => ignoredDirectories.has(segment)));
-  return { from: 'the files git tracks or would add', files: [...new Set([...paths(tracked), ...added])] };
+  // A commit publishes the index, and a push publishes HEAD, so where either holds another copy
+  // of a tracked file than the working tree does, that copy is read as well: one deleted from the
+  // working tree without the deletion being staged, or left out of a sparse checkout, one with a
+  // clean edit not yet staged over it, and one whose deletion is staged but not committed.
+  const unstaged = run(['diff', '-z', '--name-only', '--no-renames']);
+  const staged = run(['diff', '-z', '--name-only', '--no-renames', '--cached']);
+  const copies = new Map();
+  const copy = (path, object) => copies.set(path, [...(copies.get(path) ?? []), object]);
+  if (unstaged.status === 0) for (const path of paths(unstaged)) copy(path, `:${path.split(sep).join('/')}`);
+  if (staged.status === 0) for (const path of paths(staged)) copy(path, `HEAD:${path.split(sep).join('/')}`);
+  // A file left out of a sparse checkout is in the index but not in the working tree, and git diff
+  // does not name it, so a tracked file the working tree lacks is read from the index whatever
+  // git diff says.
+  const indexed = new Set(paths(tracked));
+  return { from: 'the files git tracks or would add', files: [...new Set([...indexed, ...added, ...copies.keys()])], copies, indexed };
+}
+
+// The bytes of one copy git holds (`:path` in the index, `HEAD:path` in the last commit), or null
+// where it holds none: a deletion, or a submodule's entry, which has no blob. A symbolic link's
+// copy is the path it stores, and is read as text like any other.
+function gitCopy(object) {
+  const read = spawnSync('git', ['cat-file', 'blob', object], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+  return !read.error && read.status === 0 ? read.stdout : null;
 }
 
 const scan = filesToScan();
 const binaries = [];
 let scanned = 0;
 let exemptRead = false;
+const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
+// A path may follow a control character as well as a space or a quote: a binary format
+// separates its metadata fields with NUL bytes.
+const absolutePath = /(?:^|[\s'"`(\x00-\x1f])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)\x00]+/m;
 for (const relativeFile of scan.files) {
-  if (relativeFile.split(sep).includes('.git') || relativeFile.startsWith('node_modules')) continue;
+  if (relativeFile.split(sep).includes('.git')) continue;
   const file = resolve(root, relativeFile);
-  let stat;
+  const sources = [];
+  let binary = false;
+  let stat = null;
   try {
     stat = lstatSync(file);
   } catch {
-    continue; // tracked, but deleted from this working tree or outside a sparse checkout
+    stat = null; // not in this working tree; a copy git holds may still be
   }
-  let source;
-  if (stat.isSymbolicLink()) {
+  if (stat?.isSymbolicLink()) {
     // Git stores a symbolic link as the path it points to, and publishes that path.
-    source = readlinkSync(file);
-    scanned += 1;
-  } else if (stat.isFile()) {
+    sources.push(readlinkSync(file));
+  } else if (stat?.isFile()) {
     const bytes = readFileSync(file);
-    const binary = bytes.includes(0);
-    source = bytes.toString(binary ? 'latin1' : 'utf8');
-    if (binary) binaries.push(relativeFile);
-    else scanned += 1;
-  } else {
+    binary ||= bytes.includes(0);
+    sources.push(bytes);
+  } else if (stat !== null) {
     continue; // a submodule or a nested repository: its files are not this repository's to publish
   }
-  const secret = /(?:-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----|(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"](?!(?:not-a-real-secret|example(?:[-_](?:token|secret|key))?|test(?:[-_](?:token|secret|key))?|your[-_](?:token|secret|key)[-_]here|changeme)['"])[^'"\s]{8,}['"]|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})/i;
+  const held = [...(scan.copies?.get(relativeFile) ?? [])];
+  const indexCopy = `:${relativeFile.split(sep).join('/')}`;
+  if (stat === null && scan.indexed?.has(relativeFile) && !held.includes(indexCopy)) held.push(indexCopy);
+  for (const object of held) {
+    const bytes = gitCopy(object);
+    if (bytes === null) continue;
+    binary ||= bytes.includes(0);
+    sources.push(bytes);
+  }
+  if (sources.length === 0) continue; // in neither the working tree nor the index nor HEAD
+  const texts = sources.map((source) => (typeof source === 'string' ? source : source.toString(binary ? 'latin1' : 'utf8')));
+  if (binary) binaries.push(relativeFile);
+  else scanned += 1;
   if (relativeFile === secretPatternExempt) exemptRead = true;
-  else if (secret.test(source)) fail(`${relativeFile}: contains a likely secret`);
-  // A path may follow a control character as well as a space or a quote: a binary format
-  // separates its metadata fields with NUL bytes.
-  const absolutePath = /(?:^|[\s'"`(\x00-\x1f])(?:\/Users\/|\/home\/|C:\\Users\\)[^\s'"`)\x00]+/m;
-  if (absolutePath.test(source)) fail(`${relativeFile}: contains a machine-specific absolute path`);
+  else if (texts.some((text) => secret.test(text))) fail(`${relativeFile}: contains a likely secret`);
+  if (texts.some((text) => absolutePath.test(text))) fail(`${relativeFile}: contains a machine-specific absolute path`);
 }
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
