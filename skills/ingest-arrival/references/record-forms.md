@@ -246,13 +246,13 @@ only when it prints `clean`, so `<the guard> && <the extraction>` extracts nothi
 
 ```sh
 python3 - '<pack>.zip' <<'EOF'
-import sys, stat, zipfile, unicodedata
+import sys, re, stat, zipfile, unicodedata
 bad, files, folders = [], {}, set()
 key = lambda parts: unicodedata.normalize('NFC', '/'.join(parts)).casefold()
 for i in zipfile.ZipFile(sys.argv[1]).infolist():
     n = i.filename
     parts = [p for p in n.replace('\\', '/').split('/') if p not in ('', '.')]
-    if n.startswith(('/', '\\')) or '..' in parts: bad.append('unsafe path: ' + n)
+    if n.startswith(('/', '\\')) or re.match('[A-Za-z]:', n) or '..' in parts: bad.append('unsafe path: ' + n)
     if (i.external_attr >> 16) & 0o170000 == stat.S_IFLNK: bad.append('symlink: ' + n)
     if i.flag_bits & 1: bad.append('encrypted: ' + n)
     folders.update(key(parts[:depth]) for depth in range(1, len(parts)))

@@ -1158,9 +1158,14 @@ test("ingest-arrival's pack guard refuses two members that would extract to one 
   assert.equal(clean.stdout.trim(), 'clean');
   assert.equal(clean.status, 0);
   // Anything it prints stops what follows it: `guard && unzip` never extracts an unsafe pack.
-  for (const [name, members] of [['twice-status', ['a.csv', 'a.csv']], ['unsafe-status', ['../outside.csv']], ['folder-status', ['data', 'data/a.csv']]]) {
+  for (const [name, members] of [['twice-status', ['a.csv', 'a.csv']], ['unsafe-status', ['../outside.csv']], ['folder-status', ['data', 'data/a.csv']], ['drive-status', ['C:/outside.csv']]]) {
     assert.equal(pack(name, members).status, 1, `${name} exits 0`);
   }
+  // A drive-absolute member is refused in either slash form, as the manifest check refuses one: the
+  // archive may be unpacked again where that path lies outside the pack.
+  const drive = pack('drive', ['C:/outside.csv', 'D:\\outside.csv']).stdout;
+  assert.match(drive, /^unsafe path: C:\/outside\.csv$/m);
+  assert.match(drive, /^unsafe path: D:\\outside\.csv$/m);
   assert.match(pack('twice', ['data/file.csv', 'data/file.csv']).stdout, /^two members extract to one path: data\/file\.csv and data\/file\.csv$/m);
   assert.match(pack('case', ['Data/File.csv', 'data/file.csv']).stdout, /^two members extract to one path: Data\/File\.csv and data\/file\.csv$/m);
   assert.match(pack('forms', ['café.csv', 'café.csv']).stdout, /^two members extract to one path: /m);
