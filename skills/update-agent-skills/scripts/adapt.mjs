@@ -1314,6 +1314,17 @@ function walkFiles(root, relative = '') {
   return found;
 }
 
+/** The entry itself, a symbolic link not followed, or null when there is none. */
+function lstatOrNull(full) {
+  try {
+    return lstatSync(full);
+  } catch {
+    return null;
+  }
+}
+
+const NOT_THROUGH_A_LINK = 'the copy is composed from files in the adapter folder, never through a symbolic link';
+
 /** Every adapter folder under the adapters directory, read and validated, with its inputs. */
 export function loadAdapters(layout) {
   const adapters = [];
@@ -1324,8 +1335,15 @@ export function loadAdapters(layout) {
     const record = { folderName: entry.name, folder, problems: [], adapter: null, raw: null };
     adapters.push(record);
     const file = path.join(folder, ADAPTER_FILE);
-    if (!existsSync(file)) {
+    // Read like a project file: an adapter input that is a symbolic link would compose the copy,
+    // and hold check, to bytes from wherever it points, outside the repository as easily as in it.
+    const fileStat = lstatOrNull(file);
+    if (!fileStat) {
       record.problems.push(`${layout.adaptersRel}/${entry.name} has no ${ADAPTER_FILE}`);
+      continue;
+    }
+    if (!fileStat.isFile()) {
+      record.problems.push(`${ADAPTER_FILE} is not a regular file: ${NOT_THROUGH_A_LINK}`);
       continue;
     }
     let parsed;
@@ -1341,7 +1359,9 @@ export function loadAdapters(layout) {
     if (!adapter) continue;
     record.adapter = adapter;
     const overlayPath = path.join(folder, adapter.overlay);
-    if (!existsSync(overlayPath)) record.problems.push(`the overlay ${adapter.overlay} is missing; an empty file is a valid overlay`);
+    const overlayStat = lstatOrNull(overlayPath);
+    if (!overlayStat) record.problems.push(`the overlay ${adapter.overlay} is missing; an empty file is a valid overlay`);
+    else if (!overlayStat.isFile()) record.problems.push(`the overlay ${adapter.overlay} is not a regular file: ${NOT_THROUGH_A_LINK}`);
     else record.overlay = readFileSync(overlayPath);
     record.projectFiles = new Map();
     for (const projectFile of adapter.projectFiles) {

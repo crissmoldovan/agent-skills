@@ -1559,6 +1559,56 @@ test('an adapter folder with no adapter.json, or one that does not parse, is ref
   assert.equal(compose(project).status, EXIT_OK);
 });
 
+test('an overlay or adapter.json that is a symbolic link is refused at compose and at check, so no bytes from where it points reach the copy', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const outside = await tempDir('adapt-outside-');
+  const project = await addAdapter({ pack });
+  const folder = path.join(project, ADAPTERS, 'notes-here');
+  const link = (file, target) => {
+    rmSync(path.join(folder, file));
+    symlinkSync(target, path.join(folder, file));
+  };
+  const restore = (file, text) => {
+    rmSync(path.join(folder, file));
+    write(folder, file, text);
+  };
+
+  // An overlay linked to a file outside the repository: composing would carry its bytes into the copy.
+  write(outside, 'overlay.md', OVERLAY.replace('the auto-responder stays off', 'a secret kept outside'));
+  link('overlay.md', path.join(outside, 'overlay.md'));
+  const dry = compose(project);
+  assert.equal(dry.status, EXIT_FAILED, dry.stdout);
+  assert.match(dry.stdout, /\[adapter\] the overlay overlay\.md is not a regular file/);
+  const written = compose(project, '--write');
+  assert.equal(written.status, EXIT_FAILED, written.stdout);
+  assert.equal(existsSync(path.join(project, SKILLS)), false, 'the copy was written');
+  assert.equal(existsSync(path.join(project, ADAPTERS, '.tool')), false, 'the composer was vendored');
+
+  // check refuses one too, even one that holds the very bytes the copy was composed from.
+  restore('overlay.md', OVERLAY);
+  assert.equal(compose(project, '--write').status, EXIT_OK);
+  assert.equal(check(project).status, EXIT_OK);
+  write(outside, 'same.md', OVERLAY);
+  link('overlay.md', path.join(outside, 'same.md'));
+  const overlayLinked = check(project);
+  assert.equal(overlayLinked.status, EXIT_FAILED, overlayLinked.stdout);
+  assert.match(overlayLinked.stdout, /\[adapter\] the overlay overlay\.md is not a regular file/);
+
+  // adapter.json likewise, at check and at compose.
+  restore('overlay.md', OVERLAY);
+  const adapterText = readText(folder, 'adapter.json');
+  write(outside, 'adapter.json', adapterText);
+  link('adapter.json', path.join(outside, 'adapter.json'));
+  const adapterLinked = check(project);
+  assert.equal(adapterLinked.status, EXIT_FAILED, adapterLinked.stdout);
+  assert.match(adapterLinked.stdout, /\[adapter\] adapter\.json is not a regular file/);
+  const refused = compose(project, '--write');
+  assert.equal(refused.status, EXIT_FAILED, refused.stdout);
+  assert.match(refused.stdout, /\[adapter\] adapter\.json is not a regular file/);
+  restore('adapter.json', adapterText);
+  assert.equal(check(project).status, EXIT_OK);
+});
+
 test('a source is a GitHub https URL or a local clone, and nothing else', () => {
   for (const refused of ['git@example.com:example-owner/example-pack.git', 'http://github.com/example-owner/example-pack', 'file:///srv/pack', 'ext::sh -c touch% /tmp/x', 'ssh://example.com/pack', 'https://example.com/example-owner/example-pack', 'https://github.com/example-owner/example-pack/tree/main', '--upload-pack=touch']) {
     assert.ok(sourceProblem(refused), `accepted ${refused}`);

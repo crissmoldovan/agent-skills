@@ -228,10 +228,10 @@ it. `compose` lists every tool the copy pre-approves for review, and check 9 ref
 `check` holds every adapted copy to these. `compose` refuses an input that would break 4, 5, 6 or 10,
 or put a marker of check 2 into the overlay; the rest it writes true. A refusal or a failure is
 printed with the number of its check. Two kinds carry a word instead: `[adapter]`, an adapter
-folder that does not read as one (an unknown key, a missing overlay, a project file out of place
-or colliding with a file of the skill, an overlay section the copy would drop, a fence in the
-overlay that does not close inside its addition or section, an indented `###` heading whose first
-word is an id), and `[pin]`, a pin
+folder that does not read as one (an unknown key, a missing overlay, an `adapter.json` or overlay
+that is a symbolic link, a project file out of place or colliding with a file of the skill, an
+overlay section the copy would drop, a fence in the overlay that does not close inside its addition
+or section, an indented `###` heading whose first word is an id), and `[pin]`, a pin
 that cannot be taken (a branch, an abbreviated sha, a tag that now names another commit, a
 recorded commit or tree the ref no longer gives, a skill or entry the ref does not have, or a
 source that cannot be read).
