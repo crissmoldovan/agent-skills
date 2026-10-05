@@ -289,6 +289,32 @@ test('the head line is optional, sits above the three sections, and replaces non
   assert.match(descriptionOf(skill), /a percentage, an ETA, or updates at a set interval/);
 });
 
+// S3 gives the head line what the reader asked for, and both figures only on a cadence. The
+// checklist has to owe the same, or a report S3 accepts can never pass S11: each figure's
+// checks bind that figure where it is given, and none of them demands the other figure.
+function headLineCheck() {
+  const verification = section(skill, 'Verification');
+  const item = verification.split(/\n(?=- \[ \] )/).find((box) => box.startsWith('- [ ] A head line'));
+  assert.ok(item, 'the checklist has no item for the head line');
+  return item.replace(/\s+/g, ' ');
+}
+
+test('a head line asked for a percentage alone passes the checklist without an ETA', () => {
+  const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
+  assert.match(procedure, /It is owed when the reader asked for a percentage or an ETA, and carries what they asked for; on a cadence it carries both/);
+  const check = headLineCheck();
+  assert.match(check, /carries what the reader asked for, and both on a cadence/);
+  assert.match(check, /an ETA is labelled as an estimate with its basis, covers all the work, and has its clock times pasted from a command/);
+  assert.doesNotMatch(check, /gives an ETA/, 'the head-line check demands an ETA of a line asked for a percentage alone');
+});
+
+test('a head line asked for an ETA alone passes the checklist without a register', () => {
+  const check = headLineCheck();
+  assert.match(check, /carries what the reader asked for, and both on a cadence/);
+  assert.match(check, /A percentage names its register and counts in one unit, with work blocked on a person out of the numerator/);
+  assert.doesNotMatch(check, /where there is one, names its register/, 'the head-line check demands a register of a line asked for an ETA alone');
+});
+
 test('the reference carries each lesson the head line and the cadence rest on', () => {
   assert.ok(cadence, 'skills/report-progress/references/percentage-eta-cadence.md does not exist');
   for (const lesson of [

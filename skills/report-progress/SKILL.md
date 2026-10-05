@@ -435,9 +435,10 @@ Run this over the text you have written, before it is sent.
 - [ ] All three sections are present: what is done, what is running, what is next.
 - [ ] Every item carries a count or a named artefact; none is an activity verb.
 - [ ] Every count that has a denominator shows it.
-- [ ] A head line, where there is one, names its register and counts in one unit, keeps work
-      blocked on a person out of the numerator, and gives an ETA labelled as an estimate with
-      its basis, covering all the work, its clock times pasted from a command.
+- [ ] A head line, where there is one, carries what the reader asked for, and both on a
+      cadence. A percentage names its register and counts in one unit, with work blocked on a
+      person out of the numerator; an ETA is labelled as an estimate with its basis, covers all
+      the work, and has its clock times pasted from a command.
 - [ ] A figure nobody measured says "not measured", never 0.
 - [ ] On a cadence, the next section gives the next update's time, or the last update says the
       updates stop.
