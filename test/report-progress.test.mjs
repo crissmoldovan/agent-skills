@@ -372,12 +372,22 @@ test('the reference prints its clock from a command and keeps every zone out but
   assert.match(commands[1], /-v\+95M/, 'the BSD form is missing');
   assert.match(commands[1], /-d '\+95 minutes'/, 'the GNU form is missing');
   // A time ahead is printed with its date, so a range past midnight does not read as today.
-  for (const line of commands[1].split('\n').filter((l) => /95/.test(l))) assert.match(line, /'\+%a %d %b %H:%M %Z'/);
+  for (const line of commands[1].split('\n').filter((l) => /95/.test(l))) assert.match(line, /'\+%a %d %b %H:%M %Z(?: \(UTC%z\))?'/);
   assert.match(cadenceFlat, /keep the date wherever it is not today's in that zone/);
   for (const text of [skill, cadence]) {
     assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
     assert.doesNotMatch(text, /\b(?:[A-Z][A-Z]?[SD]T),? ?UTC ?[+-]\d/, 'a zone label typed into the text');
   }
+});
+
+// The ETA's clock time is owed in each reader's zone (B2), so a time ahead is printed there too, by
+// the BSD and the GNU form, with its zone and offset: a time ahead printed in UTC alone leaves the
+// reader's label to be typed, which is the mistake the section exists to stop.
+test("the reference prints a time ahead in a reader's zone, by the BSD and the GNU form", () => {
+  const commands = cadence.match(/```bash\n([\s\S]*?)\n```/);
+  assert.ok(commands, 'the reference has no clock commands');
+  assert.match(commands[1], /^TZ="\$READER_ZONE" date -v\+95M '\+%a %d %b %H:%M %Z \(UTC%z\)'/m, "the BSD form of a time ahead in a reader's zone is missing");
+  assert.match(commands[1], /^TZ="\$READER_ZONE" date -d '\+95 minutes' '\+%a %d %b %H:%M %Z \(UTC%z\)'/m, "the GNU form of a time ahead in a reader's zone is missing");
 });
 
 // A claim a document makes about itself is checkable, so the specimen's numbers are checked:

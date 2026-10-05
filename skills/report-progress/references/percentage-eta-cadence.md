@@ -98,6 +98,9 @@ date -u '+%H:%M %Z'                             # now, in UTC
 TZ="$READER_ZONE" date '+%H:%M %Z (UTC%z)'      # now, in a reader's zone (B2)
 date -u -v+95M '+%a %d %b %H:%M %Z'             # 95 minutes from now: BSD and macOS date
 date -u -d '+95 minutes' '+%a %d %b %H:%M %Z'   # 95 minutes from now: GNU date
+# the same time ahead, in a reader's zone (B2): BSD and macOS date, then GNU date
+TZ="$READER_ZONE" date -v+95M '+%a %d %b %H:%M %Z (UTC%z)'
+TZ="$READER_ZONE" date -d '+95 minutes' '+%a %d %b %H:%M %Z (UTC%z)'
 ```
 
 `READER_ZONE` is the IANA name of a zone bound as B2. Run one command for each end of the range
