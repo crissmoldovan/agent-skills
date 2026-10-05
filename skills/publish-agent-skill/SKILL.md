@@ -3,7 +3,7 @@ name: publish-agent-skill
 description: "Publish an Agent Skill through a verified release."
 license: MIT
 compatibility: "Agent Skills repositories with git, a repository-specific validator/test command, an authenticated forge client for remote publication, and a release/discovery channel to verify."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 
