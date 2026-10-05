@@ -344,6 +344,9 @@ test('the reference carries each lesson the head line and the cadence rest on', 
     /The headline covers all the work up to the goal/,
     /A clock time that leaves a part out says what it covers, and never reads as the goal's/,
     /the goal's own time is not measured \(H7\)/,
+    /Every item's known effort goes into the agent-hours, work that waits on a person included/,
+    /Only the clock time, and the wall-clock it is counted from, may leave out work that waits on a person/,
+    /"Not in it" is for work outside the goal, never for a part of it/,
     /When the evidence shows no agent running[\s\S]*?there is nothing to divide by: give agent-hours alone, and say that the wall-clock and the clock time are not measured, and why \(H7\)/,
     /Assume a review finds something/,
     /printed and never typed/,
@@ -407,9 +410,12 @@ test("the reference's specimen adds up, and the gate reads it as a complete repo
   const eta = report.split('\n').find((line) => line.startsWith('ETA'));
   assert.ok(eta, 'the specimen has no ETA line');
   assert.doesNotMatch(eta, /; done \d/, "the specimen's clock time reads as the goal's while part of it is left out");
-  const [covered] = numbers(/the (\d+) handlers not blocked on a person done \d{2}:\d{2}–\d{2}:\d{2} UTC/, 'what its clock time covers');
+  const [covered] = numbers(
+    /the (\d+) handlers not blocked on a person: about \S+ wall-clock at the \d+ agents running, done \d{2}:\d{2}–\d{2}:\d{2} UTC/,
+    'what its clock time covers',
+  );
   assert.equal(covered, total - b, 'the clock time covers another number of handlers than the work not blocked on a person');
-  assert.match(eta, /the whole migration's time is not measured until/);
+  assert.match(eta, /the whole migration's time is not measured until/i);
 
   const gate = await import('../adapters/claude-code/report-progress-gate.mjs');
   assert.deepEqual(gate.findReportFailures(report), []);
@@ -419,6 +425,46 @@ test("the reference's specimen adds up, and the gate reads it as a complete repo
   for (const id of ['done', 'running', 'next']) {
     assert.equal(gate.hasSectionLabel(headOnly, id), false, `the head line reads as the ${id} section`);
   }
+});
+
+// Known effort always goes into the headline agent-hours, the work blocked on a person included:
+// when its answer comes is unknown, what the work costs once it does is not. Only the clock time
+// may leave that work out, and it says so. The basis gives each state the percentage line counts
+// as "N <state> at X–Y each", so the headline is a plain sum of it and the review rounds.
+test("the specimen's headline agent-hours include every item's known effort", () => {
+  const specimen = section(cadence, 'A report with a head line, on a cadence').match(/```text\n([\s\S]*?)\n```/);
+  assert.ok(specimen, 'the reference has no specimen report');
+  const report = specimen[1];
+  const rows = report.match(/in flight (\d+) · to do (\d+) · blocked on a person (\d+)\)/);
+  assert.ok(rows, 'the specimen no longer states its rows');
+  const eta = report.split('\n').find((line) => line.startsWith('ETA'));
+  assert.ok(eta, 'the specimen has no ETA line');
+  const headline = eta.match(/^ETA, an estimate: (\d+)–(\d+) agent-hours\b/);
+  assert.ok(headline, 'the specimen no longer opens its ETA with agent-hours');
+  const basis = eta.match(/Basis(?:, in agent-minutes)?: ([^.]*)\./);
+  assert.ok(basis, 'the specimen no longer states its basis');
+  const items = new Map();
+  for (const [, count, state, low, high] of basis[1].matchAll(/(\d+) (in flight|to do|blocked on a person|review rounds?)\b[^,]*? at (\d+)(?:–(\d+))?/g)) {
+    items.set(state.replace(/rounds$/, 'round'), { count: Number(count), low: Number(low), high: Number(high ?? low) });
+  }
+  assert.ok(items.has('blocked on a person'), 'the basis leaves out the known effort of the work blocked on a person');
+  assert.deepEqual(
+    ['in flight', 'to do', 'blocked on a person'].map((state) => items.get(state)?.count),
+    rows.slice(1).map(Number),
+    'the basis costs another number of items than the register counts in a state',
+  );
+  assert.ok(items.has('review round'), 'the basis costs no review round');
+  const sum = (end) => [...items.values()].reduce((total, item) => total + item.count * item[end], 0);
+  assert.deepEqual(
+    [sum('low'), sum('high')],
+    headline.slice(1).map((hours) => Number(hours) * 60),
+    "the headline agent-hours are not the sum of every item's known effort, in agent-minutes",
+  );
+  // The template asks for the same: each state in the basis, and "Not in it" only for work outside the goal.
+  const template = cadence.match(/```text\n(Progress [^\n]*)\n(ETA[^\n]*)\n```/);
+  assert.ok(template, 'the reference has no head-line template');
+  assert.match(template[2], /Basis, in agent-minutes: F in flight at X–Y each, T to do at X–Y each, B blocked on a person at X–Y each/);
+  assert.match(template[2], /Not in it: <work outside the goal/);
 });
 
 test('the reference keeps out what identifies a person, a client or a machine', async () => {
