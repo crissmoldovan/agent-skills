@@ -141,6 +141,101 @@ middle number while the version is below 1.0.0. `publish-agent-skill` now says t
 removing an id is major among its pitfalls, which is the only change to an installed skill, and
 its metadata version moves from 1.0.0 to 1.0.1 for that line.
 
+### `release-notes` versions a product that has no API, treats a bump judge as advice, and can be adapted
+
+`release-notes` judged the level of a release by its API: an export removed, an argument made
+required, a return shape changed. An app, a site, a dashboard or a report has readers rather than
+callers, so the checklist had nothing to say about most of what such a release changes. A new
+reference, [`versioning-a-product.md`](../skills/release-notes/references/versioning-a-product.md),
+judges it by what a reader relies on: removed, reversed or redefined is a major, a new capability
+a minor, a correction a patch, and a removal is a patch only when the record says what went was
+false, broken or never seen. The level is read from a ledger written first, one was-and-now entry
+per change a reader can reach, whose words have to be true before anything reads them. The
+reference also covers pre-release numbers, which name the number they become; a renumbering
+restart, recorded once, in the release that makes it; and why a back-test of a version judge on
+the releases its rules were written from proves little, with two hold-out checks to run instead.
+One new line says that a version or a judgement computed from the working tree counts every
+uncommitted change, so `git status` is read first, and the Migration question now names a reader's
+steps too: where a moved screen or figure is now, and what replaces what was removed.
+
+Some projects run a tool that proposes the level. The skill now treats it as advice: read the
+words it quotes, then either correct the impact analysis and the number with it, or overrule the
+tool on the record, and never reword a change until it agrees. A change's words that are untrue
+are still corrected, on the record with the reason, even when the correction moves the number.
+
+A project can now name the person who rules the number. When that person departs from the impact
+analysis, they are shown what it found; if they keep their number, the number is theirs, and the
+note is honest when it records both readings and the ruling. When they cannot be shown it before
+the release, the release waits for their answer, because stamping either number without it would
+be the agent's ruling. A mismatch shipped without both readings, or on the agent's own say-so, is
+still dishonest. A project that names nobody keeps the rule as it was: the impact analysis sets
+the number, and when it disagrees with the plan, the bump changes or the release does. So no
+existing guidance changes meaning, and this is new guidance, a minor change under
+[Versioning](#versioning). The procedure's third and fifth steps, its pitfalls and its third
+verification check say the same.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: eight slots, B1 to B8 (where the version is read from, the destinations, the release
+checklist, the bump judge, who rules the number, the two sibling skills it hands work to,
+`describe-changes` for a change that already landed and `release-ledger` for a what's-new feature
+inside a product, and where a product with no API keeps its ledger), four hard lines, H1 to H4,
+and its seven steps as S1 to S7. Every slot's default is what the skill does on its own, so a
+project that binds nothing gets the same procedure. Nothing needs migrating: no project could
+adapt the skill before it declared these ids. The `release-notes` gate is unchanged.
+
+### `request-answers` shows the screen each question is about, gives the reader the answered rows, and can be adapted
+
+A question about something a reader sees, put in words alone ("the second sentence under the
+chart"), names a different sentence for every reader, and the answer comes back about the wrong
+one. `request-answers` now shows it. A question about a sentence, a tile, a row or a control
+carries two images at every depth: an overview of the screen with the thing boxed, so the reader
+can find it, and a close-up with the same box and a label naming the question. Brief and normal
+depth were transcript-only, so this changes the skill's base text, and the header now says which
+questions carry shots. A new reference,
+[`pointing-at-the-screen.md`](../skills/request-answers/references/pointing-at-the-screen.md),
+says how shots are taken and checked. The build is pinned to the commit the reader saw and
+rendered on the machine, with any data service it reads running there too, seeded locally, and
+every other host blocked. A live site, a hosted data service or a signed-in session is never
+shot. The renderer draws the box and the label in the page before the capture, and no image is
+changed afterwards. A target that is not found fails its shot rather than being replaced by a
+whole screen. Every image is opened before it goes, and every variant the question applies to is
+shot. A state only a signed-in reader sees, and a screen there is no build of here, are described
+in words. In an environment with no renderer,
+each question says in words where to look and the header says no shots travel, so the brief
+works there as it did. When the shooting shows something that disagrees with a record, it goes
+to the person the run answers to as a question, with its evidence. Nobody fixes it, and no
+question is quietly rewritten around it.
+
+The ledger kept the answered questions, but only for the asker, so the reader could be asked
+again what they had already answered. Every brief now carries a fourth part, "Already settled",
+before "Not for you". It lists the closed rows that concern this reader, each with how it
+closed, by whom, and the words or the evidence. Ids never move: a question keeps its number in
+every later brief, and a closed number is never used again, so a reply's "Q7" means one question
+for good. The brief's template and worked example carry both changes, and the per-item contract
+names the shot of an item about a screen.
+
+The hunt-down pass gains three rules. A judgement that a standing ruling already settles is
+"decided here", and leaves the ask with the ruling cited. Without such a ruling, the decision the
+run would take is a proposal to the person it answers to, and stays off the brief, as settled
+and as open, until they rule. Every claim that takes a question off goes past an independent refuter first.
+A question the recipient asked is not a question for them.
+
+The skill now says who sends an ask to a person. The run prepares the ask and never sends it on
+its own word: the person bound to send it sends it, or approves its exact text, recipients and
+attachments for sending. Unbound, that is whoever asked for the ask, and an ask to another agent
+is delivered by the run as before.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: eight slots, B1 to B8 (who the run answers to, who sends, who may be messaged, how a
+screen is rendered, the three sibling skills it points elsewhere to, `decision-journal`,
+`report-progress` and `delphi-ground`, and where a round's files are kept), five hard lines, H1 to
+H5, and its procedure as seven steps, S1 to S7. Every slot's default is what the skill does on its
+own. The shots and the settled rows add to what a brief carries, and drop nothing it carried
+before; in an environment with no renderer, brief and normal depth still attach no files. So this
+is new guidance, a minor change under [Versioning](#versioning). Nothing needs migrating: no
+project could adapt the skill before it declared these ids. The skill's metadata version moves
+from 1.0.0 to 1.1.0, for the shots, the settled rows and the slots.
+
 ### `report-progress` gives a percentage with its basis and an ETA as a clock time, sends updates nobody has to ask for, and can be adapted
 
 A reader waiting on long work asks how far along it is and when it will be finished, and often

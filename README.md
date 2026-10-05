@@ -209,7 +209,7 @@ Ask it:
 
 - *"Use release-notes before you publish this. Run the impact analysis rather than guessing at it, settle the semver bump against what that analysis says instead…"*
 
-More: [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
+More: [Skill](skills/release-notes/SKILL.md) · [Versioning a product](skills/release-notes/references/versioning-a-product.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
 
 ### `investigate-codebase`
 
@@ -447,7 +447,7 @@ Ask it:
 - *"Turn this list of twelve open questions into asks."*
 - *"Ask the subagent for the three facts we are missing."*
 
-More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md)
+More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) · [Pointing at the screen](skills/request-answers/references/pointing-at-the-screen.md)
 
 ### `handoff-prompt`
 

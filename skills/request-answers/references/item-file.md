@@ -16,7 +16,7 @@ Every file carries these headings, in this order, and nothing else:
 | `**Owner:**` | the person who answers or acts, by name |
 | `**Where:**` | the exact screen, file, endpoint or record |
 | `## What was asked` | the original words, quoted, with who and when |
-| `## What it looks like now` | the present state, measured — counts, quoted strings, a table if two things differ |
+| `## What it looks like now` | the present state, measured — counts, quoted strings, a table if two things differ, and the shot by file name when the item is about a screen |
 | `## What we found` | why it is like this; the cause, not the symptom |
 | `## What needs to change, or be answered` | what to do, or the options if it is a decision |
 | `## How to verify` | what a person checks to agree it is done, in steps they can follow |
@@ -60,6 +60,9 @@ counting rows.
 | | [Environment A] | [Environment B] |
 |---|---|---|
 | [the thing] | [value] | [value] |
+
+[When it is about a screen: *Shot:* `Q[n]-[variant].png`, named by the question's number in
+the brief, and its overview — what the box holds.]
 
 ## What we found
 
