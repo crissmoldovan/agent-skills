@@ -167,8 +167,11 @@ clicked shows clicks. A control visit that is not a named person's returns the t
   else the browser sent, or the device reads as blank.
 - A browser may send its fingerprint only on its first visit in the window. A browser with none is
   *device unknown*.
-- An event sent before sign-in was known has no identity; leave it out, or it becomes a second,
-  nameless person.
+- A kept visit's events before its sign-in carry no identity, and the opening event that holds the
+  fingerprint is often one of them. They are read for the device all the same: the row is the
+  browser's, keyed by its visitor id and never by an identity, so an event with none does not
+  become a second, nameless person, and the device says which browser the visit ran in, never who
+  used it.
 
 **Control.** The control visit's browser has a row with a user agent.
 

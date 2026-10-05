@@ -1020,6 +1020,21 @@ test('visitor-session-forensics keeps every label the records carry in the detai
   assert.match(check, says('no label, accessible name or selector from the records'));
 });
 
+// The fingerprint often arrives on a visit's opening event, which is sent before the sign-in and
+// carries no identity. A device is the browser's, never a person's, so a kept visit's events before
+// its sign-in are read for it like the rest of the visit: left out, nearly every device would read
+// as unknown, and the weighing of person or agent would lose the renderer and the fonts.
+test("visitor-session-forensics reads a kept visit's device from its events before sign-in too, as the browser's and never a person's", async () => {
+  const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
+  const q3 = contracts.slice(contracts.indexOf('## Q3. Devices'), contracts.indexOf('## Q4. Recordings'));
+  assert.match(q3, /fingerprint\s+often\s+arrives\s+on\s+a\s+visit's\s+opening\s+event/);
+  assert.doesNotMatch(q3, /leave\s+it\s+out,\s+or\s+it\s+becomes\s+a\s+second/, 'Q3 still leaves out the event that holds the fingerprint');
+  assert.match(q3, /A\s+kept\s+visit's\s+events\s+before\s+its\s+sign-in/);
+  assert.match(q3, /read\s+for\s+the\s+device\s+all\s+the\s+same/);
+  assert.match(q3, /keyed\s+by\s+its\s+visitor\s+id\s+and\s+never\s+by\s+an\s+identity/);
+  assert.match(q3, /never\s+who\s+used\s+it/);
+});
+
 // "A person, on these signals" said about a named person's visit reads as "they did it", from
 // thresholds nobody has measured. Both leanings are worded alike, and neither names who was there.
 test('visitor-session-forensics weighs person or agent as a leaning on both sides, and never names who was at the controls', async () => {
