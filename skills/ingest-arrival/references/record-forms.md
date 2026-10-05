@@ -98,8 +98,8 @@ Files: <each file, one line: what it is; which files are derived, and by which t
 ## C · The landing record (beside the pack, where B4 says)
 
 Only when the arrival is data that a tool or the product reads. Name it so it never collides with a
-file of the pack's own (`RECEIVED.md` beside a pack that brings its own `README.md`), and leave it out
-of the manifest check:
+file of the pack's own (`RECEIVED.md` beside a pack that brings its own `README.md`), and give that
+name to the manifest check run where the pack landed, which leaves out only the record it is given:
 
 ```markdown
 # Received: <what>, <pack date>
@@ -294,13 +294,15 @@ claim, and so are its paths: none is opened. The command walks the folder itself
 link, and compares what it finds with the manifest's lines. A path that is absolute or climbs out
 with `..` is refused, and so is one listed twice, compared as the pack guard compares members. The
 first line must read `N of N`, and nothing may follow it; the command exits 0 only then, so it can
-stand in front of whatever reads the pack:
+stand in front of whatever reads the pack. It leaves out the manifest's own file and, where the
+pack landed, our landing record (C), named after the manifest's file; nothing else, so on the
+unpack a `RECEIVED.md` the pack brings is a file of the pack's:
 
 ```sh
 node -e '
 const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
-const [folder, name = "MANIFEST.sha256"] = process.argv.slice(1);
-if (!folder) { console.error("usage: <the pack folder> [<its manifest file, MANIFEST.sha256 by default>]"); process.exit(2); }
+const [folder, name = "MANIFEST.sha256", record] = process.argv.slice(1);
+if (!folder) { console.error("usage: <the pack folder> [<its manifest file, MANIFEST.sha256 by default> [<our landing record, only where it landed>]]"); process.exit(2); }
 const parse = [], walked = [], compare = [], listed = new Map(), seen = new Set();
 let total = 0;
 for (const line of fs.readFileSync(path.join(folder, name), "utf8").split(/\r?\n/)) {
@@ -315,7 +317,7 @@ for (const line of fs.readFileSync(path.join(folder, name), "utf8").split(/\r?\n
   seen.add(key);
   listed.set(rel, m[1].toLowerCase());
 }
-const found = new Map(), ours = new Set([name, "RECEIVED.md"]);
+const found = new Map(), ours = new Set(record ? [name, record] : [name]);
 const walk = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
   const file = path.join(dir, e.name), rel = path.relative(folder, file).split(path.sep).join("/").normalize("NFC");
   if (e.isDirectory()) walk(file);
