@@ -512,7 +512,7 @@ export function readAdaptedPins(repo, source, skillsDir = DEFAULT_ADAPTED_SKILLS
       continue;
     }
     const base = lock?.base;
-    if (!base || typeof base.skill !== 'string' || !SKILL_NAME_PATTERN.test(base.skill) || typeof base.ref !== 'string' || typeof base.tree !== 'string') {
+    if (!base || typeof base.skill !== 'string' || !SKILL_NAME_PATTERN.test(base.skill) || typeof base.ref !== 'string' || typeof base.tree !== 'string' || (base.path !== undefined && typeof base.path !== 'string')) {
       problems.push(`${entry.name}: ${ADAPTED_LOCK_FILE} records no pin this check can read`);
       continue;
     }
@@ -520,7 +520,8 @@ export function readAdaptedPins(repo, source, skillsDir = DEFAULT_ADAPTED_SKILLS
       others.push({ name: entry.name, skill: base.skill, ref: base.ref, from: githubSlug(base.source) ?? (typeof base.source === 'string' ? `the local clone ${base.source}` : 'an unnamed source') });
       continue;
     }
-    pins.push({ name: entry.name, skill: base.skill, folder: `skills/${base.skill}`, ref: base.ref, tree: base.tree });
+    // The lock names the skill's folder only when its source keeps it elsewhere than skills/<skill>.
+    pins.push({ name: entry.name, skill: base.skill, folder: base.path ?? `skills/${base.skill}`, ref: base.ref, tree: base.tree });
   }
   return none(null);
 }

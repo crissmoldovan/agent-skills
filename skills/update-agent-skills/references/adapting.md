@@ -53,10 +53,11 @@ nothing. Reading is not limited, so the pack is read from a clone anywhere.
   "base": {
     "source": "https://github.com/<owner>/<pack>",
     "skill": "<pack skill>",
+    "path": "<optional: the skill's folder in the source, when it is not skills/<pack skill>>",
     "entry": "SKILL.md",
     "ref": "v1.4.0",
     "commit": "<optional: the full commit the ref was reviewed at>",
-    "tree": "<optional: the full tree of skills/<pack skill> at that commit>"
+    "tree": "<optional: the full tree of the skill's folder at that commit>"
   },
   "overlay": "overlay.md",
   "projectFiles": [],
@@ -68,7 +69,8 @@ nothing. Reading is not limited, so the pack is read from a clone anywhere.
 |---|---|
 | `name`, `description` | the adapted copy's own name and trigger text. The name is never the pack skill's name, so neither copy hides the other |
 | `base.source` | `https://github.com/<owner>/<repo>`, or a local path to a clone of the pack. Every other transport is refused |
-| `base.skill` | the pack skill's folder name, `skills/<skill>` |
+| `base.skill` | the pack skill's name, which its `SKILL.md` declares; its folder is `skills/<skill>` unless `base.path` names another |
+| `base.path` | optional: the skill's folder inside its source, for a source that keeps it elsewhere than `skills/<skill>`, such as `skills/<category>/skills/<skill>`. It is written from the source's root, with no `..` and no leading `/`, and it names a folder inside the source; anything else is refused. The tree, `outdated` and `--verify` read that folder, and the lock records it |
 | `base.entry` | `SKILL.md`, or one reference file of the skill when that file holds the procedure the project needs |
 | `base.ref` | a tag (`vX.Y.Z` or `<skill>-vX.Y.Z`) or a full commit sha. A branch is refused, because it moves, and so is an abbreviated sha. A per-skill tag is compared with newer tags of its own and with the latest catalogue tag, because a catalogue release can change the skill without a per-skill tag beside it |
 | `base.commit`, `base.tree` | optional. When present, a ref that now resolves elsewhere is refused |
@@ -193,9 +195,10 @@ generated folder by hand: merge `adapter.json` and the overlay, then compose.
 
 Beside it: the skill's other files byte for byte at their own paths, so its links still resolve;
 the project files; the pack's `LICENSE`, since the copy is a substantial portion of an MIT work;
-and `adapted.lock.json`, which records the pin (source, ref, commit, tree), the sha256 of every file
-of the skill and of the text between the markers, the sha256 of every adapter input and every
-generated file, which generated files are executable, and the composer's version and sha256.
+and `adapted.lock.json`, which records the pin (source, ref, commit, tree, and the skill's folder
+when `base.path` names one other than `skills/<skill>`), the sha256 of every file of the skill and
+of the text between the markers, the sha256 of every adapter input and every generated file, which
+generated files are executable, and the composer's version and sha256.
 
 **A reference file as the entry.** Its text becomes the body of `SKILL.md` at the folder root, so
 every relative link in it, fenced code included, is rewritten for that place, and it is still
@@ -261,7 +264,8 @@ file, and that is what proves it.
 1. `outdated` prints, per adapted skill, either `v1.5.0 exists; skills/<skill> unchanged: moving the
    pin is a no-op`, or `changed (tree a -> b): read git diff v1.4.0 v1.5.0 -- skills/<skill>`. For a
    per-skill tag against a catalogue tag, or a sha pin, it says `differs`, never newer, and names
-   the same diff; read it with the release notes before moving the pin.
+   the same diff; read it with the release notes before moving the pin. Where `base.path` names the
+   skill's folder, that folder takes the place of `skills/<skill>` in each line.
 2. Read that diff in the pack. A release note that names a renamed or removed id says what an
    overlay cites instead.
 3. Change `base.ref` (and `base.commit` and `base.tree`, if recorded). `compose` refuses, and names

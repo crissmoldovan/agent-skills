@@ -790,6 +790,26 @@ test('an adapted pin whose tag moved or vanished is an alarm, and an unreadable 
   assert.match(formatAdaptedNotice(unknown), /unknown, the latest release is unreadable .*Unknown is not current/);
 });
 
+test('an adapted pin is compared at the folder its lock records in base.path, and at skills/<skill> when it records none', async () => {
+  const { lockPath, cachePath } = await scratch('adapted-path');
+  await writeLock(lockPath, {});
+  const repo = await projectWithAdaptedCopies('adapted-path', {
+    'notes-here': { ...adaptedBase('notes', 'v1.0.0', 'tree-notes'), path: 'skills/team/skills/notes' },
+    'asks-here': adaptedBase('request-answers', 'v1.0.0', 'tree-asks'),
+  });
+  assert.deepEqual(readAdaptedPins(repo, SOURCE).pins.map((pin) => [pin.name, pin.folder]), [['asks-here', 'skills/request-answers'], ['notes-here', 'skills/team/skills/notes']]);
+  const fetchImpl = stubFetch([
+    ['git/trees/v1.0.0', jsonResponse(treeResponse({ 'skills/team/skills/notes': 'tree-notes', 'skills/request-answers': 'tree-asks' }))],
+    ['git/trees/v1.2.3', jsonResponse(treeResponse({ 'skills/team/skills/notes': 'tree-notes-new', 'skills/request-answers': 'tree-asks' }))],
+    ['releases/latest', jsonResponse(RELEASE)],
+  ]);
+
+  const result = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo });
+
+  assert.deepEqual(result.adapted.pins.map((pin) => [pin.name, pin.state]), [['asks-here', 'current'], ['notes-here', 'differs']]);
+  assert.match(formatAdaptedNotice(result), /git diff v1\.0\.0 v1\.2\.3 -- skills\/team\/skills\/notes/);
+});
+
 test('an adapted lock that cannot be read is reported, and without --repo no adapted copy is read at all', async () => {
   const { lockPath, cachePath } = await scratch('adapted-broken');
   await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-blocks') });
