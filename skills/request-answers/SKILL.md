@@ -141,7 +141,7 @@ recipient needs to answer, never from how much you happen to know.
 
 | Depth | Shape | Use when |
 |---|---|---|
-| **brief** | header + answer sheet, one line of context per item | they own the area and already hold the context; fewer than about six items; a same-day nudge |
+| **brief** | all five parts but the detail: the header, the answer sheet with one line of context per item, Already settled and Not for you | they own the area and already hold the context; fewer than about six items; a same-day nudge |
 | **normal** *(default)* | brief, plus a detail section per item: current state, options, recommendation | anything that needs a judgement they cannot make from the line alone |
 | **deep** | normal, plus a file per item, an index and a ledger | more than about eight items; evidence has to be quotable; several owners; someone else implements the answers later; a pack will be sent onward or archived |
 

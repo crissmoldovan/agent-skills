@@ -680,6 +680,11 @@ test('request-answers shows the screen each question is about, gives the reader 
   assert.match(requestAnswers, /^Five parts, in this order\.$/m);
   const parts = [...requestAnswers.matchAll(/^### (\d)\. (.+)$/gm)].map(([, number, title]) => `${number} ${title.split(' —')[0]}`);
   assert.deepEqual(parts, ['1 The header', '2 The answer sheet', '3 The detail', '4 Already settled', '5 Not for you']);
+  // Brief depth leaves out the detail and nothing else, so a brief still carries the settled rows
+  // and "Not for you": the depth table's shape cannot be read as header and sheet alone.
+  const briefShape = requestAnswers.match(/^\| \*\*brief\*\* \| ([^|\n]+) \|/m)?.[1] ?? '';
+  for (const part of ['Already settled', 'Not for you']) assert.ok(briefShape.includes(part), `brief depth's shape leaves out "${part}": ${briefShape}`);
+  assert.match(briefShape, /but the detail/, `brief depth's shape does not say the detail is all it leaves out: ${briefShape}`);
   assert.match(requestAnswers, /\*\*Ids never move\*\*/);
   for (const [where, from] of [['template', answerSheet.indexOf('## Template')], ['worked example', answerSheet.indexOf('## Worked example')]]) {
     const settled = answerSheet.indexOf('## Already settled — nothing here needs an answer', from);
