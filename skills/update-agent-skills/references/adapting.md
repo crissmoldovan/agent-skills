@@ -202,7 +202,7 @@ Beside it: the skill's other files byte for byte at their own paths, so its link
 the project files; the pack's `LICENSE`, since the copy is a substantial portion of an MIT work;
 and `adapted.lock.json`, which records the pin (source, ref, commit, tree), the sha256 of every file
 of the skill and of the text between the markers, the sha256 of every adapter input and every
-generated file, and the composer's version and sha256.
+generated file, which generated files are executable, and the composer's version and sha256.
 
 **A reference file as the entry.** Its text becomes the body of `SKILL.md` at the folder root, so
 every relative link in it, fenced code included, is rewritten for that place, and it is still
@@ -235,17 +235,17 @@ it. `compose` lists every tool the copy pre-approves for review, and check 9 ref
 `check` holds every adapted copy to these. `compose` refuses an input that would break 4, 5, 6 or 10,
 or put a marker of check 2 into the overlay; the rest it writes true. A refusal or a failure is
 printed with the number of its check. Two kinds carry a word instead: `[adapter]`, an adapter
-folder that does not read as one (an unknown key, a missing overlay, a project file out of place
-or colliding with a file of the skill, an overlay section the copy would drop, a fence in the
-overlay that does not close inside its addition or section, an indented `###` heading whose first
-word is an id), and `[pin]`, a pin
+folder that does not read as one (an unknown key, a missing overlay, an `adapter.json` or overlay
+that is a symbolic link, a project file out of place or colliding with a file of the skill, an
+overlay section the copy would drop, a fence in the overlay that does not close inside its addition
+or section, an indented `###` heading whose first word is an id), and `[pin]`, a pin
 that cannot be taken (a branch, an abbreviated sha, a tag that now names another commit, a
 recorded commit or tree the ref no longer gives, a skill or entry the ref does not have, or a
 source that cannot be read).
 
 | # | what it holds | what fails it |
 |---|---|---|
-| 1 | every generated file has the sha256 its lock records, and the folder holds nothing else | a hand edit, a file added or removed by hand |
+| 1 | every generated file has the sha256 and the mode, executable or not, that its lock records, and the folder holds nothing else | a hand edit, a mode changed by hand, a file added or removed by hand |
 | 2 | the text between the markers has the sha256 recorded at compose time | an edit to the skill's own text |
 | 3 | composing again from the copy and the current adapter folder gives the same bytes | an overlay or `adapter.json` changed without composing; a pin moved in `adapter.json` but not composed |
 | 4 | every id the overlay cites is declared by a carried file; each slot is bound once and to a value, a `skill` slot to a skill's name; each step or hard line is added to once, with text; every required slot is bound; a `skill` slot whose default this project also adapts is bound to an adapted copy of it, and to no other skill (a copy over the skill's `SKILL.md` counts as one when the slot hands work back to its own skill; a copy over a reference file never does for itself); `names` maps only a skill the carried text names and no slot covers, and the names map says one thing per skill | a typo in an id; an id a newer release renamed; a handoff that would reach the generic copy, or another skill than the adapted copy; two rows for one slot; a carried file that declares `## Bindings` and holds a code block that meets a less indented line before it closes, or never closes, which the pack's verifier refuses too, since GitHub could show as code what a reading of it as text would declare |
