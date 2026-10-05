@@ -267,9 +267,9 @@ test('the head line is optional, sits above the three sections, and replaces non
   assert.match(procedure, /every time and zone label pasted from a command/);
   // The wall-clock divides by the running section's count, never by a number nobody observed.
   assert.match(procedure, /wall-clock at the agents actually running, as the running section counts them \(B7\)/);
-  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched and say they were not observed/);
+  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched, when there are any, and say they were not observed/);
   // Evidence that shows no agent running leaves nothing to divide by, so no wall-clock is invented.
-  assert.match(procedure, /With evidence that shows no agent running, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
+  assert.match(procedure, /With evidence that shows no agent running, or no evidence and no agent dispatched, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
   // A clock time that leaves part of the work out says what it covers, so it never reads as the goal's.
   assert.match(procedure, /a clock time that leaves part of it out says what it covers/);
   assert.match(procedure, /With no register, it reads "Progress not measured: no register of the work" \(H7\)/);
@@ -313,6 +313,16 @@ test('a head line asked for an ETA alone passes the checklist without a register
   assert.match(check, /carries what the reader asked for, and both on a cadence/);
   assert.match(check, /A percentage names its register and counts in one unit, with work blocked on a person out of the numerator/);
   assert.doesNotMatch(check, /where there is one, names its register/, 'the head-line check demands a register of a line asked for an ETA alone');
+});
+
+// The no-evidence fallback divides by the agents dispatched, so it holds only while there is one:
+// a long task one agent works alone has no lifecycle evidence and none dispatched, and dividing by
+// that zero would invent a wall-clock. It gives agent-hours alone, as observed zero concurrency does.
+test('with no lifecycle evidence and no agent dispatched, the ETA gives agent-hours alone', () => {
+  const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
+  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched, when there are any, and say they were not observed/);
+  assert.match(procedure, /or no evidence and no agent dispatched, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
+  assert.doesNotMatch(procedure, /divide by the agents dispatched and say/, 'the no-evidence fallback divides by the agents dispatched even when none were');
 });
 
 test('the reference carries each lesson the head line and the cadence rest on', () => {
