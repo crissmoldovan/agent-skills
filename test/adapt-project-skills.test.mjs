@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -2621,6 +2621,55 @@ test('other folders for adapters and skills are recorded, named in the generated
   assert.match(elsewhere.stdout, /\[1\] \.claude\/skills\/notes-here does not exist/);
   assert.throws(() => runCheck(parseArguments(['check', '--repo', project, '--skills-dir', '../outside']), collect().io), /--skills-dir must be a folder inside the repository/);
   assert.throws(() => runCompose(parseArguments(['compose', '--repo', project, '--adapters-dir', '../outside']), collect().io), /--adapters-dir must be a folder inside the repository/);
+});
+
+// "Inside the repository" is where a write lands, not how its folder is spelt: a symbolic link the
+// project holds, such as `.claude/skills -> /elsewhere`, would take the generated copy or the
+// vendored composer outside it, onto whatever is there. Reading is not limited, as the pack itself
+// is read from a clone elsewhere.
+test('compose --write refuses a folder or the vendored composer that a symbolic link takes outside the repository, writes nothing, and follows a link that stays inside', async () => {
+  const pack = await buildPack({ upTo: 'v1.0.0' });
+  const outside = await tempDir('adapt-outside-');
+  const says = (text) => (error) => error.message.includes(text);
+
+  const linkedSkills = await addAdapter({ pack });
+  mkdirSync(path.join(outside, 'skills'));
+  symlinkSync(path.join(outside, 'skills'), path.join(linkedSkills, SKILLS));
+  assert.equal(compose(linkedSkills).status, EXIT_OK, 'a dry run only reads');
+  assert.throws(() => compose(linkedSkills, '--write'), says(`--skills-dir ${SKILLS} resolves to ${realpathSync.native(path.join(outside, 'skills'))}, outside the repository`));
+  assert.deepEqual(readdirSync(path.join(outside, 'skills')), []);
+  assert.equal(existsSync(path.join(linkedSkills, ADAPTERS, '.tool')), false, 'the composer was vendored');
+
+  const elsewhere = await addAdapter({ pack });
+  const linkedAdapters = await tempDir('adapt-project-');
+  mkdirSync(path.join(linkedAdapters, '.claude'));
+  symlinkSync(path.join(elsewhere, ADAPTERS), path.join(linkedAdapters, ADAPTERS));
+  assert.equal(compose(linkedAdapters).status, EXIT_OK, 'a dry run only reads');
+  assert.throws(() => compose(linkedAdapters, '--write'), says(`--adapters-dir ${ADAPTERS} resolves to ${realpathSync.native(path.join(elsewhere, ADAPTERS))}, outside the repository`));
+  assert.equal(existsSync(path.join(elsewhere, ADAPTERS, '.tool')), false, 'the composer was vendored outside');
+  assert.equal(existsSync(path.join(linkedAdapters, SKILLS)), false, 'the copy was written');
+
+  const linkedComposer = await addAdapter({ pack });
+  const composerLink = path.join(linkedComposer, ADAPTERS, '.tool', 'adapt.mjs');
+  write(outside, 'kept.mjs', 'kept\n');
+  mkdirSync(path.dirname(composerLink));
+  symlinkSync(path.join(outside, 'kept.mjs'), composerLink);
+  assert.throws(() => compose(linkedComposer, '--write'), says(`the vendored composer ${ADAPTERS}/.tool/adapt.mjs resolves to ${realpathSync.native(path.join(outside, 'kept.mjs'))}, outside the repository`));
+  assert.equal(readText(outside, 'kept.mjs'), 'kept\n');
+  rmSync(composerLink);
+  symlinkSync(path.join(outside, 'made.mjs'), composerLink);
+  assert.throws(() => compose(linkedComposer, '--write'), says(`the vendored composer ${ADAPTERS}/.tool/adapt.mjs does not resolve: ${ADAPTERS}/.tool/adapt.mjs is a symbolic link to ${path.join(outside, 'made.mjs')}`));
+  assert.equal(existsSync(path.join(outside, 'made.mjs')), false, 'writing through the link made the file it points at');
+  assert.equal(existsSync(path.join(linkedComposer, SKILLS)), false, 'the copy was written');
+
+  // A symbolic link that stays inside the repository is followed like any other path.
+  const inside = await addAdapter({ pack });
+  mkdirSync(path.join(inside, 'generated', 'skills'), { recursive: true });
+  symlinkSync(path.join('..', 'generated', 'skills'), path.join(inside, SKILLS));
+  const written = compose(inside, '--write');
+  assert.equal(written.status, EXIT_OK, written.stdout);
+  assert.equal(existsSync(path.join(inside, 'generated', 'skills', 'notes-here', 'SKILL.md')), true);
+  assert.equal(check(inside).status, EXIT_OK);
 });
 
 test('the command line: usage on stderr with exit 1, and check exits 1 on a failure', async () => {
