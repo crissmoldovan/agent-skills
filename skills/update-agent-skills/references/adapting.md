@@ -38,7 +38,10 @@ additions together.
 ```
 
 `--adapters-dir` and `--skills-dir` move the two folders for a harness that reads skills from
-somewhere else; pass the same values to every command, because the lock records them.
+somewhere else; pass the same values to every command, because the lock records them. Both stay
+inside the repository where they land, not only as written: `compose --write` refuses either
+folder, or the vendored composer, when a symbolic link on the way takes it outside, and writes
+nothing. Reading is not limited, so the pack is read from a clone anywhere.
 `onboard-project` looks for adapted copies only in `.claude/skills/` and `.agents/skills/`, so a
 copy composed anywhere else does not stand in for its skill there.
 

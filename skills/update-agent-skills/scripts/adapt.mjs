@@ -38,6 +38,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -1900,6 +1901,62 @@ function escapesRepository(layout) {
 }
 
 /**
+ * Where a write to `absolute` lands: the real path of the nearest part of it that exists, every
+ * symbolic link on the way followed, with the parts compose would make added back. A part that
+ * exists and does not resolve, such as a symbolic link to nothing, lands nowhere and is named:
+ * writing through it would make whatever it points at.
+ */
+function landing(absolute) {
+  const made = [];
+  for (let current = absolute; ; current = path.dirname(current)) {
+    let stat = null;
+    try {
+      stat = lstatSync(current);
+    } catch {
+      stat = null;
+    }
+    if (stat) {
+      try {
+        return { real: path.join(realpathSync.native(current), ...made) };
+      } catch (error) {
+        return { real: null, at: current, why: stat.isSymbolicLink() ? `is a symbolic link to ${readlinkSync(current)}, which does not resolve (${error.code})` : `does not resolve (${error.code})` };
+      }
+    }
+    if (path.dirname(current) === current) return { real: absolute };
+    made.unshift(path.basename(current));
+  }
+}
+
+/**
+ * `compose --write` writes only inside the repository, judged where each write lands and not how
+ * its folder is spelt: a symbolic link such as `.claude/skills -> /elsewhere` passes the folder
+ * options as text, and would take the generated copies, or the composer vendored beside the
+ * adapters, outside it onto whatever is there. Reading is not limited: the pack is read from a
+ * clone anywhere, and a dry run or `check` reads through a link like any other path.
+ */
+function refuseWritesOutside(layout) {
+  let root;
+  try {
+    root = realpathSync.native(layout.root);
+  } catch {
+    root = path.resolve(layout.root);
+  }
+  const writes = [
+    ['--skills-dir', layout.skillsRel, layout.skillsPath],
+    ['--adapters-dir', layout.adaptersRel, layout.adaptersPath],
+    ['the vendored composer', `${layout.adaptersRel}/${TOOL_DIR}/${TOOL_FILE}`, layout.toolPath],
+  ];
+  for (const [what, spelt, absolute] of writes) {
+    const { real, at, why } = landing(absolute);
+    if (real === null) throw new AdaptError(`${what} ${spelt} does not resolve: ${toPosix(path.relative(layout.root, at))} ${why}. compose --write writes only where a path resolves inside the repository`);
+    const from = path.relative(root, real);
+    if (from === '..' || from.startsWith(`..${path.sep}`) || path.isAbsolute(from)) {
+      throw new AdaptError(`${what} ${spelt} resolves to ${real}, outside the repository (${root}). compose --write writes only inside it`);
+    }
+  }
+}
+
+/**
  * `compose`: read each pin, compose, and print the change. With `--write`, write the generated
  * folder and vendor this file. It refuses to overwrite a folder that is not exactly what its own
  * lock says, so a hand edit is never lost without `--discard-hand-edits`.
@@ -1914,6 +1971,7 @@ export function runCompose(options, io) {
     return EXIT_OK;
   }
   const selected = selectAdapters(adapters, options.adapter);
+  if (options.write) refuseWritesOutside(layout);
   const bytes = composerBytes();
   const composer = { sha256: sha256(bytes) };
   let failed = false;
