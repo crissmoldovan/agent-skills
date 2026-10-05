@@ -361,6 +361,19 @@ test("an enqueue is screened as a person's turn is: the harness's own elements a
   assert.equal(enqueuedWords({ type: 'queue-operation', operation: 'remove', reason: 'delivered_to_agent' }), null);
 });
 
+test("locate --json gives a slash command's hit by its position and kind, never the command's name", async () => {
+  // A slash command's name is the person's words too: a project can name its own commands.
+  const history = await queueHistory([typedAt(0, 'start on the totals page'), commandAt(1, 'rename-quarterly-totals', 'move the totals to the footer')]);
+  const result = run('locate', '--repo', QUEUE_REPO, '--history', history, '--phrase', 'move the totals', '--json');
+  assert.equal(result.status, 0, result.stderr);
+  const [hit, ...more] = JSON.parse(result.stdout).hits;
+  assert.deepEqual(more, []);
+  assert.equal(hit.kind, 'command-args');
+  assert.equal(hit.line, 2);
+  assert.ok(!('command' in hit), 'a hit names no command');
+  assert.doesNotMatch(result.stdout, /rename-quarterly-totals|totals to the footer/);
+});
+
 test("an editor selection or a reminder that shares a turn with the person's words is not theirs", () => {
   const located = run('locate', ...selection, '--phrase', 'const label');
   assert.equal(located.status, 0, located.stderr);
