@@ -977,9 +977,47 @@ test("visitor-session-forensics reads the named people's visits, never everythin
   const q3 = contracts.slice(contracts.indexOf('## Q3. Devices'), contracts.indexOf('## Q4. Recordings'));
   assert.doesNotMatch(q3, /the browser's other events/);
   assert.match(q3, /other\s+events\s+of\s+the\s+same\s+visits/);
-  // An element's label is the site's words, and one that holds a person's data is replaced.
+});
+
+// A label the records carry is the page's words for an element, and can hold what the page showed a
+// person: `Open Dana Example's profile` and `Approve INV-ABCD` hold no `@`, no run of six digits and
+// no run of 20 letters and digits, so a pattern that cut only those let both into the report. No
+// pattern sorts such a label from one that names nobody, so every label, accessible name and
+// selector stays in the detail, and everywhere else an element is described only by its type and
+// place, or as `:label`.
+test('visitor-session-forensics keeps every label the records carry in the detail, and elsewhere describes an element only by its type and place', async () => {
+  const skill = await read('skills/visitor-session-forensics/SKILL.md');
+  const contracts = await read('skills/visitor-session-forensics/references/query-contracts.md');
+  // A phrase, matched across the line breaks the prose wraps at.
+  const says = (phrase) => new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split(' ').join('\\s+'));
+  const labels = ["Open Dana Example's profile", 'Approve INV-ABCD'];
   const q1 = contracts.slice(contracts.indexOf('## Q1. Events'), contracts.indexOf('## Q2. Visit facts'));
-  assert.match(q1, /replaced\s+by\s+`:label`/);
+  const bullet = q1.slice(q1.indexOf('- The label is'), q1.indexOf('- Clicks are counted'));
+  assert.doesNotMatch(bullet, /a label holding|six or more digits|20 or more letters/, 'a pattern still decides which labels leave the detail');
+  for (const label of labels) assert.match(bullet, says(`\`${label}\``), `Q1 does not give ${label} as a label kept in the detail`);
+  assert.match(bullet, says('written in the detail and nowhere else'));
+  assert.match(bullet, says('only by its type and place'));
+  assert.match(bullet, /`:label`/);
+  // F6's default, S6's naming step and its completion condition, H5 and the check before handing
+  // over say the same, so no part of the report outside the detail takes a label.
+  const f6 = skill.match(/^\| F6 \| .*$/m)[0];
+  assert.match(f6, says('written in the detail only'));
+  assert.match(f6, says('by its type and place, or as `:label`'));
+  const s6 = skill.slice(skill.indexOf('**S6.'), skill.indexOf('**S7.'));
+  const [naming, complete] = s6.split('**Complete when:**');
+  assert.ok(complete, 'S6 has no completion condition');
+  assert.match(naming, says('none leaves the detail'));
+  assert.match(naming, says('in the answers, the summary and any name or heading'));
+  assert.match(naming, says('only by its type and place'));
+  assert.match(complete, says('outside the detail each one is described only by its type and place, or as `:label`'));
+  assert.match(complete, says('never by a label, accessible name or selector'));
+  const h5 = skill.slice(skill.indexOf('**H5.'), skill.indexOf('**H6.'));
+  assert.match(h5, says('Outside the detail, the report'));
+  assert.match(h5, says('every name and heading'));
+  assert.match(h5, says("no label, accessible name or selector read from the site's records"));
+  assert.match(h5, says('only by its type and place'));
+  const check = section(skill, 'Verification');
+  assert.match(check, says('no label, accessible name or selector from the records'));
 });
 
 // "A person, on these signals" said about a named person's visit reads as "they did it", from

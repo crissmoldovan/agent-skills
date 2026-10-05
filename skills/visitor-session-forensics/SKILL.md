@@ -77,7 +77,7 @@ skill beside others whose `B` slots would be read as its own.
 | F3 | the sources read, each with what it records and how long it keeps it | value | ask once; a source nobody named is not read |
 | F4 | the hosts that are the site, and which of them is live | value | ask once; events from any other host are counted and left out |
 | F5 | accounts that are not people: test, monitoring and the team's own | value | none known: no account is left out, and the report says so |
-| F6 | the names the site's screens and controls had during the window | value | read from the window's own records (S6), never invented |
+| F6 | the names the site's screens and controls had during the window | value | read from the window's own records (S6), never invented, and written in the detail only; everywhere else an element is described by its type and place, or as `:label` (H5) |
 | F7 | where the release history is read from, for the live-or-cached check | value | ask once; without it, the report says the comparison was not made |
 | F8 | the zones times are shown in, beside UTC | value | UTC only |
 | F9 | where the raw rows are kept during a run, and when they are deleted | value | a scratch directory outside every repository, deleted once the report is handed over |
@@ -114,10 +114,14 @@ skill beside others whose `B` slots would be read as its own.
   location. A URL is cut to its host and route before it is written anywhere else, because its
   query, its fragment and a segment of its path can carry a sign-in link's token, an email address
   or an id: every segment that could hold one is replaced (the rule is in the query contracts).
-- **H5. Nothing outside the detail identifies anybody beyond the names asked about.** The answers
-  that lead the report and the summary carry no network addresses, network names, device details,
-  email addresses, session ids, URL queries or path segments. The detail, which may carry them, goes
-  only to those bound as F10, and the report says plainly what the detail carries.
+- **H5. Nothing outside the detail identifies anybody beyond the names asked about.** Outside the
+  detail, the report (its answers, its summary, its coverage, and every name and heading) carries
+  no network addresses, network names, device details, email addresses, session ids, URL queries or
+  path segments, and no label, accessible name or selector read from the site's records: those are
+  the site's words, and can hold whatever the page showed a person. An element there is described
+  only by its type and place, such as "a link" or "a button in the header", or as `:label` (S6).
+  The detail, which may carry them, goes only to those bound as F10, and the report says plainly
+  what the detail carries.
 - **H6. Nothing invented.** Every number is a count of rows or arithmetic over rows, and every claim
   names its rows. A query that returns nothing is "none in the window", never "did nothing"; a visit
   with no recording is "no recording stored"; a mechanism that no row shows is not described.
@@ -205,12 +209,18 @@ what it filters on, the row it returns, and its control.
    **Complete when:** each input is saved with its query, the time it ran and its row count, and
    nothing outside the request and the controls it named was read.
 
-6. **S6. Name what they saw by the names it had then.** Screens and controls are named as the site
-   named them during the window (F6): line up a navigation click with the screen event that follows
-   it, or read the labels the window's own events carry. Today's names are a fallback, and the
-   report says where one was used. A screen nobody can name keeps its key.
-   **Complete when:** every screen and control in the report has a name from the window, or is
-   marked as named from today's build, or as unnamed.
+6. **S6. Name what they saw by the names it had then, in the detail only.** In the detail, screens
+   and controls are named as the site named them during the window (F6): line up a navigation click
+   with the screen event that follows it, or read the labels the window's own events carry. Today's
+   names are a fallback there, and the detail says where one was used. A screen nobody can name
+   keeps its key. Those names are the site's words, so none leaves the detail (H5): everywhere else
+   in the report, in the answers, the summary and any name or heading, a screen or a control is
+   described only by its type and place, in the report's words and never the page's (a screen, a
+   link, a button in the header), or as `:label`.
+   **Complete when:** every screen and control in the detail has a name from the window, or is
+   marked as named from today's build, or as unnamed; and outside the detail each one is described
+   only by its type and place, or as `:label`, never by a label, accessible name or selector from the
+   records.
 
 7. **S7. Answer each question from its rows.** One section per question the request asked, each
    citing the rows it counts and saying what its source cannot show: a recording does not cover
@@ -300,8 +310,9 @@ Filling a query contract, with the placeholders the contracts use:
   Say what the table shows: the account has no rows of that kind.
 - **Judging the cache by counting requests.** A cached file is still requested, or is not, for
   reasons a count cannot tell apart. Compare the bytes transferred with the encoded size.
-- **Today's names for yesterday's screens.** A screen renamed since the window is reported under a
-  name the visitor never saw. Use the names the window's own events carry.
+- **Today's names for yesterday's screens.** A screen renamed since the window is named in the
+  detail under a name the visitor never saw. Use the names the window's own events carry, in the
+  detail only.
 - **Keeping the run directory in a repository.** Its inputs hold full addresses and every account's
   email address, and one `git add .` commits them.
 - **Checking only the address you were given.** A host can serve one deployment at several
@@ -325,8 +336,9 @@ Filling a query contract, with the placeholders the contracts use:
   they apply.
 - [ ] The person-or-agent section gives both sides, says the signals are uncalibrated, and says
   what they cannot rule out.
-- [ ] The answers and the summary carry no network address, network name, device detail, email
-  address, session id, URL query or path segment the route cut replaces.
+- [ ] Outside the detail, the report (its answers, summary, coverage, and every name and heading)
+  carries no network address, network name, device detail, email address, session id, URL query or
+  path segment the route cut replaces, and no label, accessible name or selector from the records.
 - [ ] Nothing was published without a yes, and its link went to nobody before every address it is
   served at refused a signed-out fetch; an address that did not was taken down and recorded.
 - [ ] The raw rows stayed in the run directory and their deletion is recorded.

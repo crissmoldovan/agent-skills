@@ -133,10 +133,12 @@ such time, and the "control visit" the contracts below refer to.
 short prefix of the visit id, enough to keep visits apart; the full id goes in Q2.
 
 - The label is the first of these the element carries: the site's own tracking attribute, its
-  accessible label, its navigation target, its selector. It is the site's words for the element,
-  but an accessible label or a selector can hold what the page showed a person: a label holding an
-  `@`, a run of six or more digits, or an unbroken run of 20 or more letters and digits is replaced
-  by `:label`, as a path segment is, and a navigation target is cut like any URL.
+  accessible label, its navigation target, its selector; a navigation target is cut like any URL.
+  It is the site's words for the element, and can hold what the page showed a person, as
+  `Open Dana Example's profile` and `Approve INV-ABCD` do with no `@`, long number or long token
+  for a pattern to find. So no pattern sorts the labels: every label is written in the detail and
+  nowhere else, and outside it the element is described only by its type and place, such as "a
+  link" or "a button in the header", or as `:label` (S6, H5).
 - Clicks are counted as `event IN ('click', 'tap')`.
 - An event before its visit's `<signed in>` (Q0) is counted apart, as the visit's before sign-in.
 
