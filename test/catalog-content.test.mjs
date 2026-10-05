@@ -743,6 +743,16 @@ test('request-answers shows the screen each question is about, gives the reader 
   const briefShape = requestAnswers.match(/^\| \*\*brief\*\* \| ([^|\n]+) \|/m)?.[1] ?? '';
   for (const part of ['Already settled', 'Not for you']) assert.ok(briefShape.includes(part), `brief depth's shape leaves out "${part}": ${briefShape}`);
   assert.match(briefShape, /but the detail/, `brief depth's shape does not say the detail is all it leaves out: ${briefShape}`);
+  // The template's header says the same: a writer who fills it for brief depth is told the detail
+  // is all that goes, never "sheet only", which reads as header and sheet alone.
+  const headerMeaning = answerSheet.match(/\*\*\[N\] asks · depth: \[brief \| normal \| deep\]\*\* — \[([^\]]+)\]/)?.[1] ?? '';
+  assert.doesNotMatch(headerMeaning, /sheet only/, `the template's header still says brief depth is the sheet only: ${headerMeaning}`);
+  assert.match(headerMeaning, /all five parts but the detail/, `the template's header does not say brief depth is all five parts but the detail: ${headerMeaning}`);
+  // A shot is two images in every variant, so the worked example names both for each layout.
+  const exampleQ7 = answerSheet.slice(answerSheet.indexOf('## Worked example')).match(/^### Q7 · [\s\S]*?(?=^### )/m)?.[0] ?? '';
+  for (const image of ['Q7-wide.png', 'Q7-wide.screen.png', 'Q7-narrow.png', 'Q7-narrow.screen.png']) {
+    assert.ok(exampleQ7.includes(`\`${image}\``), `the worked example's Q7 does not name ${image}`);
+  }
   assert.match(requestAnswers, /\*\*Ids never move\*\*/);
   for (const [where, from] of [['template', answerSheet.indexOf('## Template')], ['worked example', answerSheet.indexOf('## Worked example')]]) {
     const settled = answerSheet.indexOf('## Already settled — nothing here needs an answer', from);

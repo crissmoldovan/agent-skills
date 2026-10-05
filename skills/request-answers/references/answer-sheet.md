@@ -8,9 +8,9 @@ clarifications, missing facts. Replace the bracketed parts; keep the order.
 ````markdown
 # [N] things I need from you — [what this is about]
 
-**[N] asks · depth: [brief | normal | deep]** — [what that means here: sheet only /
-detail under each / detail plus attached files; and which questions carry shots: every
-one about a screen.]
+**[N] asks · depth: [brief | normal | deep]** — [what that means here:
+all five parts but the detail / detail under each / detail plus attached files; and
+which questions carry shots: every one about a screen.]
 
 [One or two sentences: where the asks came from, what is already settled, and that
 nothing else waits on this reader.]
@@ -146,7 +146,8 @@ On silence: we build option 1.
 
 ### Q7 · "Active" in the card titles — **WHICH** *(26)*
 A reviewer flagged the title "[care by concern and active]" as unclear.
-*Shots:* `Q7-wide.png` and `Q7-narrow.png` — the title boxed in each layout it appears in.
+*Shots:* `Q7-wide.png` with its overview `Q7-wide.screen.png`, and `Q7-narrow.png` with
+`Q7-narrow.screen.png` — the title boxed in each layout it appears in.
 1. **"Active" means the active ingredient — we would retitle to "…and active ingredient"**
 2. "Active" means an active user segment — a different title entirely
 **We read it as 1.** Confirm, or point at the other.
