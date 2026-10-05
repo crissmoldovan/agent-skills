@@ -345,6 +345,14 @@ test('resolve-problem-report assesses a report on three separate questions, and 
   // The real date, with its source; nothing backfilled.
   assert.match(assessing, /Date the report from its source/);
   assert.match(assessing, /\*\*H3\. Nothing is dated or judged from memory\.\*\*/);
+  // A commit or a tracker says when someone wrote the report down, never when it was reported, so B7
+  // takes the date only from a source that states it, and with none the date is unknown.
+  const dateSources = assessing.match(/^\| B7 \|([^\n]*)\|$/m);
+  assert.ok(dateSources, 'the reference has no B7 row');
+  assert.doesNotMatch(dateSources[1], /commit|tracker/i, 'B7 dates a report from when someone wrote it down');
+  const assessingFlat = assessing.replace(/\s+/g, ' ');
+  assert.match(assessingFlat, /is when someone wrote it down: a recording date, never the report's/);
+  assert.match(assessingFlat, /With no source that states when it was reported, the date is unknown \(H3\)/);
   // Released is not verified: in the release first, then checked where the reader meets it, even when
   // told to close.
   assert.match(assessing, /\*\*H2\. A released fix is not a verified one\.\*\*/);

@@ -27,7 +27,7 @@ rest of the arc, it names the skill (B1) rather than linking to it.
 | B4 | the priority scale | value | the four levels under "Priority" |
 | B5 | the effort scale, and the work that effort counts beside the edit | value | the five sizes and the list under "Effort" |
 | B6 | where each judgement is recorded, with who made it, when and why | value | the claim card, and the run record when one is written |
-| B7 | the sources a report's date is taken from, best first | value | a date the report itself states; then the message or record it arrived in; then the first commit that holds it; a tracker's own date column last |
+| B7 | the sources a report's date is taken from, best first | value | a date the report itself states; then the message or record the reporter sent it in |
 | B8 | where the reader meets the fix: the environment, the surface and the state a reader sees it in | value | the environment the reporter uses, and the surface on the claim card's `reported` field |
 | B9 | who looks where the agent cannot reach, such as a view only a signed-in reader sees | value | ask once |
 
@@ -121,9 +121,11 @@ hours had been spent before it.
    "first estimate". A priority the person bound as B2 has not ruled on is recorded as proposed;
    an unattended run asks nobody, so its priority is always proposed.
 2. **S2. Date the report from its source.** The date is when the reporter reported it, taken from
-   the first source B7 lists that states one, and the record names that source. A file's date, or
-   the day a record was copied into a tracker, is when someone wrote it down. The claim card's
-   `reported` field carries the date and its source.
+   the first source B7 lists that states one, and the record names that source. A file's date, the
+   first commit that holds the report, or the day a record was copied into a tracker, is when
+   someone wrote it down: a recording date, never the report's. With no source that states when it
+   was reported, the date is unknown (H3). The claim card's `reported` field carries the date and
+   its source.
 3. **S3. Assess again whenever the evidence moves, and keep the old answer beside the new one.**
    The evidence moves when G1 reproduces a number or refutes a premise, the reporter answers, a
    candidate is chosen at G2, a release changes what the reader sees, the report turns out to be
