@@ -20,7 +20,7 @@ basis.
 
 ```text
 Progress NN%: D of N <unit> in <register>, counted HH:MM <zone> (done D · in flight F · to do T · blocked on a person B); ceiling without them CC%. Denominator N, unchanged since HH:MM (or: up from M at HH:MM, because <what found the new work>, which took the percentage from P% to NN%).
-ETA, an estimate: A–B agent-hours, about W wall-clock at the K agents running; <the work it covers> done HH:MM–HH:MM <zone>, with its date when that is not today there, and the same range in each other reader's zone. Basis: <the items and what each was costed at, the review rounds, what does not divide>. Not in it: <any part left out, with its own number, and whether the goal's own time can be given>.
+ETA, an estimate: A–B agent-hours for the whole goal; <the work the clock time covers>: about W wall-clock at the K agents running, done HH:MM–HH:MM <zone>, with its date when that is not today there, and the same range in each other reader's zone. Basis, in agent-minutes: F in flight at X–Y each, T to do at X–Y each, B blocked on a person at X–Y each once <what they wait on> arrives, R review rounds that find something at X–Y each, <what does not divide>. <Where the clock time leaves out work blocked on a person: the goal's own time is not measured until that person's answer has a time.> Not in it: <work outside the goal that a reader might count in it, if any>.
 ```
 
 - **Keep the counts inside the percentage line.** A line that opens with "done", "in flight" or
@@ -76,10 +76,13 @@ Then:
   forecast presented as one.
 - **The headline covers all the work up to the goal.** One report headlined "3–6 agent-hours"
   and said a few lines further down that three more passes were "another 4–8 agent-hours on
-  top". The reader planned around the headline. A part left out gets its own number beside the
-  headline. A clock time that leaves a part out says what it covers, and never reads as the goal's:
-  when the part left out waits on a person whose timing nobody knows, the goal's own time is not
-  measured (H7), and the ETA says so.
+  top". The reader planned around the headline. Every item's known effort goes into the
+  agent-hours, work that waits on a person included: when its answer comes is unknown, but what
+  the work costs once it does is known. Only the clock time, and the wall-clock it is counted
+  from, may leave out work that waits on a person, because that work cannot start before the
+  answer. A clock time that leaves a part out says what it covers, and never reads as the goal's:
+  the goal's own time is not measured (H7) until that person's timing is known, and the ETA says
+  so. "Not in it" is for work outside the goal, never for a part of it.
 - **Assume a review finds something.** Cost a fix round for each review still to come. An
   estimate that treats every review as coming back clean grows each time one does not.
 
@@ -151,7 +154,7 @@ to.
 ```text
 Scheduled update, 14:15 UTC (every 20 minutes until the migration is merged).
 Progress 62%: 13 of 21 handlers in TRACKER.md, counted 14:14 UTC (done 13 · in flight 2 · to do 4 · blocked on a person 2); ceiling without that person 90%. Denominator 21, up from 18 at 13:40 UTC because the review found three handlers with no tests, which took the percentage from 72% to 62%.
-ETA, an estimate: 3–4 agent-hours, about 1h45m–2h20m wall-clock at the 2 agents running; the 19 handlers not blocked on a person done 16:00–16:35 UTC. Basis: 4 handlers to do at 30–40 min each, 2 in flight at 15–20 min, one review round that finds something at 30–40 min, which does not divide. Not in it: the 2 handlers that wait on a person, 20 min after the answer arrives, so the whole migration's time is not measured until the time of that answer is known.
+ETA, an estimate: 4–5 agent-hours for the whole migration; the 19 handlers not blocked on a person: about 1h45m–2h20m wall-clock at the 2 agents running, done 16:00–16:35 UTC. Basis, in agent-minutes: 2 in flight at 15–20 each, 4 to do at 30–40 each, 2 blocked on a person at 30 each once their owner's answer arrives, 1 review round that finds something at 30–40, which does not divide. The whole migration's time is not measured until the time of that answer is known. Not in it: the deploy after the merge, which this goal does not include.
 
 Done — verified here: 13 handlers marked done in TRACKER.md; `npm test` run in this checkout at 4e5f6a7, 640 passing, 0 failing.
 Done — claimed, not verified: none this update.

@@ -272,12 +272,12 @@ describes. A slot nobody binds keeps its default.
    "Progress not measured: no register of the work" (H7). Give the ETA in agent-hours, then
    wall-clock at the agents actually running, as the running section counts them (B7), then a
    clock time in each reader's zone (B2), every time and zone label pasted from a command. With
-   no lifecycle evidence, divide by the agents dispatched and say they were not observed. With
-   evidence that shows no agent running, give agent-hours alone and say the wall-clock and the
-   clock time are not measured, and why (H7). Label it an estimate with its basis (H8), and make
-   it cover all the work to the goal, with a fix round for each review still to come; a clock
-   time that leaves part of it out says what it covers. `references/percentage-eta-cadence.md`
-   has the shape and the commands.
+   no lifecycle evidence, divide by the agents dispatched, when there are any, and say they were
+   not observed. With evidence that shows no agent running, or no evidence and no agent
+   dispatched, give agent-hours alone and say the wall-clock and the clock time are not measured,
+   and why (H7). Label it an estimate with its basis (H8), and make it cover all the work to the
+   goal, with a fix round for each review still to come; a clock time that leaves part of it out
+   says what it covers. `references/percentage-eta-cadence.md` has the shape and the commands.
    **Complete when:** the head line sits under the first line and each number in it states its
    basis, or the report has none because nobody asked for either and no cadence runs.
 
@@ -435,9 +435,10 @@ Run this over the text you have written, before it is sent.
 - [ ] All three sections are present: what is done, what is running, what is next.
 - [ ] Every item carries a count or a named artefact; none is an activity verb.
 - [ ] Every count that has a denominator shows it.
-- [ ] A head line, where there is one, names its register and counts in one unit, keeps work
-      blocked on a person out of the numerator, and gives an ETA labelled as an estimate with
-      its basis, covering all the work, its clock times pasted from a command.
+- [ ] A head line, where there is one, carries what the reader asked for, and both on a
+      cadence. A percentage names its register and counts in one unit, with work blocked on a
+      person out of the numerator; an ETA is labelled as an estimate with its basis, covers all
+      the work, and has its clock times pasted from a command.
 - [ ] A figure nobody measured says "not measured", never 0.
 - [ ] On a cadence, the next section gives the next update's time, or the last update says the
       updates stop.

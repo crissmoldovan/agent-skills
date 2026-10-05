@@ -267,9 +267,9 @@ test('the head line is optional, sits above the three sections, and replaces non
   assert.match(procedure, /every time and zone label pasted from a command/);
   // The wall-clock divides by the running section's count, never by a number nobody observed.
   assert.match(procedure, /wall-clock at the agents actually running, as the running section counts them \(B7\)/);
-  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched and say they were not observed/);
+  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched, when there are any, and say they were not observed/);
   // Evidence that shows no agent running leaves nothing to divide by, so no wall-clock is invented.
-  assert.match(procedure, /With evidence that shows no agent running, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
+  assert.match(procedure, /With evidence that shows no agent running, or no evidence and no agent dispatched, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
   // A clock time that leaves part of the work out says what it covers, so it never reads as the goal's.
   assert.match(procedure, /a clock time that leaves part of it out says what it covers/);
   assert.match(procedure, /With no register, it reads "Progress not measured: no register of the work" \(H7\)/);
@@ -287,6 +287,42 @@ test('the head line is optional, sits above the three sections, and replaces non
   assert.match(verification, /"not measured", never 0/);
   assert.match(verification, /the last update says the\s+updates stop/);
   assert.match(descriptionOf(skill), /a percentage, an ETA, or updates at a set interval/);
+});
+
+// S3 gives the head line what the reader asked for, and both figures only on a cadence. The
+// checklist has to owe the same, or a report S3 accepts can never pass S11: each figure's
+// checks bind that figure where it is given, and none of them demands the other figure.
+function headLineCheck() {
+  const verification = section(skill, 'Verification');
+  const item = verification.split(/\n(?=- \[ \] )/).find((box) => box.startsWith('- [ ] A head line'));
+  assert.ok(item, 'the checklist has no item for the head line');
+  return item.replace(/\s+/g, ' ');
+}
+
+test('a head line asked for a percentage alone passes the checklist without an ETA', () => {
+  const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
+  assert.match(procedure, /It is owed when the reader asked for a percentage or an ETA, and carries what they asked for; on a cadence it carries both/);
+  const check = headLineCheck();
+  assert.match(check, /carries what the reader asked for, and both on a cadence/);
+  assert.match(check, /an ETA is labelled as an estimate with its basis, covers all the work, and has its clock times pasted from a command/);
+  assert.doesNotMatch(check, /gives an ETA/, 'the head-line check demands an ETA of a line asked for a percentage alone');
+});
+
+test('a head line asked for an ETA alone passes the checklist without a register', () => {
+  const check = headLineCheck();
+  assert.match(check, /carries what the reader asked for, and both on a cadence/);
+  assert.match(check, /A percentage names its register and counts in one unit, with work blocked on a person out of the numerator/);
+  assert.doesNotMatch(check, /where there is one, names its register/, 'the head-line check demands a register of a line asked for an ETA alone');
+});
+
+// The no-evidence fallback divides by the agents dispatched, so it holds only while there is one:
+// a long task one agent works alone has no lifecycle evidence and none dispatched, and dividing by
+// that zero would invent a wall-clock. It gives agent-hours alone, as observed zero concurrency does.
+test('with no lifecycle evidence and no agent dispatched, the ETA gives agent-hours alone', () => {
+  const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
+  assert.match(procedure, /With no lifecycle evidence, divide by the agents dispatched, when there are any, and say they were not observed/);
+  assert.match(procedure, /or no evidence and no agent dispatched, give agent-hours alone and say the wall-clock and the clock time are not measured, and why \(H7\)/);
+  assert.doesNotMatch(procedure, /divide by the agents dispatched and say/, 'the no-evidence fallback divides by the agents dispatched even when none were');
 });
 
 test('the reference carries each lesson the head line and the cadence rest on', () => {
@@ -308,6 +344,9 @@ test('the reference carries each lesson the head line and the cadence rest on', 
     /The headline covers all the work up to the goal/,
     /A clock time that leaves a part out says what it covers, and never reads as the goal's/,
     /the goal's own time is not measured \(H7\)/,
+    /Every item's known effort goes into the agent-hours, work that waits on a person included/,
+    /Only the clock time, and the wall-clock it is counted from, may leave out work that waits on a person/,
+    /"Not in it" is for work outside the goal, never for a part of it/,
     /When the evidence shows no agent running[\s\S]*?there is nothing to divide by: give agent-hours alone, and say that the wall-clock and the clock time are not measured, and why \(H7\)/,
     /Assume a review finds something/,
     /printed and never typed/,
@@ -371,9 +410,12 @@ test("the reference's specimen adds up, and the gate reads it as a complete repo
   const eta = report.split('\n').find((line) => line.startsWith('ETA'));
   assert.ok(eta, 'the specimen has no ETA line');
   assert.doesNotMatch(eta, /; done \d/, "the specimen's clock time reads as the goal's while part of it is left out");
-  const [covered] = numbers(/the (\d+) handlers not blocked on a person done \d{2}:\d{2}–\d{2}:\d{2} UTC/, 'what its clock time covers');
+  const [covered] = numbers(
+    /the (\d+) handlers not blocked on a person: about \S+ wall-clock at the \d+ agents running, done \d{2}:\d{2}–\d{2}:\d{2} UTC/,
+    'what its clock time covers',
+  );
   assert.equal(covered, total - b, 'the clock time covers another number of handlers than the work not blocked on a person');
-  assert.match(eta, /the whole migration's time is not measured until/);
+  assert.match(eta, /the whole migration's time is not measured until/i);
 
   const gate = await import('../adapters/claude-code/report-progress-gate.mjs');
   assert.deepEqual(gate.findReportFailures(report), []);
@@ -383,6 +425,46 @@ test("the reference's specimen adds up, and the gate reads it as a complete repo
   for (const id of ['done', 'running', 'next']) {
     assert.equal(gate.hasSectionLabel(headOnly, id), false, `the head line reads as the ${id} section`);
   }
+});
+
+// Known effort always goes into the headline agent-hours, the work blocked on a person included:
+// when its answer comes is unknown, what the work costs once it does is not. Only the clock time
+// may leave that work out, and it says so. The basis gives each state the percentage line counts
+// as "N <state> at X–Y each", so the headline is a plain sum of it and the review rounds.
+test("the specimen's headline agent-hours include every item's known effort", () => {
+  const specimen = section(cadence, 'A report with a head line, on a cadence').match(/```text\n([\s\S]*?)\n```/);
+  assert.ok(specimen, 'the reference has no specimen report');
+  const report = specimen[1];
+  const rows = report.match(/in flight (\d+) · to do (\d+) · blocked on a person (\d+)\)/);
+  assert.ok(rows, 'the specimen no longer states its rows');
+  const eta = report.split('\n').find((line) => line.startsWith('ETA'));
+  assert.ok(eta, 'the specimen has no ETA line');
+  const headline = eta.match(/^ETA, an estimate: (\d+)–(\d+) agent-hours\b/);
+  assert.ok(headline, 'the specimen no longer opens its ETA with agent-hours');
+  const basis = eta.match(/Basis(?:, in agent-minutes)?: ([^.]*)\./);
+  assert.ok(basis, 'the specimen no longer states its basis');
+  const items = new Map();
+  for (const [, count, state, low, high] of basis[1].matchAll(/(\d+) (in flight|to do|blocked on a person|review rounds?)\b[^,]*? at (\d+)(?:–(\d+))?/g)) {
+    items.set(state.replace(/rounds$/, 'round'), { count: Number(count), low: Number(low), high: Number(high ?? low) });
+  }
+  assert.ok(items.has('blocked on a person'), 'the basis leaves out the known effort of the work blocked on a person');
+  assert.deepEqual(
+    ['in flight', 'to do', 'blocked on a person'].map((state) => items.get(state)?.count),
+    rows.slice(1).map(Number),
+    'the basis costs another number of items than the register counts in a state',
+  );
+  assert.ok(items.has('review round'), 'the basis costs no review round');
+  const sum = (end) => [...items.values()].reduce((total, item) => total + item.count * item[end], 0);
+  assert.deepEqual(
+    [sum('low'), sum('high')],
+    headline.slice(1).map((hours) => Number(hours) * 60),
+    "the headline agent-hours are not the sum of every item's known effort, in agent-minutes",
+  );
+  // The template asks for the same: each state in the basis, and "Not in it" only for work outside the goal.
+  const template = cadence.match(/```text\n(Progress [^\n]*)\n(ETA[^\n]*)\n```/);
+  assert.ok(template, 'the reference has no head-line template');
+  assert.match(template[2], /Basis, in agent-minutes: F in flight at X–Y each, T to do at X–Y each, B blocked on a person at X–Y each/);
+  assert.match(template[2], /Not in it: <work outside the goal/);
 });
 
 test('the reference keeps out what identifies a person, a client or a machine', async () => {
