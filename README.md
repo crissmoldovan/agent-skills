@@ -447,7 +447,7 @@ Ask it:
 - *"Turn this list of twelve open questions into asks."*
 - *"Ask the subagent for the three facts we are missing."*
 
-More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md)
+More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) · [Pointing at the screen](skills/request-answers/references/pointing-at-the-screen.md)
 
 ### `handoff-prompt`
 
