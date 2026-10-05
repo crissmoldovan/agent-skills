@@ -3,7 +3,7 @@ name: publish-agent-skill
 description: "Publish an Agent Skill through a verified release."
 license: MIT
 compatibility: "Agent Skills repositories with git, a repository-specific validator/test command, an authenticated forge client for remote publication, and a release/discovery channel to verify."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 
@@ -246,6 +246,10 @@ each release independently, and do not infer any additional mirror or sidecar.
   actual multi-skill layout.
 - **Description drift:** package README/catalog copy must match frontmatter where
   the target enforces it.
+- **Id renamed in a minor release:** where a skill declares `## Bindings`, its
+  binding-slot, hard-line and step ids are what projects adapt it by, so renaming
+  or removing one is a major change for that skill, in whichever version the
+  repository releases it under, and the release notes name every id that moved.
 - **README/changelog treated as cleanup:** catalogue README, human release notes,
   and actionable update guidance are release artifacts, not optional follow-up.
 - **Review of stale head:** only current-head evidence satisfies the gate.
