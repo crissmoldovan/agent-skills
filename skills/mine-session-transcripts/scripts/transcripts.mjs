@@ -797,7 +797,8 @@ async function commandLocate(options, out) {
   const position = ({ file, line, timestamp, session }) => ({ file: path.relative(found.history, file), line, timestamp, session });
   if (options.json) {
     out(JSON.stringify({
-      hits: hits.map(({ text, hash, screened, ...rest }) => ({ ...rest, chars: text.length })),
+      // A slash command's name is typed by the person, as its arguments are: neither is printed.
+      hits: hits.map(({ text, hash, screened, command, ...rest }) => ({ ...rest, chars: text.length })),
       elsewhere,
       queued: { enqueued: enqueued.length, delivered, undelivered: undelivered.map(position), unknown: unknown.map(position) },
       coverage: coverageLines(found, totals),
