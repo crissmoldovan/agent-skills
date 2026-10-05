@@ -1109,7 +1109,7 @@ const sha256 = async (text) => (await import('node:crypto')).createHash('sha256'
 // nothing outside the arrival.
 test("ingest-arrival checks a supplier's manifest against the files it finds, and never opens a path the manifest names", async () => {
   const { manifest } = await arrivalCommands();
-  const { mkdir, rm, symlink, writeFile } = await import('node:fs/promises');
+  const { mkdir, rename, rm, symlink, writeFile } = await import('node:fs/promises');
   const dir = await tempDir('ingest-arrival-manifest-');
   const pack = `${dir}/unpacked/pack-a`;
   await mkdir(`${pack}/data`, { recursive: true });
@@ -1118,9 +1118,9 @@ test("ingest-arrival checks a supplier's manifest against the files it finds, an
   await writeFile(`${dir}/outside.txt`, 'not the pack\n');
   const line = async (text, name) => `${await sha256(text)}  ${name}`;
   const lines = [await line('A synthetic pack.\n', 'README.md'), await line('id,v\n1,2\n', './data/a.csv')];
-  const check = async (extra = []) => {
+  const check = async (extra = [], named = []) => {
     await writeFile(`${pack}/MANIFEST.sha256`, `${[...lines, ...extra].join('\n')}\n`);
-    const result = manifest([pack]);
+    const result = manifest([pack, ...named]);
     assert.equal(result.stderr, '');
     const printed = result.stdout.trim().split('\n');
     // It stops what follows it unless the pack is the manifest's, whole: `check && import`.
@@ -1130,9 +1130,15 @@ test("ingest-arrival checks a supplier's manifest against the files it finds, an
   };
 
   assert.deepEqual(await check(), ['2 of 2']);
-  // Our own landing record sits outside the manifest, and is not counted as a file outside it.
+  // A RECEIVED.md the pack brings is the supplier's, as any other file of the pack is: one the
+  // manifest leaves out is a file outside it, so the check on a fresh unpack never passes over it.
   await writeFile(`${pack}/RECEIVED.md`, '# Received\n');
-  assert.deepEqual(await check(), ['2 of 2']);
+  assert.deepEqual(await check(), ['2 of 2', 'outside the manifest: RECEIVED.md']);
+  // Our own landing record is left out only where it is named, by whatever name the pack does not use.
+  assert.deepEqual(await check([], ['MANIFEST.sha256', 'RECEIVED.md']), ['2 of 2']);
+  await rename(`${pack}/RECEIVED.md`, `${pack}/RECEIVED-HERE.md`);
+  assert.deepEqual(await check([], ['MANIFEST.sha256', 'RECEIVED-HERE.md']), ['2 of 2']);
+  await rm(`${pack}/RECEIVED-HERE.md`);
   await writeFile(`${pack}/data/b.csv`, 'id,v\n3,4\n');
   assert.deepEqual(await check(), ['2 of 2', 'outside the manifest: data/b.csv']);
   await rm(`${pack}/data/b.csv`);
@@ -1405,9 +1411,14 @@ test("ingest-arrival's pack guard refuses two members that would extract to one 
   assert.equal(clean.stdout.trim(), 'clean');
   assert.equal(clean.status, 0);
   // Anything it prints stops what follows it: `guard && unzip` never extracts an unsafe pack.
-  for (const [name, members] of [['twice-status', ['a.csv', 'a.csv']], ['unsafe-status', ['../outside.csv']], ['folder-status', ['data', 'data/a.csv']]]) {
+  for (const [name, members] of [['twice-status', ['a.csv', 'a.csv']], ['unsafe-status', ['../outside.csv']], ['folder-status', ['data', 'data/a.csv']], ['drive-status', ['C:/outside.csv']]]) {
     assert.equal(pack(name, members).status, 1, `${name} exits 0`);
   }
+  // A drive-absolute member is refused in either slash form, as the manifest check refuses one: the
+  // archive may be unpacked again where that path lies outside the pack.
+  const drive = pack('drive', ['C:/outside.csv', 'D:\\outside.csv']).stdout;
+  assert.match(drive, /^unsafe path: C:\/outside\.csv$/m);
+  assert.match(drive, /^unsafe path: D:\\outside\.csv$/m);
   assert.match(pack('twice', ['data/file.csv', 'data/file.csv']).stdout, /^two members extract to one path: data\/file\.csv and data\/file\.csv$/m);
   assert.match(pack('case', ['Data/File.csv', 'data/file.csv']).stdout, /^two members extract to one path: Data\/File\.csv and data\/file\.csv$/m);
   assert.match(pack('forms', ['café.csv', 'café.csv']).stdout, /^two members extract to one path: /m);

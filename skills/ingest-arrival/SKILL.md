@@ -292,7 +292,7 @@ copy, and the verbatim copy exists before anything is derived from it. The forms
    | surface | what goes there | rule |
    |---|---|---|
    | the archive record (B3) | a record of the email, or of anything else, beside the verbatim copy, its `SHA256SUMS` and the evidence file | always; outside every repository, because it can hold personal or client data; addresses go here |
-   | the landing place (B4) | the pack's tree unchanged, our own record beside it under a name the pack does not use, and the manifest | only when a tool or the product reads it, and only by the guarded copy below; never edited after landing. If the importer does not check the source hash, run the manifest check in the same command, just before it, and record the importer's gap |
+   | the landing place (B4) | the pack's tree unchanged, our own record beside it under a name the pack does not use, and the manifest | only when a tool or the product reads it, and only by the guarded copy below; never edited after landing. If the importer does not check the source hash, run the manifest check, naming our record, in the same command, just before it, and record the importer's gap |
    | the register (B5) | one record per arrival | run its verifier after every change |
    | the work's own list (B8) | one row per arrival, saying which moment each time is | none |
 
