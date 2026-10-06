@@ -383,6 +383,19 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
   assert.deepEqual(unmoved, [], `changed since ${tag} without moving its version`);
 });
 
+// A description is what a runtime matches, and the README says each one is written as the
+// triggering condition: what the skill does, when to fire it, and what it is not for. These three
+// were bare until 0.27.1. Each stays on SKILL.md's line 3; the README carries it word for word
+// (the first test in this file).
+test('publish-agent-skill, request-blocks-review and github-webhooks describe when to fire and what they are not for', () => {
+  for (const [name, source] of [['publish-agent-skill', publishAgentSkill], ['request-blocks-review', requestBlocksReview], ['github-webhooks', githubWebhooks]]) {
+    const description = descriptionOf(source);
+    assert.equal(source.split('\n')[2], `description: "${description}"`, `${name}: the description is not on line 3`);
+    assert.match(description, /\bSymptoms: |\bUse when /, `${name}: the description does not say when to fire`);
+    assert.match(description, /\bNot for /, `${name}: the description does not say what it is not for`);
+  }
+});
+
 test('release-ledger onboards a system rather than shipping a library', () => {
   assert.match(releaseLedger, /implementation\.md/);
   assert.match(releaseLedger, /watermark/i);

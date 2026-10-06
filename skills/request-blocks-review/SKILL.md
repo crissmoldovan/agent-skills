@@ -1,9 +1,9 @@
 ---
 name: request-blocks-review
-description: "Run Blocks review/fix/re-review until a GitHub PR is clean."
+description: "Run the Blocks review, fix and re-review loop on a finished GitHub pull request until its current head is clean. Symptoms: request Blocks review, run Blocks review, fix the Blocks findings, re-review until green. Not for exploratory work or before a pull request exists; the primitives it calls are the blocks skill's."
 license: MIT
 compatibility: "GitHub pull requests with the Blocks integration; requires the public blocks skill, authenticated gh, repository access, and a host capable of a visible bounded wait."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 
