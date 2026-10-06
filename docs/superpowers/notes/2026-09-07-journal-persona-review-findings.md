@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-07
 - **Input:** 24 agents — 8 personas × 3 settings, differentiated dials, blind to each other.
-- **Method:** [persona skill family note](2026-09-07-persona-skill-family.md).
+- **Method:** [persona skill family note](2026-09-07-delphi-skill-family.md).
 - **Target:** [agent decision journal design](../specs/2026-09-07-agent-decision-journal-design.md).
 - **Status:** findings only. No spec changes applied.
 
