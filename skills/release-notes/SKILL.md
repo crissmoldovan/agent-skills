@@ -213,6 +213,24 @@ If it reads like a commit message, it scored 1. Rewrite.
 
 ## Usage Examples
 
+```text
+Use release-notes before you publish this. Run the impact analysis rather than guessing at
+it, settle the semver bump against what that analysis says instead of against the plan, and
+write what / why / impact — then find every place this project records releases and put the
+note in all of them before the tag goes up.
+```
+
+```text
+This release is the dashboard, which has readers rather than an API. Write the was-and-now
+ledger first, one entry per change a reader can reach, and judge the level from what a reader
+relies on. Our bump tool says patch: read the words it quoted before you agree, and do not
+reword a change to make it agree.
+```
+
+## What it looks like
+
+Specimens, not prompts. The asks are above; these are what the note should and should not look like.
+
 ### A note that works
 
 ```markdown
@@ -284,3 +302,9 @@ Before the publish, the tag or the Release — not after:
 4. Every destination discovered in S4 has the note, and they agree with each other.
 5. The sell-test scores 3 or better.
 6. For a monorepo: one entry per bumped package, each naming its own version.
+
+## Deeper reading
+
+- [Versioning a product](references/versioning-a-product.md): the levels judged by what a reader
+  relies on, the was-and-now ledger they are read from, a bump judge as advice, pre-release numbers
+  and a renumbering restart.

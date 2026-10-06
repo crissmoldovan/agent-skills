@@ -212,6 +212,7 @@ npx skills add crissmoldovan/agent-skills --skill release-notes
 Ask it:
 
 - *"Use release-notes before you publish this. Run the impact analysis rather than guessing at it, settle the semver bump against what that analysis says instead…"*
+- *"This release is the dashboard, which has readers rather than an API."*
 
 More: [Skill](skills/release-notes/SKILL.md) · [Versioning a product](skills/release-notes/references/versioning-a-product.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
 
