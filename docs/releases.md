@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, and `handoff-prompt`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, and `mine-session-transcripts`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -350,6 +350,43 @@ each `SKILL.md` carries is unchanged, and the test that holds every one of them 
 now builds it from those words and that path. These six copies were the only Markdown files a
 skill carries in which a relative link, fenced code included, did not resolve from the file's own
 folder. The wording keeps its meaning, so this is a patch under [Versioning](#versioning).
+
+### A new skill, `mine-session-transcripts`: what a person said in an agent session, queued messages included, without printing the transcript
+
+**What.** `mine-session-transcripts` finds what a person told an agent from the harness's own
+session transcripts. It locates a repository's transcripts, its worktrees' and its subagents'
+included, and confirms each by the paths its records carry, because the directory name the harness
+derives from a path is lossy and a session that moves into a worktree is filed under the worktree.
+It counts a person's messages of three kinds: typed at the prompt, queued while a turn was running,
+and a slash command's arguments. Every other record is counted by its kind and left out, the
+harness's own elements are screened out of a person's turn wherever they sit in it, and nothing is
+deduplicated by text. It finds a message by a fixed phrase and reports its file, line, time and
+session, never its words, and says whether a message enqueued while the agent was busy ever reached
+the session; it shows one message only after a scan for secrets; and it checks whether each
+message is written down in the repository, with both sides normalised by one function and a
+control sentence that must be found before any count is shown. A path with no history is reported
+as unknown, never as zero. `scripts/transcripts.mjs` does each step with no
+dependency beyond Node, and `references/record-shapes.md` records every shape it relies on, tagged
+observed, documented or not observed, with the harness versions it was read from (Claude Code
+2.1.224 to 2.1.286).
+
+**Why.** What a person says to an agent is often the only record of a decision, and the
+transcript is the worst place to read it from. A message typed while the agent is busy is stored
+as a queued-command attachment and never as a user turn, so a search for user turns misses it: in
+one two-day session, 157 of 369 messages were queued. Printing a transcript to search it carries
+every secret and pasted address on those lines into the conversation. And a check of what is
+written down once compared messages stripped of punctuation with files that kept it, and reported
+0 of 11 documented when most were.
+
+**Impact.** A new skill; nothing installed changes. It declares `## Bindings`, so a project can
+adapt it without copying it ([project adaptation](project-adaptation.md)): eleven slots, `B1` to
+`B11`, with the history directory, the paths, the corpus, the zones, the names whose words arrive
+relayed and the secrets with no shape among the values, and `decision-journal`,
+`investigate-codebase` and `delphi-ground` as the sibling skills it hands work to; five hard lines,
+`H1` to `H5`; and seven steps, `S1` to `S7`. Its fit is `requestOnly`, so onboard-project never
+recommends it unasked. The suite holds its path encoder equal to onboard-project's and runs it over
+synthetic transcripts. The catalogue now ships thirty skills, and the README's header, which still
+said twenty-eight, says so too.
 
 ## Release checklist
 

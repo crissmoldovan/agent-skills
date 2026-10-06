@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-eight public, portable Agent Skills for agent operations, reviews, releases
+  Thirty public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -18,7 +18,7 @@ generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Twenty-eight skills. Each one below carries its own install command and a couple of
+Thirty skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -480,6 +480,23 @@ Ask it:
 - *"Before you branch: fetch the base and tell me how far behind that checkout is."*
 
 More: [Skill](skills/work-in-external-repo/SKILL.md)
+
+### `mine-session-transcripts`
+
+Find what a person actually said to an agent from the harness's own session transcripts, without printing them: locate the transcripts of a repository and its worktrees, subagents included; stream them; take the messages typed at the prompt and the ones queued while a turn was running, and count everything else by kind; find a message by a fixed phrase and report only its line, time and session; show one message only after a secret scan; and check whether each message is written down in the repository, with controls that prove the matcher works. Symptoms: what did I tell the agent about X, find the message where I asked for Y, when did I say that, was this instruction ever written down, what was decided in chat and never committed, did the session get the message I sent while it was busy. It reads transcripts and never edits or prints them; recording a decision it finds is decision-journal's, and what the code does about it is investigate-codebase's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill mine-session-transcripts
+```
+
+Ask it:
+
+- *"Find the message where I told the agent to keep CSV as the default export format — the line, the time and the session, not the transcript."*
+- *"How many messages did I send in this repository's sessions in the last two weeks, and how many while the agent was busy?"*
+- *"Which of the instructions I typed this month are not written down anywhere in the repo? Prove the matcher works first."*
+
+More: [Skill](skills/mine-session-transcripts/SKILL.md) · [Record shapes](skills/mine-session-transcripts/references/record-shapes.md) · [Documented or not](skills/mine-session-transcripts/references/documented-or-not.md) · [Script](skills/mine-session-transcripts/scripts/transcripts.mjs)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -530,7 +547,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-nine public skills from crissmoldovan/agent-skills.
+Install or update the thirty public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -590,9 +607,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The twenty-nine, in the order they appear above:
+The thirty, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -893,6 +910,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/describe-changes/references/output-contract.md`](skills/describe-changes/references/output-contract.md) — change-description contract.
 - [`skills/blast-area/references/output-contract.md`](skills/blast-area/references/output-contract.md) — blast-map output envelope.
 - [`skills/investigate-codebase/references/documenting-the-run.md`](skills/investigate-codebase/references/documenting-the-run.md) — the run-record convention, carried byte-identically by each of the six.
+- [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
