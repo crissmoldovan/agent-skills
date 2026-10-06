@@ -637,6 +637,16 @@ sends, [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md) for what
 print back and have the harness act on. Where a document and those notes disagree, the notes
 win: they are the observed record.
 
+Two more skills carry a hook, each off until you turn it on. `onboard-project`'s session-start check is
+installed and removed by its own script (`node <skill-folder>/scripts/install-check-hook.mjs`, and
+`--remove` to take it out); it says one line when a listed skill is neither installed nor adapted
+here, the repository's evidence has moved, an adapted copy was added, removed or re-pinned, or the
+routing file has drifted, and nothing otherwise, and arming it affects every project on this
+machine. `decision-journal`'s journal hook,
+[`adapters/claude-code/journal-hook.sh`](adapters/claude-code/journal-hook.sh), records what the agent
+did beside the decisions it records, and is wired into your settings by hand as
+[the adapter's README](adapters/claude-code/README.md) describes, and taken out the same way.
+
 ### The `report-progress` gate — Claude Code `Stop`
 
 On a turn that delegated work the reader cannot see, or that changed what is running in the
