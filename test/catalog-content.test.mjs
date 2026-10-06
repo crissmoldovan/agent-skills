@@ -780,6 +780,36 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.doesNotMatch(adaptation, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
 });
 
+// The adaptation page names the skills a project can adapt. That is a claim about the pack, so the
+// claim is what is tested: the named skills are exactly those with a file that declares Bindings.
+test('the project-adaptation page names every skill that declares Bindings, and no other', async () => {
+  const adaptation = await read('docs/project-adaptation.md');
+  const claim = adaptation.match(/^\S.* skills in this catalogue declare the section:([\s\S]*?)\.\n\n/m);
+  assert.ok(claim, 'the page no longer says which skills declare the section');
+  const named = [...claim[1].matchAll(/`([a-z0-9-]+)`/g)].map(([, name]) => name).sort();
+  const unfenced = (text) => {
+    let fence = null;
+    return text.split('\n').filter((line) => {
+      const open = line.match(/^\s*(`{3,}|~{3,})/);
+      if (open && !fence) { fence = open[1]; return false; }
+      if (fence) {
+        if (line.trim().startsWith(fence) && line.trim().replace(/[`~]/g, '') === '') fence = null;
+        return false;
+      }
+      return true;
+    }).join('\n');
+  };
+  const declaring = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const files = (await readdir(new URL(`skills/${entry.name}/`, root), { recursive: true })).filter((file) => file.endsWith('.md'));
+    for (const file of files) {
+      if (/^## Bindings\s*$/m.test(unfenced(await read(`skills/${entry.name}/${file}`)))) { declaring.push(entry.name); break; }
+    }
+  }
+  assert.deepEqual(named, declaring.sort());
+});
+
 test('layer-repository-docs carries no organisation marks and states what it does not own', () => {
   assert.doesNotMatch(layerRepositoryDocs, /\bCUE\b|\bRGC\b/);
   // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
