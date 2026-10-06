@@ -387,7 +387,7 @@ More: [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/la
 
 ### `report-progress`
 
-Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn.
+Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn, or when the reader asks for a percentage, an ETA, or updates at a set interval.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill report-progress
@@ -399,7 +399,7 @@ Ask it:
 - *"Give me a status report on the migration."*
 - *"Before you end this turn: you started three background agents."*
 
-More: [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
+More: [Skill](skills/report-progress/SKILL.md) · [Percentage, ETA and cadence](skills/report-progress/references/percentage-eta-cadence.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
 
 ### `isolated-change-validation`
 
