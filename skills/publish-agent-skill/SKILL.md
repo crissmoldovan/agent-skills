@@ -1,9 +1,9 @@
 ---
 name: publish-agent-skill
-description: "Publish an Agent Skill through a verified release."
+description: "Publish an Agent Skill through a verified release: a draft becomes a discoverable, installable release with its catalogue README, release notes, update guidance and provenance, or a published skill gets a versioned update. Symptoms: publish this skill, release this Agent Skill, add this skill to the public pack. Not for a user-local skill that should stay unpublished."
 license: MIT
 compatibility: "Agent Skills repositories with git, a repository-specific validator/test command, an authenticated forge client for remote publication, and a release/discovery channel to verify."
-metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.2; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 

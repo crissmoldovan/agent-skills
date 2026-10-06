@@ -3,7 +3,7 @@ name: handoff-prompt
 description: "Write work that is going to another session, agent or person as one self-contained block they can copy without editing: the receiver's missing context restated rather than referenced, every claim carrying where it came from, scope and non-goals stated, and the fence chosen so nested code cannot break it. Symptoms: write this as a prompt I can paste, draft a brief for another agent, file this as a feature request against another repo, hand this to the team that owns X, put it in a code block so I can copy it, I'll pass this over. Commentary to the sender stays outside the block and the block stays whole. It does not do the work it describes and it does not open the issue or the pull request — to write into another repository use work-in-external-repo, and when you need an answer back rather than to hand work away, use request-answers."
 license: MIT
 compatibility: "Any harness whose output the sender can select and copy — a terminal, a chat surface, an IDE panel. Needs read access to whatever the claims are drawn from, because a handoff that cites nothing is the failure mode this exists to prevent. Output is one fenced markdown block plus a short covering note, so it fits a paste into another session, an issue body, or an email without editing."
-metadata: "group=workflow; lifecycle=handoff; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 

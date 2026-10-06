@@ -288,7 +288,8 @@ An adapted copy names the skill it came from by three identities:
   that folder in the adapter's `base.path`: relative to the source's root, with no `..`, and inside
   the source. The tree is then that folder's, every diff above is read for it, and the record of the
   pin names it.
-- The `version=` in a skill's metadata is not a pin, because it is not bumped on every change.
+- The `version=` in a skill's metadata is not a pin: it moves once in a release that changes the
+  skill, so it names no commit or tree, and before 0.27.1 a change did not always move it.
 
 ## Changing a skill that projects adapt
 

@@ -3,7 +3,7 @@ name: visualise-blast-area
 description: "Render a change's blast map as diagrams — mermaid first, optionally one self-contained interactive HTML — with changed-vs-affected styling and blind spots stated on the diagram itself. Use when a blast-area map needs to be seen, shared, or dug into."
 license: MIT
 compatibility: "Consumes the blast-area output envelope and emits mermaid that renders wherever mermaid already does — a forge comment, a notebook. Graph tooling is used only when already installed, never installed by this skill; dependency-cruiser and watskeburt raise precision on JavaScript and TypeScript trees, and Graphviz is not assumed. The optional interactive output is one HTML file with no build step and no external requests. Nothing is changed or committed unless a run record is asked for."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
 

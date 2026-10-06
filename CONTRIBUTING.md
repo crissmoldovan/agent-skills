@@ -79,6 +79,41 @@ description: Use when the agent needs to perform a specific, reusable workflow.
 
 Keep local links relative to the skill directory. Do not link to files outside that directory. Do not include absolute local paths, tokens, private endpoints, or secrets.
 
+### What every skill carries
+
+A reader who knows one skill in this catalogue should know where to look in the next, so a new skill
+has the parts the others have. Those marked † are checked by `scripts/verify-skills.mjs` or the
+catalog and site tests; the rest is the shape the catalogue's skills already share.
+
+- **Frontmatter:** `name`† (the folder's name), `description`†, `license: MIT`, `compatibility`† (at
+  most 500 characters: what the skill needs and what it outputs), `metadata` as
+  `"group=workflow; lifecycle=release; version=<x.y.z>; author=<handle>"`, and `allowed-tools`. The
+  description is at most 1024 characters† and is what a runtime matches: what the skill does, then
+  `Symptoms:` or `Use when` with the words a person would type, then which sibling skill owns the job
+  next to it. `lifecycle`† is the skill's own maturity, not the stage of the work it serves, and
+  every skill this catalogue publishes says `release`. The metadata `version` is the skill's own, and
+  any change to the skill's files moves it† from the version last released: a patch for wording,
+  documentation, metadata or the description, a minor version for new behaviour. A release that
+  carries several changes to one skill moves it once, by the largest step. `agent-lifecycle` and
+  `workspace-governance` keep the frontmatter of their own releases.
+- **Body**, at most 484 lines†: a `#` title, then `## When to Use`, with what not to use it for;
+  `## Prerequisites`, or a first step that settles them; `## Procedure`, in numbered steps, with a
+  **Complete when:** on each step or each prerequisite; `## Usage Examples`†, holding only prompts
+  in `text` fences and commands in `bash` fences, since a specimen of output goes under
+  `## What it looks like`; `## Pitfalls`; and `## Verification`, a checklist. It says which sibling
+  skills own the jobs next to it, in a table or under When to Use.
+- **Carried files:** `references/fit.json`†, which `onboard-project` reads, and every other reference
+  file linked from `SKILL.md` with a Markdown link, in the text or under `## Deeper reading`, not
+  only named as code.
+- **Outside its folder:** an entry under the README's What is in the pack, with the exact
+  description†, the install command, one to three asks (a lead "Use <skill> …" ask, or one of its
+  own Usage Examples or its opening, word for word), and a More line linking the skill and its main
+  references; its name in the README's flat list†, in the list above with a clause on what it owns,
+  and in `docs/releases.md`'s Published catalog† with a paragraph saying what it owns; a content
+  test, in `test/catalog-content.test.mjs` or a test file of its own; and its release prose under
+  Unreleased in `docs/releases.md`. A skill with a hook also gets a subsection under the README's
+  Optional hooks.
+
 ### A skill a project can adapt
 
 A project can adapt a skill instead of forking it: it binds the skill's slots and adds to its

@@ -1,9 +1,9 @@
 ---
 name: github-webhooks
-description: "Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route."
+description: "Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. Use when an app has to react to activity on a GitHub repository or organization, an endpoint is gaining an event type or its verification is in doubt, or deliveries are lost, time out or are processed twice. Not for outbound GitHub API calls, Actions workflow triggers or polling."
 license: MIT
 compatibility: "Any server that can expose one publicly reachable HTTPS route and read a raw request body. Verification needs an HMAC-SHA256 primitive and a constant-time comparison, both of which every mainstream runtime has in its standard library. Repository, organization, and GitHub App webhooks are all covered; App webhooks differ only in where the hook is configured and in the extra installation fields on the payload. Local delivery testing assumes the GitHub CLI."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

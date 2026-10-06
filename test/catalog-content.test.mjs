@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -69,10 +71,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.27.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.27.0');
-  assert.equal(rootLock.version, '0.27.0');
-  assert.equal(rootLock.packages[''].version, '0.27.0');
+test('v0.27.1 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.27.1');
+  assert.equal(rootLock.version, '0.27.1');
+  assert.equal(rootLock.packages[''].version, '0.27.1');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -320,6 +322,77 @@ test('frontmatter stays compatible with Agent Skills and skills.sh discovery', (
     const description = descriptionOf(source);
     assert.ok(description.length > 0 && description.length <= 1024);
     assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase|publish|release|update|webhook|change)/i);
+  }
+});
+
+// `lifecycle` in a skill's metadata is the skill's own maturity, not the stage of the work it serves
+// (CONTRIBUTING, "What every skill carries"), and every skill this catalogue publishes is released.
+// agent-lifecycle and workspace-governance keep the frontmatter of their own releases, which has no
+// lifecycle field.
+test("every skill's metadata lifecycle is its maturity, and every published skill's is release", async () => {
+  const ownReleaseForm = new Set(['agent-lifecycle', 'workspace-governance']);
+  const wrong = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory() || ownReleaseForm.has(entry.name)) continue;
+    const metadata = (await read(`skills/${entry.name}/SKILL.md`)).match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
+    const value = metadata.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]?.trim();
+    if (value !== 'release') wrong.push(`${entry.name}: ${value ?? 'no lifecycle'}`);
+  }
+  assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
+});
+
+// A skill's version is its own, and any change to its files moves it from the version last released
+// (CONTRIBUTING, "What every skill carries"). Held against the newest catalogue tag HEAD descends
+// from, and against the working tree, so an unstaged change counts. A checkout without that history
+// (CI's shallow clone fetches no tags) has nothing to hold it against, and skips saying so.
+test('a skill changed since the last catalogue tag moves its version', async (t) => {
+  const git = (...args) => execFileSync('git', args, { cwd: fileURLToPath(root), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  let tag;
+  try {
+    tag = git('describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', 'HEAD');
+  } catch {
+    t.skip('no catalogue tag in this checkout\'s history');
+    return;
+  }
+  const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+    ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
+  const newer = (now, before) => {
+    const [a, b] = [now, before].map((version) => version.split('.').map(Number));
+    const i = a.findIndex((part, index) => part !== b[index]);
+    return i !== -1 && a[i] > b[i];
+  };
+  const unmoved = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = `skills/${entry.name}`;
+    let released;
+    try {
+      released = git('show', `${tag}:${path}/SKILL.md`);
+    } catch {
+      continue; // new since the tag: its first version is its own
+    }
+    try {
+      git('diff', '--quiet', tag, '--', path);
+      continue; // unchanged since the tag
+    } catch {
+      // changed since the tag
+    }
+    const [before, now] = [versionOf(released), versionOf(await read(`${path}/SKILL.md`))];
+    if (!before || !now || !newer(now, before)) unmoved.push(`${entry.name}: ${before} at ${tag}, ${now} now`);
+  }
+  assert.deepEqual(unmoved, [], `changed since ${tag} without moving its version`);
+});
+
+// A description is what a runtime matches, and the README says each one is written as the
+// triggering condition: what the skill does, when to fire it, and what it is not for. These three
+// were bare until 0.27.1. Each stays on SKILL.md's line 3; the README carries it word for word
+// (the first test in this file).
+test('publish-agent-skill, request-blocks-review and github-webhooks describe when to fire and what they are not for', () => {
+  for (const [name, source] of [['publish-agent-skill', publishAgentSkill], ['request-blocks-review', requestBlocksReview], ['github-webhooks', githubWebhooks]]) {
+    const description = descriptionOf(source);
+    assert.equal(source.split('\n')[2], `description: "${description}"`, `${name}: the description is not on line 3`);
+    assert.match(description, /\bSymptoms: |\bUse when /, `${name}: the description does not say when to fire`);
+    assert.match(description, /\bNot for /, `${name}: the description does not say what it is not for`);
   }
 });
 
@@ -679,6 +752,39 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
 // while the work is unreleased. A release commit bumps package.json AND writes
 // the CHANGELOG entry for that version. So if package.json's version already
 // has a CHANGELOG heading, the release is cut — and nothing may remain staged.
+// The parts every skill carries are written down, so a new skill matches the catalogue by reading
+// rather than by imitation; the two rules the tests above hold are among them.
+test('CONTRIBUTING writes down what every skill carries, lifecycle and version included', async () => {
+  const contributing = await read('CONTRIBUTING.md');
+  const start = contributing.indexOf('\n### What every skill carries\n');
+  assert.notEqual(start, -1, 'CONTRIBUTING has no "What every skill carries"');
+  const standard = contributing.slice(start, contributing.indexOf('\n### ', start + 1));
+  assert.match(standard, /`"group=workflow; lifecycle=release; version=<x\.y\.z>; author=<handle>"`/);
+  assert.match(standard, /`lifecycle`† is the skill's own maturity, not the stage of the work it serves/);
+  assert.match(standard, /any change to the skill's files moves it† from the version last released: a patch for wording,\s+documentation, metadata or the description, a minor version for new behaviour/);
+  for (const heading of ['When to Use', 'Prerequisites', 'Procedure', 'Usage Examples', 'What it looks like', 'Pitfalls', 'Verification', 'Deeper reading']) {
+    assert.ok(standard.includes(`\`## ${heading}\``), `the standard does not name ## ${heading}`);
+  }
+  assert.match(standard, /\*\*Complete when:\*\*/);
+  const adaptation = await read('docs/project-adaptation.md');
+  assert.doesNotMatch(adaptation, /not bumped on every change/);
+});
+
+// CHANGELOG.md sits at the root, so a relative link in it resolves from there, whatever folder the
+// prose it was written from lived in. Each entry is also a Release body, which must agree with it.
+test('every relative link in CHANGELOG.md resolves from the repository root', async () => {
+  const dead = [];
+  for (const [, target] of changelogText.matchAll(/\]\(([^)\s]+)\)/g)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('#')) continue;
+    try {
+      await readFile(new URL(target.split('#')[0], root));
+    } catch {
+      dead.push(target);
+    }
+  }
+  assert.deepEqual(dead, [], 'CHANGELOG.md links a file that is not there');
+});
+
 test('a released version leaves no prose staged as unreleased', async () => {
   const version = rootPackage.version
   const changelog = await read('CHANGELOG.md')
@@ -1094,6 +1200,11 @@ test('mine-session-transcripts reads transcripts without printing them, and stat
   assert.match(shapes, /`origin\.kind: "human"`/);
   assert.match(documented, /## Symmetry is the whole trick/);
   assert.match(documented, /\*\*A positive control\.\*\*/);
+  // The failures are described, not measured: a count from the history the skill was built on is
+  // not one a reader can check, so none is quoted.
+  for (const [where, text] of [['SKILL.md', skill], ['record-shapes.md', shapes], ['documented-or-not.md', documented]]) {
+    assert.doesNotMatch(text, /\b\d+\s+of\s+(?:the\s+)?\d+\b/, `${where} quotes a measured count`);
+  }
   // Observed, not assumed: every shape is tagged, and the harness versions are named.
   assert.match(shapes, /\*\*OBSERVED\*\*: read from real transcripts written by \*\*Claude Code 2\.1\.224 to 2\.1\.286\*\*/);
   assert.match(shapes, /\| NOT OBSERVED \|/);

@@ -71,7 +71,7 @@ More: [Skill](skills/blocks/SKILL.md) · [Guide](docs/blocks.md)
 
 ### `request-blocks-review`
 
-Run Blocks review/fix/re-review until a GitHub PR is clean.
+Run the Blocks review, fix and re-review loop on a finished GitHub pull request until its current head is clean. Symptoms: request Blocks review, run Blocks review, fix the Blocks findings, re-review until green. Not for exploratory work or before a pull request exists; the primitives it calls are the blocks skill's.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill request-blocks-review
@@ -118,7 +118,7 @@ More: [Skill](skills/derive-codebase-context/SKILL.md) · [Runbook](skills/deriv
 
 ### `publish-agent-skill`
 
-Publish an Agent Skill through a verified release.
+Publish an Agent Skill through a verified release: a draft becomes a discoverable, installable release with its catalogue README, release notes, update guidance and provenance, or a published skill gets a versioned update. Symptoms: publish this skill, release this Agent Skill, add this skill to the public pack. Not for a user-local skill that should stay unpublished.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill publish-agent-skill
@@ -168,7 +168,7 @@ More: [Skill](skills/release-ledger/SKILL.md) · [System model](skills/release-l
 
 ### `github-webhooks`
 
-Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route.
+Adopt and manage GitHub webhook handling in an app: endpoint setup, signature verification, event routing, and a working reference for every event type you route. Use when an app has to react to activity on a GitHub repository or organization, an endpoint is gaining an event type or its verification is in doubt, or deliveries are lost, time out or are processed twice. Not for outbound GitHub API calls, Actions workflow triggers or polling.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill github-webhooks

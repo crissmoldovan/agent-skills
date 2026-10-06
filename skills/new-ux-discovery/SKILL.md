@@ -3,7 +3,7 @@ name: new-ux-discovery
 description: "Find UX improvements a codebase can already support, evidence-backed and ranked — across the CLI, the API, MCP tools, notifications and error text as much as the UI. Symptoms: what should we improve next, where does this feel rough, what's low-hanging UX we could ship this week, turn this diff into a follow-up list, roadmap candidates from the code we already have. Not a visual design pass — for look and feel use a design skill."
 license: MIT
 compatibility: "Any repository the agent can read, with git and a text search tool. Generated registries (routes, tools, jobs) are used where present, built by hand where not. Forge access to open branches and PRs raises both gates sharply; losing it costs the most. Checking who can read what needs a queryable datastore; without one, two signal classes lose their access half and say so. Output is a capped, ranked list with sweep coverage; nothing is designed, built or committed unless a run record is asked for."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash
 ---
 

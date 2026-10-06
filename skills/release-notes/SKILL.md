@@ -3,7 +3,7 @@ name: release-notes
 description: "Write the note for one version and put it everywhere the project records releases — what shipped, why it shipped, and what it means for a reader deciding whether to adopt it. Symptoms: ship/cut a release, publish to npm, bump the version, changeset, release notes, CHANGELOG entry, tag a version, patch/minor/major release, create a GitHub/GitLab Release. It writes and places the note and makes the semver call; for describing a change that already landed use describe-changes, and for a what's-new feature inside a product use release-ledger."
 license: MIT
 compatibility: "Any project that records releases somewhere a reader can find them — a changelog file, a changeset directory, a releases document, a forge Release page. Discovering the version and the destinations needs read access to the repository, and publishing needs the destination's existing credential. An optional Claude Code PreToolUse gate, installed by the user and nobody else, refuses a release whose version no release-note file mentions. Output is the note, in every destination the project uses."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
