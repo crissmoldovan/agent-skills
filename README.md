@@ -11,10 +11,10 @@ A public package by **Criss Moldovan**. Every skill is independently discoverabl
 under `skills/<name>/SKILL.md`, installable through Agent Skills-compatible
 harnesses, and tested as part of one release catalogue.
 
-**To read it in a browser:** [the site](https://crissmoldovan.github.io/agent-skills/)
-lists every skill with its description, its install command and the asks it
-publishes, and reads every skill, reference and document in this repository. It is
-generated from the skills, so it says what the pack says.
+**To read it in a browser:** build [the site](#the-site) with `npm run site` and serve
+`site/dist` with any static server. It lists every skill with its description, its install
+command and the asks it publishes, and reads every skill, reference and document in this
+repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
