@@ -146,10 +146,7 @@ Ask it:
 
 - *"Use update-agent-skills. Make changelog, catalogue README, release notes, and agent update guidance agree; then update only the planes I explicitly named."*
 - *"Update this released skill for all supported agents in global scope on this machine."*
-- *"Prepare the update communication only."*
 - *"Adapt this pack skill to the project: compose it from the pinned release and our overlay, show me the change, and check it."*
-
-An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). The first compose runs from a clone of the pack checked out at the pinned tag or full sha, so the composer the project vendors is that release's; [the guide](skills/update-agent-skills/references/adapting.md#commands) says how to make one. `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
 
 More: [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs) · [Composer](skills/update-agent-skills/scripts/adapt.mjs) · [Adapting a pack skill](skills/update-agent-skills/references/adapting.md)
 
@@ -517,8 +514,8 @@ Skills CLI:
 npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 ```
 
-Install one skill, or a few together — every skill's own command is in the table
-above, on the `↳ install` row beneath it:
+Install one skill, or a few together — every skill's own command is in its entry under
+[What is in the pack](#what-is-in-the-pack):
 
 ```bash
 # one skill
@@ -528,9 +525,10 @@ npx skills add crissmoldovan/agent-skills --skill request-answers
 npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
 ```
 
-Three skills carry a second step, stated on their row in the table:
+Three skills carry a second step, stated in their entry's install block:
 `decision-journal` puts its CLI on PATH, `update-agent-skills` can install a session
-hook that checks freshness, and `workspace-governance` installs its CLI separately.
+hook that checks freshness and carries the composer that adapts a pack skill to one
+project, and `workspace-governance` installs its CLI separately.
 
 One skill takes a word when you call it: `layer-repository-docs` has three entry
 points, and it announces the one it picked before it starts — `check` or `need`
@@ -560,6 +558,9 @@ clients separately, then verify each installed path and source. Do not treat one
 successful agent or scope as proof that all local libraries are current.
 decision-journal carries its own CLI: ask before running its
 scripts/install-cli.mjs, which puts agent-journal on PATH; never run it unasked.
+An adapted copy, a project's generated skill folder that holds adapted.lock.json, is
+not a Skills CLI install: never update or replace it. Report it; it moves only when
+its pin is moved and the copy is composed again.
 ```
 
 Preview destructive replacement when a stale directory has no managed
@@ -598,12 +599,17 @@ npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 | Copied vs symlinked | Preserve the current form unless conversion is requested | installed path/form and published-byte comparison where possible |
 | Unmanaged/provenance-less | Ask before replacing only that identity | old path accounted for; new source and bytes verified |
 | Native plugin/package | Use its marketplace or registry updater | exact native version, namespace, install path, and bytes |
+| Adapted copy of a pack skill | Never through `skills update`: change `base.ref` in its `adapter.json`, run `adapt.mjs compose --write`, and review the generated diff | `adapt.mjs check` passes; `check-pack-freshness.mjs --repo <project>` lists the pin against the latest release |
 | Manual upload/raw file | Replace through the owning UI/channel | artifact verified; otherwise `manual action required` |
 | Remote machine/container | Treat as another explicitly named target | independent readback on that target |
 | Unsupported client or unreachable target | Invent no destination | literal `unsupported` or `deferred` outcome |
 
 Restart or reload agents whose loaders cache installed files. A current session
 may continue using old instructions until reopened.
+
+### Adapted copies
+
+An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). The first compose runs from a clone of the pack checked out at the pinned tag or full sha, so the composer the project vendors is that release's; [the guide](skills/update-agent-skills/references/adapting.md#commands) says how to make one. `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
 
 ## Use the skills
 
