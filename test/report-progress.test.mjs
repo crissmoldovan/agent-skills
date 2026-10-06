@@ -325,16 +325,19 @@ test('with no lifecycle evidence and no agent dispatched, the ETA gives agent-ho
   assert.doesNotMatch(procedure, /divide by the agents dispatched and say/, 'the no-evidence fallback divides by the agents dispatched even when none were');
 });
 
-// A cadence longer than the harness's cap cannot be one tick: an hourly update armed under a
-// 30-minute cap is killed before it is due. So the wake-ups are chained, each strictly inside the
-// cap and none past the update's time, and only the one that reaches that time writes the update.
-test('a cadence longer than the harness cap chains wake-ups, and only the one that is due writes', () => {
+// A cadence as long as the harness's cap or longer cannot be one tick: an hourly update armed under
+// a 30-minute cap is killed before it is due, and a 30-minute one under the same cap races the kill.
+// So the wake-ups are chained, each strictly inside the cap and none past the update's time, and
+// only the one that reaches that time writes the update.
+test('a cadence as long as the harness cap or longer chains wake-ups, and only the one that is due writes', () => {
   const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
   const s1At = procedure.indexOf('**S1. ');
   const s2At = procedure.indexOf('**S2. ');
   assert.ok(s1At !== -1 && s2At > s1At, 'steps S1 and S2 are not both declared, in order');
   const s1 = procedure.slice(s1At, s2At);
-  assert.match(s1, /When the interval is longer than the cap, chain wake-ups/);
+  // The boundary is the cap itself: an interval equal to it cannot be armed strictly inside it.
+  assert.match(s1, /When the interval is as long as the cap or longer, chain wake-ups/);
+  assert.doesNotMatch(s1, /When the interval is longer than the cap/, 'an interval equal to the cap is left with no chain');
   assert.match(s1, /each armed for the time left until the update or strictly inside the cap, whichever is shorter/);
   assert.match(s1, /A wake-up before the update is due re-arms the next one and writes nothing/);
   assert.match(s1, /the one that reaches the update's time writes it/);
@@ -344,7 +347,8 @@ test('a cadence longer than the harness cap chains wake-ups, and only the one th
   const rearmAt = cadenceFlat.indexOf('**Re-arm before you write.**');
   assert.ok(tickAt !== -1 && rearmAt > tickAt, "the reference's tick and re-arm bullets are not both there, in order");
   const tick = cadenceFlat.slice(tickAt, rearmAt);
-  assert.match(tick, /When the interval is longer than the cap, no single tick can reach it: chain wake-ups/);
+  assert.match(tick, /When the interval is as long as the cap or longer, no tick strictly inside the cap can reach it: chain wake-ups/);
+  assert.doesNotMatch(tick, /When the interval is longer than the cap/, 'an interval equal to the cap is left with no chain');
   assert.match(tick, /each armed for the time left until the update or strictly inside the cap, whichever is shorter/);
   assert.match(tick, /A wake-up before the update is due re-arms the next one and writes nothing/);
   // The worked case is the one that had no arming strategy, and its numbers have to add up: every
@@ -356,6 +360,13 @@ test('a cadence longer than the harness cap chains wake-ups, and only the one th
   assert.ok(wake < cap && left < cap, 'a worked wake-up is not strictly inside the cap');
   assert.equal(second, 2 * wake, 'the second wake-up is not one wake-up after the first');
   assert.equal(second + left, 60, 'the worked wake-ups do not reach the hour exactly');
+  // The equality boundary has its own worked case: an interval exactly the cap is chained too.
+  const equal = tick.match(/(\d+)-minute updates under the same cap take a wake-up of (\d+) minutes, which writes nothing, and one for the (\d+) minutes? left, which writes the update/);
+  assert.ok(equal, 'the reference has no worked case of an interval equal to the cap');
+  const [interval, firstWake, rest] = equal.slice(1).map(Number);
+  assert.equal(interval, cap, 'the boundary case is not an interval equal to the cap');
+  assert.ok(firstWake < cap && rest < cap, 'a boundary wake-up is not strictly inside the cap');
+  assert.equal(firstWake + rest, interval, 'the boundary wake-ups do not reach the update exactly');
 });
 
 test('the reference carries each lesson the head line and the cadence rest on', () => {

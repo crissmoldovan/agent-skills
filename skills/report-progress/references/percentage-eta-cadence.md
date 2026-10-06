@@ -128,12 +128,14 @@ by the project, each tick is a point at which a report is owed. If the reader ha
   promised every 15 minutes came 30 to 44 minutes apart. Leave a margin of some seconds below
   the cap for the last tick, and test the timing at a small scale before trusting it. In that
   harness, two 10-second ticks under a 20-second cap delivered one, and two 9-second ticks
-  delivered both. When the interval is longer than the cap, no single tick can reach it: chain
-  wake-ups, each armed for the time left until the update or strictly inside the cap, whichever
-  is shorter. A wake-up before the update is due re-arms the next one and writes nothing; the one
-  that reaches the update's time writes it. For hourly updates under a 30-minute cap: wake-ups of
-  29 minutes, at 29 and 58 minutes past, write nothing; the third, armed for the 2 minutes left,
-  writes the update on the hour.
+  delivered both. When the interval is as long as the cap or longer, no tick strictly inside the
+  cap can reach it: chain wake-ups, each armed for the time left until the update or strictly
+  inside the cap, whichever is shorter. A wake-up before the update is due re-arms the next one
+  and writes nothing; the one that reaches the update's time writes it. For hourly updates under
+  a 30-minute cap: wake-ups of 29 minutes, at 29 and 58 minutes past, write nothing; the third,
+  armed for the 2 minutes left, writes the update on the hour. 30-minute updates under the same
+  cap take a wake-up of 29 minutes, which writes nothing, and one for the 1 minute left, which
+  writes the update.
 - **Re-arm before you write.** When the tick's stream ends or expires, arm the next one before
   anything else, including the update it prompted. An expiry noticed in the middle of a long
   turn and left for later is how the ticks stop without anyone noticing. In the same run, after
