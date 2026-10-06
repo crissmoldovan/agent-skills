@@ -752,6 +752,24 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
 // while the work is unreleased. A release commit bumps package.json AND writes
 // the CHANGELOG entry for that version. So if package.json's version already
 // has a CHANGELOG heading, the release is cut — and nothing may remain staged.
+// The parts every skill carries are written down, so a new skill matches the catalogue by reading
+// rather than by imitation; the two rules the tests above hold are among them.
+test('CONTRIBUTING writes down what every skill carries, lifecycle and version included', async () => {
+  const contributing = await read('CONTRIBUTING.md');
+  const start = contributing.indexOf('\n### What every skill carries\n');
+  assert.notEqual(start, -1, 'CONTRIBUTING has no "What every skill carries"');
+  const standard = contributing.slice(start, contributing.indexOf('\n### ', start + 1));
+  assert.match(standard, /`"group=workflow; lifecycle=release; version=<x\.y\.z>; author=<handle>"`/);
+  assert.match(standard, /`lifecycle`† is the skill's own maturity, not the stage of the work it serves/);
+  assert.match(standard, /any change to the skill's files moves it† from the version last released: a patch for wording,\s+documentation, metadata or the description, a minor version for new behaviour/);
+  for (const heading of ['When to Use', 'Prerequisites', 'Procedure', 'Usage Examples', 'What it looks like', 'Pitfalls', 'Verification', 'Deeper reading']) {
+    assert.ok(standard.includes(`\`## ${heading}\``), `the standard does not name ## ${heading}`);
+  }
+  assert.match(standard, /\*\*Complete when:\*\*/);
+  const adaptation = await read('docs/project-adaptation.md');
+  assert.doesNotMatch(adaptation, /not bumped on every change/);
+});
+
 // CHANGELOG.md sits at the root, so a relative link in it resolves from there, whatever folder the
 // prose it was written from lived in. Each entry is also a Release body, which must agree with it.
 test('every relative link in CHANGELOG.md resolves from the repository root', async () => {
