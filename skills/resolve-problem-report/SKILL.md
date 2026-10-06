@@ -3,7 +3,7 @@ name: resolve-problem-report
 description: "Take a reported problem end to end: reproduce the claim, find the root cause, offer candidate fixes with trade-offs, spec the chosen one, and land it through review. Symptoms: a user reported X, this is broken in production, a flaky test is hiding something real, someone filed a bug or feature request, this keeps coming back. Use it when the report deserves more than a quick patch; for a one-line fix, just fix it."
 license: MIT
 compatibility: "Any repository the agent can read and change, with git, plus the report in any form. Reproduction needs what the claim is about — a runnable checkout, or a datastore or logs for production; lacking that, the skill says so rather than use weaker evidence. Companion skills search, map, land, describe and review; without them the gates hold and each says what degraded. Subagents and model choice are optional. Output is the resolution and its artifacts, or a documented refutation with no change."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -35,7 +35,7 @@ companions that own the work, and the pipeline can correctly terminate at any of
 | **G2 offer** | the **candidate table** | 2–4 candidates carry a blast area, what each does **not** fix, reversibility and size — and the do-nothing line is a real row, not a courtesy |
 | **G3 spec** | the **build contract** | every requirement names its files, its proving test and the **mutation** that must kill that test, and the requirements' file sets are disjoint |
 | **G4 implement** | the **landed change with its budget and gate ladder** | `land-complex-change` returns them; this skill declares no budget and arms no gates of its own |
-| **G5 verify + describe** | the **resolution note**, plus **one filed report per disagreement** | each requirement is checked at its own evidence class, the reporter's original numbers are re-measured, and anything that disagrees is filed rather than chased |
+| **G5 verify + describe** | the **resolution note**, plus **one filed report per disagreement** | each requirement is checked at its own evidence class (a released fix also where its reader meets it), the reporter's original numbers are re-measured, and anything that disagrees is filed rather than chased |
 
 A gate that cannot open is information: the artifact under it is missing, which is far better
 said at G1 than discovered at G5, with a change landed and somebody waiting for a mail.
@@ -86,8 +86,8 @@ one for the report whose correct answer was a question.
 1. **The report in its original words, with its numbers intact.** Not a summary: the phrasing
    carries which surface they were on and what they expected, and paraphrase silently repairs
    the false premise you most needed to see.
-   **Complete when:** the text, its date, the reporter's role and every number in it are in hand
-   — or their absence is recorded.
+   **Complete when:** the text, its date and the source it was taken from, the reporter's role and
+   every number in it are in hand — or their absence is recorded.
 2. **A readable checkout at a named revision.** The sha, and whether the tree is dirty. A cause
    measured against uncommitted work describes a state nobody else has.
    **Complete when:** revision and dirty state are recorded.
@@ -132,8 +132,9 @@ one for the report whose correct answer was a question.
    different evidence at G1 — and record the **premises separately from the claim**, because a
    report usually asserts a cause as well as a symptom and those two are falsified by different
    observations. Partial refutation is normal and is not an accusation: accept the premises that
-   hold, reject the one that does not, and reject it with a number. The card's fields and the
-   worked restatements are in [the gate contracts](references/gate-contracts.md).
+   hold, reject the one that does not, and reject it with a number. The card's fields and the worked
+   restatements are in [the gate contracts](references/gate-contracts.md). Answer severity, priority
+   and effort separately, each by its owner: [assessing a report](references/assessing-a-report.md).
 
    **Enumerate the readings from the requirement's own words.** The ambiguity that stops a build
    lives in the wording a builder will be held to — not in the failure symptom, which is one
@@ -228,9 +229,8 @@ one for the report whose correct answer was a question.
 
    **Cannot proceed until:** at least two candidates exist with all five fields filled; the
    already-fixed, do-nothing and sibling-requirement lines have each been evaluated and are
-   present or explicitly dismissed with a reason; each candidate's blast area came from the
-   mapping skill or names the reason it could not; and the chosen candidate is recorded with who
-   chose it.
+   present or explicitly dismissed with a reason; each candidate's blast area came from the mapping
+   skill or names the reason it could not; and the chosen candidate is recorded with who chose it.
 
 5. **G3 — write the build contract, and make every requirement provable.** The spec is not
    prose about an approach; it is a contract a builder can be held to and a reviewer can check
@@ -291,14 +291,13 @@ one for the report whose correct answer was a question.
    [the confirmation policy](references/confirmation-policy.md).
 
 7. **G4 — hand the build to `land-complex-change`, with the contract and the paths and nothing
-   else.** That skill owns the landing half and returns three artifacts this one does not build:
-   the **side-effect budget** (the touch-set declared from the blast map, with its out-of-bounds
-   classes and its on-breach rule), the **regression gate ladder** (one guard per affected
-   surface, watched failing before and passing after, unguarded surfaces recorded visibly), and
-   the **change band with its act gates**. Its breach rule applies here as written: work outside
-   the budget **stops**, re-enters `blast-area`, and resolves to **extend, split or abandon** —
-   never silent absorption. A breach that invalidates the chosen candidate returns to G2, not to
-   the reporter as a surprise.
+   else.** That skill owns the landing half and returns three artifacts this one does not build: the
+   **side-effect budget** (the touch-set declared from the blast map, with its out-of-bounds classes
+   and its on-breach rule), the **regression gate ladder** (one guard per affected surface, watched
+   failing before and passing after, unguarded surfaces recorded visibly), and the **change band
+   with its act gates**. Its breach rule applies here as written: work outside the budget **stops**,
+   re-enters `blast-area`, and resolves to **extend, split or abandon** — never silent absorption. A
+   breach that invalidates the chosen candidate returns to G2, not to the reporter as a surprise.
 
    **Context is the contract plus the file paths — never the investigation transcript**, which
    carries discarded hypotheses, refuted premises and the reporter's own diagnosis; a builder
@@ -309,10 +308,10 @@ one for the report whose correct answer was a question.
    and every breach is recorded with its disposition.
 
 8. **G5 — verify at the class, describe, review — and file what verification turns up.**
-   Verification is not the test suite going green; it is each numbered requirement checked at
-   the evidence class **its own claim** requires, plus a re-measurement of the reporter's
-   original numbers against the same table from G1. A green suite over a surface nothing guarded
-   is evidence about the other surfaces.
+   Verification is not the test suite going green, nor the fix being released; it is each numbered
+   requirement checked at the evidence class **its own claim** requires and, once released, where
+   the reader meets it, plus a re-measurement of the reporter's original numbers against the same
+   table from G1. A green suite over a surface nothing guarded is evidence about the other surfaces.
 
    **A verification that opens a new report is a success.** When the re-measurement turns up a
    figure that disagrees with the system's own — two counts of the same thing differing by more
@@ -323,9 +322,9 @@ one for the report whose correct answer was a question.
    Hand the landed diff to `describe-changes` for the resolution note — its short register is
    the reporter's line, its detailed register is the reviewer's — and the pull request loop to
    `request-blocks-review` and `blocks`, giving them the contract, the budget, the ladder and
-   the residuals alongside the diff. Then, behind step 6's act gate, close the report and tell
-   the reporter what was true in their account, what was not, what changed, what it does **not**
-   fix, and what to do if it recurs.
+   the residuals alongside the diff. Then, behind step 6's act gate, close the report (a fix only
+   once it is verified where its reader meets it) and tell the reporter what was true in their
+   account, what was not, what changed, what it does **not** fix, and what to do if it recurs.
 
 9. **Deliver the outcome the evidence supports, including the ones with no change in them.**
    Three terminal outcomes are legitimate and each is delivered with its evidence:
@@ -430,7 +429,7 @@ take back, and file any number that disagrees as its own report rather than hold
       the reporter, and the band floor and act gates followed from it.
 - [ ] **G0:** the claim is one falsifiable sentence with its falsifier written down, the report
       is classified bug / feature / question, and the reporter's asserted cause is recorded as a
-      **premise**, separately.
+      **premise**, separately; severity, priority and effort are three answers, each with its owner.
 - [ ] **G0:** the readings the **requirement's own words** admit are enumerated and costed — not
       only the ones the failure symptom suggested — and any unresolved reading blocks G3.
 - [ ] **G1:** the cause or implication is stated at the evidence class the claim requires, with
@@ -462,8 +461,8 @@ take back, and file any number that disagrees as its own report rather than hold
       **not** the investigation transcript, and it returned a budget and a gate ladder.
 - [ ] Every budget breach stopped the work, re-entered `blast-area`, and resolved to extend,
       split or abandon — with any breach that invalidated the chosen candidate returning to G2.
-- [ ] **G5:** each requirement was verified at its own evidence class, and the reporter's
-      original numbers were re-measured against the G1 table.
+- [ ] **G5:** each requirement was verified at its own evidence class, a released fix where its
+      reader meets it, and the reporter's original numbers were re-measured against the G1 table.
 - [ ] **Every disagreement verification turned up was filed as its own report**, and this one
       was closed on its own contract rather than held open to chase it.
 - [ ] The resolution note came from `describe-changes` and the review loop from
@@ -486,7 +485,8 @@ measured cases and its weight at G2 in [falsifying the diagnosis](references/sep
 the five fields, mandatory classes and precedent search in
 [candidate offers](references/candidate-offers.md); the template, disjoint file sets and mutation
 forms in [the build contract](references/build-contract.md); the two-column rule, act-gate script
-and unattended stop in [the confirmation policy](references/confirmation-policy.md); the five
-headings and prohibitions in [the run-record convention](references/documenting-the-run.md); and
-one report end to end — partly reproduced, premise refuted, disagreement filed as its own report —
-in [a worked resolution](references/worked-resolution.md).
+and unattended stop in [the confirmation policy](references/confirmation-policy.md); severity,
+priority, effort and released fixes in [assessing a report](references/assessing-a-report.md); the
+five headings and prohibitions in [the run-record convention](references/documenting-the-run.md);
+and one report end to end — partly reproduced, premise refuted, disagreement filed as its own report
+— in [a worked resolution](references/worked-resolution.md).

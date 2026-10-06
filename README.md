@@ -209,7 +209,7 @@ Ask it:
 
 - *"Use release-notes before you publish this. Run the impact analysis rather than guessing at it, settle the semver bump against what that analysis says instead…"*
 
-More: [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
+More: [Skill](skills/release-notes/SKILL.md) · [Versioning a product](skills/release-notes/references/versioning-a-product.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
 
 ### `investigate-codebase`
 
@@ -336,7 +336,7 @@ Ask it:
 - *"Here is the report as it came in."*
 - *"They say the nightly total double-counts and they quote nine figures."*
 
-More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md)
+More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) · [Assessing a report](skills/resolve-problem-report/references/assessing-a-report.md)
 
 ### `new-ux-discovery`
 
@@ -387,7 +387,7 @@ More: [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/la
 
 ### `report-progress`
 
-Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn.
+Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn, or when the reader asks for a percentage, an ETA, or updates at a set interval.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill report-progress
@@ -399,7 +399,7 @@ Ask it:
 - *"Give me a status report on the migration."*
 - *"Before you end this turn: you started three background agents."*
 
-More: [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
+More: [Skill](skills/report-progress/SKILL.md) · [Percentage, ETA and cadence](skills/report-progress/references/percentage-eta-cadence.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
 
 ### `isolated-change-validation`
 
@@ -447,7 +447,7 @@ Ask it:
 - *"Turn this list of twelve open questions into asks."*
 - *"Ask the subagent for the three facts we are missing."*
 
-More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md)
+More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) · [Pointing at the screen](skills/request-answers/references/pointing-at-the-screen.md)
 
 ### `handoff-prompt`
 
