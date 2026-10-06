@@ -506,6 +506,32 @@ that already holds copies, the armed check names them at every session start unt
 records them and routes to them. Composing, removing or re-pinning a copy is reported the same way,
 so refresh in the change that does it.
 
+### Every skill is documented in the shape the catalogue shares
+
+**What.** `release-notes` publishes two asks in its Usage Examples, and its two specimen notes now
+sit under `## What it looks like`; it and `report-progress` link their references under
+`## Deeper reading`. `request-answers`' description says the run writes the brief, and that the
+brief reaches a person only when a person sends it or approves its exact text, as its hard line H3
+already did; the skill gains a When to Use section and an example of a question about a screen.
+`mine-session-transcripts` links the project-adaptation guide by its URL, which an installed copy
+can open, and `model-routing`'s Hermes reference names its command line. In the README, the install
+section points to each skill's own entry, the update section covers adapted copies, the hooks
+section names the two hooks it left out, the browser line says how to build the site instead of
+linking a hosted copy that does not exist, and the asks of `mine-session-transcripts` and
+`handoff-prompt` are their own Usage Examples, word for word. CONTRIBUTING says what every shipped
+skill owns, the Published catalog above describes every skill, and
+[project adaptation](project-adaptation.md) names the five skills a project can adapt, which a
+test holds to the skills that declare `## Bindings`.
+
+**Why.** The site and the README show what a skill publishes, so a skill whose examples were
+specimens showed no ask, and a README ask that rewords its skill differs from the one the site
+shows. A description is what a runtime matches, and one said the run sends what its own rules say
+it never sends alone. And a path such as `docs/project-adaptation.md` names nothing in a copy
+installed into a project.
+
+**Impact.** Documentation only. No step, hard line, slot or default changes meaning, and no
+skill's metadata version moves.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
