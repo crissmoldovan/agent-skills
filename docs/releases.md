@@ -81,6 +81,13 @@ about what the code does to `investigate-codebase`, and messages that feed a bri
 facts to `delphi-ground`. It declares `## Bindings`, so a project can adapt it
 ([project adaptation](project-adaptation.md)).
 
+`secure-credential-setup` puts an API key, token or password into a secret store without its value
+entering the transcript, one credential at a time. `publish-agent-skill` releases a skill through a
+verified release, and `request-blocks-review` runs the review loop over `blocks`' primitives until
+its pull request is clean. `handoff-prompt` writes work that is going to another session, agent or
+person as one self-contained block; it does not do the work, and an answer wanted back is
+`request-answers`'.
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
