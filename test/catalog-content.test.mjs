@@ -1132,13 +1132,14 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
   assert.match(onboardProjectWrites, /renders exactly as it did before 1\.1\.0/);
 
   assert.match(contributing, /which names a\s+project's adapted copy of a skill rather than the skill it adapts/);
-  assert.match(releases, /### `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy/);
+  // The release record, not the staged prose: docs/releases.md empties when a release is cut.
+  assert.match(changelogText, /^\*\*\d+\. `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy\*\*$/m);
   assert.match(adaptation, /A repository onboarded with `onboard-project` counts the adapted copy as the skill\s+it adapts/);
   // The check compares each copy's ref and tree, so a pin moved without a refresh is reported at
   // every session start; the procedure that moves a pin has to say so, not only this skill.
   const adapting = await read('skills/update-agent-skills/references/adapting.md');
   assert.match(section(adapting, 'Moving a pin'), /In a repository onboarded with `onboard-project`, refresh its profile in that same change/);
-  assert.match(releases, /names them at every session start until a refresh\s+records them/);
+  assert.match(changelogText, /names them at every\s+session start until a refresh\s+records them/);
   // Composing a first copy or removing one moves the check just as a re-pin does, so the commands
   // and the skill's own pin rule say so too, not only the procedure that moves a pin.
   assert.match(section(adapting, 'Commands'), /refresh its profile in the change that composes\s+a first copy, removes one, or moves a pin/);
