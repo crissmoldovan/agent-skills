@@ -60,7 +60,7 @@ jobs:
 
       - name: Retain exact consumer readback
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: workspace-governance-v0.3.0-${{ matrix.os }}-ephemeral-ci-second-host
           path: ${{ runner.temp }}/workspace-governance-release-consumer/result.json
