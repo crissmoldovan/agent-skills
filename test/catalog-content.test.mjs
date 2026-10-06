@@ -1019,6 +1019,8 @@ test('request-answers shows the screen each question is about, gives the reader 
 // reads for those. The script's own behaviour is in mine-session-transcripts.test.mjs.
 test('mine-session-transcripts reads transcripts without printing them, and states what it does not own', async () => {
   const skill = await read('skills/mine-session-transcripts/SKILL.md');
+  // An installed copy carries no docs/, so the guide is cited by a URL that resolves anywhere.
+  assert.match(skill, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
   const shapes = await read('skills/mine-session-transcripts/references/record-shapes.md');
   const documented = await read('skills/mine-session-transcripts/references/documented-or-not.md');
   const fitText = await read('skills/mine-session-transcripts/references/fit.json');

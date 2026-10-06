@@ -60,8 +60,9 @@ and do not use it to find a secret: it refuses to show one.
 ## Bindings
 
 A project can adapt this skill without copying it: it binds these slots and adds to the steps by
-their ids, as the pack's project-adaptation guide (`docs/project-adaptation.md`) describes. A slot
-nobody binds keeps its default.
+their ids, as the pack's
+[project-adaptation guide](https://github.com/crissmoldovan/agent-skills/blob/main/docs/project-adaptation.md)
+describes. A slot nobody binds keeps its default.
 
 | id | slot | kind | default |
 |---|---|---|---|

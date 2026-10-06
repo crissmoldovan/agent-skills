@@ -74,6 +74,13 @@ itself — `update-agent-skills` owns that, and composes the adapted copies too,
 writes no context file (`derive-codebase-context`) and no documentation (`layer-repository-docs`),
 and its session-start check is off until the user arms it.
 
+`mine-session-transcripts` finds what a person said to an agent in the harness's own session
+transcripts, queued messages included, and says where each message is without printing the
+transcript. It does not act on what it finds: a decision goes to `decision-journal`, a question
+about what the code does to `investigate-codebase`, and messages that feed a briefing of verified
+facts to `delphi-ground`. It declares `## Bindings`, so a project can adapt it
+([project adaptation](project-adaptation.md)).
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is

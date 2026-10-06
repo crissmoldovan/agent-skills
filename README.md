@@ -496,9 +496,9 @@ npx skills add crissmoldovan/agent-skills --skill mine-session-transcripts
 
 Ask it:
 
-- *"Find the message where I told the agent to keep CSV as the default export format — the line, the time and the session, not the transcript."*
-- *"How many messages did I send in this repository's sessions in the last two weeks, and how many while the agent was busy?"*
-- *"Which of the instructions I typed this month are not written down anywhere in the repo? Prove the matcher works first."*
+- *"Find the message where I told the agent to keep CSV as the default export format. I think it was last week, in this repository or one of its worktrees. Don't paste the transcript: give me the line, the time and the session."*
+- *"How many messages did I send in this repository's sessions in the last two weeks, and how many of them were sent while the agent was busy? Count everything you leave out."*
+- *"Which of the instructions I typed into sessions this month are not written down anywhere in the repo? Prove the matcher works before you show me a number."*
 
 More: [Skill](skills/mine-session-transcripts/SKILL.md) · [Record shapes](skills/mine-session-transcripts/references/record-shapes.md) · [Documented or not](skills/mine-session-transcripts/references/documented-or-not.md) · [Script](skills/mine-session-transcripts/scripts/transcripts.mjs)
 
