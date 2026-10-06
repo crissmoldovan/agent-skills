@@ -47,8 +47,14 @@ itself; and `mine-session-transcripts` owns finding what a person said to an age
 the harness's own session transcripts — the messages typed and the ones queued while a turn ran,
 each located by line, time and session without the transcript being printed, and whether each is
 written down — while `decision-journal` records a decision once it is found and
-`investigate-codebase` answers what the code does about it. A new skill must state which of these
-it does not duplicate.
+`investigate-codebase` answers what the code does about it; and `secure-credential-setup` owns
+getting a credential into a secret store without its value entering the transcript;
+`publish-agent-skill` owns releasing a skill through a verified release, and
+`request-blocks-review` the review loop that runs until a pull request is clean; `release-ledger`
+owns the what's-new system inside a product, `github-webhooks` an app's GitHub webhook endpoint,
+its signature check and its event routing, and `describe-changes` the anchored description of a
+change that already landed; and `handoff-prompt` owns the one self-contained block that hands work
+to another session, agent or person. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 
