@@ -5,6 +5,374 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.27.0
+
+**What.** A project can now adapt a skill from this pack instead of copying it. A skill declares
+binding slots, hard lines and steps under ids that never move; the project writes an overlay
+against those ids; and `update-agent-skills` composes the project's copy from a pinned release and
+checks it offline. Five skills declare ids in this release: `release-notes`, `request-answers`,
+`report-progress` and `resolve-problem-report`, which gain new guidance as well, and
+`mine-session-transcripts`, which is new and takes the catalogue from twenty-nine skills to thirty.
+`onboard-project` routes a session to an adapted copy; the run-record convention six skills share
+is corrected; the verifier and the composer refuse a code block they could read two ways;
+`verify-skills` reads every file the repository would publish; and every skill is documented in the
+shape the catalogue shares. No package, gate or adapter changed, and the hook `onboard-project`
+installs is written as before.
+
+**1. Adapting a skill without forking it: the contract**
+
+**What.** `docs/project-adaptation.md` is the contract for adapting a pack skill to one project. A
+skill declares its binding slots in a `## Bindings` table, each with a kind (`value`, or `skill` for
+every handoff to a sibling skill) and a default, of which "ask once" is one. It names its hard lines
+`H1`, `H2` … and its steps `S1`, `S2` …, and the ids are names rather than positions. A project's
+overlay binds slots, adds to steps by id and lists its own traps. A binding replaces a default and
+nothing else, an addition extends a step, and a hard line is never relaxed; the one override,
+`replaces:`, is explicit, says where its decision is recorded, and is refused on a hard line. The
+page also says what an adapted copy carries (the pack's MIT licence among it), how a project adapts
+a reference file of a skill rather than its `SKILL.md`, and how the copy pins its source: a tag or a
+full commit sha, the skill folder's git tree, and the sha256 of every file. `scripts/verify-skills.mjs`
+now checks every file under `skills/` that declares `## Bindings`, a reference file as much as
+`SKILL.md`: well-formed ids, unique across the skill, one letter for all of a skill's slots, a known
+kind and a default for every slot, and a `skill` slot that defaults to a skill this catalogue ships.
+`docs/releases.md` gains a Tags section.
+
+**Why.** Until now the only way to give a skill a project's values, its own handoffs and the steps
+it had learned was to copy the skill and edit the copy, which then stopped receiving fixes. And a
+pin is only as good as the tag it names, while the tag policy had never been written down.
+
+**Impact.** The ids are a contract, versioned like any other. Renaming or removing an id, changing a
+slot's kind, making a slot required, changing what an id means, or relaxing a hard line is major for
+that skill; a new optional slot, step or hard line, a stricter hard line, or a changed default is
+minor; wording that keeps every meaning is a patch. The number that moves is the catalogue's, and a
+per-skill tag's as well where the skill has one; below 1.0.0 a major change moves the middle number
+and its release note calls it breaking. A published tag is never moved or deleted; the one exception
+is a tag that carries personal or client data, which may be withdrawn, and the replacement release
+then names the withdrawn tag so a pinned project knows to move. `publish-agent-skill` lists
+renaming or removing an id among its pitfalls, and its metadata version moves from 1.0.0 to 1.0.1
+for that line. No skill declared `## Bindings` before this release, so no skill that passed before
+fails these checks.
+
+**2. `update-agent-skills` composes a project's adapted copy, checks it offline, and lists adapted pins**
+
+**What.** `skills/update-agent-skills/scripts/adapt.mjs` builds the copy from two inputs: the pack
+skill at a pinned tag or full commit sha, and the project's adapter folder (`adapter.json`, an
+overlay of bindings, additions and traps, and any project files). It writes a generated folder the
+project commits and never edits by hand.
+
+- **`compose`** reads the pin with git plumbing only, never a checkout, prints what it would add,
+  change or remove and every addition to a hard line for review, and writes nothing without
+  `--write`. It refuses a branch, an abbreviated sha, a tag that now names another commit, an id no
+  carried file declares, an unbound required slot, `replaces:` on a hard line, an addition to one
+  in the words of an exception, a handoff to a skill the project also adapts that is not bound to
+  the adapted copy, a link that does not resolve, an `adapter.json` or overlay that is a symbolic
+  link, a folder that a symbolic link takes outside the repository, and a copy edited by hand.
+- **`check`** is offline, with no git and no network. It holds each copy to its lock, every file's
+  sha256 and mode, to a fresh compose of its recorded inputs and to the rules above, so a project
+  runs it from its own tests.
+- **`outdated`** reads tags and says, per copy, whether a newer release changes the skill, raises an
+  alarm when a pinned tag moved or was deleted, and with `--verify` compares every carried file with
+  the upstream bytes.
+
+A copy pre-approves no tool unless `adapter.json` lists it in `allowedTools`, and then exactly
+those. A source that keeps a skill elsewhere than `skills/<skill>`, such as
+`skills/<category>/skills/<skill>`, names its folder in the optional `base.path`, written from the
+source's root with no `..`; the tree, `outdated` and `--verify` read that folder, and the lock
+records it. `check-pack-freshness.mjs --repo <project>` lists a project's adapted pins against the
+latest release, beside the global installs.
+
+**Why.** The contract needs a tool that follows it. One invocation of the copy has to bring the
+skill's whole text with the project's values, rather than depend on a second skill being found by
+its description or winning a precedence contest with a personal copy of the generic one. A
+pre-approval granted by a shared skill would apply in every project that adapts it. And a source
+that sorts its skills into category folders has no `skills/<skill>` to pin.
+
+**Impact.** Nothing installed changes behaviour: the freshness check without `--repo` behaves as
+before, `skills update` never moves an adapted copy, and an armed auto-update hook never touches
+one. The skill's description gains the symptom "adapt a pack skill to this project", its
+`compatibility` names Node.js 22 and git for the composer, and its metadata version moves from 1.0.0
+to 1.1.0. The composer never runs a composer it fetched, so a project that moves its pin composes
+once from a clone of the pack at the new tag, which vendors that release's composer.
+
+**3. `onboard-project` counts an adapted copy as the skill it adapts, and routes to the copy**
+
+**What.** `onboard-project` 1.1.0 reads each adapted copy's `adapted.lock.json` in the repository's
+own skill folders and records it in the profile's new `adapted` map. A skill with a copy is present:
+the plan gives it a `=` row naming the copy and no install command, its routing line names the copy
+(both copies, when two adapt one skill), and the session-start check counts a copy on disk as its
+skill and says one line when a copy was added, removed or re-pinned since the profile was written.
+A lock it cannot read, a folder that is not a skill name, a folder with no `SKILL.md` a session
+could load, and a second folder of one name whose lock says something else stand in for nothing and
+are named in the plan. A copy of a skill the catalogue does not carry is recorded and not routed; a
+skill listed only for its copy leaves the profile and the routing with its last copy; and composing
+a copy of a declined skill lifts the decline.
+
+**Why.** A repository that had adapted a skill was treated as if it had not. The plan offered to
+install the generic skill, the armed check reported it missing at every session start whenever its
+fit was a strong match, and the routing file sent every session to the generic skill, which carries
+none of the project's values.
+
+**Impact.** A routing file written by 1.0.1 renders byte for byte the same under 1.1.0 until the
+repository holds a copy, so nothing reads as drift on upgrade. A profile written by 1.0.1 has no
+`adapted` map: in a repository that already holds copies, the armed check names them at every
+session start until a refresh records them and routes to them. Refresh in the change that composes,
+removes or re-pins a copy. The hook installer writes the same hook; only its comment and the words
+it prints after arming change, to name the check's fourth reason to speak.
+
+**4. New skill: `mine-session-transcripts`**
+
+**What.** It finds what a person told an agent from the harness's own session transcripts, without
+printing them. It locates a repository's transcripts, its worktrees' and subagents' included, and
+confirms each by the paths its records carry, because the directory name the harness derives from a
+path is lossy. It counts a person's messages of three kinds (typed at the prompt, queued while a
+turn was running, and a slash command's arguments), counts every other record by its kind, screens
+the harness's own elements out of a person's turn, and deduplicates nothing by text. It finds a
+message by a fixed phrase and reports its file, line, time and session, never its words; says
+whether a message sent while the agent was busy ever reached the session; shows one message only
+after a scan for secrets; and checks whether each message is written down in the repository, both
+sides normalised by one function, with a control sentence that must be found before any count is
+shown. A path with no history is reported as unknown, never as zero. `scripts/transcripts.mjs` needs
+nothing beyond Node, and `references/record-shapes.md` tags every record shape it relies on as
+observed, documented or not observed, with the harness versions it was read from.
+
+**Why.** What a person says to an agent is often the only record of a decision, and the transcript
+is the worst place to read it from. A message typed while the agent is busy is stored as a
+queued-command attachment, never as a user turn, so a search for user turns misses every one of
+them. Printing a transcript to search it carries every secret and pasted address on those lines
+into the conversation. And a check of what is written down that compares messages stripped of
+punctuation with files that kept it reports messages as undocumented that are written down.
+
+**Impact.** New; nothing installed changes. It declares eleven slots, `B1` to `B11`, five hard
+lines, `H1` to `H5`, and seven steps, `S1` to `S7`, and hands work to `decision-journal`,
+`investigate-codebase` and `delphi-ground`. Its fit is `requestOnly`, so `onboard-project` never
+recommends it unasked. Its metadata version is 1.0.0.
+
+**5. `release-notes` versions a product that has no API, and treats a bump judge as advice**
+
+**What.** A new reference, `references/versioning-a-product.md`, judges a release of a product that
+has readers rather than callers (an app, a site, a dashboard, a report): removed, reversed or
+redefined is major, a new capability minor, a correction a patch, and a removal is a patch only when
+the record says what went was false, broken or never seen. The level is read from a ledger written
+first, one was-and-now entry per change a reader can reach. It covers pre-release numbers, a
+renumbering restart, and why back-testing a version judge on the releases its rules came from proves
+little. A tool that proposes the level is advice: read the words it quotes, then correct the
+analysis or overrule the tool on the record, and never reword a change until it agrees. A project
+can name the person who rules the number; when they depart from the impact analysis they are shown
+what it found, and if they keep their number it is theirs and the note records both readings and
+the ruling. When they cannot be shown it before the release, the release waits for their answer.
+The skill declares slots `B1` to `B8`, hard lines `H1` to `H4` and steps `S1` to `S7`.
+
+**Why.** The skill judged a release by its API (an export removed, an argument made required, a
+return shape changed), so for a product with readers the checklist had nothing to say about most of
+what a release changes.
+
+**Impact.** A project that names nobody keeps the rule as it was: the impact analysis sets the
+number. Every slot's default is what the skill already did. A version or a judgement computed from
+the working tree counts every uncommitted change, so `git status` is read first, and the Migration
+question now names a reader's steps too. The `release-notes` gate is unchanged.
+
+**6. `request-answers` shows the screen each question is about, and gives the reader the answered rows**
+
+**What.** A question about something a reader sees (a sentence, a tile, a row, a control) carries
+two images at every depth: an overview with the thing boxed, and a close-up with the same box and a
+label naming the question. `references/pointing-at-the-screen.md` says how they are taken: the build
+pinned to the commit the reader saw and rendered on the machine, any data service it reads running
+there too and seeded locally, every other host blocked; never a live site, a hosted data service or a signed-in
+session; the box drawn in the page before capture and no image changed afterwards; a target that is
+not found fails its shot. Every brief gains a fourth part, "Already settled", listing the closed rows
+that concern the reader; a question keeps its number in every later brief, and a closed number is
+never reused. The hunt-down pass gains three rules: a judgement a standing ruling settles is
+"decided here"; otherwise the run's decision is a proposal and stays off the brief until it is
+ruled; and every claim that takes a question off passes an independent refuter first. The run
+prepares an ask to a person and never sends it on its own word. The skill declares slots `B1` to
+`B8`, hard lines `H1` to `H5` and steps `S1` to `S7`.
+
+**Why.** A question about a screen put in words alone names a different sentence for every reader,
+and the answer comes back about the wrong one. And the ledger kept answered questions for the asker
+only, so a reader could be asked again what they had already answered.
+
+**Impact.** Brief and normal depth, which were transcript-only, now attach shots where a question is
+about a screen. Where no renderer is available, each question says in words where to look and no
+files are attached, as before. Nothing a brief carried is dropped. The skill's metadata version
+moves from 1.0.0 to 1.1.0.
+
+**7. `report-progress` gives a percentage with its basis and an ETA as a clock time, and keeps timed updates coming**
+
+**What.** A report can open with an optional head line: a percentage counted from a named register
+in one unit, with work blocked on a person in the denominator and never in the numerator, and the
+ceiling without them; and an ETA in agent-hours, then wall-clock, then a clock time in each reader's
+zone pasted from a command, labelled as an estimate with its basis. With no agent running, the ETA is
+agent-hours alone, and a clock time that leaves part of the work out says what it covers. A new
+reference, `references/percentage-eta-cadence.md`, has the arithmetic, the clock commands, and what
+keeps updates on a cadence coming: a tick strictly inside the harness's cap on background time,
+re-armed before each update, a standing order written where a context compaction cannot take it,
+and a last update that says the updates stop. When the interval is as long as the cap or longer,
+step `S1` chains wake-ups, each armed for the time left until the update or strictly inside the cap,
+whichever is shorter; a wake-up before the update is due re-arms the next one and writes nothing,
+and the one that reaches the update's time writes it. Two new hard lines: a figure nobody measured
+is reported as not measured, never as 0; and an ETA is labelled as an estimate with its basis. The
+skill declares slots `B1` to `B9`, hard lines `H1` to `H8` and steps `S1` to `S11`.
+
+**Why.** A reader waiting on long work asks how far along it is and when it will finish, and often
+asks to be told at an interval. Improvised, both numbers fail the same few ways: a percentage with no
+basis or in two units, a denominator that grows silently so that found work reads as a stall, an ETA
+whose headline covers part of the work, a zone label typed from memory, and timed updates that stop
+without anyone noticing.
+
+**Impact.** Nothing a report owed is dropped: the three sections are still owed, a report nobody
+asked for a percentage or an ETA carries no head line, and the running section still comes from
+lifecycle evidence alone. The description gains triggers for a percentage, an ETA or updates at a set
+interval. The `report-progress` gate is unchanged: it reads the three section labels, and the head
+line is not one of them. The skill's metadata version moves from 1.0.0 to 1.1.0.
+
+**8. `resolve-problem-report` answers severity, priority and effort as three questions, and does not call a released fix verified**
+
+**What.** A new reference, `references/assessing-a-report.md`, answers severity, priority and effort
+at G0 as three separate questions, each with its owner: severity by whoever holds the evidence;
+priority by the person who rules it, the agent's answer recorded as proposed until they do; effort by
+whoever will do the work, verification included. It gives a default scale for each, says when to
+assess again (keeping the old answer beside the new one), dates the report from its source, and
+follows a fix from landed to released to verified: before a release is recorded it checks the fix is
+in it, and it closes a fix as fixed only once it is verified where its reader meets it. Three hard
+lines come with it: three questions, and no answer sets another; a released fix is not a verified
+one; nothing is dated or judged from memory. The reference declares slots `B1` to `B9`, hard lines
+`H1` to `H3` and steps `S1` to `S6`, the skill's first ids.
+
+**Why.** Unasked, the three get answered as one sense of urgency, each borrowing from the others: a
+quick fix reads as minor, and a defect that is someone else's to fix reads as less severe.
+Verification never said where, so a released fix could be called fixed before anyone had looked
+where its reader meets it, and a report's date was whatever date came to hand.
+
+**Impact.** A fix that has landed but is not released now waits in that state instead of closing at
+G5, even when the run is told to close it sooner. A run that answered none of the three questions,
+or closed a released fix unchecked, fails two checklist items it passed before; nothing that
+consumes the skill's output breaks. `SKILL.md` gains no lines; it points to the reference. The
+skill's metadata version moves from 1.0.0 to 1.1.0.
+
+**9. The run-record convention names the link to itself as words and a path**
+
+**What.** `references/documenting-the-run.md`, which `investigate-codebase`, `blast-area`,
+`visualise-blast-area`, `land-complex-change`, `resolve-problem-report` and `new-ux-discovery` each
+carry byte for byte, showed the sentence a `SKILL.md` points to it with as a fenced example, link
+included. The fence now holds the sentence's words, and the line above it names, as code, the words
+that link and the path. The verifier now resolves every relative link in every Markdown file a skill
+carries, from that file's own folder, fenced code and link definitions included; these six copies
+were the only files that failed.
+
+**Why.** The path was written from the skill's root, but a link resolves from the file that holds
+it, so from `references/` it named nothing, and the composer refuses a copy with a link that does not
+resolve. No copy of those six skills could be made.
+
+**Impact.** A patch for those six skills: no `SKILL.md` changed, and the wording keeps its meaning.
+For five of them (`blast-area`, `investigate-codebase`, `land-complex-change`, `new-ux-discovery`
+and `visualise-blast-area`) it is the only change in this release.
+
+**10. The verifier and the composer refuse a code block they could read two ways**
+
+**What.** In a file that declares `## Bindings`, `verify-skills` now refuses a code block that meets
+a line indented less than it before it closes, or that never closes, naming the file, the line and
+the line the block opened on ("line 12 is less indented than the code block opened on line 10;
+indent it or close the block", "the code block opened on line 10 never closes; close it"). The
+composer reads what a skill declares exactly as the verifier does, through fences and ids, and
+refuses such a carried file at its check 4 with the same words. The verifier also refuses a Bindings
+table whose delimiter row has another number of cells than its header, a row with a pipe after two
+or more backslashes, an id written with a separator or in lower case (`S-1`, `H_1`, `s4`), and a
+placeholder default written in code, emphasis or strikethrough marks, or escaped.
+
+**Why.** Whether a line indented less than a fence ends the block depends on a list around the
+fence, which neither tool reads. Outside a list CommonMark keeps the line inside the block, so a
+fence indented two spaces that held an unindented `- **S1. example**` was code on GitHub, while both
+tools read the line as text and reported `S1` declared twice; and a fence that never closes is code
+to the end of the file. The table and id rules close the other places where a renderer and the tools
+read a file differently, or where a malformed id passed as prose.
+
+**Impact.** A file that declares no `## Bindings` is not read for ids and is left alone, and a
+layout that reads the same with or without a list is read as before. Every skill in the catalogue
+passes, so no adapted copy of one is refused for this.
+
+**11. `verify-skills` reads every file the repository would publish, and contributors get a private-denylist scan**
+
+**What.** `scripts/verify-skills.mjs` looked for likely secrets and home-directory paths only in
+files with one of ten extensions, and not at all in `packages/agent-lifecycle`. It now reads every
+file the repository would publish, whatever its name: every tracked file, and every untracked file
+git does not ignore outside generated output. Where the index or HEAD holds another copy of a
+tracked file than the working tree, that copy is read too, since a commit publishes the index and a
+push publishes HEAD. Binary files are searched as bytes and named for a person to look at.
+`scripts/scan-denylist.mjs` checks what a branch adds (every added line, fixtures included, every
+changed file's name, every commit message and the branch name) against a list of terms each
+contributor keeps outside every repository. It names each hit by where it is and by its line in the
+list, never by the term, and exits 2 instead of passing when the list is missing, empty, or inside
+the repository or any of its worktrees. `CONTRIBUTING.md` asks for it before every push, and
+`docs/public-content-policy.md` names it beside the validator.
+
+**Why.** A `.toml` fixture, a `.sh` helper, a `.jsonl` capture or an extensionless config was never
+read, and this repository's own `Cargo.toml` fixture was one of them. And most of what leaks from
+real work has no shape a public validator can hold: a client's name, a person's handle, an internal
+host, an account id.
+
+**Impact.** Contributor tooling only. Nothing installed changes, and neither script ships in a
+skill.
+
+**12. Every skill is documented in the shape the catalogue shares**
+
+**What.** `release-notes` publishes two asks in its Usage Examples, its two specimen notes sit under
+`## What it looks like`, and it and `report-progress` link their new references under
+`## Deeper reading`. `request-answers`' description says the run writes the brief, and that the
+brief reaches a person only when a person sends it or approves its exact text; the skill gains a
+When to Use section and an example of a question about a screen. `mine-session-transcripts` links
+the project-adaptation guide by its URL, which an installed copy can open, and `model-routing`'s
+Hermes reference names its command line. In the README, the install section points to each skill's
+own entry, the update section covers adapted copies, the hooks section names the two hooks it left
+out, the browser line says how to build the site, and the asks of `mine-session-transcripts` and
+`handoff-prompt` are their own Usage Examples, word for word. `CONTRIBUTING.md` says what every
+shipped skill owns, `docs/releases.md`' Published catalog describes every skill, and
+`docs/project-adaptation.md` names the five skills a project can adapt.
+
+**Why.** The site and the README show what a skill publishes, so a skill whose examples were
+specimens showed no ask, and a README ask that rewords its skill differs from the one the site shows.
+A description is what a runtime matches, and one said the run sends what its own rules say it never
+sends alone. And a repository path names nothing in a copy installed into a project.
+
+**Impact.** Documentation only. No step, hard line, slot or default changes meaning.
+
+**Compatibility.** **Additive. No migration.** No skill was removed or renamed, no declared id
+existed before this release, no hard line was relaxed, and no package, gate or adapter changed. One
+CI workflow changed: the Workspace Governance release consumer passes the runner's `npm` and `tar`
+to its verifier. Four things behave differently once updated, each described above:
+`onboard-project`'s armed check, in a repository that already holds adapted copies, names them until
+a refresh; `resolve-problem-report` holds a released fix open until it is verified where its reader
+meets it; `request-answers` attaches screenshots at brief and normal depth where a renderer is
+available; and `request-answers` prepares an ask to a person and never sends it on its own word.
+Skill metadata versions: `mine-session-transcripts` 1.0.0, new; `onboard-project` 1.0.1 to 1.1.0;
+`report-progress`, `request-answers`, `resolve-problem-report` and `update-agent-skills` 1.0.0 to
+1.1.0; `publish-agent-skill` 1.0.0 to 1.0.1.
+
+**Who should update.**
+
+- **Anyone who wants the new skill:**
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill mine-session-transcripts
+  ```
+
+  Add `--global` for a global install.
+- **Anyone with the pack installed:** update in each scope where it is installed, then restart or
+  reload agents whose loaders cache installed files.
+
+  ```bash
+  npx skills update --project --yes   # from the project
+  npx skills update --global --yes
+  ```
+
+- **Projects that adapt a pack skill, or want to:** follow
+  `skills/update-agent-skills/references/adapting.md`. A project whose copies were composed from a
+  commit before this release moves each pin to `v0.27.0` as "Moving a pin" says (`base.ref`, and
+  `base.commit` and `base.tree` if recorded), and composes once from a clone of the pack at `v0.27.0`
+  so that its vendored composer is this release's. `skills update` never moves a pin.
+- **Repositories onboarded with `onboard-project` that hold adapted copies:** run its refresh once
+  after updating, so the profile records the copies and the routing names them.
+- **Contributors:** run `node scripts/scan-denylist.mjs --denylist <your file> --base origin/main`
+  before every push.
+
 ## 0.26.0
 
 **What.** Workspace Governance 0.3.0 adds a local stdio MCP server, portable logical
