@@ -265,8 +265,11 @@ clock time that leaves part of the work out says what it covers. A new reference
 has the shape, the arithmetic, the clock commands, and what keeps updates on a cadence coming:
 a tick strictly inside the harness's cap on background time, re-armed before each update is
 written, a standing order written where a context compaction cannot take it, and a last update
-that says the updates stop. It also says that a status question sent while a fan-out runs may
-reach every agent in it. Two hard lines come with the head line: a figure nobody measured is
+that says the updates stop. When the interval is as long as the cap or longer, no tick strictly
+inside the cap can reach it, so step S1 chains wake-ups, each armed for the time left until the
+update or strictly inside the cap, whichever is shorter. A wake-up before the update is due
+re-arms the next one and writes nothing; the one that reaches the update's time writes it. The
+reference also says that a status question sent while a fan-out runs may reach every agent in it. Two hard lines come with the head line: a figure nobody measured is
 reported as not measured, never as 0, and that includes a percentage with no register to count;
 and an ETA is labelled as an estimate with its basis, so it is never the prediction of a pending
 result that rule 5 forbids. Rule 5, the checklist and the step that splits verified from claimed
