@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Twenty-eight public, portable Agent Skills for agent operations, reviews, releases
+  Thirty public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories, and
   evidence-backed investigation of what a change would touch.
@@ -18,7 +18,7 @@ generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Twenty-eight skills. Each one below carries its own install command and a couple of
+Thirty skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -213,7 +213,7 @@ Ask it:
 
 - *"Use release-notes before you publish this. Run the impact analysis rather than guessing at it, settle the semver bump against what that analysis says instead…"*
 
-More: [Skill](skills/release-notes/SKILL.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
+More: [Skill](skills/release-notes/SKILL.md) · [Versioning a product](skills/release-notes/references/versioning-a-product.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
 
 ### `investigate-codebase`
 
@@ -340,7 +340,7 @@ Ask it:
 - *"Here is the report as it came in."*
 - *"They say the nightly total double-counts and they quote nine figures."*
 
-More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md)
+More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) · [Assessing a report](skills/resolve-problem-report/references/assessing-a-report.md)
 
 ### `new-ux-discovery`
 
@@ -391,7 +391,7 @@ More: [Skill](skills/layer-repository-docs/SKILL.md) · [Entry points](skills/la
 
 ### `report-progress`
 
-Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn.
+Report progress on long or multi-phase work in a fixed shape — what is done, what is running, what is next — keeping verified numbers separate from claimed ones, naming the user-facing consequence, and stating corrections out loud. Use when work spans phases, background agents, or more than one turn, or when the reader asks for a percentage, an ETA, or updates at a set interval.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill report-progress
@@ -403,7 +403,7 @@ Ask it:
 - *"Give me a status report on the migration."*
 - *"Before you end this turn: you started three background agents."*
 
-More: [Skill](skills/report-progress/SKILL.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
+More: [Skill](skills/report-progress/SKILL.md) · [Percentage, ETA and cadence](skills/report-progress/references/percentage-eta-cadence.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
 
 ### `isolated-change-validation`
 
@@ -451,7 +451,7 @@ Ask it:
 - *"Turn this list of twelve open questions into asks."*
 - *"Ask the subagent for the three facts we are missing."*
 
-More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md)
+More: [Skill](skills/request-answers/SKILL.md) · [Brief template](skills/request-answers/references/answer-sheet.md) · [Per-item contract](skills/request-answers/references/item-file.md) · [Pointing at the screen](skills/request-answers/references/pointing-at-the-screen.md)
 
 ### `handoff-prompt`
 
@@ -484,6 +484,23 @@ Ask it:
 - *"Before you branch: fetch the base and tell me how far behind that checkout is."*
 
 More: [Skill](skills/work-in-external-repo/SKILL.md)
+
+### `mine-session-transcripts`
+
+Find what a person actually said to an agent from the harness's own session transcripts, without printing them: locate the transcripts of a repository and its worktrees, subagents included; stream them; take the messages typed at the prompt and the ones queued while a turn was running, and count everything else by kind; find a message by a fixed phrase and report only its line, time and session; show one message only after a secret scan; and check whether each message is written down in the repository, with controls that prove the matcher works. Symptoms: what did I tell the agent about X, find the message where I asked for Y, when did I say that, was this instruction ever written down, what was decided in chat and never committed, did the session get the message I sent while it was busy. It reads transcripts and never edits or prints them; recording a decision it finds is decision-journal's, and what the code does about it is investigate-codebase's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill mine-session-transcripts
+```
+
+Ask it:
+
+- *"Find the message where I told the agent to keep CSV as the default export format — the line, the time and the session, not the transcript."*
+- *"How many messages did I send in this repository's sessions in the last two weeks, and how many while the agent was busy?"*
+- *"Which of the instructions I typed this month are not written down anywhere in the repo? Prove the matcher works first."*
+
+More: [Skill](skills/mine-session-transcripts/SKILL.md) · [Record shapes](skills/mine-session-transcripts/references/record-shapes.md) · [Documented or not](skills/mine-session-transcripts/references/documented-or-not.md) · [Script](skills/mine-session-transcripts/scripts/transcripts.mjs)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -534,7 +551,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the twenty-nine public skills from crissmoldovan/agent-skills.
+Install or update the thirty public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -594,9 +611,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The twenty-nine, in the order they appear above:
+The thirty, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -897,6 +914,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/describe-changes/references/output-contract.md`](skills/describe-changes/references/output-contract.md) — change-description contract.
 - [`skills/blast-area/references/output-contract.md`](skills/blast-area/references/output-contract.md) — blast-map output envelope.
 - [`skills/investigate-codebase/references/documenting-the-run.md`](skills/investigate-codebase/references/documenting-the-run.md) — the run-record convention, carried byte-identically by each of the six.
+- [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
