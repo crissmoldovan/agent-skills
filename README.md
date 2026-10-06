@@ -461,9 +461,9 @@ npx skills add crissmoldovan/agent-skills --skill handoff-prompt
 
 Ask it:
 
-- *"Write this as a prompt I can paste into a session working on <owner>/<repo>."*
-- *"Draft the feature request against the shared library — say what we are NOT asking for."*
-- *"Hand this to tomorrow's session: what is done with evidence, what is running, what is next."*
+- *"Write this up as a prompt I can paste into a session working on <other-repo>."*
+- *"Draft the feature request against the shared UI library. Say plainly what we need and what we are NOT asking them to do, because last time the scope grew."*
+- *"I'm handing this to tomorrow's session. Write the brief: what is done with its evidence, what is running, what the next act is and what it waits on."*
 
 More: [Skill](skills/handoff-prompt/SKILL.md) · [Handoff contract](skills/handoff-prompt/references/handoff-contract.md)
 
