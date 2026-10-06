@@ -336,7 +336,7 @@ Ask it:
 - *"Here is the report as it came in."*
 - *"They say the nightly total double-counts and they quote nine figures."*
 
-More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md)
+More: [Skill](skills/resolve-problem-report/SKILL.md) · [Gate contracts](skills/resolve-problem-report/references/gate-contracts.md) · [Assessing a report](skills/resolve-problem-report/references/assessing-a-report.md)
 
 ### `new-ux-discovery`
 

@@ -297,6 +297,92 @@ test('resolve-problem-report gates the arc and delegates landing, description, a
   assert.doesNotMatch(resolveProblemReport, /\bCUE\b|\bRGC\b/);
 });
 
+test('resolve-problem-report assesses a report on three separate questions, and does not call a released fix verified', async () => {
+  const assessing = await read('skills/resolve-problem-report/references/assessing-a-report.md');
+  // SKILL.md is at the body cap, so it gains no lines: G0 points to the reference, G5 names where the
+  // reader meets the fix, prerequisite 1 asks where the date came from, and the checklist holds both.
+  assert.match(resolveProblemReport, /Answer severity, priority\s+and effort separately, each by its owner: \[assessing a report\]\(references\/assessing-a-report\.md\)/);
+  assert.match(resolveProblemReport, /its date and the source it was taken from/);
+  assert.match(resolveProblemReport, /nor the fix being released[\s\S]{0,200}requires and, once released, where\s+the reader meets it/);
+  assert.match(resolveProblemReport, /\| \*\*G5 verify \+ describe\*\* \|[^\n]*\(a released fix also where its reader meets it\)/);
+  assert.match(resolveProblemReport, /close the report \(a fix only\s+once it is verified where its reader meets it\)/);
+  assert.match(resolveProblemReport, /severity, priority and effort are three answers, each with its owner/);
+  assert.match(resolveProblemReport, /a released fix where its\s+reader meets it/);
+  assert.match(section(resolveProblemReport, 'Deeper reading'), /\[assessing a report\]\(references\/assessing-a-report\.md\)/);
+  // Adaptable on its own: its own slots, hard lines and steps (the skill's first ids), its skill
+  // named in backticks rather than linked, and the guide by a URL that resolves from any copy.
+  assert.match(assessing, /^## Bindings$/m);
+  for (let slot = 1; slot <= 9; slot += 1) assert.match(assessing, new RegExp(`^\\| B${slot} \\|`, 'm'));
+  for (let line = 1; line <= 3; line += 1) assert.match(assessing, new RegExp(`^- \\*\\*H${line}\\. `, 'm'));
+  for (let step = 1; step <= 6; step += 1) assert.match(assessing, new RegExp(`^\\d+\\. \\*\\*S${step}\\. `, 'm'));
+  const declared = new Set([...assessing.matchAll(/^(?:\| (B\d+) \||- \*\*(H\d+)\. |\d+\. \*\*(S\d+)\. )/gm)].map((m) => m[1] ?? m[2] ?? m[3]));
+  for (const id of assessing.match(/\b[BHS][1-9]\d*\b/g)) assert.ok(declared.has(id), `the reference cites ${id}, which it does not declare`);
+  assert.match(assessing, /\| B1 \|[^\n]*\| skill \| `resolve-problem-report` \|/);
+  assert.match(assessing, /\| B9 \|[^\n]*\| value \| ask once \|/);
+  assert.doesNotMatch(assessing, /\]\([^)]*SKILL\.md/);
+  assert.match(assessing, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
+  // Three questions, each with its owner, answered at G0 and kept apart from the arc's own measures.
+  assert.match(assessing, /\*\*H1\. Severity, priority and effort are three questions, and no answer sets another\.\*\*/);
+  assert.match(assessing, /Answer the three questions at G0, before G1's deep work/);
+  assert.match(assessing, /"first estimate"/);
+  assert.match(assessing, /recorded as proposed/);
+  assert.match(assessing, /Severity is not the band's cost of being wrong/);
+  assert.match(assessing, /Effort is not a candidate's size/);
+  assert.match(assessing, /worst credible reader/);
+  assert.match(assessing, /keep the old answer beside the new one/);
+  // Priority's check is cited to its source and leaves the level to who is waiting, not to the harm.
+  assert.match(assessing, /\[triage best practices\]\(https:\/\/www\.chromium\.org\/for-testers\/bug-reporting-guidelines\/triage-best-practices\/\)/);
+  assert.match(assessing, /The\s+level follows from that answer, not from the harm \(H1\)/);
+  // `now` is the call of the person who rules priority, never the harm's: harm that continues is
+  // evidence for severity and a reason to ask for that call at once, and the agent's own level stays
+  // proposed until it comes.
+  const nowRow = assessing.match(/^\| \*\*now\*\* \|([^\n]*)\|$/m);
+  assert.ok(nowRow, 'the priority table has no `now` row');
+  assert.doesNotMatch(nowRow[1], /harm/i, 'the `now` row lets the harm set the priority, against H1');
+  assert.match(nowRow[1], /The person bound as B2 has called it urgent/);
+  assert.match(assessing, /Harm that is continuing for readers is evidence for severity, not a\s+priority/);
+  assert.match(assessing, /only their call makes it `now`/);
+  // The real date, with its source; nothing backfilled.
+  assert.match(assessing, /Date the report from its source/);
+  assert.match(assessing, /\*\*H3\. Nothing is dated or judged from memory\.\*\*/);
+  // A commit or a tracker says when someone wrote the report down, never when it was reported, so B7
+  // takes the date only from a source that states it, and with none the date is unknown.
+  const dateSources = assessing.match(/^\| B7 \|([^\n]*)\|$/m);
+  assert.ok(dateSources, 'the reference has no B7 row');
+  assert.doesNotMatch(dateSources[1], /commit|tracker/i, 'B7 dates a report from when someone wrote it down');
+  const assessingFlat = assessing.replace(/\s+/g, ' ');
+  assert.match(assessingFlat, /is when someone wrote it down: a recording date, never the report's/);
+  assert.match(assessingFlat, /With no source that states when it was reported, the date is unknown \(H3\)/);
+  // Released is not verified: in the release first, then checked where the reader meets it, even when
+  // told to close.
+  assert.match(assessing, /\*\*H2\. A released fix is not a verified one\.\*\*/);
+  assert.match(assessing, /even when someone says to close it/);
+  assert.match(assessing, /git merge-base --is-ancestor <fix commit> <released commit>/);
+  assert.match(assessing, /the merge or squash commit, not the branch's own/);
+  assert.match(assessing, /the one the release records as built or served, not a branch tip/);
+  assert.match(assessing, /cherry-pick or a backport[\s\S]{0,120}by its\s+patch id/);
+  assert.match(assessing, /\*\*S5\. Once the fix is released, verify where the reader meets it \(B8\)/);
+  assert.match(assessing, /A surface no check reached is not verified/);
+  assert.match(assessing, /Close a fix as fixed only once it is verified/);
+  // A fix that has landed but is not released has a state of its own, and G5's close waits for it.
+  assert.match(assessing, /It is\s+landed once it is on the line a release is cut from, released once S4 passes, and verified once\s+S5's checks reach where the reader meets it/);
+  assert.match(assessing, /G5 can describe and review\s+a landed fix, but its close waits for verification/);
+  // It assesses one report; the register of every report is not this skill's.
+  assert.match(assessing, /keeps no register of every report/);
+  // The organisation markers are read from the block above rather than restated, so a change to that
+  // pattern reaches this file too, with a guard that every marker it checks is checked here.
+  const markerSource = (await read('test/catalog-content.test.mjs')).match(/assert\.doesNotMatch\(resolveProblemReport, \/(.+?)\/\);/);
+  assert.ok(markerSource, "resolve-problem-report's block no longer checks for organisation markers");
+  assert.ok(markerSource[1].split('|').length >= 2, 'every marker that block checks is checked here, not only the first');
+  const organisationMarkers = new RegExp(markerSource[1]);
+  for (const text of [resolveProblemReport, assessing]) {
+    assert.doesNotMatch(text, organisationMarkers);
+    assert.doesNotMatch(text, /~\/work\//);
+    for (const address of text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []) assert.match(address, /@example\.com$/);
+    assert.doesNotMatch(text, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
+  }
+});
+
 test('new-ux-discovery gates every candidate and keeps the dropped ones on record', () => {
   assert.match(newUxDiscovery, /NOT-ALREADY-IMPLEMENTED/);
   assert.match(newUxDiscovery, /NO-CONFUSION/);
@@ -437,7 +523,8 @@ function fencedBlockAfter(source, marker, label) {
 
 const runRecordConvention = await read('skills/investigate-codebase/references/documenting-the-run.md');
 const inBodyCoreTemplate = fencedBlockAfter(runRecordConvention, '## In-body core (copy verbatim)', 'in-body core');
-const runRecordPointer = fencedBlockAfter(runRecordConvention, 'Follow it, in the same section, with this sentence exactly:', 'pointer sentence');
+const pointerMarker = 'Follow it, in the same section, with the sentence below, word for word,';
+const runRecordPointer = fencedBlockAfter(runRecordConvention, pointerMarker, 'pointer sentence');
 
 test('every --document skill embeds the verbatim in-body core and the exact pointer sentence', () => {
   assert.ok(inBodyCoreTemplate.includes('<skill-name>'), 'the in-body core template lost its <skill-name> placeholder');
@@ -453,11 +540,23 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
   ]);
   assert.deepEqual([...sources.keys()], documentingRunCarriers);
 
+  // The convention gives the sentence's words in the fence and names, as code, the words that link
+  // and the path they link to from the skill's root: a link written in the fence would resolve from
+  // references/, where that path names nothing.
+  assert.doesNotMatch(runRecordPointer, /\]\(|^ {0,3}\[[^\]]+\]:/m, 'the pointer sentence in documenting-the-run.md is written as a link, which resolves from references/');
+  const anchor = runRecordConvention.indexOf(pointerMarker);
+  const lead = runRecordConvention.slice(anchor, runRecordConvention.indexOf('```markdown\n', anchor));
+  const named = lead.match(/linking the words\s+`([^`]+)`\s+to\s+`([^`]+)`/);
+  assert.ok(named, 'documenting-the-run.md does not say to link, naming as code, the words of the pointer sentence that link and the path they link to');
+  const [, words, target] = named;
+  assert.equal(runRecordPointer.split(words).length, 2, `the pointer sentence holds "${words}" exactly once`);
+  const pointer = runRecordPointer.replace(words, `[${words}](${target})`);
+
   for (const [name, source] of sources) {
     const expected = inBodyCoreTemplate.replaceAll('<skill-name>', name);
     assert.ok(source.includes(expected), `${name}/SKILL.md does not embed the verbatim in-body core block from documenting-the-run.md`);
     assert.ok(!source.includes(inBodyCoreTemplate), `${name}/SKILL.md left the <skill-name> placeholder unsubstituted`);
-    assert.ok(source.includes(runRecordPointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence`);
+    assert.ok(source.includes(pointer), `${name}/SKILL.md does not carry the exact run-record pointer sentence, ${pointer}`);
   }
 });
 
