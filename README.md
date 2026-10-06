@@ -599,7 +599,7 @@ npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 | Copied vs symlinked | Preserve the current form unless conversion is requested | installed path/form and published-byte comparison where possible |
 | Unmanaged/provenance-less | Ask before replacing only that identity | old path accounted for; new source and bytes verified |
 | Native plugin/package | Use its marketplace or registry updater | exact native version, namespace, install path, and bytes |
-| Adapted copy of a pack skill | Never through `skills update`: change `base.ref` in its `adapter.json`, run `adapt.mjs compose --write`, and review the generated diff | `adapt.mjs check` passes; `check-pack-freshness.mjs --repo <project>` lists the pin against the latest release |
+| Adapted copy of a pack skill | Never through `skills update`: change `base.ref` (and `base.commit` and `base.tree`, if recorded) in its `adapter.json`, run `adapt.mjs compose --write`, and review the generated diff | `adapt.mjs check` passes; `check-pack-freshness.mjs --repo <project>` lists the pin against the latest release |
 | Manual upload/raw file | Replace through the owning UI/channel | artifact verified; otherwise `manual action required` |
 | Remote machine/container | Treat as another explicitly named target | independent readback on that target |
 | Unsupported client or unreachable target | Invent no destination | literal `unsupported` or `deferred` outcome |

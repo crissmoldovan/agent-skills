@@ -296,6 +296,11 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
 
   assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
   assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);
+  // The README's update path for an adapted copy is the guide's "Moving a pin": a recorded
+  // `base.commit` or `base.tree` guard moves with the ref, or compose refuses the new ref.
+  const adaptedPlane = readme.match(/^\| Adapted copy of a pack skill \|.*$/m)?.[0] ?? '';
+  assert.match(adaptedPlane, /change `base\.ref` \(and `base\.commit` and `base\.tree`, if recorded\)/);
+  assert.match(adapting, /Change `base\.ref` \(and `base\.commit` and `base\.tree`, if recorded\)/);
   assert.match(contributing, /`update-agent-skills` owns moving installed copies wherever they live, and composing,\s+checking and listing the adapted copy/);
   assert.match(releases, /`update-agent-skills` moves installed copies wherever they live, and owns the adapted copy/);
 
