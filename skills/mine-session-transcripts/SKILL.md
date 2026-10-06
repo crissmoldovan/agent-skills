@@ -20,14 +20,14 @@ Three failures do the damage.
 
 **Missing the queued messages.** A message typed while the agent is working is not stored as a user
 turn. It is stored as a queued-command attachment, and a search for user turns never sees it. In one
-two-day session, 157 of the 369 messages a person sent were queued.
+two-day session, many of the messages a person sent were queued.
 
 **Printing the transcript.** `cat`, `head` or a plain `grep` puts the matching records into the
 conversation, and with them every secret, address and pasted credential on those lines. From there
 they reach the next summary, a report, and sometimes a commit.
 
 **Trusting a matcher that cannot match.** "Is this written down?" was once answered by comparing
-messages stripped of punctuation against files that still had their commas. It reported 0 of 11
+messages stripped of punctuation against files that still had their commas. It reported none of the
 messages documented when most of them were.
 
 This skill reads transcripts as data, counts before it reads, says where a message is without

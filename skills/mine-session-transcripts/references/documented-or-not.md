@@ -32,7 +32,7 @@ about the code, for the skill bound as B10.
 
 A message normalised one way and a corpus normalised another finds nothing, and reports nothing as
 written down. That happened: messages with their punctuation stripped were compared with files that
-still had their commas, and the count came back 0 of 11 documented when most of the 11 were. Nothing
+still had their commas, and the count came back as none documented when most of them were. Nothing
 looked wrong, because "not written down" is exactly the answer the check exists to give.
 
 So any change to the normalisation is made in one function that both sides call, and the controls

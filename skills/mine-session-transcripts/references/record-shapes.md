@@ -67,8 +67,8 @@ its delivered turn, and words only inside the reminder are no person's in either
 (Guarded: the script was built against a constructed record, and how often real transcripts mix the
 two was not measured.)
 
-How much this matters, as anonymous facts from the history read: in one two-day session 157 of the
-369 messages a person sent were queued; across all the sessions of another checkout, 127 of 542. A
+How much this matters, as anonymous facts from the history read: in one two-day session many of the
+messages a person sent were queued, and so were many across all the sessions of another checkout. A
 count of user records alone would have missed every one of them.
 
 ## Records that are not, and the kind each is counted under

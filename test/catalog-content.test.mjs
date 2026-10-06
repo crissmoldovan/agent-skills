@@ -1167,6 +1167,11 @@ test('mine-session-transcripts reads transcripts without printing them, and stat
   assert.match(shapes, /`origin\.kind: "human"`/);
   assert.match(documented, /## Symmetry is the whole trick/);
   assert.match(documented, /\*\*A positive control\.\*\*/);
+  // The failures are described, not measured: a count from the history the skill was built on is
+  // not one a reader can check, so none is quoted.
+  for (const [where, text] of [['SKILL.md', skill], ['record-shapes.md', shapes], ['documented-or-not.md', documented]]) {
+    assert.doesNotMatch(text, /\b\d+\s+of\s+(?:the\s+)?\d+\b/, `${where} quotes a measured count`);
+  }
   // Observed, not assumed: every shape is tagged, and the harness versions are named.
   assert.match(shapes, /\*\*OBSERVED\*\*: read from real transcripts written by \*\*Claude Code 2\.1\.224 to 2\.1\.286\*\*/);
   assert.match(shapes, /\| NOT OBSERVED \|/);
