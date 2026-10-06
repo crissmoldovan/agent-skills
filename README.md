@@ -440,7 +440,7 @@ More: [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-p
 
 ### `request-answers`
 
-The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth.
+The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then write one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth, showing the screen for each question about something a reader sees. Nothing reaches a person on the run's own word: it goes when a person sends it or approves its exact text, and only an ask to another agent is delivered by the run itself.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill request-answers
