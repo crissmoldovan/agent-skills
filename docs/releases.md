@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, and `handoff-prompt`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, and `mine-session-transcripts`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -136,8 +136,8 @@ pack carries.
 `scripts/verify-skills.mjs` now checks every file under `skills/` that declares `## Bindings`, a
 reference file as much as `SKILL.md`. It requires well-formed ids, unique across the skill, one
 letter for all of a skill's slots, a known kind and a default for every slot, and a `skill` slot
-that defaults to a skill this catalogue ships. No skill declares the section yet, so nothing that
-passed before fails now.
+that defaults to a skill this catalogue ships. No skill declared the section before this release,
+so nothing that passed before fails now.
 
 The pins rely on a tag policy that had never been written down, and this file now carries it under
 [Tags](#tags): a published tag is never moved or deleted, unless it carries personal or client
@@ -147,6 +147,253 @@ the catalogue's, and a per-skill tag's where the skill has one, with a major cha
 middle number while the version is below 1.0.0. `publish-agent-skill` now says that renaming or
 removing an id is major among its pitfalls, which is the only change to an installed skill, and
 its metadata version moves from 1.0.0 to 1.0.1 for that line.
+
+### `release-notes` versions a product that has no API, treats a bump judge as advice, and can be adapted
+
+`release-notes` judged the level of a release by its API: an export removed, an argument made
+required, a return shape changed. An app, a site, a dashboard or a report has readers rather than
+callers, so the checklist had nothing to say about most of what such a release changes. A new
+reference, [`versioning-a-product.md`](../skills/release-notes/references/versioning-a-product.md),
+judges it by what a reader relies on: removed, reversed or redefined is a major, a new capability
+a minor, a correction a patch, and a removal is a patch only when the record says what went was
+false, broken or never seen. The level is read from a ledger written first, one was-and-now entry
+per change a reader can reach, whose words have to be true before anything reads them. The
+reference also covers pre-release numbers, which name the number they become; a renumbering
+restart, recorded once, in the release that makes it; and why a back-test of a version judge on
+the releases its rules were written from proves little, with two hold-out checks to run instead.
+One new line says that a version or a judgement computed from the working tree counts every
+uncommitted change, so `git status` is read first, and the Migration question now names a reader's
+steps too: where a moved screen or figure is now, and what replaces what was removed.
+
+Some projects run a tool that proposes the level. The skill now treats it as advice: read the
+words it quotes, then either correct the impact analysis and the number with it, or overrule the
+tool on the record, and never reword a change until it agrees. A change's words that are untrue
+are still corrected, on the record with the reason, even when the correction moves the number.
+
+A project can now name the person who rules the number. When that person departs from the impact
+analysis, they are shown what it found; if they keep their number, the number is theirs, and the
+note is honest when it records both readings and the ruling. When they cannot be shown it before
+the release, the release waits for their answer, because stamping either number without it would
+be the agent's ruling. A mismatch shipped without both readings, or on the agent's own say-so, is
+still dishonest. A project that names nobody keeps the rule as it was: the impact analysis sets
+the number, and when it disagrees with the plan, the bump changes or the release does. So no
+existing guidance changes meaning, and this is new guidance, a minor change under
+[Versioning](#versioning). The procedure's third and fifth steps, its pitfalls and its third
+verification check say the same.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: eight slots, B1 to B8 (where the version is read from, the destinations, the release
+checklist, the bump judge, who rules the number, the two sibling skills it hands work to,
+`describe-changes` for a change that already landed and `release-ledger` for a what's-new feature
+inside a product, and where a product with no API keeps its ledger), four hard lines, H1 to H4,
+and its seven steps as S1 to S7. Every slot's default is what the skill does on its own, so a
+project that binds nothing gets the same procedure. Nothing needs migrating: no project could
+adapt the skill before it declared these ids. The `release-notes` gate is unchanged.
+
+### `request-answers` shows the screen each question is about, gives the reader the answered rows, and can be adapted
+
+A question about something a reader sees, put in words alone ("the second sentence under the
+chart"), names a different sentence for every reader, and the answer comes back about the wrong
+one. `request-answers` now shows it. A question about a sentence, a tile, a row or a control
+carries two images at every depth: an overview of the screen with the thing boxed, so the reader
+can find it, and a close-up with the same box and a label naming the question. Brief and normal
+depth were transcript-only, so this changes the skill's base text, and the header now says which
+questions carry shots. A new reference,
+[`pointing-at-the-screen.md`](../skills/request-answers/references/pointing-at-the-screen.md),
+says how shots are taken and checked. The build is pinned to the commit the reader saw and
+rendered on the machine, with any data service it reads running there too, seeded locally, and
+every other host blocked. A live site, a hosted data service or a signed-in session is never
+shot. The renderer draws the box and the label in the page before the capture, and no image is
+changed afterwards. A target that is not found fails its shot rather than being replaced by a
+whole screen. Every image is opened before it goes, and every variant the question applies to is
+shot. A state only a signed-in reader sees, and a screen there is no build of here, are described
+in words. In an environment with no renderer,
+each question says in words where to look and the header says no shots travel, so the brief
+works there as it did. When the shooting shows something that disagrees with a record, it goes
+to the person the run answers to as a question, with its evidence. Nobody fixes it, and no
+question is quietly rewritten around it.
+
+The ledger kept the answered questions, but only for the asker, so the reader could be asked
+again what they had already answered. Every brief now carries a fourth part, "Already settled",
+before "Not for you". It lists the closed rows that concern this reader, each with how it
+closed, by whom, and the words or the evidence. Ids never move: a question keeps its number in
+every later brief, and a closed number is never used again, so a reply's "Q7" means one question
+for good. The brief's template and worked example carry both changes, and the per-item contract
+names the shot of an item about a screen.
+
+The hunt-down pass gains three rules. A judgement that a standing ruling already settles is
+"decided here", and leaves the ask with the ruling cited. Without such a ruling, the decision the
+run would take is a proposal to the person it answers to, and stays off the brief, as settled
+and as open, until they rule. Every claim that takes a question off goes past an independent refuter first.
+A question the recipient asked is not a question for them.
+
+The skill now says who sends an ask to a person. The run prepares the ask and never sends it on
+its own word: the person bound to send it sends it, or approves its exact text, recipients and
+attachments for sending. Unbound, that is whoever asked for the ask, and an ask to another agent
+is delivered by the run as before.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: eight slots, B1 to B8 (who the run answers to, who sends, who may be messaged, how a
+screen is rendered, the three sibling skills it points elsewhere to, `decision-journal`,
+`report-progress` and `delphi-ground`, and where a round's files are kept), five hard lines, H1 to
+H5, and its procedure as seven steps, S1 to S7. Every slot's default is what the skill does on its
+own. The shots and the settled rows add to what a brief carries, and drop nothing it carried
+before; in an environment with no renderer, brief and normal depth still attach no files. So this
+is new guidance, a minor change under [Versioning](#versioning). Nothing needs migrating: no
+project could adapt the skill before it declared these ids. The skill's metadata version moves
+from 1.0.0 to 1.1.0, for the shots, the settled rows and the slots.
+
+### `report-progress` gives a percentage with its basis and an ETA as a clock time, sends updates nobody has to ask for, and can be adapted
+
+A reader waiting on long work asks how far along it is and when it will be finished, and often
+asks to be told at a set interval. `report-progress` answered neither question: its three
+sections say what is done, running and next, and a reader who wanted a percentage or a time to
+plan around got whatever the agent improvised. Improvised, both numbers fail in the same few
+ways: a percentage with no basis, or one whose rows are in two units and cannot be added up; a
+denominator that grows silently, so that work being found reads as a stall; an ETA whose headline
+covers part of the work; a zone label typed from memory, wrong for half of every year; and timed
+updates that stop without anyone noticing, so the reader has to ask after all.
+
+A report can now open with an optional **head line**, under its first line and above the three
+sections: the percentage, counted from a named register just before writing, in one unit, with
+work blocked on a person in the denominator and never in the numerator, and the ceiling without
+them; and the ETA in agent-hours, then wall-clock at the agents the running section counts, then
+a clock time in each reader's zone, pasted from a command, dated when it is not today there, and
+labelled as an estimate with its basis. With no agent running, the ETA is agent-hours alone, and a
+clock time that leaves part of the work out says what it covers. A new reference,
+[`percentage-eta-cadence.md`](../skills/report-progress/references/percentage-eta-cadence.md),
+has the shape, the arithmetic, the clock commands, and what keeps updates on a cadence coming:
+a tick strictly inside the harness's cap on background time, re-armed before each update is
+written, a standing order written where a context compaction cannot take it, and a last update
+that says the updates stop. It also says that a status question sent while a fan-out runs may
+reach every agent in it. Two hard lines come with the head line: a figure nobody measured is
+reported as not measured, never as 0, and that includes a percentage with no register to count;
+and an ETA is labelled as an estimate with its basis, so it is never the prediction of a pending
+result that rule 5 forbids. Rule 5, the checklist and the step that splits verified from claimed
+now say as much, and a labelled ETA passes all three.
+
+Nothing a report owed before is dropped. The three sections are still owed; outside a cadence, a
+report nobody asked for a percentage or an ETA carries no head line; and the head line's "in
+flight" is task metadata that never stands in for the running section, which still comes from
+lifecycle evidence alone. So a report written to the old shape is still complete, and this is new
+guidance, a minor change under [Versioning](#versioning). The description gains the new triggers:
+a request for a percentage, an ETA or updates at a set interval. The `report-progress` gate is
+unchanged: it reads the three section labels, and a head line is not one of them.
+
+The skill also declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes: nine slots, B1 to B9 (the cadence, the zones a clock time is given in, the register a
+percentage is counted from, the command that measures, how a timed tick is raised and the cap on
+it, where the standing order is written, and the three sibling skills it hands work to,
+`agent-lifecycle` for what is running, `describe-changes` for a change that already landed and
+`request-blocks-review` for whether the work is any good), eight hard lines, H1 to H8 (the five
+rules, that nothing in the skill installs or arms the gate, and the two above), and its eleven
+steps as S1 to S11. Every slot's default is what the skill does on its own, so a project that
+binds nothing gets the same procedure. Nothing needs migrating: no project could adapt the skill
+before it declared these ids. The skill's metadata version moves from 1.0.0 to 1.1.0, for the head
+line, the cadence and the slots.
+
+### `resolve-problem-report` answers severity, priority and effort as three questions, and does not call a released fix verified
+
+Two judgements about a report were left to chance. At intake, `resolve-problem-report` restated
+the report as a claim and classified it, but said nothing about how bad it is, how soon it is
+wanted or how much work it is. Unasked, the three get answered as one sense of urgency, each
+borrowing from the others: a quick fix reads as minor, and a defect that is someone else's to fix
+reads as less severe. At the end, verification checked each requirement at its own evidence class
+but never said where, so a fix that had been released could be called fixed before anyone had
+looked at it where its reader meets it. And the report's date was whatever date came to hand,
+often the day someone copied it into a tracker.
+
+A new reference, [`assessing-a-report.md`](../skills/resolve-problem-report/references/assessing-a-report.md),
+answers severity, priority and effort at G0 as three separate questions, each with its owner:
+severity by whoever holds the evidence, because it is a finding; priority by the person who rules it
+when the report competes with other work, the agent's answer recorded as proposed until they do; and
+effort by whoever will do the work, verification included. It gives a default scale for each, says
+why none of them stands in for the band's cost of being wrong, a candidate's size or who chooses the
+fix, and says when to assess again, keeping the old answer beside the new one and naming what moved
+it. It dates the report from its source, best first, and names the source. It follows a fix from
+landed to released to verified. Before a release is recorded, it checks that the fix is in it, by
+the commit that landed and the commit the release records, or by the change itself when the fix was
+cherry-picked. Once the fix is released, it says what each check reached (a suite on a
+pre-production environment, a check that the tree released is the tree tested, signed-out checks on
+production, a person looking where the agent cannot). It closes a fix as fixed only once it is
+verified where its reader meets it, even when told to close it sooner, so a fix that has landed but
+is not released waits in that state rather than closing at G5. Three hard lines come with it:
+severity, priority and effort are three questions and no answer sets another; a released fix is not
+a verified one; and nothing is dated or judged from memory.
+
+`SKILL.md` gains no lines, because its body was already at the 484-line cap. Step 2 points to the
+reference. G5's verification names where the reader meets a released fix, its close waits for that,
+and the gate table's G5 row says the same. Prerequisite 1 asks where the report's date came from,
+two checklist items carry the new rules, and Deeper reading lists the file. The end of G5's closing
+paragraph is rewrapped to keep its length, and two paragraphs the change does not otherwise touch,
+G2's gate and step 7, are rewrapped at 100 columns, with no word changed, to make the room. The
+skill keeps no register of reports: ids, states across every report and the links between them stay
+out of it, as its rule against ticket hygiene says. A run that answered none of the three questions,
+or closed a released fix unchecked, now fails two checklist items it passed before; nothing that
+consumes the skill's output breaks, so this is substantive new guidance, a minor change under
+[Versioning](#versioning).
+
+The reference declares what a project adapts it by, as [project adaptation](project-adaptation.md)
+describes for a reference file a project adapts on its own: nine slots, B1 to B9 (the rest of the
+arc, which is `resolve-problem-report` itself so that an adapted copy can route it, who rules
+priority, the three scales, where each judgement is recorded, the sources a date is taken from,
+where the reader meets the fix, and who looks where the agent cannot), three hard lines, H1 to H3,
+and six steps, S1 to S6. They are the skill's first ids, so a file that declares more continues
+from them. Every slot's default is what the skill does on its own, so a project that binds nothing
+gets the same procedure. The skill's metadata version moves from 1.0.0 to 1.1.0, for the three
+questions, the report's real date and the three states of a fix.
+
+### The run-record convention names the link to itself as words and a path, not as a link
+
+`references/documenting-the-run.md`, which `investigate-codebase`, `blast-area`,
+`visualise-blast-area`, `land-complex-change`, `resolve-problem-report` and `new-ux-discovery`
+each carry byte for byte, showed the sentence a skill's `SKILL.md` points to it with as a fenced
+example, link included. That path is written from the skill's root, where `SKILL.md` sits; a link
+resolves from the file that holds it, fenced or not, and from `references/` the path names nothing.
+[Project adaptation](project-adaptation.md) refuses a copy in which a relative link does not
+resolve, so no copy that carried the file could be made. The fence now holds the sentence's words,
+and the line above it names, as code, the words that link and the path they link to. The sentence
+each `SKILL.md` carries is unchanged, and the test that holds every one of them to the convention
+now builds it from those words and that path. These six copies were the only Markdown files a
+skill carries in which a relative link, fenced code included, did not resolve from the file's own
+folder. The wording keeps its meaning, so this is a patch under [Versioning](#versioning).
+
+### A new skill, `mine-session-transcripts`: what a person said in an agent session, queued messages included, without printing the transcript
+
+**What.** `mine-session-transcripts` finds what a person told an agent from the harness's own
+session transcripts. It locates a repository's transcripts, its worktrees' and its subagents'
+included, and confirms each by the paths its records carry, because the directory name the harness
+derives from a path is lossy and a session that moves into a worktree is filed under the worktree.
+It counts a person's messages of three kinds: typed at the prompt, queued while a turn was running,
+and a slash command's arguments. Every other record is counted by its kind and left out, the
+harness's own elements are screened out of a person's turn wherever they sit in it, and nothing is
+deduplicated by text. It finds a message by a fixed phrase and reports its file, line, time and
+session, never its words, and says whether a message enqueued while the agent was busy ever reached
+the session; it shows one message only after a scan for secrets; and it checks whether each
+message is written down in the repository, with both sides normalised by one function and a
+control sentence that must be found before any count is shown. A path with no history is reported
+as unknown, never as zero. `scripts/transcripts.mjs` does each step with no
+dependency beyond Node, and `references/record-shapes.md` records every shape it relies on, tagged
+observed, documented or not observed, with the harness versions it was read from (Claude Code
+2.1.224 to 2.1.286).
+
+**Why.** What a person says to an agent is often the only record of a decision, and the
+transcript is the worst place to read it from. A message typed while the agent is busy is stored
+as a queued-command attachment and never as a user turn, so a search for user turns misses it: in
+one two-day session, 157 of 369 messages were queued. Printing a transcript to search it carries
+every secret and pasted address on those lines into the conversation. And a check of what is
+written down once compared messages stripped of punctuation with files that kept it, and reported
+0 of 11 documented when most were.
+
+**Impact.** A new skill; nothing installed changes. It declares `## Bindings`, so a project can
+adapt it without copying it ([project adaptation](project-adaptation.md)): eleven slots, `B1` to
+`B11`, with the history directory, the paths, the corpus, the zones, the names whose words arrive
+relayed and the secrets with no shape among the values, and `decision-journal`,
+`investigate-codebase` and `delphi-ground` as the sibling skills it hands work to; five hard lines,
+`H1` to `H5`; and seven steps, `S1` to `S7`. Its fit is `requestOnly`, so onboard-project never
+recommends it unasked. The suite holds its path encoder equal to onboard-project's and runs it over
+synthetic transcripts. The catalogue now ships thirty skills, and the README's header, which still
+said twenty-eight, says so too.
 
 ### `update-agent-skills` composes a project's adapted copy of a pack skill, checks it offline, and lists adapted pins
 
