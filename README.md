@@ -402,7 +402,7 @@ Ask it:
 
 - *"Use report-progress at each phase boundary and before you end a turn with background work running. What is done, what is running, what is next — each with a…"*
 - *"Give me a status report on the migration."*
-- *"Before you end this turn: you started three background agents."*
+- *"Until the migration is merged, send me an update every 20 minutes without my asking."*
 
 More: [Skill](skills/report-progress/SKILL.md) · [Percentage, ETA and cadence](skills/report-progress/references/percentage-eta-cadence.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
 
