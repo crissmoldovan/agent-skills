@@ -93,39 +93,6 @@ person as one self-contained block; it does not do the work, and an answer wante
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
-### A skill's metadata says what it means, and three descriptions become triggers
-
-**What.** Two fields of a skill's `metadata` now have one meaning each, written down in
-CONTRIBUTING's new "What every skill carries". `lifecycle` is the skill's own maturity, so
-`handoff-prompt`, `isolated-change-validation`, `onboard-project` and `mine-session-transcripts`,
-which named the stage of the work they serve (`handoff`, `delivery`, `setup`, `investigation`),
-now say `release`, as the other twenty-four do. `version` is the skill's own and moves whenever
-the skill's files change: a patch for wording, documentation, metadata or the description, a
-minor version for new behaviour. The seven skills 0.27.0 changed without moving it now move it:
-`release-notes` to 1.1.0 for its new versioning of a product with no API, and `blast-area`,
-`investigate-codebase`, `land-complex-change`, `new-ux-discovery`, `visualise-blast-area` and
-`model-routing` to 1.0.1 for their documentation. The descriptions of `publish-agent-skill`,
-`request-blocks-review` and `github-webhooks` now say when to use each and what it is not for, in
-the skill and word for word in the README. `mine-session-transcripts` describes the failures it
-exists for without the counts it quoted from the history it was built on. And the 0.18.0 entry in
-`CHANGELOG.md` links the evaluation page by a path that resolves from the repository root.
-
-**Why.** Twenty-four skills used `lifecycle` for maturity and four for a work stage, and nothing
-said which was meant. A version that does not move when a skill changes cannot tell a reader that
-it did. A description is what a runtime matches, and three of them said what the skill does and
-nothing about when to use it. A count from a history no reader can see is not one they can check.
-
-**Impact.** No step, hard line, slot or default changes meaning. A runtime that matches
-descriptions can now find `publish-agent-skill`, `request-blocks-review` and `github-webhooks` from
-the words their descriptions list, without being given their names. Catalogue tests now hold every
-skill's `lifecycle` to `release`, a changed skill to a moved version (where the checkout has the
-release tags), the three descriptions to a trigger and a boundary, CONTRIBUTING to the standard,
-and every relative link in `CHANGELOG.md` to a file that exists. Skill metadata versions:
-`release-notes` 1.0.0 to 1.1.0; `onboard-project` 1.1.0 to 1.1.1; `publish-agent-skill` 1.0.1 to
-1.0.2; `blast-area`, `github-webhooks`, `handoff-prompt`, `investigate-codebase`,
-`isolated-change-validation`, `land-complex-change`, `mine-session-transcripts`, `model-routing`,
-`new-ux-discovery`, `request-blocks-review` and `visualise-blast-area` 1.0.0 to 1.0.1.
-
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
