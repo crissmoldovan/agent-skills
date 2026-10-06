@@ -74,6 +74,20 @@ itself — `update-agent-skills` owns that, and composes the adapted copies too,
 writes no context file (`derive-codebase-context`) and no documentation (`layer-repository-docs`),
 and its session-start check is off until the user arms it.
 
+`mine-session-transcripts` finds what a person said to an agent in the harness's own session
+transcripts, queued messages included, and says where each message is without printing the
+transcript. It does not act on what it finds: a decision goes to `decision-journal`, a question
+about what the code does to `investigate-codebase`, and messages that feed a briefing of verified
+facts to `delphi-ground`. It declares `## Bindings`, so a project can adapt it
+([project adaptation](project-adaptation.md)).
+
+`secure-credential-setup` puts an API key, token or password into a secret store without its value
+entering the transcript, one credential at a time. `publish-agent-skill` releases a skill through a
+verified release, and `request-blocks-review` runs the review loop over `blocks`' primitives until
+its pull request is clean. `handoff-prompt` writes work that is going to another session, agent or
+person as one self-contained block; it does not do the work, and an answer wanted back is
+`request-answers`'.
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
@@ -265,8 +279,11 @@ clock time that leaves part of the work out says what it covers. A new reference
 has the shape, the arithmetic, the clock commands, and what keeps updates on a cadence coming:
 a tick strictly inside the harness's cap on background time, re-armed before each update is
 written, a standing order written where a context compaction cannot take it, and a last update
-that says the updates stop. It also says that a status question sent while a fan-out runs may
-reach every agent in it. Two hard lines come with the head line: a figure nobody measured is
+that says the updates stop. When the interval is as long as the cap or longer, no tick strictly
+inside the cap can reach it, so step S1 chains wake-ups, each armed for the time left until the
+update or strictly inside the cap, whichever is shorter. A wake-up before the update is due
+re-arms the next one and writes nothing; the one that reaches the update's time writes it. The
+reference also says that a status question sent while a fan-out runs may reach every agent in it. Two hard lines come with the head line: a figure nobody measured is
 reported as not measured, never as 0, and that includes a percentage with no register to count;
 and an ETA is labelled as an estimate with its basis, so it is never the prediction of a pending
 result that rule 5 forbids. Rule 5, the checklist and the step that splits verified from claimed
@@ -488,6 +505,32 @@ nothing reads as drift on upgrade. A profile written by 1.0.1 has no `adapted` m
 that already holds copies, the armed check names them at every session start until a refresh
 records them and routes to them. Composing, removing or re-pinning a copy is reported the same way,
 so refresh in the change that does it.
+
+### Every skill is documented in the shape the catalogue shares
+
+**What.** `release-notes` publishes two asks in its Usage Examples, and its two specimen notes now
+sit under `## What it looks like`; it and `report-progress` link their references under
+`## Deeper reading`. `request-answers`' description says the run writes the brief, and that the
+brief reaches a person only when a person sends it or approves its exact text, as its hard line H3
+already did; the skill gains a When to Use section and an example of a question about a screen.
+`mine-session-transcripts` links the project-adaptation guide by its URL, which an installed copy
+can open, and `model-routing`'s Hermes reference names its command line. In the README, the install
+section points to each skill's own entry, the update section covers adapted copies, the hooks
+section names the two hooks it left out, the browser line says how to build the site instead of
+linking a hosted copy that does not exist, and the asks of `mine-session-transcripts` and
+`handoff-prompt` are their own Usage Examples, word for word. CONTRIBUTING says what every shipped
+skill owns, the Published catalog above describes every skill, and
+[project adaptation](project-adaptation.md) names the five skills a project can adapt, which a
+test holds to the skills that declare `## Bindings`.
+
+**Why.** The site and the README show what a skill publishes, so a skill whose examples were
+specimens showed no ask, and a README ask that rewords its skill differs from the one the site
+shows. A description is what a runtime matches, and one said the run sends what its own rules say
+it never sends alone. And a path such as `docs/project-adaptation.md` names nothing in a copy
+installed into a project.
+
+**Impact.** Documentation only. No step, hard line, slot or default changes meaning, and no
+skill's metadata version moves.
 
 ## Release checklist
 

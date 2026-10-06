@@ -109,21 +109,14 @@ test("an entry shows the skill's own asks and commands, verbatim, and invents ne
 
 test('a skill whose examples are not prompts is shown without invented ones', async () => {
   // Every skill publishes a Usage Examples section, but not every block in one is a prompt:
-  // decision-journal's are commands, and release-notes shows a sample note in a `markdown`
-  // block. Neither is an ask, so neither is presented as one — the card shows what the skill
-  // has, and nothing else.
+  // decision-journal's are commands. A command is not an ask, so it is not presented as one —
+  // the card shows what the skill has, and nothing else.
   const journal = manifest.skills.find((skill) => skill.name === 'decision-journal');
   assert.deepEqual(journal.examples, [], 'its examples are commands, not prompts');
   assert.ok(journal.commands.length >= 1, 'so its commands are what the card shows');
 
-  const notes = manifest.skills.find((skill) => skill.name === 'release-notes');
-  const source = await readFile(path.join(root, 'skills/release-notes/SKILL.md'), 'utf8');
-  assert.ok(source.includes('```markdown'), 'this test is only meaningful while that holds');
-  assert.deepEqual(notes.examples, [], 'a sample note is output, not an ask');
-  assert.deepEqual(notes.commands, []);
-
   const withAsks = manifest.skills.filter((skill) => skill.examples.length);
-  assert.equal(withAsks.length, 28, 'every other skill publishes prompts, and the site shows them');
+  assert.equal(withAsks.length, 29, 'every other skill publishes prompts, and the site shows them');
 });
 
 test('every document the site links is written into the output', async () => {

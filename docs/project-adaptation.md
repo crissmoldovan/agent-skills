@@ -26,6 +26,10 @@ What checks what today:
   [adapting a pack skill](../skills/update-agent-skills/references/adapting.md) is the guide to
   it, and it follows this page.
 
+Five skills in this catalogue declare the section: `release-notes`, `report-progress`,
+`request-answers`, `resolve-problem-report` (in `references/assessing-a-report.md`) and
+`mine-session-transcripts`.
+
 ## The three kinds of id
 
 | id | names | declared by | an overlay may |

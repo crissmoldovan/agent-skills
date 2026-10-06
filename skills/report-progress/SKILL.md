@@ -464,3 +464,8 @@ Run this over the text you have written, before it is sent.
 The report is finished when every line in it is either an artefact, a command with its
 result, an attributed claim, or an estimate labelled with its basis — and a reviewer holding
 only this checklist could tell which is which without asking you.
+
+## Deeper reading
+
+- [Percentage, ETA and cadence](references/percentage-eta-cadence.md): the head line's shape, the
+  arithmetic, the clock commands, and what keeps updates on a cadence coming.

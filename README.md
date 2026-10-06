@@ -11,10 +11,10 @@ A public package by **Criss Moldovan**. Every skill is independently discoverabl
 under `skills/<name>/SKILL.md`, installable through Agent Skills-compatible
 harnesses, and tested as part of one release catalogue.
 
-**To read it in a browser:** [the site](https://crissmoldovan.github.io/agent-skills/)
-lists every skill with its description, its install command and the asks it
-publishes, and reads every skill, reference and document in this repository. It is
-generated from the skills, so it says what the pack says.
+**To read it in a browser:** build [the site](#the-site) with `npm run site` and serve
+`site/dist` with any static server. It lists every skill with its description, its install
+command and the asks it publishes, and reads every skill, reference and document in this
+repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
@@ -146,10 +146,7 @@ Ask it:
 
 - *"Use update-agent-skills. Make changelog, catalogue README, release notes, and agent update guidance agree; then update only the planes I explicitly named."*
 - *"Update this released skill for all supported agents in global scope on this machine."*
-- *"Prepare the update communication only."*
 - *"Adapt this pack skill to the project: compose it from the pinned release and our overlay, show me the change, and check it."*
-
-An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). The first compose runs from a clone of the pack checked out at the pinned tag or full sha, so the composer the project vendors is that release's; [the guide](skills/update-agent-skills/references/adapting.md#commands) says how to make one. `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
 
 More: [Skill](skills/update-agent-skills/SKILL.md) · [Freshness check](skills/update-agent-skills/scripts/check-pack-freshness.mjs) · [Session hook installer](skills/update-agent-skills/scripts/install-freshness-hook.mjs) · [Composer](skills/update-agent-skills/scripts/adapt.mjs) · [Adapting a pack skill](skills/update-agent-skills/references/adapting.md)
 
@@ -212,6 +209,7 @@ npx skills add crissmoldovan/agent-skills --skill release-notes
 Ask it:
 
 - *"Use release-notes before you publish this. Run the impact analysis rather than guessing at it, settle the semver bump against what that analysis says instead…"*
+- *"This release is the dashboard, which has readers rather than an API."*
 
 More: [Skill](skills/release-notes/SKILL.md) · [Versioning a product](skills/release-notes/references/versioning-a-product.md) · [PreToolUse gate](adapters/claude-code/release-notes-gate.sh) · [Gate installer](adapters/claude-code/install-release-notes-gate.mjs)
 
@@ -401,7 +399,7 @@ Ask it:
 
 - *"Use report-progress at each phase boundary and before you end a turn with background work running. What is done, what is running, what is next — each with a…"*
 - *"Give me a status report on the migration."*
-- *"Before you end this turn: you started three background agents."*
+- *"Until the migration is merged, send me an update every 20 minutes without my asking."*
 
 More: [Skill](skills/report-progress/SKILL.md) · [Percentage, ETA and cadence](skills/report-progress/references/percentage-eta-cadence.md) · [Stop-hook gate](adapters/claude-code/report-progress-gate.mjs) · [Gate installer](adapters/claude-code/install-report-progress-gate.mjs)
 
@@ -439,7 +437,7 @@ More: [Skill](skills/onboard-project/SKILL.md) · [Fit signals](skills/onboard-p
 
 ### `request-answers`
 
-The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth.
+The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then write one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth, showing the screen for each question about something a reader sees. Nothing reaches a person on the run's own word: it goes when a person sends it or approves its exact text, and only an ask to another agent is delivered by the run itself.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill request-answers
@@ -463,9 +461,9 @@ npx skills add crissmoldovan/agent-skills --skill handoff-prompt
 
 Ask it:
 
-- *"Write this as a prompt I can paste into a session working on <owner>/<repo>."*
-- *"Draft the feature request against the shared library — say what we are NOT asking for."*
-- *"Hand this to tomorrow's session: what is done with evidence, what is running, what is next."*
+- *"Write this up as a prompt I can paste into a session working on <other-repo>."*
+- *"Draft the feature request against the shared UI library. Say plainly what we need and what we are NOT asking them to do, because last time the scope grew."*
+- *"I'm handing this to tomorrow's session. Write the brief: what is done with its evidence, what is running, what the next act is and what it waits on."*
 
 More: [Skill](skills/handoff-prompt/SKILL.md) · [Handoff contract](skills/handoff-prompt/references/handoff-contract.md)
 
@@ -495,9 +493,9 @@ npx skills add crissmoldovan/agent-skills --skill mine-session-transcripts
 
 Ask it:
 
-- *"Find the message where I told the agent to keep CSV as the default export format — the line, the time and the session, not the transcript."*
-- *"How many messages did I send in this repository's sessions in the last two weeks, and how many while the agent was busy?"*
-- *"Which of the instructions I typed this month are not written down anywhere in the repo? Prove the matcher works first."*
+- *"Find the message where I told the agent to keep CSV as the default export format. I think it was last week, in this repository or one of its worktrees. Don't paste the transcript: give me the line, the time and the session."*
+- *"How many messages did I send in this repository's sessions in the last two weeks, and how many of them were sent while the agent was busy? Count everything you leave out."*
+- *"Which of the instructions I typed into sessions this month are not written down anywhere in the repo? Prove the matcher works before you show me a number."*
 
 More: [Skill](skills/mine-session-transcripts/SKILL.md) · [Record shapes](skills/mine-session-transcripts/references/record-shapes.md) · [Documented or not](skills/mine-session-transcripts/references/documented-or-not.md) · [Script](skills/mine-session-transcripts/scripts/transcripts.mjs)
 
@@ -516,8 +514,8 @@ Skills CLI:
 npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 ```
 
-Install one skill, or a few together — every skill's own command is in the table
-above, on the `↳ install` row beneath it:
+Install one skill, or a few together — every skill's own command is in its entry under
+[What is in the pack](#what-is-in-the-pack):
 
 ```bash
 # one skill
@@ -527,9 +525,10 @@ npx skills add crissmoldovan/agent-skills --skill request-answers
 npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
 ```
 
-Three skills carry a second step, stated on their row in the table:
+Three skills carry a second step, stated in their entry's install block:
 `decision-journal` puts its CLI on PATH, `update-agent-skills` can install a session
-hook that checks freshness, and `workspace-governance` installs its CLI separately.
+hook that checks freshness and carries the composer that adapts a pack skill to one
+project, and `workspace-governance` installs its CLI separately.
 
 One skill takes a word when you call it: `layer-repository-docs` has three entry
 points, and it announces the one it picked before it starts — `check` or `need`
@@ -559,6 +558,9 @@ clients separately, then verify each installed path and source. Do not treat one
 successful agent or scope as proof that all local libraries are current.
 decision-journal carries its own CLI: ask before running its
 scripts/install-cli.mjs, which puts agent-journal on PATH; never run it unasked.
+An adapted copy, a project's generated skill folder that holds adapted.lock.json, is
+not a Skills CLI install: never update or replace it. Report it; it moves only when
+its pin is moved and the copy is composed again.
 ```
 
 Preview destructive replacement when a stale directory has no managed
@@ -597,12 +599,17 @@ npx skills add crissmoldovan/agent-skills --skill '*' --global --agent '*' --yes
 | Copied vs symlinked | Preserve the current form unless conversion is requested | installed path/form and published-byte comparison where possible |
 | Unmanaged/provenance-less | Ask before replacing only that identity | old path accounted for; new source and bytes verified |
 | Native plugin/package | Use its marketplace or registry updater | exact native version, namespace, install path, and bytes |
+| Adapted copy of a pack skill | Never through `skills update`: change `base.ref` (and `base.commit` and `base.tree`, if recorded) in its `adapter.json`, run `adapt.mjs compose --write`, and review the generated diff | `adapt.mjs check` passes; `check-pack-freshness.mjs --repo <project>` lists the pin against the latest release |
 | Manual upload/raw file | Replace through the owning UI/channel | artifact verified; otherwise `manual action required` |
 | Remote machine/container | Treat as another explicitly named target | independent readback on that target |
 | Unsupported client or unreachable target | Invent no destination | literal `unsupported` or `deferred` outcome |
 
 Restart or reload agents whose loaders cache installed files. A current session
 may continue using old instructions until reopened.
+
+### Adapted copies
+
+An adapted copy is generated, committed and never edited by hand: the pack skill at a pinned tag or commit, byte for byte, with the project's bindings, additions and traps set beside it by the rules in [`docs/project-adaptation.md`](docs/project-adaptation.md). The first compose runs from a clone of the pack checked out at the pinned tag or full sha, so the composer the project vendors is that release's; [the guide](skills/update-agent-skills/references/adapting.md#commands) says how to make one. `check` is offline and belongs in the project's tests; `outdated` reads newer tags and says whether each one changes the skill. `skills update` never moves an adapted copy.
 
 ## Use the skills
 
@@ -629,6 +636,16 @@ were built against — [`adapters/NOTES.md`](adapters/NOTES.md) for the shapes C
 sends, [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md) for what a hook can
 print back and have the harness act on. Where a document and those notes disagree, the notes
 win: they are the observed record.
+
+Two more skills carry a hook, each off until you turn it on. `onboard-project`'s session-start check is
+installed and removed by its own script (`node <skill-folder>/scripts/install-check-hook.mjs`, and
+`--remove` to take it out); it says one line when a listed skill is neither installed nor adapted
+here, the repository's evidence has moved, an adapted copy was added, removed or re-pinned, or the
+routing file has drifted, and nothing otherwise, and arming it affects every project on this
+machine. `decision-journal`'s journal hook,
+[`adapters/claude-code/journal-hook.sh`](adapters/claude-code/journal-hook.sh), records what the agent
+did beside the decisions it records, and is wired into your settings by hand as
+[the adapter's README](adapters/claude-code/README.md) describes, and taken out the same way.
 
 ### The `report-progress` gate — Claude Code `Stop`
 

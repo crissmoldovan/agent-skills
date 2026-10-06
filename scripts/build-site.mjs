@@ -78,9 +78,9 @@ function frontmatterValue(source, key) {
  * verbatim.
  *
  * A `text` block is a prompt somebody types; a `bash` block is a command they
- * run. Anything else under that heading is illustrative output — release-notes
- * shows a sample note in a `markdown` block — and is not an ask, so it is not
- * presented as one.
+ * run. Anything else under that heading is illustrative output, such as a
+ * sample note in a `markdown` block, and is not an ask, so it is not presented
+ * as one.
  *
  * The walk tracks fences rather than splitting on headings: a sample inside a
  * fence can begin with `## `, and splitting there truncated the section.

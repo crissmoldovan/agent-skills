@@ -296,6 +296,11 @@ test('update-agent-skills composes, checks and lists adapted copies, and keeps t
 
   assert.match(adaptation, /\]\(\.\.\/skills\/update-agent-skills\/scripts\/adapt\.mjs\)/);
   assert.doesNotMatch(adaptation, /No tool in the\s+pack does that yet/);
+  // The README's update path for an adapted copy is the guide's "Moving a pin": a recorded
+  // `base.commit` or `base.tree` guard moves with the ref, or compose refuses the new ref.
+  const adaptedPlane = readme.match(/^\| Adapted copy of a pack skill \|.*$/m)?.[0] ?? '';
+  assert.match(adaptedPlane, /change `base\.ref` \(and `base\.commit` and `base\.tree`, if recorded\)/);
+  assert.match(adapting, /Change `base\.ref` \(and `base\.commit` and `base\.tree`, if recorded\)/);
   assert.match(contributing, /`update-agent-skills` owns moving installed copies wherever they live, and composing,\s+checking and listing the adapted copy/);
   assert.match(releases, /`update-agent-skills` moves installed copies wherever they live, and owns the adapted copy/);
 
@@ -780,6 +785,36 @@ test('project adaptation: the ids, the merge rules and the tag policy stay writt
   assert.doesNotMatch(adaptation, /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+/);
 });
 
+// The adaptation page names the skills a project can adapt. That is a claim about the pack, so the
+// claim is what is tested: the named skills are exactly those with a file that declares Bindings.
+test('the project-adaptation page names every skill that declares Bindings, and no other', async () => {
+  const adaptation = await read('docs/project-adaptation.md');
+  const claim = adaptation.match(/^\S.* skills in this catalogue declare the section:([\s\S]*?)\.\n\n/m);
+  assert.ok(claim, 'the page no longer says which skills declare the section');
+  const named = [...claim[1].matchAll(/`([a-z0-9-]+)`/g)].map(([, name]) => name).sort();
+  const unfenced = (text) => {
+    let fence = null;
+    return text.split('\n').filter((line) => {
+      const open = line.match(/^\s*(`{3,}|~{3,})/);
+      if (open && !fence) { fence = open[1]; return false; }
+      if (fence) {
+        if (line.trim().startsWith(fence) && line.trim().replace(/[`~]/g, '') === '') fence = null;
+        return false;
+      }
+      return true;
+    }).join('\n');
+  };
+  const declaring = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const files = (await readdir(new URL(`skills/${entry.name}/`, root), { recursive: true })).filter((file) => file.endsWith('.md'));
+    for (const file of files) {
+      if (/^## Bindings\s*$/m.test(unfenced(await read(`skills/${entry.name}/${file}`)))) { declaring.push(entry.name); break; }
+    }
+  }
+  assert.deepEqual(named, declaring.sort());
+});
+
 test('layer-repository-docs carries no organisation marks and states what it does not own', () => {
   assert.doesNotMatch(layerRepositoryDocs, /\bCUE\b|\bRGC\b/);
   // CONTRIBUTING requires a new skill to say which shipped skills it does not duplicate.
@@ -1019,6 +1054,8 @@ test('request-answers shows the screen each question is about, gives the reader 
 // reads for those. The script's own behaviour is in mine-session-transcripts.test.mjs.
 test('mine-session-transcripts reads transcripts without printing them, and states what it does not own', async () => {
   const skill = await read('skills/mine-session-transcripts/SKILL.md');
+  // An installed copy carries no docs/, so the guide is cited by a URL that resolves anywhere.
+  assert.match(skill, /\(https:\/\/github\.com\/crissmoldovan\/agent-skills\/blob\/main\/docs\/project-adaptation\.md\)/);
   const shapes = await read('skills/mine-session-transcripts/references/record-shapes.md');
   const documented = await read('skills/mine-session-transcripts/references/documented-or-not.md');
   const fitText = await read('skills/mine-session-transcripts/references/fit.json');

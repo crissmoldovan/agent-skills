@@ -1,6 +1,6 @@
 ---
 name: request-answers
-description: "The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then send one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth."
+description: "The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then write one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth, showing the screen for each question about something a reader sees. Nothing reaches a person on the run's own word: it goes when a person sends it or approves its exact text, and only an ask to another agent is delivered by the run itself."
 license: MIT
 compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item; brief and normal are transcript-only but for the images a question about a screen carries, rendered on this machine. Output is the brief, optional item files and shots, and a ledger row per question."
 metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
@@ -31,6 +31,17 @@ is a sentence. Everything below treats them the same way.
 (B6). Building a verified-facts briefing before anyone reasons about an artefact is
 `delphi-ground` (B7). This skill owns the ask itself — of any kind — and the ledger of
 what came back.
+
+## When to Use
+
+- Work waits on something only another person or agent can give: a decision, a sign-off, a
+  ruling, a missing fact, a piece of wording, or why they did something.
+- A list of open questions has to go to the people who can answer them, each person's in one brief.
+- A subagent has to come back with facts in a fixed shape, each naming the file or command behind it.
+- A question is about something a reader sees on a screen.
+
+Do not use it for a question you can answer yourself (H1), or for the three jobs named under
+"What this is not" above.
 
 ## Bindings
 
@@ -414,6 +425,13 @@ every line.
 ```text
 Ask the subagent for the three facts we are missing. Same answer sheet, one key per
 line, and make it name the file or command behind each answer.
+```
+
+```text
+Two of the questions for Dana are about the dashboard: which of the two headings she
+wants, and whether the tile under the chart should count this month or last. Show her
+each one boxed on the screen and close up, shot from a build on this machine, never the
+live site.
 ```
 
 ## How this was tested

@@ -128,8 +128,9 @@ the conversation, in a hook the user wired into their own harness.
   real Codex session. It says so at the top of its own README and must keep saying so until
   someone captures a real payload.
 
-The freshness `SessionStart` hook is the exception to the directory: it is carried inside
-`skills/update-agent-skills/scripts/`, because an installed skill has to be able to offer it.
+The freshness `SessionStart` hook and `onboard-project`'s session-start check are the exceptions to
+the directory: each is carried inside its own skill's `scripts/`, because an installed skill has to
+be able to offer it.
 
 Three rules hold for anything here:
 
