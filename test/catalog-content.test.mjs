@@ -325,6 +325,22 @@ test('frontmatter stays compatible with Agent Skills and skills.sh discovery', (
   }
 });
 
+// `lifecycle` in a skill's metadata is the skill's own maturity, not the stage of the work it serves
+// (CONTRIBUTING, "What every skill carries"), and every skill this catalogue publishes is released.
+// agent-lifecycle and workspace-governance keep the frontmatter of their own releases, which has no
+// lifecycle field.
+test("every skill's metadata lifecycle is its maturity, and every published skill's is release", async () => {
+  const ownReleaseForm = new Set(['agent-lifecycle', 'workspace-governance']);
+  const wrong = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory() || ownReleaseForm.has(entry.name)) continue;
+    const metadata = (await read(`skills/${entry.name}/SKILL.md`)).match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
+    const value = metadata.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]?.trim();
+    if (value !== 'release') wrong.push(`${entry.name}: ${value ?? 'no lifecycle'}`);
+  }
+  assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
+});
+
 // A skill's version is its own, and any change to its files moves it from the version last released
 // (CONTRIBUTING, "What every skill carries"). Held against the newest catalogue tag HEAD descends
 // from, and against the working tree, so an unstaged change counts. A checkout without that history

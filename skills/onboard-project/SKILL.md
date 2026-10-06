@@ -3,7 +3,7 @@ name: onboard-project
 description: "Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is neither installed nor adapted here, the repository's evidence or its adapted copies move, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them."
 license: MIT
 compatibility: "Any repository on a machine with Node 22+ and the Skills CLI available through npx. Git is optional: without it, files stay local. Reads the pack's own fit declarations, the repository's files, and — for onboard and refresh only — this machine's session history for this repository. Writes at most two files plus a git exclude line, and only on an explicit yes. The session-start hook is off until you arm it, and arming it affects every project on this machine."
-metadata: "group=workflow; lifecycle=setup; version=1.1.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

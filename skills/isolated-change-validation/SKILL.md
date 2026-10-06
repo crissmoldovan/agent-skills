@@ -3,7 +3,7 @@ name: isolated-change-validation
 description: "Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted."
 license: MIT
 compatibility: "Any codebase that can be copied into a scratch directory and checked with deterministic commands. Git is optional: file-hash manifests replace revision identity in copied or no-git sandboxes. Uses the project's own package manager, typechecker and test runner; installs no framework. Subagents are optional; without them the implementer and reviewer roles are passes run in sequence. Output is a verdict, the evidence behind each of its claims, and a handoff bundle another agent can re-run."
-metadata: "group=workflow; lifecycle=delivery; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

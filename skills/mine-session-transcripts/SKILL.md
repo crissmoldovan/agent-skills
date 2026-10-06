@@ -3,7 +3,7 @@ name: mine-session-transcripts
 description: "Find what a person actually said to an agent from the harness's own session transcripts, without printing them: locate the transcripts of a repository and its worktrees, subagents included; stream them; take the messages typed at the prompt and the ones queued while a turn was running, and count everything else by kind; find a message by a fixed phrase and report only its line, time and session; show one message only after a secret scan; and check whether each message is written down in the repository, with controls that prove the matcher works. Symptoms: what did I tell the agent about X, find the message where I asked for Y, when did I say that, was this instruction ever written down, what was decided in chat and never committed, did the session get the message I sent while it was busy. It reads transcripts and never edits or prints them; recording a decision it finds is decision-journal's, and what the code does about it is investigate-codebase's."
 license: MIT
 compatibility: "Claude Code transcripts, in the record shapes observed on versions 2.1.224 to 2.1.286, queued messages from 2.1.234 (references/record-shapes.md); another harness needs its own shapes first. scripts/transcripts.mjs needs Node 22+ and nothing else; git is optional, for worktree discovery and a tracked-file corpus. Reads the harness's history directory and the repository; writes nothing unless asked for a counts-only register."
-metadata: "group=workflow; lifecycle=investigation; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 
