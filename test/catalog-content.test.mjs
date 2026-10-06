@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -321,6 +323,48 @@ test('frontmatter stays compatible with Agent Skills and skills.sh discovery', (
     assert.ok(description.length > 0 && description.length <= 1024);
     assert.match(description, /(?:route|child|lifecycle|delegat|Blocks|review|secret|credential|context|codebase|publish|release|update|webhook|change)/i);
   }
+});
+
+// A skill's version is its own, and any change to its files moves it from the version last released
+// (CONTRIBUTING, "What every skill carries"). Held against the newest catalogue tag HEAD descends
+// from, and against the working tree, so an unstaged change counts. A checkout without that history
+// (CI's shallow clone fetches no tags) has nothing to hold it against, and skips saying so.
+test('a skill changed since the last catalogue tag moves its version', async (t) => {
+  const git = (...args) => execFileSync('git', args, { cwd: fileURLToPath(root), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  let tag;
+  try {
+    tag = git('describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', 'HEAD');
+  } catch {
+    t.skip('no catalogue tag in this checkout\'s history');
+    return;
+  }
+  const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+    ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
+  const newer = (now, before) => {
+    const [a, b] = [now, before].map((version) => version.split('.').map(Number));
+    const i = a.findIndex((part, index) => part !== b[index]);
+    return i !== -1 && a[i] > b[i];
+  };
+  const unmoved = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = `skills/${entry.name}`;
+    let released;
+    try {
+      released = git('show', `${tag}:${path}/SKILL.md`);
+    } catch {
+      continue; // new since the tag: its first version is its own
+    }
+    try {
+      git('diff', '--quiet', tag, '--', path);
+      continue; // unchanged since the tag
+    } catch {
+      // changed since the tag
+    }
+    const [before, now] = [versionOf(released), versionOf(await read(`${path}/SKILL.md`))];
+    if (!before || !now || !newer(now, before)) unmoved.push(`${entry.name}: ${before} at ${tag}, ${now} now`);
+  }
+  assert.deepEqual(unmoved, [], `changed since ${tag} without moving its version`);
 });
 
 test('release-ledger onboards a system rather than shipping a library', () => {

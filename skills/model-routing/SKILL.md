@@ -3,7 +3,7 @@ name: model-routing
 description: "Decide which model owns which task and when to escalate: give the cheap tier the legwork, keep planning and final review with the expensive one, and protect the driver's context. Symptoms: do this cheaply, which model should do this, delegate the legwork, we're burning tokens, this is too big for one context, set up / switch / inspect / clear a routing profile."
 license: MIT
 compatibility: "Agent Skills-compatible harnesses; inventory, profiles, and child dispatch are harness-specific."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Grep Glob Bash Agent Workflow
 ---
 
