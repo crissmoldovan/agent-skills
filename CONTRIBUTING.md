@@ -41,8 +41,9 @@ the physically separate lane, the hash-pinned source identity, the gates the par
 itself rather than believing a builder's report, and the handoff bundle the run is
 transferred in; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
-Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, while installing
-nothing itself; and `mine-session-transcripts` owns finding what a person said to an agent in
+Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, which names a
+project's adapted copy of a skill rather than the skill it adapts — while installing nothing
+itself; and `mine-session-transcripts` owns finding what a person said to an agent in
 the harness's own session transcripts — the messages typed and the ones queued while a turn ran,
 each located by line, time and session without the transcript being printed, and whether each is
 written down — while `decision-journal` records a decision once it is found and

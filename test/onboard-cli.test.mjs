@@ -7,6 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 import { localProfilePath } from '../skills/onboard-project/scripts/profile.mjs';
+import { EXIT_OK, LOCK_FILE, parseArguments, runCompose } from '../skills/update-agent-skills/scripts/adapt.mjs';
 
 const packRoot = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(packRoot, 'skills', 'onboard-project', 'scripts', 'onboard.mjs');
@@ -540,4 +541,308 @@ test('a skill whose fit.json changes a signal is not reported as this repository
   await mkdir(path.join(repo, '.changeset'), { recursive: true });
   await writeFile(path.join(repo, '.changeset', 'config.json'), '{}');
   assert.match((await run(['check', '--repo', repo, '--pack', packB], { home })).stdout, /release-notes/);
+});
+
+
+// ---- adapted copies: a skill a project has adapted is satisfied by its copy, and routed to it ----
+
+/** An adapted copy as update-agent-skills' composer leaves it: a skill folder and its lock. */
+async function adaptedCopy(repo, name, base, { entry = 'SKILL.md', ref = 'v1.4.0', tree = 'b'.repeat(40), lock } = {}) {
+  const folder = path.join(repo, '.claude', 'skills', name);
+  await mkdir(folder, { recursive: true });
+  await writeFile(path.join(folder, 'SKILL.md'), `---\nname: ${name}\n---\n`);
+  await writeFile(path.join(folder, 'adapted.lock.json'), typeof lock === 'string' ? lock : JSON.stringify({
+    version: 1,
+    name,
+    base: { source: 'https://github.com/an-owner/a-pack', skill: base, entry, ref, commit: 'a'.repeat(40), tree },
+    files: {},
+  }, null, 2));
+}
+
+/** Install every required skill but the ones named, so a check has only those left to judge. */
+async function installRequiredExcept(home, profile, except) {
+  await installRequired(home, { skills: Object.fromEntries(Object.entries(profile.skills).filter(([name]) => !except.includes(name))) });
+}
+
+const routing = (repo) => readFile(path.join(repo, '.claude', 'rules', 'skill-routing.md'), 'utf8');
+
+test('a strong match the repository has adapted twice is present: no install, no missing report, and the routing names both copies', async () => {
+  const repo = await repository('onboard-adapted-strong');
+  const home = await scratch('onboard-adapted-strong-home');
+  await writeFile(path.join(repo, 'CHANGELOG.md'), '# Changelog\n');
+
+  // The control: without the copies, the skill is offered and the check calls it missing.
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  await installRequiredExcept(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')), ['release-notes']);
+  assert.match((await run(['check', '--repo', repo], { home })).stdout, /release-notes is listed for this project but not installed/);
+
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await adaptedCopy(repo, 'ship-a-pack', 'release-notes', { entry: 'references/release-pack.md' });
+  const plan = await planJson(repo, home);
+  const row = plan.rows.find((entry) => entry.name === 'release-notes');
+  assert.equal(row.kind, '=', `an adapted skill was offered as ${row.kind}`);
+  assert.equal(row.match, 'strong');
+  assert.equal(row.install, null);
+  assert.deepEqual(row.adapted.map((copy) => copy.name), ['cut-a-release', 'ship-a-pack']);
+  assert.match(row.note, /adapted here as cut-a-release at v1\.4\.0 and ship-a-pack at v1\.4\.0 from references\/release-pack\.md/);
+  const text = await run(['plan', '--repo', repo], { home });
+  assert.doesNotMatch(text.stdout, /--skill release-notes /, 'the change list still carries an install command for it');
+
+  const applied = await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.doesNotMatch(applied.stdout, /--skill release-notes /);
+  const profile = JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8'));
+  assert.deepEqual(profile.adapted['release-notes'], [
+    { name: 'cut-a-release', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
+    { name: 'ship-a-pack', entry: 'references/release-pack.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
+  ]);
+  assert.equal(profile.skills['release-notes'].required, true, 'a strong match stopped being required');
+  const rules = await routing(repo);
+  assert.match(rules, /→ `cut-a-release` or `ship-a-pack` \(from references\/release-pack\.md\), this repository's adapted copies of `release-notes`$/m);
+  assert.doesNotMatch(rules, /→ `release-notes`/);
+
+  const quiet = await run(['check', '--repo', repo], { home });
+  assert.equal(quiet.stdout, '', `the check spoke about a skill its adapted copies satisfy: ${quiet.stdout}`);
+});
+
+test('a general-fit skill the repository has adapted is not offered for install', async () => {
+  const repo = await repository('onboard-adapted-general');
+  const home = await scratch('onboard-adapted-general-home');
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers');
+  const plan = await planJson(repo, home);
+  const row = plan.rows.find((entry) => entry.name === 'request-answers');
+  assert.equal(row.kind, '=');
+  assert.equal(row.match, 'general');
+  assert.equal(row.scope, 'project', 'an adapted copy lives in this repository, whatever the placement');
+  assert.equal(row.install, null);
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.match(await routing(repo), /→ `ask-the-owner`, this repository's adapted copy of `request-answers`$/m);
+});
+
+test('a skill asked for only by name is listed and routed when the repository has adapted it, and leaves with its copy', async () => {
+  const repo = await repository('onboard-adapted-request-only');
+  const home = await scratch('onboard-adapted-request-only-home');
+  // Control: a skill that is asked for only by name is never in the plan on its own.
+  assert.equal((await planJson(repo, home)).rows.some((entry) => entry.name === 'handoff-prompt'), false);
+
+  await adaptedCopy(repo, 'pass-the-work-on', 'handoff-prompt');
+  const plan = await planJson(repo, home);
+  const row = plan.rows.find((entry) => entry.name === 'handoff-prompt');
+  assert.equal(row?.kind, '=');
+  assert.equal(row.match, 'adapted');
+  assert.equal(row.required, false);
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.match(await routing(repo), /→ `pass-the-work-on`, this repository's adapted copy of `handoff-prompt`$/m);
+
+  await rm(path.join(repo, '.claude', 'skills', 'pass-the-work-on'), { recursive: true, force: true });
+  // Until a refresh, the check names the copy that went; nothing else would, since a skill listed
+  // only for its copy is never required.
+  await installRequired(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')));
+  assert.match((await run(['check', '--repo', repo], { home })).stdout, /the adapted copy pass-the-work-on has changed/);
+  const after = (await planJson(repo, home)).rows.find((entry) => entry.name === 'handoff-prompt');
+  assert.equal(after.kind, '-');
+  assert.match(after.note, /its adapted copy is gone, and the copy was why it was listed — removed/);
+  // The refresh takes it out of the profile and the routing: kept, it would send every session to
+  // the generic skill, which this repository never installed.
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  const profile = JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8'));
+  assert.equal(profile.skills['handoff-prompt'], undefined, 'a skill listed only for its copy outlived the copy');
+  assert.doesNotMatch(await routing(repo), /handoff-prompt|pass-the-work-on/);
+  assert.equal((await run(['check', '--repo', repo], { home })).stdout, '');
+  assert.equal((await planJson(repo, home)).rows.some((entry) => entry.name === 'handoff-prompt'), false);
+});
+
+test('a copy is part of a skill\'s own evidence: composing one lifts a decline, and a decline of an adapted skill holds until its copies change', async () => {
+  const repo = await repository('onboard-adapted-declined');
+  const home = await scratch('onboard-adapted-declined-home');
+  await writeFile(path.join(repo, 'CHANGELOG.md'), '# Changelog\n');
+  await run(['apply', '--repo', repo, '--yes', '--decline', 'release-notes'], { home });
+  // Control: the decline holds while nothing about the skill changes.
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, 'declined');
+
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  const lifted = (await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes');
+  assert.equal(lifted.kind, '=', 'a decline outlived the copy composed after it');
+  assert.match(lifted.note, /adapted here as cut-a-release/);
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.match(await routing(repo), /→ `cut-a-release`, this repository's adapted copy of `release-notes`$/m);
+
+  await run(['apply', '--repo', repo, '--yes', '--decline', 'release-notes'], { home });
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, 'declined');
+  assert.doesNotMatch(await routing(repo), /cut-a-release/);
+  // A re-pin is not new evidence; a second copy is.
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes', { ref: 'v1.5.0', tree: 'c'.repeat(40) });
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, 'declined');
+  await adaptedCopy(repo, 'ship-a-pack', 'release-notes', { entry: 'references/release-pack.md' });
+  assert.equal((await planJson(repo, home)).rows.find((entry) => entry.name === 'release-notes').kind, '=');
+});
+
+test('the check names an adapted copy that was re-pinned, added or removed, and a refresh quiets it', async () => {
+  const repo = await repository('onboard-adapted-moves');
+  const home = await scratch('onboard-adapted-moves-home');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  await installRequiredExcept(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')), ['release-notes']);
+  assert.equal((await run(['check', '--repo', repo], { home })).stdout, '');
+
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes', { ref: 'v1.5.0', tree: 'c'.repeat(40) });
+  const repinned = await run(['check', '--repo', repo], { home });
+  assert.equal(repinned.stdout.trimEnd().split('\n').length, 1);
+  assert.match(repinned.stdout, /the adapted copy cut-a-release has changed since the profile was written/);
+  assert.doesNotMatch(repinned.stdout, /not installed/);
+
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.equal((await run(['check', '--repo', repo], { home })).stdout, '', 'a refresh did not record the new pin');
+  assert.equal(JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')).adapted['release-notes'][0].ref, 'v1.5.0');
+
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers');
+  assert.match((await run(['check', '--repo', repo], { home })).stdout, /the adapted copy ask-the-owner has changed/);
+  await run(['apply', '--repo', repo, '--yes'], { home });
+
+  // The copy goes: its skill is missing again, and the check says both, on one line.
+  await rm(path.join(repo, '.claude', 'skills', 'cut-a-release'), { recursive: true, force: true });
+  const gone = await run(['check', '--repo', repo], { home });
+  assert.equal(gone.stdout.trimEnd().split('\n').length, 1);
+  assert.match(gone.stdout, /release-notes is listed for this project but not installed/);
+  assert.match(gone.stdout, /the adapted copy cut-a-release has changed/);
+});
+
+test('an unreadable lock stands in for nothing, and a copy of a skill this catalogue lacks is recorded but not routed', async () => {
+  const repo = await repository('onboard-adapted-odd');
+  const home = await scratch('onboard-adapted-odd-home');
+  await adaptedCopy(repo, 'torn-copy', 'release-notes', { lock: '{ not json' });
+  await adaptedCopy(repo, 'their-copy', 'a-skill-from-elsewhere');
+  // A copy in the user's own skills folder is not this repository's.
+  await adaptedCopy(home, 'personal-copy', 'request-answers');
+  await rm(path.join(home, '.claude', 'skills', 'personal-copy', 'SKILL.md'));
+
+  const plan = await planJson(repo, home);
+  assert.equal(plan.rows.find((entry) => entry.name === 'release-notes').kind, '+', 'a torn lock satisfied the skill it names');
+  assert.equal(plan.rows.find((entry) => entry.name === 'request-answers').kind, '+', 'a copy outside the repository satisfied a skill');
+  assert.ok(plan.adaptedNotes.some((note) => /^\.claude\/skills\/torn-copy: .*stands in for no skill here/.test(note)), plan.adaptedNotes.join('\n'));
+  assert.ok(plan.adaptedNotes.some((note) => /their-copy adapts a-skill-from-elsewhere, which this catalogue does not carry/.test(note)));
+  const text = await run(['plan', '--repo', repo], { home });
+  assert.match(text.stdout, /^adapted copy: \.claude\/skills\/torn-copy: /m);
+
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  const profile = JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8'));
+  assert.deepEqual(Object.keys(profile.adapted), ['a-skill-from-elsewhere']);
+  assert.doesNotMatch(await routing(repo), /their-copy|torn-copy|a-skill-from-elsewhere/);
+});
+
+test('a catalogue that gains a skill the repository had adapted is not reported as this repository changing', async () => {
+  const repo = await repository('onboard-adapted-catalogue-moves');
+  const home = await scratch('onboard-adapted-catalogue-moves-home');
+  const packA = await scratch('onboard-adapted-pack-a');
+  const packB = await scratch('onboard-adapted-pack-b');
+  for (const name of await readdir(path.join(packRoot, 'skills'))) {
+    const fit = path.join(packRoot, 'skills', name, 'references', 'fit.json');
+    if (!existsSync(fit)) continue;
+    for (const pack of name === 'request-answers' ? [packB] : [packA, packB]) {
+      await mkdir(path.join(pack, 'skills', name, 'references'), { recursive: true });
+      await cp(fit, path.join(pack, 'skills', name, 'references', 'fit.json'));
+    }
+  }
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers');
+  await run(['apply', '--repo', repo, '--yes', '--pack', packA], { home });
+  await installRequired(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')));
+  assert.equal((await run(['check', '--repo', repo, '--pack', packA], { home })).stdout, '');
+  const afterCatalogueMoved = await run(['check', '--repo', repo, '--pack', packB], { home });
+  assert.equal(afterCatalogueMoved.stdout, '', `a skill new to the catalogue read as an adapted copy changing: ${afterCatalogueMoved.stdout}`);
+  // The next refresh routes it.
+  await run(['apply', '--repo', repo, '--yes', '--pack', packB], { home });
+  assert.match(await routing(repo), /→ `ask-the-owner`, this repository's adapted copy of `request-answers`$/m);
+});
+
+test('a profile written before adapted copies were read is told about the copies the repository holds', async () => {
+  const repo = await repository('onboard-adapted-old-profile');
+  const home = await scratch('onboard-adapted-old-profile-home');
+  await run(['apply', '--repo', repo, '--yes'], { home });
+  const profile = JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8'));
+  delete profile.adapted;
+  await writeFile(localProfilePath(repo, { home }), JSON.stringify(profile, null, 2));
+  await installRequired(home, profile);
+  assert.equal((await run(['check', '--repo', repo], { home })).stdout, '', 'a profile with no adapted map and no copies was not quiet');
+
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  assert.match((await run(['check', '--repo', repo], { home })).stdout, /the adapted copy cut-a-release has changed since the profile was written/);
+});
+
+// The contract with update-agent-skills. Every lock above is written by hand, in the shape its
+// composer writes, so a change to that shape would leave them all green while this skill read
+// every real copy as unreadable, and offered the skill it adapts for install again. Here the
+// composer itself writes the copies, from a synthetic pack, and this skill is held to what it reads.
+const COMPOSED_SKILL = `---
+name: request-answers
+description: Ask a person the questions that block the work, and keep what comes back.
+license: MIT
+compatibility: "Any agent that reads Agent Skills."
+allowed-tools: Read Write
+---
+
+# Ask for answers
+
+Ask once, and keep the answer. For a question about a screen, see [showing it](references/screens.md).
+`;
+
+function gitIn(cwd, ...args) {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Example Author',
+    GIT_AUTHOR_EMAIL: 'author@example.com',
+    GIT_COMMITTER_NAME: 'Example Author',
+    GIT_COMMITTER_EMAIL: 'author@example.com',
+    GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z',
+    GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete env[name];
+  const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'init.defaultBranch=main', ...args], { cwd, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+test('copies the composer writes stand in for the skill they adapt, from its SKILL.md or a reference file', async () => {
+  const pack = await scratch('onboard-adapted-composed-pack');
+  const skill = path.join(pack, 'skills', 'request-answers');
+  await mkdir(path.join(skill, 'references'), { recursive: true });
+  await writeFile(path.join(skill, 'SKILL.md'), COMPOSED_SKILL);
+  await writeFile(path.join(skill, 'references', 'screens.md'), '# Showing the screen\n\nBox the part of the screen the question is about.\n');
+  gitIn(pack, 'init', '--quiet', '.');
+  gitIn(pack, 'add', '-A');
+  gitIn(pack, 'commit', '--quiet', '-m', 'one');
+  gitIn(pack, 'tag', 'v1.0.0');
+  const tree = gitIn(pack, 'rev-parse', 'v1.0.0:skills/request-answers');
+
+  const repo = await repository('onboard-adapted-composed');
+  const home = await scratch('onboard-adapted-composed-home');
+  for (const [name, entry] of [['ask-here', undefined], ['ask-with-screens', 'references/screens.md']]) {
+    const folder = path.join(repo, '.claude', 'skill-adapters', name);
+    await mkdir(folder, { recursive: true });
+    const base = { source: pack, skill: 'request-answers', ref: 'v1.0.0', ...(entry ? { entry } : {}) };
+    await writeFile(path.join(folder, 'adapter.json'), `${JSON.stringify({ version: 1, name, description: `Ask a person here (${name}).`, base }, null, 2)}\n`);
+    await writeFile(path.join(folder, 'overlay.md'), '');
+  }
+  const said = [];
+  const composed = runCompose(parseArguments(['compose', '--repo', repo, '--write']), { out: (line) => said.push(line) });
+  assert.equal(composed, EXIT_OK, said.join('\n'));
+  for (const name of ['ask-here', 'ask-with-screens']) assert.ok(existsSync(path.join(repo, '.claude', 'skills', name, LOCK_FILE)), `the composer wrote no lock for ${name}`);
+
+  const plan = await planJson(repo, home);
+  assert.deepEqual(plan.adaptedNotes, [], 'a lock the composer wrote was not read');
+  const row = plan.rows.find((entry) => entry.name === 'request-answers');
+  assert.equal(row.kind, '=');
+  assert.equal(row.install, null);
+  assert.deepEqual(row.adapted, [
+    { name: 'ask-here', entry: 'SKILL.md', ref: 'v1.0.0', tree },
+    { name: 'ask-with-screens', entry: 'references/screens.md', ref: 'v1.0.0', tree },
+  ]);
+
+  const applied = await run(['apply', '--repo', repo, '--yes'], { home });
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.doesNotMatch(applied.stdout, /--skill request-answers /);
+  assert.match(await routing(repo), /→ `ask-here` or `ask-with-screens` \(from references\/screens\.md\), this repository's adapted copies of `request-answers`$/m);
+  await installRequired(home, JSON.parse(await readFile(localProfilePath(repo, { home }), 'utf8')));
+  const quiet = await run(['check', '--repo', repo], { home });
+  assert.equal(quiet.stdout, '', `the check spoke about copies the composer wrote: ${quiet.stdout}`);
 });

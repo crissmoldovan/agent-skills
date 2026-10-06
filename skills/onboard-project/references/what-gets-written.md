@@ -34,7 +34,7 @@ skill list, and the marker never does. Only the check reads the marker.
 ```json
 {
   "version": 1,
-  "generatedBy": "onboard-project 1.0.0",
+  "generatedBy": "onboard-project 1.1.0",
   "scannedAt": "2026-09-14T23:50:00Z",
   "placement": "committed",
   "fingerprint": "sha256 over the repository signals that evaluated true",
@@ -51,7 +51,19 @@ skill list, and the marker never does. Only the check reads the marker.
       "useWhen": "about to cut a release, bump a version, or write a CHANGELOG entry",
       "required": true,
       "scope": "project"
+    },
+    "request-answers": {
+      "match": "general",
+      "evidence": [],
+      "useWhen": "work is blocked on another person's judgement, sign-off or wording, and the questions need asking",
+      "required": false,
+      "scope": "project"
     }
+  },
+  "adapted": {
+    "request-answers": [
+      { "name": "ask-the-owner", "entry": "SKILL.md", "ref": "v1.4.0", "tree": "the git tree of skills/request-answers at v1.4.0" }
+    ]
   },
   "declined": {
     "github-webhooks": { "at": "2026-09-14", "fingerprint": "sha256 over that skill's own true signals" }
@@ -60,11 +72,29 @@ skill list, and the marker never does. Only the check reads the marker.
 ```
 
 - `match` is `strong` (a declared fit matched), `weak` (a reader suggested it from its description
-  and said so) or `general` (fits nearly any repository).
-- `required` is true for strong matches only. The check warns about a required skill that is not
-  installed, and says nothing about the others.
+  and said so), `general` (fits nearly any repository) or `adapted` (the scan did not match it, and
+  this repository holds an adapted copy of it, which is the evidence).
+- `required` is true for strong matches only. The check warns about a required skill that is
+  neither installed nor adapted here, and says nothing about the others.
 - `scope` records where the skill is installed, or where the plan would install it: `project` for a
-  committed placement, `global` for a local one.
+  committed placement, `global` for a local one. A skill with an adapted copy is `project`, because
+  the copy lives in this repository whatever the placement, unless the skill is also installed, when
+  it records where that install is.
+- `adapted` records every adapted copy in this repository, keyed by the skill it adapts. An adapted
+  copy is a folder under `.claude/skills/` or `.agents/skills/` whose `adapted.lock.json`, written
+  by `update-agent-skills`' composer, names the pack skill it adapts. No other folder is read, so a
+  copy composed elsewhere with the composer's `--skills-dir` does not stand in for its skill. Each
+  entry gives the copy's name, its `entry` (the skill's `SKILL.md`, or the one reference file of it
+  the copy adapts), and the pinned `ref` and `tree`. A skill with a copy here is present: the plan
+  offers no install for it, the check does not call it missing, and the routing names the copy. Two
+  copies can adapt one skill, each from its own entry, and both are listed. A copy of a skill this
+  catalogue does not carry is recorded and not routed, and the check compares the whole map, so a
+  catalogue update never reads as this repository changing. A copy stands in for nothing, and is
+  named in the plan, when its lock cannot be read, when its folder is not a skill name, when it has
+  no `SKILL.md` a session could load, or when a folder of the same name under `.claude/skills/` is
+  read first and its lock says something else
+  (the same copy in both places says nothing). A profile written before 1.1.0 has no `adapted` map,
+  and reads as one that recorded none.
 - `evidence` is what the session-start check compares: for each skill that was in the catalogue at
   scan time, the repository signals it was evaluated on and the ones that were true. The check
   compares only signals that both the profile and the installed fit define, and that it could read
@@ -73,9 +103,14 @@ skill list, and the marker never does. Only the check reads the marker.
   a refresh writes one.
 - `fingerprint` is the same information as one hash, kept for profiles written by 1.0.0.
 - `declined` remembers a "don't ask again" (`apply --decline <names>`) against the fingerprint of
-  **that skill's own** true signals, so it is offered again if and only if its evidence changes.
-- A skill the profile lists is never removed by a scan. One whose evidence is gone stays, shown as
-  a `-` row, until `apply --drop <names>`; a weak one stays whether or not `--weak` is passed again.
+  **that skill's own** true signals and the names of its adapted copies, so it is offered again if
+  and only if its evidence changes: composing a copy of a declined skill lifts the decline, and a
+  re-pin does not. A skill with no copy fingerprints as it did before 1.1.0.
+- A skill the profile lists is never removed by a scan, with one exception. One whose evidence is
+  gone stays, shown as a `-` row, until `apply --drop <names>`; a weak one stays whether or not
+  `--weak` is passed again. The exception is a skill listed only as `adapted`: when its last copy
+  is gone it leaves the profile and the routing file, in a `-` row that says so, because kept it
+  would route every session to a skill this repository never installed, and nothing would say so.
 - Committed evidence carries counts and repository-relative paths only. Never an absolute path,
   never a file's contents, never anything read out of session history beyond a number.
 
@@ -92,9 +127,22 @@ added to it can be dropped without warning.
 These skills were chosen from evidence in this repository. Load one when the moment matches;
 nothing here is enforced.
 
+Where a line names an adapted copy, load that copy rather than the skill it adapts: it carries
+the skill's text, or only the file named after "from", together with this repository's values.
+Where a line names more than one copy, load the one whose own description fits the task.
+
 - about to cut a release, bump a version, or write a CHANGELOG entry → `release-notes`
 - delegating to agents, or ending a turn with work still running in the background → `report-progress`
+- work is blocked on another person's judgement, sign-off or wording, and the questions need asking → `ask-the-owner`, this repository's adapted copy of `request-answers`
 ```
+
+A skill with an adapted copy is routed to the copy by name, so a session does not depend on finding
+the copy by a description that a long skill listing may drop, nor on passing over a generic copy
+installed beside it. When two copies adapt one skill, the line names both, joined by "or", and a
+copy that adapts a reference file of the skill says which file: that copy carries the reference
+file's text with the project's values, not the skill's `SKILL.md`. Each copy has a description of
+its own, so the session chooses between two by the task. The paragraph about adapted copies appears
+only when a line names one, so a profile with none renders exactly as it did before 1.1.0.
 
 A rules file with no `paths` frontmatter loads at the start of every session at the same priority
 as the project CLAUDE.md. That is the entire mechanism this skill relies on: no forcing, no hook,
@@ -117,11 +165,14 @@ It is recognised by that command rather than by its `describe` key, because Clau
 describe stops recognising it, and orphaned hooks accumulate. A hook that merely *mentions* the
 script is never taken: removing somebody else's hook is the one mistake here with no undo.
 
-It prints **zero bytes** unless one of three things is true — a required skill is not installed,
-the repository's evidence has moved, or the routing file no longer matches its profile — and then
-exactly one line, wrapped in the `SessionStart` `additionalContext` envelope. It reads no session
-history, never blocks, and fails open: any error at all produces no output rather than a failed
-session start.
+It prints **zero bytes** unless one of four things is true — a required skill is neither
+installed nor adapted here, the repository's evidence has moved, an adapted copy was added, removed
+or re-pinned since the profile was written, or the routing file no longer matches its profile — and
+then exactly one line, wrapped in the `SessionStart` `additionalContext` envelope. It reads no
+session history, only the repository's own files and each adapted copy's small lock, never blocks,
+and fails open: any error at all produces no output rather than a failed session start. A copy
+composed, removed or re-pinned without a refresh is reported until the refresh runs, so refresh in
+the change that composes, removes or re-pins it.
 
 It lives in the user's settings, so it applies to **every project on this machine**. That is why
 it is always its own row in the change list, always marked, and never installed by this skill on

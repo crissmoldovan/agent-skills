@@ -198,7 +198,8 @@ one outside fenced code is refused too.
    change the project's practice; and only then write a `replaces:`.
 6. **The adapted copy never takes its skill's name.** It has a name and a description of its own,
    with the project's own trigger phrases, so neither copy hides the other and a reader can tell which
-   one was loaded.
+   one was loaded. A repository onboarded with `onboard-project` counts the adapted copy as the skill
+   it adapts, and its routing file names the copy for the task.
 7. **The frontmatter follows the skill, except what the project names.** `name` and `description`
    come from the project, and `license` and `compatibility` from the skill. `allowed-tools` never
    comes from the skill: it pre-approves tools while the skill is active, and a pre-approval granted

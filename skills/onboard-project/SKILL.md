@@ -1,9 +1,9 @@
 ---
 name: onboard-project
-description: "Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is not installed, the repository's evidence moves, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them."
+description: "Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is neither installed nor adapted here, the repository's evidence or its adapted copies move, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them."
 license: MIT
 compatibility: "Any repository on a machine with Node 22+ and the Skills CLI available through npx. Git is optional: without it, files stay local. Reads the pack's own fit declarations, the repository's files, and — for onboard and refresh only — this machine's session history for this repository. Writes at most two files plus a git exclude line, and only on an explicit yes. The session-start hook is off until you arm it, and arming it affects every project on this machine."
-metadata: "group=workflow; lifecycle=setup; version=1.0.1; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=setup; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -35,6 +35,7 @@ before that yes, and nothing that is written is hard to remove.
 | The job | Whose it is | What this skill does with it |
 |---|---|---|
 | Installing and updating skills across scopes and agents | `update-agent-skills` | Prints the install commands and never runs one. **The user runs that skill; no skill may install it on their behalf.** |
+| Composing, checking and re-pinning a project's adapted copy of a pack skill | `update-agent-skills` | Reads each copy's `adapted.lock.json` to count the skill it adapts as present and to route to the copy. Never composes, edits or re-pins one. |
 | The context files agents load — CLAUDE.md, AGENTS.md and their generated kin | `derive-codebase-context` | Touches none of them. Its routing lives in a separate generated rules file, so a regeneration somebody else owns cannot clobber it. |
 | The documentation people read | `layer-repository-docs` | Writes none. The routing file is for agents and says so in its own header. |
 | Declared-catalog placement and inherited policy | `workspace-governance` | Reads the repository where it stands; decides nothing about where repositories belong. |
@@ -96,6 +97,19 @@ work should be reported; it recommends the skills that own those jobs and owns n
    It evaluates every pack skill's declared fit against this repository's files, and — for onboard
    and refresh only — against this machine's session history for this repository. History is read
    here and **never** at session start.
+
+   **A skill this repository has adapted is already here.** An adapted copy is the one
+   `update-agent-skills` composes from a pinned pack skill and the project's overlay, under a name
+   of its own, and its `adapted.lock.json` names the skill it adapts. The plan counts that skill as
+   present: a `=` row naming the copy, no install command, and a routing line that names the copy
+   instead of the skill. A skill the scan did not match is listed anyway, as `adapted`, because the
+   copy is the evidence that the project uses it. Lines that open `adapted copy:` come in two kinds.
+   `<folder>: <problem>` names a copy that stands in for nothing, and its skill is planned as if no
+   copy were there: when the problem is a lock version this skill does not read, update
+   onboard-project; when it is a folder of the same name read first, rename or remove one of the
+   two; otherwise hand it to `update-agent-skills`, whose adapter `check` says what is wrong. Never
+   edit a lock by hand. `<copy> adapts <skill>, which this catalogue does not carry` names a copy of
+   a skill from elsewhere: it is recorded in the profile and gets no routing line.
    **Complete when:** the change list exists, and no file in the repository has changed.
 
 4. **Add the weak matches yourself, if any.** The scan is deliberately narrow: it recommends only
@@ -112,6 +126,7 @@ work should be reported; it recommends the skills that own those jobs and owns n
        install: npx skills add <source> --skill release-notes --project --yes
        undo:    npx skills remove release-notes --project
    = report-progress  (strong)  already installed (global)
+   = request-answers  (general)  adapted here as ask-the-owner at v1.4.0 — nothing to install; the routing names the adapted copy
    ~ write skills-profile.json — in this repository
        undo:    delete it, or git revert
    ~ write .claude/rules/skill-routing.md — a new file
@@ -144,20 +159,25 @@ work should be reported; it recommends the skills that own those jobs and owns n
 7. **Record a no properly.** If the user declines a skill, write nothing unless they say "don't
    ask again" — then apply with `--decline <names>`, which records that decision against the
    fingerprint of that skill's own evidence, so it is offered again if and only if the evidence
-   changes.
+   changes. An adapted copy is part of that evidence: composing a copy of a declined skill lifts
+   the decline, and a decline of a skill with copies holds until a copy is added or removed.
    **Complete when:** a declined skill is either absent from the profile or recorded with its
    fingerprint.
 
-8. **Refresh shows differences only, and never drops a listed skill on its own.** New matches;
-   a `-` row for a listed skill whose evidence is gone, kept until the user says `--drop <names>`;
-   a `?` row for one whose evidence cannot be read on this machine — no session history here, or a
-   scan that hit its bounds — which is kept without question; listed skills that are not installed;
-   and a routing file that no longer matches its profile, shown as the lines that would change.
+8. **Refresh shows differences only, and drops a listed skill only on request or with its
+   copy.** New matches; a `-` row for a listed skill whose evidence is gone, kept until the user
+   says `--drop <names>` — except a skill listed only as `adapted`, which leaves with its last
+   copy, in a `-` row that says so, because kept it would route every session to a skill this
+   repository never installed; a `?` row for one whose evidence cannot be read on this machine —
+   no session history here, or a scan that hit its bounds — which is kept without question; listed
+   skills that are not installed; and a routing file that no longer matches its profile, shown as
+   the lines that would change.
    **Complete when:** the user sees only what changed since the last scan.
 
 9. **Arm the check only if the user asks for it.** It is off until then. It says one line when a
-   listed skill is missing, the evidence moved, or the routing file drifted, and nothing at all
-   otherwise; it reads no history, never blocks, and fails open.
+   listed skill is neither installed nor adapted here, the evidence moved, an adapted copy was
+   added, removed or re-pinned, or the routing file drifted, and nothing at all otherwise; it reads
+   no history, never blocks, and fails open.
    **Complete when:** the hook is armed with the user's explicit yes, or it is not armed.
 
 See [what gets written](references/what-gets-written.md) for every file, its location and its undo,
@@ -197,6 +217,10 @@ add it to the git exclude, and keep the profile under my agents directory.
 - **A skill listed but never installed.** The profile is not an installer. A listed skill that is
   not installed does nothing at all, which is why the check's first question is whether the
   required ones are actually there.
+- **Sending a session to the generic skill when the repository has adapted it.** The generic copy
+  carries none of the project's values, and an install command for it puts a second copy beside the
+  adapted one. A skill with an adapted copy here is present: no install is offered, the check does
+  not call it missing, and the routing line names the copy.
 - **Arming a hook inside a project yes.** The hook is in user settings and applies to every
   project on the machine. It gets its own row, its own mark, and its own yes.
 - **Reading history at session start.** These transcripts run to tens of megabytes. A check that
@@ -221,6 +245,8 @@ add it to the git exclude, and keep the profile under my agents directory.
       what was applied and what was not.
 - [ ] No CLAUDE.md, AGENTS.md or generated context file was touched.
 - [ ] A declined skill is either absent from the profile or recorded with its own fingerprint.
+- [ ] A skill this repository has adapted got no install command, and its routing line names the
+      adapted copy.
 - [ ] The hook, if armed, was armed on its own explicit yes and is marked as affecting all
       projects.
 - [ ] `check` says nothing in a repository where everything agrees.

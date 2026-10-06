@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
 
 import {
   PROFILE_VERSION,
+  adaptedCopies,
+  adaptedRecord,
+  changedAdaptedCopies,
   fingerprintOf,
   installedSkills,
   legacyLocalProfilePath,
@@ -214,4 +217,177 @@ test('the suggestion marker is not a profile, and is read and written on its own
   await writeFile(legacyLocalProfilePath(old, { home }), JSON.stringify({ version: 1, onboarding: 'suggested', at: '2026-09-15' }));
   assert.equal(readProfile(old, { home }), null);
   assert.equal(readSuggestionMarker(old, { home }), null);
+});
+
+
+// ---- adapted copies: a skill a project has adapted is present, and the routing names the copy ----
+
+/** An adapted copy as update-agent-skills' composer leaves it: a skill folder and its lock. */
+async function adaptedCopy(repo, name, base, { entry = 'SKILL.md', ref = 'v1.4.0', tree = 'b'.repeat(40), directory = path.join('.claude', 'skills'), lock } = {}) {
+  const folder = path.join(repo, directory, name);
+  await mkdir(folder, { recursive: true });
+  await writeFile(path.join(folder, 'SKILL.md'), `---\nname: ${name}\n---\n`);
+  await writeFile(path.join(folder, 'adapted.lock.json'), typeof lock === 'string' ? lock : JSON.stringify(lock ?? {
+    version: 1,
+    name,
+    base: { source: 'https://github.com/an-owner/a-pack', skill: base, entry, ref, commit: 'a'.repeat(40), tree },
+    files: {},
+  }, null, 2));
+}
+
+test('adapted copies are read from the repository\'s own skill folders, by the skill each adapts', async () => {
+  const repo = await scratch('profile-repo-adapted');
+  await adaptedCopy(repo, 'ship-a-pack', 'release-notes', { entry: 'references/release-pack.md' });
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers', { directory: path.join('.agents', 'skills') });
+  // A skill folder with no lock is an ordinary install, not an adapted copy.
+  await mkdir(path.join(repo, '.claude', 'skills', 'plain-skill'), { recursive: true });
+  await writeFile(path.join(repo, '.claude', 'skills', 'plain-skill', 'SKILL.md'), '---\nname: plain-skill\n---\n');
+
+  const { byBase, ignored } = adaptedCopies(repo);
+  assert.deepEqual(ignored, []);
+  assert.deepEqual([...byBase.keys()], ['release-notes', 'request-answers']);
+  assert.deepEqual(byBase.get('release-notes'), [
+    { name: 'cut-a-release', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
+    { name: 'ship-a-pack', entry: 'references/release-pack.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
+  ]);
+  assert.equal(byBase.get('request-answers')[0].name, 'ask-the-owner');
+  assert.deepEqual(adaptedRecord(byBase)['release-notes'].map((copy) => copy.name), ['cut-a-release', 'ship-a-pack']);
+});
+
+test('a lock that cannot be read stands in for nothing, and is named', async () => {
+  const repo = await scratch('profile-repo-adapted-unreadable');
+  await adaptedCopy(repo, 'torn', 'release-notes', { lock: '{ not json' });
+  await adaptedCopy(repo, 'no-tree', 'release-notes', { tree: 'abc' });
+  await adaptedCopy(repo, 'release-notes', 'release-notes');
+  await adaptedCopy(repo, 'renamed', 'release-notes', { lock: { version: 1, name: 'another-name', base: { skill: 'release-notes', ref: 'v1.4.0', tree: 'b'.repeat(40) } } });
+  await adaptedCopy(repo, 'bad-entry', 'release-notes', { entry: '../outside.md' });
+  await adaptedCopy(repo, 'later-version', 'release-notes', { lock: { version: 2, base: { skill: 'release-notes', ref: 'v1.4.0', tree: 'b'.repeat(40) } } });
+  // A folder no routing line could name, with a lock that names nothing: counted, it would silence
+  // the missing report and then be dropped from the profile, reading as changed at every start.
+  await adaptedCopy(repo, 'Ask_Here', 'release-notes', { lock: { version: 1, base: { skill: 'release-notes', ref: 'v1.4.0', tree: 'b'.repeat(40) } } });
+
+  const { byBase, ignored } = adaptedCopies(repo);
+  assert.equal(byBase.size, 0, 'an unreadable lock stood in for a skill');
+  assert.equal(ignored.length, 7, ignored.join('\n'));
+  assert.ok(ignored.some((line) => /^\.claude\/skills\/torn: /.test(line)));
+  assert.ok(ignored.some((line) => /takes the name of the skill it adapts/.test(line)));
+  assert.ok(ignored.some((line) => /not its own folder/.test(line)));
+  assert.ok(ignored.some((line) => /^\.claude\/skills\/later-version: .*has version 2, which this skill does not read: if a newer composer wrote it, update onboard-project$/.test(line)));
+  assert.ok(ignored.some((line) => /^\.claude\/skills\/Ask_Here: the folder name is not a skill name/.test(line)));
+});
+
+// A session loads a skill by its SKILL.md. A folder whose lock is intact but whose SKILL.md is gone
+// is a copy no session can load, so it stands in for nothing: counted, it would silence the report
+// of a missing skill and send the routing to a name that does not load.
+test('a copy whose SKILL.md is gone stands in for nothing, and is named', async () => {
+  const repo = await scratch('profile-repo-adapted-no-skill');
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await rm(path.join(repo, '.claude', 'skills', 'ask-the-owner', 'SKILL.md'));
+  const { byBase, ignored } = adaptedCopies(repo);
+  assert.deepEqual([...byBase.keys()], ['release-notes'], 'a copy with no SKILL.md stood in for its skill');
+  assert.deepEqual(ignored, ['.claude/skills/ask-the-owner: has no SKILL.md, so no session can load it; compose it again']);
+
+  // Nor is a SKILL.md that is a folder a skill a session loads.
+  await mkdir(path.join(repo, '.claude', 'skills', 'ask-the-owner', 'SKILL.md'));
+  assert.deepEqual(adaptedCopies(repo).ignored, ['.claude/skills/ask-the-owner: has no SKILL.md, so no session can load it; compose it again']);
+
+  // A loadable copy of the same name in a folder read later is the one a session loads, and counts.
+  await adaptedCopy(repo, 'ask-the-owner', 'request-answers', { directory: path.join('.agents', 'skills') });
+  const later = adaptedCopies(repo);
+  assert.deepEqual(later.byBase.get('request-answers')?.map((copy) => copy.name), ['ask-the-owner']);
+  assert.deepEqual(later.ignored, ['.claude/skills/ask-the-owner: has no SKILL.md, so no session can load it; compose it again']);
+});
+
+test('a second folder of one name is named when its lock says something else, and is quiet when it is the same copy', async () => {
+  const repo = await scratch('profile-repo-adapted-twice');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes');
+  await adaptedCopy(repo, 'cut-a-release', 'release-notes', { directory: path.join('.agents', 'skills') });
+  const same = adaptedCopies(repo);
+  assert.deepEqual(same.ignored, [], 'the same copy in both folders was reported');
+  assert.equal(same.byBase.get('release-notes').length, 1);
+
+  await adaptedCopy(repo, 'cut-a-release', 'request-answers', { directory: path.join('.agents', 'skills') });
+  const differing = adaptedCopies(repo);
+  assert.deepEqual(differing.ignored, ['.agents/skills/cut-a-release: has the name of .claude/skills/cut-a-release, which is read first, and its lock says something else']);
+  assert.deepEqual([...differing.byBase.keys()], ['release-notes'], 'the folder read second was counted');
+});
+
+test('the routing names a skill\'s adapted copies instead of the skill, and says what each adapts', () => {
+  const profile = {
+    ...sampleProfile(),
+    adapted: {
+      'release-notes': [
+        { name: 'cut-a-release', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
+        { name: 'ship-a-pack', entry: 'references/release-pack.md', ref: 'v1.4.0', tree: 'b'.repeat(40) },
+      ],
+      'report-progress': [{ name: 'say-where-we-are', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'c'.repeat(40) }],
+      // A copy of a skill the profile does not list adds no line.
+      'not-listed': [{ name: 'orphan-copy', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'd'.repeat(40) }],
+    },
+  };
+  const rules = renderRules(profile);
+  assert.match(rules, /^- about to cut a release → `cut-a-release` or `ship-a-pack` \(from references\/release-pack\.md\), this repository's adapted copies of `release-notes`$/m);
+  assert.match(rules, /^- delegating to agents → `say-where-we-are`, this repository's adapted copy of `report-progress`$/m);
+  assert.doesNotMatch(rules, /→ `release-notes`/, 'the routing still sends the task to the generic skill');
+  assert.doesNotMatch(rules, /orphan-copy/);
+  assert.match(rules, /load that copy rather than the skill it adapts/);
+  assert.match(rules, /or only the file named after "from"/);
+  assert.match(rules, /load the one whose own description fits the task/);
+  assert.doesNotMatch(rules, /whole text/, 'the routing says a copy over one file carries the whole skill');
+  assert.equal(renderRules(profile), renderRules(structuredClone(profile)));
+});
+
+test('a profile with no adapted copy renders the bytes it rendered before copies were read', () => {
+  // A routing file committed by an earlier release must not read as drift after an upgrade.
+  const before = [
+    '<!-- Generated by onboard-project from skills-profile.json. Do not edit; change the profile and run refresh. -->',
+    '# Skill routing for this project',
+    '',
+    'These skills were chosen from evidence in this repository. Load one when the moment matches;',
+    'nothing here is enforced.',
+    '',
+    '- about to cut a release → `release-notes`',
+    '- delegating to agents → `report-progress`',
+    '',
+  ].join('\n');
+  assert.equal(renderRules(sampleProfile()), before);
+  assert.equal(renderRules({ ...sampleProfile(), adapted: {} }), before);
+  assert.equal(renderRules({ ...sampleProfile(), adapted: { 'release-notes': 'not a list' } }), before);
+  assert.doesNotMatch(before, /adapted/);
+});
+
+test('an adapted skill the scan did not match is routed after the strong ones and before the rest', () => {
+  const profile = {
+    ...sampleProfile(),
+    skills: {
+      ...sampleProfile().skills,
+      'mine-something': { match: 'adapted', evidence: ['adapted here as find-what-was-said'], useWhen: 'asked for by name', required: false, scope: 'project' },
+      'a-weak-one': { match: 'weak', evidence: [], useWhen: 'a weak suggestion', required: false, scope: 'global' },
+    },
+    adapted: { 'mine-something': [{ name: 'find-what-was-said', entry: 'SKILL.md', ref: 'v1.4.0', tree: 'e'.repeat(40) }] },
+  };
+  const rules = renderRules(profile);
+  const at = (needle) => rules.indexOf(needle);
+  assert.ok(at('`release-notes`') < at('`find-what-was-said`'), 'an adapted line came before a strong one');
+  assert.ok(at('`find-what-was-said`') < at('`a-weak-one`'), 'an adapted line came after a weak one');
+  assert.ok(at('`a-weak-one`') < at('`report-progress`'), 'a weak line came after a general one');
+});
+
+test('the adapted copies that changed are named: added, removed, moved to another skill, or re-pinned', () => {
+  const copy = (name, overrides = {}) => ({ name, entry: 'SKILL.md', ref: 'v1.4.0', tree: 'b'.repeat(40), ...overrides });
+  const recorded = { 'release-notes': [copy('cut-a-release'), copy('ship-a-pack')], 'request-answers': [copy('ask-the-owner')] };
+  const same = new Map([['release-notes', [copy('cut-a-release'), copy('ship-a-pack')]], ['request-answers', [copy('ask-the-owner')]]]);
+  assert.deepEqual(changedAdaptedCopies(recorded, same), []);
+
+  const now = new Map([
+    ['release-notes', [copy('cut-a-release', { ref: 'v1.5.0', tree: 'c'.repeat(40) })]],
+    ['report-progress', [copy('ask-the-owner')]],
+    ['request-answers', [copy('new-copy')]],
+  ]);
+  assert.deepEqual(changedAdaptedCopies(recorded, now), ['ask-the-owner', 'cut-a-release', 'new-copy', 'ship-a-pack']);
+  // A profile written before copies were read has no map, and reads as one that recorded none.
+  assert.deepEqual(changedAdaptedCopies(undefined, new Map()), []);
+  assert.deepEqual(changedAdaptedCopies(undefined, same), ['ask-the-owner', 'cut-a-release', 'ship-a-pack']);
 });
