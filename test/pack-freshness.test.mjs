@@ -16,10 +16,12 @@ import {
   TTL_STALE_MS,
   TTL_UNKNOWN_MS,
   checkPackFreshness,
+  formatAdaptedNotice,
   formatHookEnvelope,
   formatNotice,
   formatUnknownNotice,
   main,
+  readAdaptedPins,
   reportFor,
   resolveCachePath,
   resolveLockPath,
@@ -583,6 +585,15 @@ test('--hook and --print-stale-names are refused together rather than one silent
   assert.equal(result.stdout.trim(), '');
 });
 
+test('--hook and --repo are refused together: a hook is silent when current, and an inventory never is', async () => {
+  const home = await stateHome('hook-repo', { blocks: lockEntry('blocks', 'sha-old') });
+  const result = await runChecker(['--source', SOURCE, '--hook', '--repo', home], { XDG_STATE_HOME: home });
+
+  assert.equal(result.status, EXIT_USAGE);
+  assert.equal(result.stdout.trim(), '');
+  assert.match(result.stderr, /--hook and --repo are different outputs/);
+});
+
 // ── The auto-mode hook body, run as the shipped command string ──────────────
 // buildHookEntry emits a complete `sh -c '…' <node> <checker> <source>` command.
 // Running that string is the only way to test the quoting and the shell logic
@@ -682,4 +693,163 @@ test('a failed auto-update surfaces the command to re-run by hand, and the tool 
   } finally {
     server.close();
   }
+});
+
+// A project's adapted copies of the pack's skills (update-agent-skills' scripts/adapt.mjs) record
+// their pin in an adapted.lock.json the global lockfile never sees. --repo lists them, each against
+// the latest release; they are never handed to `skills update`, which does not move them.
+async function projectWithAdaptedCopies(name, copies) {
+  const root = await tempDir(`pack-freshness-${name}-project-`);
+  for (const [folder, base] of Object.entries(copies)) {
+    await mkdir(path.join(root, '.claude', 'skills', folder), { recursive: true });
+    const lock = typeof base === 'string' ? base : JSON.stringify({ version: 1, name: folder, base });
+    await writeFile(path.join(root, '.claude', 'skills', folder, 'adapted.lock.json'), lock);
+  }
+  return root;
+}
+
+const adaptedBase = (skill, ref, tree, source = `https://github.com/${SOURCE}`) => ({ source, skill, entry: 'SKILL.md', ref, commit: 'c'.repeat(40), tree });
+
+test('--repo lists every adapted pin against the latest release, and never names one in the update command', async () => {
+  const { lockPath, cachePath } = await scratch('adapted');
+  await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-blocks') });
+  const repo = await projectWithAdaptedCopies('adapted', {
+    'notes-here': adaptedBase('release-notes', 'v1.0.0', 'tree-notes-old'),
+    'asks-here': adaptedBase('request-answers', 'v1.0.0', 'tree-asks'),
+    'elsewhere-here': adaptedBase('blocks', 'v1.0.0', 'tree-x', 'https://github.com/other-owner/other-pack'),
+    'local-here': adaptedBase('blocks', 'v1.0.0', 'tree-y', '../example-pack'),
+  });
+  const fetchImpl = stubFetch([
+    ['git/trees/HEAD', jsonResponse(treeResponse({ 'skills/blocks': 'sha-blocks' }))],
+    ['git/trees/v1.0.0', jsonResponse(treeResponse({ 'skills/release-notes': 'tree-notes-old', 'skills/request-answers': 'tree-asks' }))],
+    ['git/trees/v1.2.3', jsonResponse(treeResponse({ 'skills/release-notes': 'tree-notes-new', 'skills/request-answers': 'tree-asks' }))],
+    ['releases/latest', jsonResponse(RELEASE)],
+  ]);
+
+  const result = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo });
+
+  // The installed half is judged as before, and an adapted copy never joins it.
+  assert.equal(result.state, 'current');
+  assert.deepEqual(result.stale, []);
+  assert.deepEqual(result.adapted.pins.map((pin) => [pin.name, pin.state]), [['asks-here', 'current'], ['notes-here', 'differs']]);
+  const notice = formatAdaptedNotice(result);
+  assert.match(notice, /^ADAPTED_PINS example-owner\/example-pack 2 adapted copies of its skills in this project, and 2 adapted copies not compared$/m);
+  assert.match(notice, /notes-here adapts release-notes at v1\.0\.0: differs from the latest release v1\.2\.3 \(tree tree-notes-o -> tree-notes-n\)/);
+  assert.match(notice, /git diff v1\.0\.0 v1\.2\.3 -- skills\/release-notes/);
+  assert.match(notice, /asks-here adapts request-answers at v1\.0\.0: the same tree as the latest release v1\.2\.3/);
+  assert.match(notice, /skills update never moves it/);
+  // A copy of another source, or of a local clone, is listed rather than left out, and never compared.
+  assert.match(notice, /elsewhere-here adapts blocks at v1\.0\.0 from other-owner\/other-pack: not compared, because this check reads example-owner\/example-pack only/);
+  assert.match(notice, /local-here adapts blocks at v1\.0\.0 from the local clone \.\.\/example-pack: not compared/);
+  assert.deepEqual(result.adapted.pins.map((pin) => pin.name).sort(), ['asks-here', 'notes-here'], 'a copy of another source was compared');
+  assert.doesNotMatch(reportFor(result), /npx skills update/, 'an adapted copy reached the update command');
+
+  // On the command line: an inventory is never silent, it exits 2 when a pin needs a person, and
+  // the names an auto hook would update stay the installed ones only.
+  const env = { XDG_STATE_HOME: path.dirname(lockPath) };
+  await mkdir(path.join(path.dirname(lockPath), 'skills'), { recursive: true });
+  await writeFile(path.join(path.dirname(lockPath), 'skills', '.skill-lock.json'), await readFile(lockPath, 'utf8'));
+  const out = [];
+  const stdout = { write: (text) => out.push(text) };
+  const status = await main(['--source', SOURCE, '--repo', repo, '--no-cache'], { env, stdout, stderr: stdout, fetchImpl });
+  assert.equal(status, EXIT_DRIFT);
+  assert.match(out.join(''), /ADAPTED_PINS/);
+  const names = [];
+  await main(['--source', SOURCE, '--repo', repo, '--no-cache', '--print-stale-names'], { env, stdout: { write: (text) => names.push(text) }, stderr: stdout, fetchImpl });
+  assert.equal(names.join(''), '');
+});
+
+test('an adapted pin whose tag moved or vanished is an alarm, and an unreadable release is unknown, never current', async () => {
+  const { lockPath, cachePath } = await scratch('adapted-moved');
+  await writeLock(lockPath, {});
+  const repo = await projectWithAdaptedCopies('adapted-moved', {
+    'moved-here': adaptedBase('release-notes', 'v1.0.0', 'tree-composed'),
+    'gone-here': adaptedBase('report-progress', 'v0.9.0', 'tree-gone'),
+  });
+  const fetchImpl = stubFetch([
+    ['git/trees/v1.0.0', jsonResponse(treeResponse({ 'skills/release-notes': 'tree-retagged' }))],
+    ['git/trees/v0.9.0', jsonResponse({ message: 'Not Found' }, 404)],
+    ['releases/latest', jsonResponse(RELEASE)],
+  ]);
+
+  const result = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo });
+
+  assert.equal(result.state, 'untracked');
+  assert.deepEqual(result.adapted.pins.map((pin) => [pin.name, pin.state]), [['gone-here', 'moved'], ['moved-here', 'moved']]);
+  const notice = reportFor(result);
+  assert.match(notice, /moved-here adapts release-notes at v1\.0\.0: ALARM, v1\.0\.0 now gives skills\/release-notes the tree tree-retagge, not tree-compose: the tag moved/);
+  assert.match(notice, /gone-here adapts report-progress at v0\.9\.0: ALARM, v0\.9\.0 cannot be read from the source any more/);
+
+  const noRelease = stubFetch([
+    ['git/trees/v1.0.0', jsonResponse(treeResponse({ 'skills/release-notes': 'tree-composed' }))],
+    ['releases/latest', () => { throw new Error('getaddrinfo ENOTFOUND'); }],
+  ]);
+  const only = await projectWithAdaptedCopies('adapted-unknown', { 'moved-here': adaptedBase('release-notes', 'v1.0.0', 'tree-composed') });
+  const unknown = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl: noRelease, env: {}, repo: only });
+  assert.equal(unknown.adapted.pins[0].state, 'unknown');
+  assert.match(formatAdaptedNotice(unknown), /unknown, the latest release is unreadable .*Unknown is not current/);
+});
+
+test('an adapted pin is compared at the folder its lock records in base.path, and at skills/<skill> when it records none', async () => {
+  const { lockPath, cachePath } = await scratch('adapted-path');
+  await writeLock(lockPath, {});
+  const repo = await projectWithAdaptedCopies('adapted-path', {
+    'notes-here': { ...adaptedBase('notes', 'v1.0.0', 'tree-notes'), path: 'skills/team/skills/notes' },
+    'asks-here': adaptedBase('request-answers', 'v1.0.0', 'tree-asks'),
+  });
+  assert.deepEqual(readAdaptedPins(repo, SOURCE).pins.map((pin) => [pin.name, pin.folder]), [['asks-here', 'skills/request-answers'], ['notes-here', 'skills/team/skills/notes']]);
+  const fetchImpl = stubFetch([
+    ['git/trees/v1.0.0', jsonResponse(treeResponse({ 'skills/team/skills/notes': 'tree-notes', 'skills/request-answers': 'tree-asks' }))],
+    ['git/trees/v1.2.3', jsonResponse(treeResponse({ 'skills/team/skills/notes': 'tree-notes-new', 'skills/request-answers': 'tree-asks' }))],
+    ['releases/latest', jsonResponse(RELEASE)],
+  ]);
+
+  const result = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo });
+
+  assert.deepEqual(result.adapted.pins.map((pin) => [pin.name, pin.state]), [['asks-here', 'current'], ['notes-here', 'differs']]);
+  assert.match(formatAdaptedNotice(result), /git diff v1\.0\.0 v1\.2\.3 -- skills\/team\/skills\/notes/);
+});
+
+test('an adapted lock that cannot be read is reported, and without --repo no adapted copy is read at all', async () => {
+  const { lockPath, cachePath } = await scratch('adapted-broken');
+  await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-blocks') });
+  const repo = await projectWithAdaptedCopies('adapted-broken', { 'broken-here': '{ not json' });
+  assert.deepEqual(readAdaptedPins(repo, SOURCE).problems.length, 1);
+
+  const fetchImpl = stubFetch([['git/trees', jsonResponse(treeResponse({ 'skills/blocks': 'sha-blocks' }))]]);
+  const withRepo = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo, useCache: false });
+  assert.match(reportFor(withRepo), /Unreadable adapted copy: broken-here: adapted\.lock\.json does not parse/);
+
+  const without = await checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, useCache: false });
+  assert.equal(without.adapted, undefined);
+  assert.equal(reportFor(without), '');
+});
+
+// Only a project that holds no adapted copies may read as one: a project, a skills folder or a lock
+// the check could not read is said, never folded into an empty inventory.
+test('a project, a skills folder or a lock that cannot be read is reported, and only a missing default folder reads as no copies', async () => {
+  const { lockPath, cachePath } = await scratch('adapted-unreadable');
+  await writeLock(lockPath, { blocks: lockEntry('blocks', 'sha-blocks') });
+  const fetchImpl = stubFetch([['git/trees', jsonResponse(treeResponse({ 'skills/blocks': 'sha-blocks' }))]]);
+  const run = (repo, skillsDir) => checkPackFreshness({ source: SOURCE, lockPath, cachePath, fetchImpl, env: {}, repo, skillsDir, useCache: false });
+
+  // A project with no skills folder holds no adapted copies, and says nothing.
+  const plain = await tempDir('pack-freshness-plain-project-');
+  assert.equal(reportFor(await run(plain)), '');
+
+  const absent = path.join(plain, 'no-such-project');
+  assert.match(reportFor(await run(absent)), new RegExp(`^ADAPTED_PINS ${SOURCE} unknown: the project ${absent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} cannot be read \\(.*ENOENT.*\\)\\nUnknown is not "no adapted copies"`, 'm'));
+  const misspelt = reportFor(await run(plain, '.claude/skils'));
+  assert.match(misspelt, new RegExp(`^ADAPTED_PINS ${SOURCE} unknown: \\.claude/skils, the skills folder named, is not in the project`, 'm'));
+
+  await writeFile(path.join(plain, 'not-a-folder'), 'a file\n');
+  assert.match(reportFor(await run(plain, 'not-a-folder')), new RegExp(`^ADAPTED_PINS ${SOURCE} unknown: not-a-folder cannot be read \\(.*ENOTDIR.*\\)`, 'm'));
+
+  // A lock that exists and cannot be opened is named; a folder with no lock is an ordinary skill.
+  const repo = await projectWithAdaptedCopies('adapted-unopenable', {});
+  await mkdir(path.join(repo, '.claude', 'skills', 'folder-here', 'adapted.lock.json'), { recursive: true });
+  await mkdir(path.join(repo, '.claude', 'skills', 'plain-skill'), { recursive: true });
+  const unopenable = readAdaptedPins(repo, SOURCE);
+  assert.deepEqual(unopenable.problems.map((problem) => problem.replace(/\(.*\)$/, '(...)')), ['folder-here: adapted.lock.json cannot be read (...)']);
+  assert.match(reportFor(await run(repo)), /Unreadable adapted copy: folder-here: adapted\.lock\.json cannot be read \(.*EISDIR.*\)/);
 });

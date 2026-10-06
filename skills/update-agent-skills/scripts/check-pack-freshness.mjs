@@ -33,8 +33,19 @@
  * And every verdict is written to stdout, never to stderr. On the hook channel
  * this script was built for, stderr does not supplement stdout — it replaces it,
  * so a single stray line from anything else would swap the verdict for noise.
+ *
+ * With `--repo <dir>` it also lists the project's adapted copies of this pack's
+ * skills: the folders `scripts/adapt.mjs` composes from a pinned pack skill and
+ * the project's overlay, each recording its pin in `adapted.lock.json`. The global
+ * lockfile cannot see them, and a pinned entry there is only ever compared with
+ * its own ref, so without this nothing says that a release has moved past a pin.
+ * Each one is compared with the latest release; a copy of another source is listed
+ * as not compared. They are never named in the update command, because `skills
+ * update` does not move them: a person moves the pin and composes again. `--repo`
+ * is refused with `--hook`, whose silence means current, since an inventory is
+ * never silent.
  */
-import { realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -132,13 +143,21 @@ export const SOURCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-
 /** Names are interpolated into a printed command, so only plain slugs may pass. */
 export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-const USAGE = `Usage: check-pack-freshness.mjs [--source <owner>/<repo>] [--hook] [--print-stale-names] [--no-cache] [--consented]
+/** Where a project keeps the adapted copies `scripts/adapt.mjs` composes, and the lock each records. */
+export const DEFAULT_ADAPTED_SKILLS_DIR = '.claude/skills';
+export const ADAPTED_LOCK_FILE = 'adapted.lock.json';
+
+const USAGE = `Usage: check-pack-freshness.mjs [--source <owner>/<repo>] [--hook] [--print-stale-names] [--no-cache] [--consented] [--repo <dir> [--skills-dir <dir>]]
 
 Reports drift between an installed pack and its published source. Reads only.
 Every verdict it has — drift or unknown — goes to stdout; silence means current.
 Exit 0 when current, unknown, or untracked; exit 2 when an update is available.
 --hook wraps the same report in a SessionStart additionalContext envelope and
-always exits 0, because on that event exit 2 discards stdout instead of carrying it.`;
+always exits 0, because on that event exit 2 discards stdout instead of carrying it.
+--repo also lists that project's adapted copies of the pack's skills, each against
+the latest release; it is an inventory, so it lists current ones too, and it also
+exits 2 when an adapted pin moved or differs from the latest release. It is never
+combined with --hook, whose silence means current.`;
 
 function describeError(error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -288,7 +307,7 @@ async function fetchJson(url, { fetchImpl, token, timeoutMs }) {
   }
 }
 
-export async function checkPackFreshness(options = {}) {
+async function checkInstalledCopies(options = {}) {
   const {
     source = DEFAULT_SOURCE,
     env = process.env,
@@ -418,6 +437,177 @@ function settle(result, selection, snapshot, truncated, release, fetched) {
 }
 
 /**
+ * The installed copies the global lockfile tracks and, with `repo`, the project's
+ * adapted copies of this pack's skills. The two halves are judged apart: an
+ * adapted copy never changes `state`, never joins `stale`, and so never reaches
+ * the update command an armed auto hook runs.
+ */
+export async function checkPackFreshness(options = {}) {
+  const result = await checkInstalledCopies(options);
+  if (!options.repo) return result;
+  const env = options.env ?? process.env;
+  const { pins, problems, others, unreadable } = readAdaptedPins(options.repo, result.source, options.skillsDir);
+  result.adapted = pins.length === 0 ? { release: null, pins: [] } : await checkAdaptedPins({
+    pins,
+    source: result.source,
+    apiBase: (env.SKILLS_FRESHNESS_API_BASE || DEFAULT_API_BASE).replace(/\/+$/, ''),
+    token: env.GITHUB_TOKEN || env.GH_TOKEN || null,
+    fetchImpl: options.fetchImpl ?? globalThis.fetch,
+  });
+  result.adaptedProblems = problems;
+  result.adaptedOthers = others;
+  result.adaptedUnreadable = unreadable;
+  return result;
+}
+
+/** `owner/repo` for a GitHub source URL, lower-cased because GitHub compares it that way. */
+function githubSlug(value) {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*?)(?:\.git)?\/?$/);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
+ * The adapted copies a project holds of one source's skills, from the lock each
+ * generated folder carries. A lock that cannot be read is reported, never skipped,
+ * and a copy of another source — another repository, or a local clone of the pack
+ * — is listed as not compared, because this check reads one source's releases.
+ * Only a project with no skills folder at the default place holds no copies: a
+ * project, a named skills folder or a folder that cannot be read is `unreadable`,
+ * so it is never folded into an empty inventory.
+ */
+export function readAdaptedPins(repo, source, skillsDir = DEFAULT_ADAPTED_SKILLS_DIR) {
+  const folder = path.resolve(repo, skillsDir);
+  const pins = [];
+  const problems = [];
+  const others = [];
+  const none = (unreadable) => ({ pins, problems, others, unreadable });
+  try {
+    if (!statSync(repo).isDirectory()) return none(`the project ${repo} is not a folder`);
+  } catch (error) {
+    return none(`the project ${repo} cannot be read (${describeError(error)})`);
+  }
+  let entries;
+  try {
+    entries = readdirSync(folder, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return none(`${skillsDir} cannot be read (${describeError(error)})`);
+    return none(skillsDir === DEFAULT_ADAPTED_SKILLS_DIR ? null : `${skillsDir}, the skills folder named, is not in the project`);
+  }
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isDirectory()) continue;
+    let text;
+    try {
+      text = readFileSync(path.join(folder, entry.name, ADAPTED_LOCK_FILE), 'utf8');
+    } catch (error) {
+      // No lock is an ordinary skill folder; a lock that is there and cannot be read is not.
+      if (error?.code !== 'ENOENT') problems.push(`${entry.name}: ${ADAPTED_LOCK_FILE} cannot be read (${describeError(error)})`);
+      continue;
+    }
+    let lock;
+    try {
+      lock = JSON.parse(text);
+    } catch (error) {
+      problems.push(`${entry.name}: ${ADAPTED_LOCK_FILE} does not parse (${describeError(error)})`);
+      continue;
+    }
+    const base = lock?.base;
+    if (!base || typeof base.skill !== 'string' || !SKILL_NAME_PATTERN.test(base.skill) || typeof base.ref !== 'string' || typeof base.tree !== 'string' || (base.path !== undefined && typeof base.path !== 'string')) {
+      problems.push(`${entry.name}: ${ADAPTED_LOCK_FILE} records no pin this check can read`);
+      continue;
+    }
+    if (githubSlug(base.source) !== source.toLowerCase()) {
+      others.push({ name: entry.name, skill: base.skill, ref: base.ref, from: githubSlug(base.source) ?? (typeof base.source === 'string' ? `the local clone ${base.source}` : 'an unnamed source') });
+      continue;
+    }
+    // The lock names the skill's folder only when its source keeps it elsewhere than skills/<skill>.
+    pins.push({ name: entry.name, skill: base.skill, folder: base.path ?? `skills/${base.skill}`, ref: base.ref, tree: base.tree });
+  }
+  return none(null);
+}
+
+/**
+ * Each adapted pin against the latest release. `moved` means the pinned ref no
+ * longer gives the tree the copy was composed from (a moved or deleted tag);
+ * `differs` means the latest release has another tree for that skill — different,
+ * not newer, since a tree hash carries no order; `current` means the same tree,
+ * so moving the pin would change nothing; `unknown` is never folded into current.
+ */
+export async function checkAdaptedPins({ pins, source, apiBase = DEFAULT_API_BASE, token = null, fetchImpl = globalThis.fetch }) {
+  const trees = new Map();
+  const treeAt = async (ref) => {
+    if (!trees.has(ref)) {
+      try {
+        const body = await fetchJson(`${apiBase}/repos/${source}/git/trees/${encodeURIComponent(ref)}?recursive=1`, { fetchImpl, token, timeoutMs: FETCH_TIMEOUT_MS });
+        if (!Array.isArray(body.tree)) throw new Error('tree response carried no tree');
+        trees.set(ref, { index: indexTree(body.tree), truncated: body.truncated === true });
+      } catch (error) {
+        trees.set(ref, { error: describeError(error) });
+      }
+    }
+    return trees.get(ref);
+  };
+
+  let release = null;
+  let releaseProblem = null;
+  try {
+    const body = await fetchJson(`${apiBase}/repos/${source}/releases/latest`, { fetchImpl, token, timeoutMs: FETCH_TIMEOUT_MS });
+    release = typeof body.tag_name === 'string' && body.tag_name ? { tag: body.tag_name, name: typeof body.name === 'string' ? body.name : null } : null;
+    if (!release) releaseProblem = 'the latest release names no tag';
+  } catch (error) {
+    releaseProblem = `the latest release is unreadable (${describeError(error)})`;
+  }
+
+  const results = [];
+  for (const pin of pins) {
+    const record = { ...pin, state: 'unknown', latest: release?.tag ?? null, latestTree: null, reason: null };
+    results.push(record);
+    const pinned = await treeAt(pin.ref);
+    if (pinned.error) {
+      if (/HTTP 404/.test(pinned.error)) {
+        record.state = 'moved';
+        record.reason = `${pin.ref} cannot be read from the source any more: a deleted tag?`;
+      } else record.reason = `the pinned ref is unreadable (${pinned.error})`;
+      continue;
+    }
+    const atPin = pinned.index.get(pin.folder);
+    if (!atPin) {
+      if (pinned.truncated) record.reason = 'the tree listing was truncated';
+      else {
+        record.state = 'moved';
+        record.reason = `${pin.ref} no longer has ${pin.folder}`;
+      }
+      continue;
+    }
+    if (atPin !== pin.tree) {
+      record.state = 'moved';
+      record.reason = `${pin.ref} now gives ${pin.folder} the tree ${atPin.slice(0, 12)}, not ${pin.tree.slice(0, 12)}: the tag moved`;
+      continue;
+    }
+    if (!release) {
+      record.reason = releaseProblem;
+      continue;
+    }
+    const latest = await treeAt(release.tag);
+    if (latest.error) {
+      record.reason = `the latest release's tree is unreadable (${latest.error})`;
+      continue;
+    }
+    record.latestTree = latest.index.get(pin.folder) ?? null;
+    if (!record.latestTree) {
+      record.state = latest.truncated ? 'unknown' : 'differs';
+      record.reason = latest.truncated ? 'the tree listing was truncated' : `${pin.folder} is gone from ${release.tag}`;
+    } else record.state = record.latestTree === pin.tree ? 'current' : 'differs';
+  }
+  return { release, pins: results };
+}
+
+/** True when an adapted pin needs a person: its ref moved, or a release has another tree for it. */
+export function adaptedNeedAttention(result) {
+  return Boolean(result?.adapted?.pins?.some((pin) => pin.state === 'moved' || pin.state === 'differs'));
+}
+
+/**
  * The first token is a stable vocabulary for machines; the rest is for a human.
  * Silence is the only "you are current" signal, which is exactly why a failed
  * check must never render as silence — see `formatUnknownNotice`.
@@ -457,9 +647,42 @@ export function formatUnknownNotice(result) {
   ].join('\n');
 }
 
+/**
+ * The project's adapted pins, one line each. Asked for with `--repo`, this is an
+ * inventory rather than an alarm, so a current pin is listed too: the healthy
+ * signal here is a line that says so, never silence.
+ */
+export function formatAdaptedNotice(result) {
+  const pins = result?.adapted?.pins ?? [];
+  const problems = result?.adaptedProblems ?? [];
+  const others = result?.adaptedOthers ?? [];
+  if (result?.adaptedUnreadable) {
+    return [
+      `ADAPTED_PINS ${result.source} unknown: ${result.adaptedUnreadable}`,
+      'Unknown is not "no adapted copies": this check could not read where the project keeps them. Name the project, and its skills folder if it is not .claude/skills, as they are on disk.',
+    ].join('\n');
+  }
+  if (pins.length === 0 && problems.length === 0 && others.length === 0) return '';
+  const copies = (count) => `${count} adapted cop${count === 1 ? 'y' : 'ies'}`;
+  const lines = [`ADAPTED_PINS ${result.source} ${copies(pins.length)} of its skills in this project${others.length ? `, and ${copies(others.length)} not compared` : ''}`];
+  for (const pin of pins) {
+    const head = `${pin.name} adapts ${pin.skill} at ${pin.ref}`;
+    if (pin.state === 'current') lines.push(`${head}: the same tree as the latest release ${pin.latest}; moving the pin would change nothing`);
+    else if (pin.state === 'differs') {
+      const trees = pin.latestTree ? ` (tree ${pin.tree.slice(0, 12)} -> ${pin.latestTree.slice(0, 12)})` : '';
+      lines.push(`${head}: differs from the latest release ${pin.latest}${trees}${pin.reason ? `; ${pin.reason}` : ''}. Read git diff ${pin.ref} ${pin.latest} -- ${pin.folder}, then move the pin and compose`);
+    } else if (pin.state === 'moved') lines.push(`${head}: ALARM, ${pin.reason}. Read why before composing again`);
+    else lines.push(`${head}: unknown, ${pin.reason ?? 'no reason recorded'}. Unknown is not current`);
+  }
+  for (const other of others) lines.push(`${other.name} adapts ${other.skill} at ${other.ref} from ${other.from}: not compared, because this check reads ${result.source} only. Run adapt.mjs outdated in the project, which reads each copy's own source`);
+  for (const problem of problems) lines.push(`Unreadable adapted copy: ${problem}`);
+  lines.push('An adapted copy is not a Skills CLI install, and skills update never moves it. Its pin moves in the adapter folder, and adapt.mjs composes it again.');
+  return lines.join('\n');
+}
+
 /** Everything this check has to say, or the empty string when it has nothing. */
 export function reportFor(result) {
-  return formatNotice(result) || formatUnknownNotice(result);
+  return [formatNotice(result) || formatUnknownNotice(result), formatAdaptedNotice(result)].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -481,12 +704,18 @@ export function formatHookEnvelope(report) {
 }
 
 function parseArguments(argv) {
-  const options = { source: DEFAULT_SOURCE, hook: false, printStaleNames: false, useCache: true, consented: false, help: false };
+  const options = { source: DEFAULT_SOURCE, hook: false, printStaleNames: false, useCache: true, consented: false, help: false, repo: null, skillsDir: DEFAULT_ADAPTED_SKILLS_DIR };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--source') {
       index += 1;
       options.source = argv[index] ?? '';
+    } else if (argument === '--repo' || argument === '--skills-dir') {
+      index += 1;
+      const value = argv[index];
+      if (!value || value.startsWith('--')) throw new Error(`${argument} needs a directory`);
+      if (argument === '--repo') options.repo = value;
+      else options.skillsDir = value;
     } else if (argument === '--hook') options.hook = true;
     else if (argument === '--print-stale-names') options.printStaleNames = true;
     else if (argument === '--no-cache') options.useCache = false;
@@ -496,6 +725,9 @@ function parseArguments(argv) {
   }
   if (!SOURCE_PATTERN.test(options.source)) throw new Error('--source must be <owner>/<repo>');
   if (options.hook && options.printStaleNames) throw new Error('--hook and --print-stale-names are different outputs; pick one');
+  // A hook's silence means current, and an inventory is never silent: every session would carry it.
+  if (options.hook && options.repo) throw new Error('--hook and --repo are different outputs: the hook is silent when current, and --repo lists every adapted pin; pick one');
+  if (options.skillsDir !== DEFAULT_ADAPTED_SKILLS_DIR && !options.repo) throw new Error('--skills-dir is read inside --repo; name the project too');
   return options;
 }
 
@@ -524,6 +756,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   }
 
   if (options.printStaleNames) {
+    // Only the global installs: an adapted copy is never handed to `skills update`.
     const names = result.stale.filter((name) => SKILL_NAME_PATTERN.test(name));
     if (names.length > 0) stdout.write(`${names.join(' ')}\n`);
     return EXIT_CURRENT;
@@ -538,7 +771,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   // stdout for every verdict, including unknown: stderr replaces stdout on the
   // hook channel, so a notice written there is a notice that can be overwritten.
   if (report) stdout.write(`${report}\n`);
-  return result.state === 'stale' ? EXIT_DRIFT : EXIT_CURRENT;
+  return result.state === 'stale' || adaptedNeedAttention(result) ? EXIT_DRIFT : EXIT_CURRENT;
 }
 
 if (isEntrypoint(import.meta.url)) {

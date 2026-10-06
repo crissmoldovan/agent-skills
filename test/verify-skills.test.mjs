@@ -295,6 +295,68 @@ test('verifier accepts a carried-file token when the skill carries that exact fi
   assert.equal(result.status, 0, result.stderr);
 });
 
+// A link resolves from the file that holds it, fenced or not. The links in SKILL.md were resolved
+// and those in every other Markdown file a skill carries were not, so a reference file whose example
+// linked to `references/<file>` from references/, where that path names nothing, passed here, and a
+// project that adapted the skill could not compose it. Every carried Markdown file is read now, as
+// project adaptation's check 10 reads it: inline links, images and link definitions, in fenced code
+// too. A path written as code is not a link.
+test('verifier resolves the links in every Markdown file a skill carries, from that file, fenced code and definitions included', async () => {
+  const root = await fixture();
+  const skill = path.join(root, 'skills', 'valid-skill');
+  await writeFile(path.join(skill, 'references', 'present.md'), '# Present\n');
+  await mkdir(path.join(skill, 'references', 'deeper'), { recursive: true });
+  await writeFile(path.join(skill, 'references', 'deeper', 'guide.md'), [
+    '# Guide',
+    '',
+    'Back to [the steps](../../SKILL.md) and [the present file](../present.md).',
+    '',
+    '```markdown',
+    'Records are written per [the convention](references/present.md).',
+    '```',
+    '',
+    '[![badge](../present.md)](absent.md)',
+    '',
+    '> [definition]: missing.md',
+    '[outside]: ../../../other-skill/SKILL.md',
+    '[rooted]: /references/present.md',
+    'A destination may hold parentheses nested deeper than one pair: [nested](a(b(c)).md).',
+    '',
+  ].join('\n'));
+
+  const refused = await verify(root);
+
+  assert.equal(refused.status, 1);
+  const where = 'skills/valid-skill/references/deeper/guide.md';
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link does not resolve: references/present\\.md`));
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link does not resolve: absent\\.md`));
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link does not resolve: missing\\.md`));
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link escapes its skill directory: \\.\\./\\.\\./\\.\\./other-skill/SKILL\\.md`));
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link escapes its skill directory: /references/present\\.md`));
+  assert.match(refused.stderr, new RegExp(`${escapeRegExp(where)}: local link does not resolve: a\\(b\\(c\\)\\)\\.md`));
+  assert.doesNotMatch(refused.stderr, /\.\.\/\.\.\/SKILL\.md|: \.\.\/present\.md/);
+
+  await writeFile(path.join(skill, 'references', 'deeper', 'guide.md'), [
+    '# Guide',
+    '',
+    'Back to [the steps](../../SKILL.md) and [the present file](../present.md).',
+    '',
+    '```markdown',
+    'Records are written per the convention, `references/present.md` from the skill\'s root.',
+    '```',
+    '',
+    '[![badge](../present.md)](../present.md)',
+    '',
+    'An anchor, an address and a title are not paths: [top](#guide), [elsewhere](https://example.com/c.md),',
+    '[titled](<../present.md#top> "the present file"), and from here ![the steps](../../SKILL.md).',
+    'Parentheses balance in a destination: [numbered](../notes(1).md).',
+    '',
+  ].join('\n'));
+  await writeFile(path.join(skill, 'references', 'notes(1).md'), '# Notes\n');
+  const accepted = await verify(root);
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
+
 // The catalogue's build enforces the portable spec's frontmatter limits; a skill that passed
 // here once went there with a 523-character compatibility and broke its build.
 test('verifier holds frontmatter to the portable spec limits, in characters, after folding', async () => {
