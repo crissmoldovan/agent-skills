@@ -254,10 +254,13 @@ describes. A slot nobody binds keeps its default.
 
 1. **S1. On a cadence, re-arm the next tick before anything else.** When updates run on a
    cadence (B1), arm the next tick first, strictly inside the harness's cap on background time
-   (B5), so a long turn cannot lose it. The first time, write the standing order where the work
-   is tracked (B6).
-   **Complete when:** the next tick is armed and the standing order is written, or no cadence is
-   running.
+   (B5), so a long turn cannot lose it. When the interval is longer than the cap, chain wake-ups,
+   each armed for the time left until the update or strictly inside the cap, whichever is
+   shorter. A wake-up before the update is due re-arms the next one and writes nothing; the one
+   that reaches the update's time writes it. The first time, write the standing order where the
+   work is tracked (B6).
+   **Complete when:** the next tick, or the next wake-up towards it, is armed and the standing
+   order is written, or no cadence is running.
 
 2. **S2. Name the boundary you are reporting at.** "Phase 3 of 5 complete", "background result
    arrived", "scheduled update", "handing over". A report with no stated position in the work

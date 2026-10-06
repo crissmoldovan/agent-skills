@@ -325,6 +325,39 @@ test('with no lifecycle evidence and no agent dispatched, the ETA gives agent-ho
   assert.doesNotMatch(procedure, /divide by the agents dispatched and say/, 'the no-evidence fallback divides by the agents dispatched even when none were');
 });
 
+// A cadence longer than the harness's cap cannot be one tick: an hourly update armed under a
+// 30-minute cap is killed before it is due. So the wake-ups are chained, each strictly inside the
+// cap and none past the update's time, and only the one that reaches that time writes the update.
+test('a cadence longer than the harness cap chains wake-ups, and only the one that is due writes', () => {
+  const procedure = section(skill, 'Procedure').replace(/\s+/g, ' ');
+  const s1At = procedure.indexOf('**S1. ');
+  const s2At = procedure.indexOf('**S2. ');
+  assert.ok(s1At !== -1 && s2At > s1At, 'steps S1 and S2 are not both declared, in order');
+  const s1 = procedure.slice(s1At, s2At);
+  assert.match(s1, /When the interval is longer than the cap, chain wake-ups/);
+  assert.match(s1, /each armed for the time left until the update or strictly inside the cap, whichever is shorter/);
+  assert.match(s1, /A wake-up before the update is due re-arms the next one and writes nothing/);
+  assert.match(s1, /the one that reaches the update's time writes it/);
+  assert.match(s1, /\*\*Complete when:\*\* the next tick, or the next wake-up towards it, is armed/);
+
+  const tickAt = cadenceFlat.indexOf("**Tick strictly inside the harness's cap (B5).**");
+  const rearmAt = cadenceFlat.indexOf('**Re-arm before you write.**');
+  assert.ok(tickAt !== -1 && rearmAt > tickAt, "the reference's tick and re-arm bullets are not both there, in order");
+  const tick = cadenceFlat.slice(tickAt, rearmAt);
+  assert.match(tick, /When the interval is longer than the cap, no single tick can reach it: chain wake-ups/);
+  assert.match(tick, /each armed for the time left until the update or strictly inside the cap, whichever is shorter/);
+  assert.match(tick, /A wake-up before the update is due re-arms the next one and writes nothing/);
+  // The worked case is the one that had no arming strategy, and its numbers have to add up: every
+  // wake-up strictly inside the cap, and together exactly the interval, so the update is not late.
+  const worked = tick.match(/For hourly updates under a (\d+)-minute cap: wake-ups of (\d+) minutes, at \2 and (\d+) minutes past, write nothing; the third, armed for the (\d+) minutes left, writes the update on the hour/);
+  assert.ok(worked, 'the reference has no worked case of an hourly cadence under a shorter cap');
+  const [cap, wake, second, left] = worked.slice(1).map(Number);
+  assert.ok(cap < 60, 'the worked cap is not shorter than the hour');
+  assert.ok(wake < cap && left < cap, 'a worked wake-up is not strictly inside the cap');
+  assert.equal(second, 2 * wake, 'the second wake-up is not one wake-up after the first');
+  assert.equal(second + left, 60, 'the worked wake-ups do not reach the hour exactly');
+});
+
 test('the reference carries each lesson the head line and the cadence rest on', () => {
   assert.ok(cadence, 'skills/report-progress/references/percentage-eta-cadence.md does not exist');
   for (const lesson of [
