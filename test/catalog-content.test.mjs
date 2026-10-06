@@ -752,6 +752,21 @@ test('every --document skill embeds the verbatim in-body core and the exact poin
 // while the work is unreleased. A release commit bumps package.json AND writes
 // the CHANGELOG entry for that version. So if package.json's version already
 // has a CHANGELOG heading, the release is cut — and nothing may remain staged.
+// CHANGELOG.md sits at the root, so a relative link in it resolves from there, whatever folder the
+// prose it was written from lived in. Each entry is also a Release body, which must agree with it.
+test('every relative link in CHANGELOG.md resolves from the repository root', async () => {
+  const dead = [];
+  for (const [, target] of changelogText.matchAll(/\]\(([^)\s]+)\)/g)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('#')) continue;
+    try {
+      await readFile(new URL(target.split('#')[0], root));
+    } catch {
+      dead.push(target);
+    }
+  }
+  assert.deepEqual(dead, [], 'CHANGELOG.md links a file that is not there');
+});
+
 test('a released version leaves no prose staged as unreleased', async () => {
   const version = rootPackage.version
   const changelog = await read('CHANGELOG.md')

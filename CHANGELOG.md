@@ -1163,7 +1163,7 @@ compared; reports reached several hundred unranked lines; one never reached the 
 reported it delivered; and one quoted loss-audit totals its own working file contradicted. The
 entry points, the announcement and the report contract each name the failure they answer. The
 protocol, the cases and what remains unmeasured are in
-[the evaluation page](layer-repository-docs/evaluation.md).
+[the evaluation page](docs/layer-repository-docs/evaluation.md).
 
 ## 0.17.0
 
