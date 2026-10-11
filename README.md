@@ -1,10 +1,11 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty public, portable Agent Skills for agent operations, reviews, releases
+  Thirty-one public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
-  repository governance, progress reporting, work in other repositories, and
-  evidence-backed investigation of what a change would touch.
+  repository governance, progress reporting, work in other repositories,
+  evidence-backed investigation of what a change would touch, and sessions that
+  resume on their own after a usage limit.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -18,7 +19,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty skills. Each one below carries its own install command and a couple of
+Thirty-one skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -499,6 +500,22 @@ Ask it:
 
 More: [Skill](skills/mine-session-transcripts/SKILL.md) · [Record shapes](skills/mine-session-transcripts/references/record-shapes.md) · [Documented or not](skills/mine-session-transcripts/references/documented-or-not.md) · [Script](skills/mine-session-transcripts/scripts/transcripts.mjs)
 
+### `resume-after-limit`
+
+Make Claude Code sessions that a subscription usage limit stopped continue on their own once the quota returns, without spending tokens to check: a scheduler the user installs runs a tick every few minutes that reads each recent transcript's limit record and reset time, resumes a stopped session through its inbox socket when it is still open or with claude --bg --resume when it has exited, staggers resumes per account, and leaves alone any session dormant longer than the window (five hours by default). Turn it on for every session or only watched ones, ask for its status, change the interval. Use when sessions stall at 'You've hit your session limit', when you keep typing continue after a reset, or for: resume after limit, auto-continue, keep working when the quota resets, watch this session, is auto-resume on. It schedules nothing itself; arming the scheduler is the user's own run of its installer. It does not report progress (report-progress) or supervise child agents (agent-lifecycle).
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill resume-after-limit
+```
+
+Ask it:
+
+- *"Turn on auto-resume for all my sessions. If a session runs out of quota, it should pick up again when the limit resets."*
+- *"Only watch this session: resume it after the limit, but leave my other sessions alone."*
+- *"Is auto-resume on? Which sessions are waiting, and when do they reset?"*
+
+More: [Skill](skills/resume-after-limit/SKILL.md) · [How it decides](skills/resume-after-limit/references/how-it-decides.md) · [Evidence](skills/resume-after-limit/references/evidence.md) · [Script](skills/resume-after-limit/scripts/resume.mjs) · [Scheduler installer](skills/resume-after-limit/scripts/install-scheduler.mjs)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -550,7 +567,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty public skills from crissmoldovan/agent-skills.
+Install or update the thirty-one public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -618,9 +635,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty, in the order they appear above:
+The thirty-one, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -646,6 +663,14 @@ machine. `decision-journal`'s journal hook,
 [`adapters/claude-code/journal-hook.sh`](adapters/claude-code/journal-hook.sh), records what the agent
 did beside the decisions it records, and is wired into your settings by hand as
 [the adapter's README](adapters/claude-code/README.md) describes, and taken out the same way.
+
+One skill carries a scheduler rather than a hook, off until you install it. `resume-after-limit`'s
+installer (`node <skill-folder>/scripts/install-scheduler.mjs --install`, and `--remove` to take it
+out) writes a launchd agent on macOS, or a systemd user timer or one marked crontab line on Linux,
+that runs a tick every five minutes. The tick can put a continue prompt into your Claude Code
+sessions, so installing it is your decision: it leaves the watcher off and in observe mode until you
+ask for more. Its limits: it cannot answer a permission prompt, a session that bypasses permissions
+holds its message, and nothing runs while the machine sleeps.
 
 ### The `report-progress` gate — Claude Code `Stop`
 
@@ -932,6 +957,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/blast-area/references/output-contract.md`](skills/blast-area/references/output-contract.md) — blast-map output envelope.
 - [`skills/investigate-codebase/references/documenting-the-run.md`](skills/investigate-codebase/references/documenting-the-run.md) — the run-record convention, carried byte-identically by each of the six.
 - [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
+- [`skills/resume-after-limit/references/evidence.md`](skills/resume-after-limit/references/evidence.md) — the usage-limit record, the live-session files and the inbox socket, each tagged observed, documented or not yet observed.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.

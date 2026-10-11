@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, and `mine-session-transcripts` — thirty in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `resume-after-limit` — thirty-one in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -54,7 +54,11 @@ getting a credential into a secret store without its value entering the transcri
 owns the what's-new system inside a product, `github-webhooks` an app's GitHub webhook endpoint,
 its signature check and its event routing, and `describe-changes` the anchored description of a
 change that already landed; and `handoff-prompt` owns the one self-contained block that hands work
-to another session, agent or person. A new skill must state which of these it does not duplicate.
+to another session, agent or person; and `resume-after-limit` owns continuing a Claude Code session
+that a usage limit stopped, once the quota returns and only within its dormancy window — the
+scheduled tick that reads the limit from the transcript, the rules that decide, and the channel that
+puts the prompt in front of the session — while `report-progress` owns what a reader is told during
+long work and `agent-lifecycle` the visibility of child agents. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "asked to resume Claude Code sessions after a usage limit resets, or whether auto-resume is on"
+}
