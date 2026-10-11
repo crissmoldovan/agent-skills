@@ -259,7 +259,10 @@ export async function install({ remove = false, dryRun = false, claude, platform
     await saveConfig({ ...config, mode: 'off', observe: remove ? config.observe : true, configDirs: config.configDirs.length ? config.configDirs : [defaultConfigDir()], paths: paths_ }, p);
   }
 
-  if (remove) {
+  if (dryRun) {
+    out.push('', 'Dry run: nothing was written, loaded or removed. Run again without --dry-run to apply.');
+    if (!remove && !claudePath) out.push('claude was not found on PATH; pass --claude <path>, or exited sessions cannot be resumed.');
+  } else if (remove) {
     out.push('', 'Removed. The watcher is off; its state directory is kept:', `  ${stateHome}`);
   } else {
     out.push(
