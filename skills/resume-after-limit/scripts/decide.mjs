@@ -71,11 +71,15 @@ export function foldDetection(existing, detected, { now, account, maxAttempts })
  *   - the account changed since the hit and probing is off, so the switch itself is the signal.
  */
 export function availableAt(record, { now, accountNow, probe, probeEnabled, hold }) {
+  const switched = Boolean(accountNow && record.account && accountNow !== record.account);
+  // A hold is the account's own later reset, learned from a sibling that bounced. Until it passes,
+  // nothing (an open probe included) makes that account's quota available; only a different
+  // account, which the hold says nothing about, can.
+  if (!switched && hold && now < hold + RESET_MARGIN_MS) return null;
   const candidates = [];
-  const reset = Math.max(record.resetsAt ?? Infinity, hold ?? 0);
+  const reset = Math.max(record.resetsAt ?? Infinity, switched ? 0 : hold ?? 0);
   if (Number.isFinite(reset) && now >= reset + RESET_MARGIN_MS) candidates.push(reset);
   if (probe?.open === true && probe.at <= now) candidates.push(probe.at);
-  const switched = Boolean(accountNow && record.account && accountNow !== record.account);
   if (switched && !probeEnabled && record.accountChangeSeenAt) candidates.push(record.accountChangeSeenAt);
   return candidates.length ? Math.min(...candidates) : null;
 }

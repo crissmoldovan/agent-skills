@@ -88,15 +88,23 @@ function shellQuote(text) {
   return `'${String(text).replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * One word of a systemd unit line, double-quoted: backslashes and quotes escaped, and `%` doubled
+ * so a path is never read as a specifier. A space inside the quotes stays inside the word.
+ */
+export function systemdQuote(text) {
+  return `"${String(text).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')}"`;
+}
+
 export function systemdUnits({ node, script, claude, stateHome }) {
   const service = `[Unit]
 Description=resume-after-limit tick (agent-skills)
 
 [Service]
 Type=oneshot
-Environment=PATH=${schedulePath({ node, claude })}
-Environment=RESUME_AFTER_LIMIT_HOME=${stateHome}
-ExecStart=${node} ${script} tick
+Environment=${systemdQuote(`PATH=${schedulePath({ node, claude })}`)}
+Environment=${systemdQuote(`RESUME_AFTER_LIMIT_HOME=${stateHome}`)}
+ExecStart=${[node, script, 'tick'].map(systemdQuote).join(' ')}
 `;
   const timer = `[Unit]
 Description=resume-after-limit every ${INTERVAL_SECONDS / 60} minutes (agent-skills)
@@ -240,7 +248,9 @@ export async function install({ remove = false, dryRun = false, claude, platform
     const paths_ = { ...config.paths };
     if (remove) delete paths_.scheduler;
     else Object.assign(paths_, { scheduler: kind, node, script, claude: claudePath });
-    await saveConfig({ ...config, mode: remove ? 'off' : config.mode, configDirs: config.configDirs.length ? config.configDirs : [defaultConfigDir()], paths: paths_ }, p);
+    // Every install, a reinstall included, leaves the watcher off and in observe mode: arming it
+    // to act is a separate, later ask, never something an upgrade carries over.
+    await saveConfig({ ...config, mode: 'off', observe: remove ? config.observe : true, configDirs: config.configDirs.length ? config.configDirs : [defaultConfigDir()], paths: paths_ }, p);
   }
 
   if (remove) {
@@ -248,7 +258,7 @@ export async function install({ remove = false, dryRun = false, claude, platform
   } else {
     out.push(
       '',
-      `Installed (${kind}): a tick every ${INTERVAL_SECONDS / 60} minutes. The watcher is still ${config.mode === 'off' ? 'OFF' : config.mode}, and ${config.observe ? 'in observe mode (it logs, it resumes nothing)' : 'acting'}.`,
+      `Installed (${kind}): a tick every ${INTERVAL_SECONDS / 60} minutes. The watcher is OFF and in observe mode (it logs, it resumes nothing) until you ask for more.`,
       claudePath ? `claude: ${claudePath}` : 'claude was not found on PATH; pass --claude <path>, or exited sessions cannot be resumed.',
       '',
       'Limits: a tick reads transcripts and posts a prompt the rules allow. It cannot answer a',

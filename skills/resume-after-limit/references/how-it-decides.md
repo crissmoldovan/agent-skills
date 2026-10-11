@@ -41,7 +41,8 @@ In order; the first that applies wins.
 | the mode does not cover the session | stays parked | — |
 | otherwise | due | — |
 
-Quota is known to be back at the earliest of:
+While a hold from a sibling's bounce is in force on the record's own account, quota is not back,
+whatever else says so. Otherwise it is known to be back at the earliest of:
 
 - the recorded reset, or a later hold from a sibling's bounce, once two minutes have passed;
 - the time a probe of the config directory's current account showed the limited window under 100%;

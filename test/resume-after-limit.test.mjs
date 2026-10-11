@@ -7,7 +7,7 @@ import test from 'node:test';
 import { availableAt, covered, evaluate, foldDetection, pickDue } from '../skills/resume-after-limit/scripts/decide.mjs';
 import { inboxLines, postToInbox, readPeerToken, resumeEnv, resumeInBackground } from '../skills/resume-after-limit/scripts/deliver.mjs';
 import { accountFile, classifyEntry, currentAccount, findLimited, lastMainEntry, liveSessions, sessionProgress } from '../skills/resume-after-limit/scripts/detect.mjs';
-import { LABEL, MARKER, cronLine, editCrontab, install, launchdPlist, systemdUnits } from '../skills/resume-after-limit/scripts/install-scheduler.mjs';
+import { LABEL, MARKER, cronLine, editCrontab, install, launchdPlist, systemdQuote, systemdUnits } from '../skills/resume-after-limit/scripts/install-scheduler.mjs';
 import { keychainService, probeUsage, windowOpen } from '../skills/resume-after-limit/scripts/quota.mjs';
 import { main, renderStatus, statusData, tick } from '../skills/resume-after-limit/scripts/resume.mjs';
 import { acquireLock, defaultConfig, loadConfig, loadRecords, paths, saveConfig, saveRecord } from '../skills/resume-after-limit/scripts/state.mjs';
@@ -474,7 +474,7 @@ test('installing records the paths, keeps the watcher off, and states its limits
   const run = async (file, args) => { ran.push([file, ...args].join(' ')); return { stdout: '/usr/local/bin/claude\n' }; };
   const result = await install({ platform: 'darwin', home, run, p, node: '/opt/node/bin/node', script: '/x/resume.mjs' });
   assert.equal(result.code, 0);
-  assert.match(result.out.join('\n'), /still OFF, and in observe mode/);
+  assert.match(result.out.join('\n'), /The watcher is OFF and in observe mode/);
   assert.match(result.out.join('\n'), /cannot answer a\npermission prompt/);
   assert.ok(ran.some((line) => line.startsWith('launchctl bootstrap gui/')));
   const plist = await readFile(path.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`), 'utf8');
@@ -572,4 +572,30 @@ test('removal on Linux takes out the systemd timer even when systemd does not an
   } finally {
     if (saved !== undefined) process.env.XDG_CONFIG_HOME = saved;
   }
+});
+
+// Blocks caught these three on #92.
+test('a hold from a bounce is a floor for every signal on that account, an open probe included', () => {
+  const probing = { ...baseConfig(), probe: { enabled: true, everyMinutes: 60 } };
+  const held = evaluate(parked(), ctx({ now: T0 + 4 * HOUR + 5 * MIN, config: probing, probe: { open: true, at: T0 + 4 * HOUR + 5 * MIN }, hold: T0 + 9 * HOUR }));
+  assert.equal(held.state, 'parked');
+  // A different account is not what the hold is about.
+  assert.equal(evaluate(parked(), ctx({ now: T0 + HOUR, accountNow: 'b', hold: T0 + 9 * HOUR })).state, 'due');
+});
+
+test('systemd unit words are quoted, so a path with a space or a % stays one word and no specifier', () => {
+  const odd = { ...spec, node: '/opt/my node/bin/node', script: '/srv/u/100% skills/resume.mjs', stateHome: '/srv/u/state dir' };
+  const { service } = systemdUnits(odd);
+  assert.match(service, /^ExecStart="\/opt\/my node\/bin\/node" "\/srv\/u\/100%% skills\/resume\.mjs" "tick"$/m);
+  assert.match(service, /^Environment="RESUME_AFTER_LIMIT_HOME=\/srv\/u\/state dir"$/m);
+  assert.equal(systemdQuote('a"b\\c'), '"a\\"b\\\\c"');
+});
+
+test('a reinstall leaves an armed watcher off and in observe mode again', async () => {
+  const home = await tempDir('ral-reinstall-');
+  const p = paths(path.join(home, 'state'));
+  await saveConfig({ ...defaultConfig(), mode: 'all', observe: false, intervalMinutes: 15, paths: { scheduler: 'launchd' } }, p);
+  await install({ platform: 'darwin', home, run: async () => ({ stdout: '/x/claude\n' }), p, node: '/opt/node/bin/node', script: '/x/resume.mjs' });
+  const config = await loadConfig(p);
+  assert.deepEqual([config.mode, config.observe, config.intervalMinutes], ['off', true, 15]);
 });
