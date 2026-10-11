@@ -530,3 +530,46 @@ test('the skill says what it does not own, never arms itself, and carries no rea
   assert.match(contributing, /`resume-after-limit` owns continuing a Claude Code session/);
   assert.match(releases, /`resume-after-limit` continues a Claude Code session/);
 });
+
+// Blocks caught this on #92: removal probed `systemctl --user` again, so from a shell without the
+// user bus it fell through to cron, reported success, and left the timer enabled.
+test('removal on Linux takes out the systemd timer even when systemd does not answer, and our cron line only', async () => {
+  const home = await tempDir('ral-linux-');
+  const p = paths(path.join(home, 'state'));
+  const unitDir = path.join(home, '.config', 'systemd', 'user');
+  await mkdir(unitDir, { recursive: true });
+  await writeFile(path.join(unitDir, `${LABEL}.service`), 'x');
+  await writeFile(path.join(unitDir, `${LABEL}.timer`), 'x');
+  let crontab = `0 * * * * echo keep\n${cronLine(spec)}\n`;
+  const ran = [];
+  const run = async (file, args) => {
+    ran.push([file, ...args].join(' '));
+    if (file === 'systemctl') throw new Error('Failed to connect to bus');
+    if (file === 'crontab' && args[0] === '-l') return { stdout: crontab };
+    if (file === 'crontab') { crontab = await readFile(args[0], 'utf8'); return { stdout: '' }; }
+    return { stdout: '' };
+  };
+  const saved = process.env.XDG_CONFIG_HOME;
+  delete process.env.XDG_CONFIG_HOME;
+  try {
+    await saveConfig({ ...defaultConfig(), mode: 'all', paths: { scheduler: 'systemd' } }, p);
+    const result = await install({ remove: true, platform: 'linux', home, run, p });
+    assert.equal(result.code, 0);
+    await assert.rejects(readFile(path.join(unitDir, `${LABEL}.timer`)));
+    await assert.rejects(readFile(path.join(unitDir, `${LABEL}.service`)));
+    assert.ok(ran.includes(`systemctl --user disable --now ${LABEL}.timer`));
+    assert.equal(crontab, '0 * * * * echo keep\n');
+    const config = await loadConfig(p);
+    assert.deepEqual([config.mode, config.paths.scheduler], ['off', undefined]);
+    // A crontab without our line is never rewritten.
+    ran.length = 0;
+    await install({ remove: true, platform: 'linux', home, run, p });
+    assert.ok(!ran.some((line) => /^crontab \S+crontab\.tmp$/.test(line)));
+    // Installing where systemd does not answer writes the cron line, once.
+    await install({ platform: 'linux', home, run, p, node: '/opt/node/bin/node', script: '/x/resume.mjs', claude: '/x/claude' });
+    assert.equal(crontab.split('\n').filter((line) => line.includes(MARKER)).length, 1);
+    assert.equal((await loadConfig(p)).paths.scheduler, 'cron');
+  } finally {
+    if (saved !== undefined) process.env.XDG_CONFIG_HOME = saved;
+  }
+});

@@ -174,12 +174,15 @@ export async function install({ remove = false, dryRun = false, claude, platform
         await run('launchctl', ['bootstrap', domain, plistPath]);
       }
     }
-  } else if (platform === 'linux' && (await systemdAvailable(run))) {
-    kind = 'systemd';
+  } else if (platform === 'linux') {
+    // Removal takes out BOTH Linux variants, whatever answers now: probing `systemctl --user`
+    // at removal time would fall through to cron whenever the user bus is unreachable from the
+    // shell running it, report success, and leave an enabled timer behind.
     const dir = path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'systemd', 'user');
     const service = path.join(dir, `${LABEL}.service`);
     const timer = path.join(dir, `${LABEL}.timer`);
     if (remove) {
+      kind = 'systemd and cron';
       out.push(`systemctl --user disable --now ${LABEL}.timer`, `remove ${service}`, `remove ${timer}`);
       if (!dryRun) {
         await run('systemctl', ['--user', 'disable', '--now', `${LABEL}.timer`]).catch(() => {});
@@ -187,7 +190,8 @@ export async function install({ remove = false, dryRun = false, claude, platform
         await fs.rm(timer, { force: true });
         await run('systemctl', ['--user', 'daemon-reload']).catch(() => {});
       }
-    } else {
+    } else if (await systemdAvailable(run)) {
+      kind = 'systemd';
       const units = systemdUnits(spec);
       out.push(`write ${service}`, `write ${timer}`, `systemctl --user enable --now ${LABEL}.timer`);
       if (!dryRun) {
@@ -198,29 +202,38 @@ export async function install({ remove = false, dryRun = false, claude, platform
         await run('systemctl', ['--user', 'daemon-reload']);
         await run('systemctl', ['--user', 'enable', '--now', `${LABEL}.timer`]);
       }
+    } else {
+      kind = 'cron';
     }
-  } else if (platform === 'linux' || platform === 'darwin') {
-    kind = 'cron';
   } else {
     return { code: 1, out: [`Not supported on ${platform}: only macOS (launchd) and Linux (systemd or cron).`] };
   }
 
-  if (kind === 'cron') {
-    let current = '';
+  if (platform === 'linux' && (remove || kind === 'cron')) {
+    let current = null;
     try {
       current = (await run('crontab', ['-l'])).stdout;
     } catch {
-      current = '';
+      current = null; // no crontab yet, or no cron at all
     }
-    const next = editCrontab(current, remove ? null : cronLine(spec));
-    out.push(remove ? 'remove the crontab line marked resume-after-limit' : `crontab line: ${cronLine(spec)}`);
-    if (!dryRun) {
-      await fs.mkdir(stateHome, { recursive: true, mode: 0o700 });
-      const temp = path.join(stateHome, 'crontab.tmp');
-      await fs.writeFile(temp, next);
-      await run('crontab', [temp]);
-      await fs.rm(temp, { force: true });
+    if (remove) {
+      // Only a crontab that carries our line is rewritten; one without it is left untouched.
+      if (current !== null && current.includes(MARKER)) {
+        out.push('remove the crontab line marked resume-after-limit');
+        if (!dryRun) await writeCrontab(editCrontab(current, null));
+      }
+    } else {
+      out.push(`crontab line: ${cronLine(spec)}`);
+      if (!dryRun) await writeCrontab(editCrontab(current ?? '', cronLine(spec)));
     }
+  }
+
+  async function writeCrontab(text) {
+    await fs.mkdir(stateHome, { recursive: true, mode: 0o700 });
+    const temp = path.join(stateHome, 'crontab.tmp');
+    await fs.writeFile(temp, text);
+    await run('crontab', [temp]);
+    await fs.rm(temp, { force: true });
   }
 
   if (!dryRun) {
