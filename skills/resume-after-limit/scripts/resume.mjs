@@ -188,9 +188,11 @@ export async function tick({ p = paths(), deps = realDeps, force = false } = {})
 
     // Act. The act phase is bounded so a tick never outlives its own lock; whatever is left stays
     // due and is checked again next tick.
+    // Every resume runs under its config directory's current credentials. When that account
+    // cannot be read, the directory itself is the conservative key.
     const runsUnder = (record) => {
       const current = accountNow.get(record.configDir);
-      return current ? `account:${current}` : accountKey(record);
+      return current ? `account:${current}` : `dir:${record.configDir}`;
     };
     for (const record of pickDue([...records.values()], config.batchPerAccount, runsUnder)) {
       if (deps.now() - now > ACT_BUDGET_MS) break;

@@ -699,3 +699,20 @@ test('after a switch, records hit under different accounts share the batch of th
   assert.equal(pickDue(records, 3).length, 6);
   assert.deepEqual(pickDue(records, 3, () => 'account:c').map((r) => r.sessionId), ['1', '2', '3']);
 });
+
+test('with no readable current account, a config directory is one batch however many accounts its records were hit under', async () => {
+  const transcripts = [SID, SID2, SID3, '11111111-2222-4333-8444-000000000004'].map((id, n) => [id, jsonl(limitEntry({ uuid: `l${n}`, at: T0 + n * MIN }))]);
+  const h = await harness({ transcripts, account: null });
+  // Records first seen under two different accounts, then the account becomes unreadable.
+  let first = true;
+  h.deps.currentAccount = async () => (first ? 'a' : null);
+  h.setNow(T0 + MIN * 5);
+  await tick({ p: h.p, deps: h.deps, force: true });
+  first = false;
+  const stored = await loadRecords(h.p);
+  for (const record of stored.slice(2)) await saveRecord({ ...record, account: 'b' }, h.p);
+  h.setNow(T0 + 4 * HOUR + 6 * MIN);
+  const summary = await tick({ p: h.p, deps: h.deps, force: true });
+  assert.equal(summary.delivered, 3);
+  assert.equal((await loadRecords(h.p)).filter((r) => r.state === 'due').length, 1);
+});
