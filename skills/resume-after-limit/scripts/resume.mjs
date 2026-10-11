@@ -12,7 +12,7 @@
  *   resume.mjs dormancy <hours>h         1 to 24
  *   resume.mjs observe on|off            observe only (log, never resume), or act
  *   resume.mjs probe on|off              the optional usage-endpoint probe
- *   resume.mjs tick [--force]            one check; what the scheduler runs
+ *   resume.mjs tick [--force] [--print]  one check; what the scheduler runs
  *
  * A tick spends no model tokens. It reads transcript tails, session files and the account, and
  * acts only on what the rules in decide.mjs allow. The scheduler that runs it is installed by the
@@ -33,9 +33,11 @@ import {
 export const VERSION = '1.0.0';
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
+/** How long a tick may spend resuming sessions before it leaves the rest for the next tick. */
+export const ACT_BUDGET_MS = 4 * MINUTE;
 
 const USAGE = `Usage: resume.mjs status [--json] | on [all|selected] | off | watch [id] | unwatch [id]
-       | interval <N>m | dormancy <N>h | observe on|off | probe on|off | tick [--force]`;
+       | interval <N>m | dormancy <N>h | observe on|off | probe on|off | tick [--force] [--print]`;
 
 const realDeps = {
   now: () => Date.now(),
@@ -162,7 +164,7 @@ export async function tick({ p = paths(), deps = realDeps, force = false } = {})
 
     // Decide.
     for (const record of records.values()) {
-      if (record.state !== 'parked') continue;
+      if (record.state !== 'parked' && record.state !== 'due') continue;
       const probe = probeFor.get(record.configDir);
       const open = probe ? windowOpen(probe, record.rateLimitType) : null;
       const next = evaluate(record, {
@@ -172,6 +174,7 @@ export async function tick({ p = paths(), deps = realDeps, force = false } = {})
         accountNow: accountNow.get(record.configDir) ?? null,
         probe: probe ? { open, at: probe.at } : null,
         hold: accounts.holds[accountKey(record)] ?? null,
+        holdNow: accountNow.get(record.configDir) ? accounts.holds[`account:${accountNow.get(record.configDir)}`] ?? null : null,
       });
       if (next !== record) {
         records.set(record.sessionId, next);
@@ -183,18 +186,18 @@ export async function tick({ p = paths(), deps = realDeps, force = false } = {})
       }
     }
 
-    // Act.
-    const live = new Map();
-    for (const configDir of config.configDirs) {
-      for (const session of await deps.liveSessions(configDir)) live.set(session.sessionId, session);
-    }
+    // Act. The act phase is bounded so a tick never outlives its own lock; whatever is left stays
+    // due and is checked again next tick.
     for (const record of pickDue([...records.values()], config.batchPerAccount)) {
+      if (deps.now() - now > ACT_BUDGET_MS) break;
       if (!covered(record.sessionId, config.mode, sessions)) {
         records.set(record.sessionId, stamp(record, 'parked', now, 'no-longer-covered'));
         continue;
       }
-      const session = live.get(record.sessionId);
-      const channel = session ? (session.status === 'busy' ? 'busy' : 'inbox') : 'background';
+      // Read just before acting: a session may have started or finished since the tick began.
+      const session = (await deps.liveSessions(record.configDir)).find((s) => s.sessionId === record.sessionId);
+      const channel = !session ? 'background' : session.status === 'idle' ? 'inbox' : session.status === 'busy' ? 'busy' : 'unknown';
+      if (channel === 'unknown') continue; // neither idle nor busy, e.g. waiting on a prompt: next tick
       if (channel === 'busy') {
         records.set(record.sessionId, stamp(record, 'superseded', now, 'already-busy'));
         summary.superseded += 1;
@@ -366,7 +369,9 @@ export async function main(argv, { p = paths(), env = process.env, deps = realDe
     }
     case 'tick': {
       const summary = await tick({ p, deps: { ...deps, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) }, force: rest.includes('--force') });
-      return { code: 0, out: JSON.stringify(summary) };
+      // The scheduler appends stdout to a log every five minutes, so a scheduled tick prints
+      // nothing; tick.json and events.jsonl hold what it did. `--print` shows it by hand.
+      return { code: 0, out: rest.includes('--print') ? JSON.stringify(summary) : '' };
     }
     default:
       return { code: command ? 2 : 0, out: USAGE };

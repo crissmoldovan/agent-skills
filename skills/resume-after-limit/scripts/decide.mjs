@@ -58,54 +58,68 @@ export function foldDetection(existing, detected, { now, account, maxAttempts })
     const attempts = existing.attempts ?? 1;
     const record = { ...existing, ...base, attempts, history: existing.history };
     if (attempts >= maxAttempts) return { record: stamp(record, 'failed', now, 'bounced-out-of-attempts'), changed: true, bounced: true };
-    return { record: stamp(record, 'parked', now, 'bounced'), changed: true, bounced: true };
+    return { record: stamp(record, detected.kind === 'unparsed' ? 'unparsed' : 'parked', now, 'bounced'), changed: true, bounced: true };
   }
   const record = { ...base, attempts: 0, history: [] };
   return { record: stamp(record, detected.kind === 'unparsed' ? 'unparsed' : 'parked', now), changed: true };
 }
 
 /**
- * When quota is known to be available for a parked record, or null.
+ * When quota is known to be available for a waiting record, or null.
  *   - the recorded reset (or a later hold from a sibling's bounce) has passed, plus the margin;
- *   - a probe of the config directory's current account shows the window open;
+ *   - a probe of the config directory's current account, taken after the hit, shows the window open;
  *   - the account changed since the hit and probing is off, so the switch itself is the signal.
+ * A hold is an account's own later reset, learned from a sibling that bounced. The hold that
+ * applies is the one on the account the session would run under now: the recorded account, or
+ * the account switched to (`holdNow`). Until it passes nothing makes quota available, and quota
+ * is never said to be back earlier than it.
  */
-export function availableAt(record, { now, accountNow, probe, probeEnabled, hold }) {
+export function availableAt(record, { now, accountNow, probe, probeEnabled, hold, holdNow }) {
   const switched = Boolean(accountNow && record.account && accountNow !== record.account);
-  // A hold is the account's own later reset, learned from a sibling that bounced. Until it passes,
-  // nothing (an open probe included) makes that account's quota available; only a different
-  // account, which the hold says nothing about, can.
-  if (!switched && hold && now < hold + RESET_MARGIN_MS) return null;
+  const applicable = switched ? holdNow ?? null : hold ?? null;
+  if (applicable && now < applicable + RESET_MARGIN_MS) return null;
   const candidates = [];
-  const reset = Math.max(record.resetsAt ?? Infinity, switched ? 0 : hold ?? 0);
-  if (Number.isFinite(reset) && now >= reset + RESET_MARGIN_MS) candidates.push(reset);
+  if (!switched && Number.isFinite(record.resetsAt) && now >= record.resetsAt + RESET_MARGIN_MS) candidates.push(record.resetsAt);
   // A probe taken before this limit was hit says nothing about it.
   if (probe?.open === true && probe.at > record.hitAt && probe.at <= now) candidates.push(probe.at);
   if (switched && !probeEnabled && record.accountChangeSeenAt) candidates.push(record.accountChangeSeenAt);
-  return candidates.length ? Math.min(...candidates) : null;
+  if (!candidates.length) return null;
+  return applicable ? Math.max(Math.min(...candidates), applicable) : Math.min(...candidates);
+}
+
+/** The late grace in effect: never shorter than one interval plus five minutes. */
+export function effectiveGraceMs(config) {
+  return Math.max(config.lateGraceMinutes, config.intervalMinutes + 5) * MINUTE;
 }
 
 /**
- * Move a parked record on, or leave it. Returns the record (possibly unchanged).
+ * Move a waiting (`parked` or `due`) record on, or leave it. Returns the record.
  * Due means: covered, quota available, available within `maxDormancyHours` of the hit, and this
- * tick no later than `lateGraceMinutes` after it became available.
+ * tick no later than the late grace after it became available. A record already due is checked
+ * again every tick: a hold that appeared sends it back to parked, and a gap longer than the grace
+ * since the tick that last found it due (a machine that slept) expires it.
  */
 export function evaluate(record, ctx) {
   const { now, config, isCovered } = ctx;
-  if (record.state !== 'parked') return record;
+  if (record.state !== 'parked' && record.state !== 'due') return record;
   const dormancy = config.maxDormancyHours * HOUR;
-  const grace = config.lateGraceMinutes * MINUTE;
+  const grace = effectiveGraceMs(config);
   if ((record.attempts ?? 0) >= config.maxAttempts) return stamp(record, 'failed', now, 'out-of-attempts');
   if (now - record.hitAt > dormancy + grace) return stamp(record, 'expired', now, 'dormant');
   let next = record;
   const switched = Boolean(ctx.accountNow && record.account && ctx.accountNow !== record.account);
   if (switched && !record.accountChangeSeenAt) next = { ...next, accountChangeSeenAt: now };
   const at = availableAt(next, { ...ctx, probeEnabled: config.probe.enabled });
-  if (at === null) return next;
+  if (at === null) return record.state === 'due' ? stamp(next, 'parked', now, 'held') : next;
   if (at - record.hitAt > dormancy) return stamp(next, 'expired', now, 'reset-beyond-window');
+  if (record.state === 'due') {
+    if (now - (record.dueCheckedAt ?? record.updatedAt ?? now) > grace) return stamp(next, 'expired', now, 'checked-too-late');
+    if (!isCovered) return stamp(next, 'parked', now, 'no-longer-covered');
+    return { ...next, dueCheckedAt: now };
+  }
   if (now - at > grace) return stamp({ ...next, availableAt: at }, 'expired', now, 'checked-too-late');
   if (!isCovered) return next;
-  return stamp({ ...next, availableAt: at }, 'due', now);
+  return stamp({ ...next, availableAt: at, dueCheckedAt: now }, 'due', now);
 }
 
 /**

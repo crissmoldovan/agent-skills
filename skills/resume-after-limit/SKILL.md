@@ -109,7 +109,7 @@ A session is resumed only when all of these hold ([how it decides](references/ho
 - quota is back: the reset passed (plus two minutes, so Claude Code's own wait goes first), or the
   account changed, or the optional usage probe shows the window open;
 - quota came back within the dormancy window of the limit, and this tick is no more than 30 minutes
-  late — so a laptop that slept through a reset does not wake hours later and resume stale work;
+  (or one interval plus five, if longer) late — so a laptop that slept through a reset does not wake hours later and resume stale work;
 - nothing newer happened in the session, and it has not used its two attempts.
 
 A live idle session gets the prompt on its inbox socket; a live busy one is left alone; an exited

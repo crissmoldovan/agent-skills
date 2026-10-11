@@ -21,8 +21,11 @@ export const FINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** The events log is capped; one rotation is kept beside it. */
 export const EVENTS_CAP_BYTES = 1024 * 1024;
-/** A lock older than this is a tick that died without cleaning up. */
-export const LOCK_STALE_MS = 10 * 60 * 1000;
+/**
+ * A lock whose pid is gone is a tick that died. One whose pid is alive is taken over only past
+ * this age, far beyond a tick's bounded act phase, in case the pid was reused.
+ */
+export const LOCK_STALE_MS = 60 * 60 * 1000;
 
 export const DEFAULT_PROMPT = 'Your usage limit has reset. Continue the task you were working on when the limit stopped you. If it is already finished, say so in one line and stop.';
 

@@ -4,7 +4,7 @@ import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 
-import { availableAt, covered, evaluate, foldDetection, pickDue } from '../skills/resume-after-limit/scripts/decide.mjs';
+import { availableAt, covered, effectiveGraceMs, evaluate, foldDetection, pickDue } from '../skills/resume-after-limit/scripts/decide.mjs';
 import { inboxLines, postToInbox, readPeerToken, resumeEnv, resumeInBackground } from '../skills/resume-after-limit/scripts/deliver.mjs';
 import { accountFile, classifyEntry, currentAccount, findLimited, lastMainEntry, liveSessions, sessionProgress } from '../skills/resume-after-limit/scripts/detect.mjs';
 import { LABEL, MARKER, cronLine, editCrontab, install, launchdPlist, systemdQuote, systemdUnits } from '../skills/resume-after-limit/scripts/install-scheduler.mjs';
@@ -619,4 +619,76 @@ test('a limit newer than the cached probe gets a fresh probe within five minutes
   h.setNow(T0 + 25 * MIN);
   await tick({ p: h.p, deps: h.deps, force: true });
   assert.equal(probes, 2);
+});
+
+// Found by a second review of #92, each pinned here.
+test('a record left due by an earlier tick is checked again: a sleep past the grace expires it, a new hold parks it', () => {
+  const due = evaluate(parked(), ctx({ now: T0 + 4 * HOUR + 5 * MIN }));
+  assert.equal(due.state, 'due');
+  assert.equal(evaluate(due, ctx({ now: T0 + 4 * HOUR + 15 * MIN })).state, 'due');
+  const slept = evaluate(due, ctx({ now: T0 + 12 * HOUR }));
+  assert.deepEqual([slept.state, slept.reason], ['expired', 'dormant']);
+  const late = evaluate(due, ctx({ now: T0 + 4 * HOUR + 50 * MIN }));
+  assert.deepEqual([late.state, late.reason], ['expired', 'checked-too-late']);
+  const held = evaluate(due, ctx({ now: T0 + 4 * HOUR + 15 * MIN, hold: T0 + 9 * HOUR }));
+  assert.deepEqual([held.state, held.reason], ['parked', 'held']);
+});
+
+test('a switch to an account that is itself held does not make a session due', () => {
+  const weekly = parked({ resetsAt: T0 + 3 * 24 * HOUR, rateLimitType: 'seven_day' });
+  assert.equal(evaluate(weekly, ctx({ now: T0 + HOUR, accountNow: 'b', holdNow: T0 + 3 * HOUR })).state, 'parked');
+});
+
+test('quota is never said to be back earlier than a hold that applies', () => {
+  const at = availableAt(parked({ hitAt: T0 }), { now: T0 + 6 * HOUR, probe: { open: true, at: T0 + HOUR }, hold: T0 + 5 * HOUR });
+  assert.equal(at, T0 + 5 * HOUR);
+});
+
+test('the late grace is never shorter than an interval plus five minutes', () => {
+  const config = { ...baseConfig(), intervalMinutes: 45 };
+  assert.equal(effectiveGraceMs(config), 50 * MIN);
+  assert.equal(evaluate(parked(), ctx({ now: T0 + 4 * HOUR + 33 * MIN, config })).state, 'due');
+});
+
+test('a bounce with no reset time is unparsed, never parked', () => {
+  const delivered = { ...parked(), state: 'delivered', attempts: 1 };
+  const bounce = foldDetection(delivered, detected({ kind: 'unparsed', resetsAt: null, limitUuid: 'limit-9' }), { now: T0, account: 'a', maxAttempts: 2 });
+  assert.equal(bounce.record.state, 'unparsed');
+});
+
+test('a live lock is honoured until it is an hour old; a dead one is taken at once', async () => {
+  const p = paths(await tempDir('ral-lock-'));
+  await mkdir(p.home, { recursive: true });
+  await writeFile(p.lock, JSON.stringify({ pid: process.pid, at: T0 }));
+  assert.equal(await acquireLock(p, T0 + 30 * MIN), null);
+  const taken = await acquireLock(p, T0 + 61 * MIN);
+  assert.ok(taken);
+  await taken.release();
+  await writeFile(p.lock, JSON.stringify({ pid: 2 ** 22 + 12345, at: T0 }));
+  const dead = await acquireLock(p, T0 + MIN);
+  assert.ok(dead);
+  await dead.release();
+});
+
+test('a session that is neither idle nor busy is left due for the next tick', async () => {
+  const h = await harness({ live: [{ sessionId: SID, status: 'waiting', socketPath: '/tmp/s.sock' }] });
+  await tick({ p: h.p, deps: h.deps });
+  assert.equal(h.calls.inbox.length + h.calls.background.length, 0);
+  assert.equal((await loadRecords(h.p))[0].state, 'due');
+});
+
+test('the installer disarms before it touches a scheduler, and a % in a path cannot break the cron line', async () => {
+  const home = await tempDir('ral-order-');
+  const p = paths(path.join(home, 'state'));
+  await saveConfig({ ...defaultConfig(), mode: 'all', observe: false }, p);
+  const seen = [];
+  const run = async (file, args) => {
+    if (file === 'launchctl' && args[0] === 'bootstrap') seen.push(await loadConfig(p));
+    return { stdout: '/x/claude\n' };
+  };
+  await install({ platform: 'darwin', home, run, p, node: '/opt/node/bin/node', script: '/x/resume.mjs' });
+  assert.deepEqual(seen.map((c) => [c.mode, c.observe]), [['off', true]]);
+  const line = cronLine({ ...spec, script: '/srv/u/100% skills/resume.mjs' });
+  assert.match(line, /100\\% skills/);
+  assert.doesNotMatch(line.replace(/\\%/g, ''), /%/);
 });

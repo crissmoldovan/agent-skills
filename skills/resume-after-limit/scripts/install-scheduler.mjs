@@ -121,7 +121,9 @@ WantedBy=timers.target
 }
 
 export function cronLine({ node, script, claude, stateHome, logFile }) {
-  return `*/${INTERVAL_SECONDS / 60} * * * * PATH=${shellQuote(schedulePath({ node, claude }))} RESUME_AFTER_LIMIT_HOME=${shellQuote(stateHome)} ${shellQuote(node)} ${shellQuote(script)} tick >> ${shellQuote(logFile)} 2>&1 ${MARKER}`;
+  const command = `PATH=${shellQuote(schedulePath({ node, claude }))} RESUME_AFTER_LIMIT_HOME=${shellQuote(stateHome)} ${shellQuote(node)} ${shellQuote(script)} tick >> ${shellQuote(logFile)} 2>&1`;
+  // cron turns an unescaped % in the command into a newline, quotes or not.
+  return `*/${INTERVAL_SECONDS / 60} * * * * ${command.replace(/%/g, '\\%')} ${MARKER}`;
 }
 
 /** The crontab with our line removed (and, when given, added back once at the end). */
@@ -161,6 +163,10 @@ export async function install({ remove = false, dryRun = false, claude, platform
   const spec = { node, script, claude: claudePath, stateHome, logFile };
   const config = await loadConfig(p);
   let kind;
+  // Disarm first, before any scheduler is touched: a timer enabled with --now, or a launchd load,
+  // can start a tick at once, and that tick must read `off`, never an armed config left from an
+  // earlier install.
+  if (!dryRun) await saveConfig({ ...config, mode: 'off', observe: remove ? config.observe : true }, p);
 
   if (platform === 'darwin') {
     kind = 'launchd';

@@ -23,13 +23,16 @@ reason string that `status` and `events.jsonl` show when it applies.
    sent again.
 5. **Probe** (only when on): once per period per config directory with a record waiting, sooner
    (every five minutes at most) when the account changed or a limit is newer than the last probe.
-6. **Decide** each parked record (below).
-7. **Act** on due records, oldest limit first, at most `batchPerAccount` per account per tick.
+6. **Decide** each parked record, and check each record already due again (below).
+7. **Act** on due records, oldest limit first, at most `batchPerAccount` per account per tick, for at
+   most four minutes; whatever is left stays due for the next tick.
 8. **Store** every record; delete finished ones after a week; write `tick.json`.
 
-## The rules for a parked record
+## The rules for a waiting record
 
-In order; the first that applies wins.
+In order; the first that applies wins. The late grace in effect is `lateGraceMinutes` (30) or the
+interval plus five minutes, whichever is longer, so a long interval does not expire limits a tick
+simply had not reached yet.
 
 | Rule | Result | Reason |
 |---|---|---|
@@ -41,8 +44,14 @@ In order; the first that applies wins.
 | the mode does not cover the session | stays parked | — |
 | otherwise | due | — |
 
-While a hold from a sibling's bounce is in force on the record's own account, quota is not back,
-whatever else says so. Otherwise it is known to be back at the earliest of:
+A record already due is checked again every tick: a hold that appeared sends it back to parked
+(`held`), the mode no longer covering it does too (`no-longer-covered`), and a gap longer than the
+grace since the tick that last found it due — a machine that slept — expires it (`checked-too-late`).
+
+While a hold from a sibling's bounce is in force on the account the session would run under now —
+its own, or the one its config directory switched to — quota is not back, whatever else says so,
+and it is never said to be back earlier than that hold. Otherwise it is known to be back at the
+earliest of:
 
 - the recorded reset, or a later hold from a sibling's bounce, once two minutes have passed;
 - the time a probe of the config directory's current account, taken after the limit was hit, showed
@@ -55,6 +64,7 @@ whatever else says so. Otherwise it is known to be back at the earliest of:
 |---|---|---|
 | not covered any more | — | back to parked (`no-longer-covered`) |
 | live and busy | — | `superseded` (`already-busy`) |
+| live, neither idle nor busy | — | left due for the next tick |
 | live and idle | inbox | the prompt on its socket, authenticated with its `peerToken` |
 | not live | background | `claude --bg --resume <id> "<prompt>"` in its recorded directory and config directory |
 | observe mode | — | `observed` (`would-resume-via-<channel>`), nothing sent |
@@ -74,7 +84,7 @@ notification follows each resume and each failure when `notify` is on.
 | `accounts.json` | the last probe per config directory and account, and holds from bounces |
 | `tick.json` | the last tick's start, end, outcome and counts |
 | `events.jsonl` | one line per decision, rotated once at 1 MiB |
-| `lock` | the running tick's pid |
+| `lock` | the running tick's pid; taken over when that pid is gone, or after an hour |
 | `scheduler.log` | what the scheduler's runs printed |
 
 Nothing in it is a credential: the probe reads the token for its one request and keeps nothing.
