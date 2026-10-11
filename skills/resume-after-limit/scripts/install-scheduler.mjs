@@ -261,6 +261,7 @@ export async function install({ remove = false, dryRun = false, claude, platform
 
   if (dryRun) {
     out.push('', 'Dry run: nothing was written, loaded or removed. Run again without --dry-run to apply.');
+    if (!remove && !claudePath) out.push('claude was not found on PATH; pass --claude <path>, or exited sessions cannot be resumed.');
   } else if (remove) {
     out.push('', 'Removed. The watcher is off; its state directory is kept:', `  ${stateHome}`);
   } else {
