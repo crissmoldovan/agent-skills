@@ -100,6 +100,8 @@ socket and an exited one with `claude --bg --resume`. It does not report progres
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+### A session a usage limit stopped resumes when the quota returns
+
 **What.** A new skill, `resume-after-limit`, continues a Claude Code session that a subscription
 usage limit stopped, once the quota returns. A tick, run every five minutes by a scheduler the user
 installs with the skill's own `scripts/install-scheduler.mjs` (launchd on macOS, a systemd user
