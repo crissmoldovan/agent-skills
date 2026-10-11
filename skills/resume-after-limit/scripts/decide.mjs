@@ -124,12 +124,15 @@ export function evaluate(record, ctx) {
 
 /**
  * Which due records to act on this tick: oldest hit first, at most `batchPerAccount` per account.
+ * The account is the one each resume will run under: `keyOf` gives it, from the config
+ * directory's current account, so records hit under different accounts but resumed after a
+ * switch to one account share that account's batch.
  */
-export function pickDue(records, batchPerAccount) {
+export function pickDue(records, batchPerAccount, keyOf = accountKey) {
   const taken = new Map();
   const picked = [];
   for (const record of [...records].filter((r) => r.state === 'due').sort((a, b) => a.hitAt - b.hitAt)) {
-    const key = accountKey(record);
+    const key = keyOf(record);
     const count = taken.get(key) ?? 0;
     if (count >= batchPerAccount) continue;
     taken.set(key, count + 1);

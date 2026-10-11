@@ -692,3 +692,10 @@ test('the installer disarms before it touches a scheduler, and a % in a path can
   assert.match(line, /100\\% skills/);
   assert.doesNotMatch(line.replace(/\\%/g, ''), /%/);
 });
+
+// Blocks caught this on #92.
+test('after a switch, records hit under different accounts share the batch of the account they resume under', () => {
+  const records = [1, 2, 3, 4, 5, 6].map((n) => ({ sessionId: String(n), state: 'due', hitAt: n, account: n <= 3 ? 'a' : 'b', configDir: '/c' }));
+  assert.equal(pickDue(records, 3).length, 6);
+  assert.deepEqual(pickDue(records, 3, () => 'account:c').map((r) => r.sessionId), ['1', '2', '3']);
+});
