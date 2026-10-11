@@ -5,6 +5,52 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.28.0
+
+**What.** A new skill, `resume-after-limit`, continues a Claude Code session that a subscription
+usage limit stopped, once the quota returns. A tick, run every five minutes by a scheduler the user
+installs with the skill's own `scripts/install-scheduler.mjs` (launchd on macOS, a systemd user
+timer or one marked crontab line on Linux), reads the end of each recent transcript. A session
+whose last entry is a usage limit is parked with the reset time the transcript recorded. Once the
+reset passes, the tick resumes it: through its inbox socket when it is still open and idle, with
+`claude --bg --resume` in its own directory when it has exited. It is resumed only if the quota came
+back within five hours of the limit (`dormancy`, 1 to 24) and the tick is no more than 30 minutes
+late (or one interval plus five minutes, if that is longer), so a weekly reset days away, or a
+laptop that slept through a reset, never wakes old work. A changed account counts as quota being
+back. At most three sessions per account are resumed per tick, oldest limit first; one that hits the
+limit again is re-parked once, and its siblings wait for the new reset. It covers every session (`on all`) or only watched ones (`on selected`, `watch`),
+reports `status`, and checks every 10 minutes by default (`interval`, 5 to 60).
+
+**Why.** A session stopped by a usage limit waits for a person to type "continue". Claude Code's
+own wait covers interactive terminal sessions only, and not after an exit, not past two re-arms,
+and not for a reset a day away; sessions in the VS Code extension, background sessions and `-p`
+runs stay stopped.
+
+**Impact.** Checking reads files and spends no tokens; only the resumed turn does. The scheduler
+ships off: installing it leaves the watcher off and in observe mode, where it logs what it would do
+and resumes nothing until the user says `observe off`. Its limits are stated wherever it is
+introduced: it cannot answer a permission prompt; a session that bypasses permissions holds its
+inbox message, and the VS Code extension drops a held message after five minutes; nothing runs
+while the machine sleeps. The usage-endpoint probe, which can see an early reset, is off by
+default because the endpoint is undocumented and readily answers 429. What was observed, what is
+documented and what is not yet seen is in the skill's `references/evidence.md`.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It needs Node 22+, the `claude` CLI, macOS or Linux, and a
+Claude subscription; it does not apply to Codex, Windows, cloud sessions or API-key billing.
+
+**Who should update.**
+
+- **Anyone whose sessions stall at a usage limit:** install it, then run its scheduler installer
+  yourself.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill resume-after-limit --global --yes
+  node ~/.claude/skills/resume-after-limit/scripts/install-scheduler.mjs --install
+  ```
+
+- **Everyone else:** nothing changes until you ask for it.
+
 ## 0.27.1
 
 **What.** Two fields of a skill's `metadata` now have one meaning each, written down in
