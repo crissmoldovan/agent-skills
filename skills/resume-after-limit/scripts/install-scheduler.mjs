@@ -259,7 +259,9 @@ export async function install({ remove = false, dryRun = false, claude, platform
     await saveConfig({ ...config, mode: 'off', observe: remove ? config.observe : true, configDirs: config.configDirs.length ? config.configDirs : [defaultConfigDir()], paths: paths_ }, p);
   }
 
-  if (remove) {
+  if (dryRun) {
+    out.push('', 'Dry run: nothing was written, loaded or removed. Run again without --dry-run to apply.');
+  } else if (remove) {
     out.push('', 'Removed. The watcher is off; its state directory is kept:', `  ${stateHome}`);
   } else {
     out.push(

@@ -486,7 +486,8 @@ test('installing records the paths, keeps the watcher off, and states its limits
   assert.equal(config.paths.scheduler, undefined);
   assert.equal(config.mode, 'off');
   const dry = await install({ platform: 'darwin', home, run: async () => ({ stdout: '' }), p, dryRun: true });
-  assert.match(dry.out.join('\n'), /claude was not found/);
+  assert.match(dry.out.join('\n'), /Dry run: nothing was written/);
+  assert.doesNotMatch(dry.out.join('\n'), /Installed/);
 });
 
 // ---------------------------------------------------------------------------------------------
