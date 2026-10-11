@@ -22,7 +22,7 @@ reason string that `status` and `events.jsonl` show when it applies.
    A record left `delivering` by a tick that died is `failed` (`interrupted-delivery`) and never
    sent again.
 5. **Probe** (only when on): once per period per config directory with a record waiting, sooner
-   (every five minutes at most) when the account changed.
+   (every five minutes at most) when the account changed or a limit is newer than the last probe.
 6. **Decide** each parked record (below).
 7. **Act** on due records, oldest limit first, at most `batchPerAccount` per account per tick.
 8. **Store** every record; delete finished ones after a week; write `tick.json`.
@@ -45,7 +45,8 @@ While a hold from a sibling's bounce is in force on the record's own account, qu
 whatever else says so. Otherwise it is known to be back at the earliest of:
 
 - the recorded reset, or a later hold from a sibling's bounce, once two minutes have passed;
-- the time a probe of the config directory's current account showed the limited window under 100%;
+- the time a probe of the config directory's current account, taken after the limit was hit, showed
+  the limited window under 100%;
 - the time the tick first saw the account change, when the probe is off.
 
 ## Acting on a due record

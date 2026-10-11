@@ -599,3 +599,24 @@ test('a reinstall leaves an armed watcher off and in observe mode again', async 
   const config = await loadConfig(p);
   assert.deepEqual([config.mode, config.observe, config.intervalMinutes], ['off', true, 15]);
 });
+
+test('a probe taken before a limit was hit never resolves that limit', () => {
+  const probing = { ...baseConfig(), probe: { enabled: true, everyMinutes: 60 } };
+  const stale = evaluate(parked({ hitAt: T0 + 30 * MIN }), ctx({ now: T0 + 35 * MIN, config: probing, probe: { open: true, at: T0 } }));
+  assert.equal(stale.state, 'parked');
+  const fresh = evaluate(parked({ hitAt: T0 + 30 * MIN }), ctx({ now: T0 + 40 * MIN, config: probing, probe: { open: true, at: T0 + 40 * MIN } }));
+  assert.equal(fresh.state, 'due');
+});
+
+test('a limit newer than the cached probe gets a fresh probe within five minutes, not an hour', async () => {
+  const h = await harness({ config: { probe: { enabled: true, everyMinutes: 60 }, observe: true } });
+  let probes = 0;
+  h.deps.probeUsage = async () => { probes += 1; return { ok: true, windows: { five_hour: { utilization: 100, resetsAt: T0 + 4 * HOUR } } }; };
+  h.setNow(T0 + 10 * MIN);
+  await tick({ p: h.p, deps: h.deps, force: true });
+  assert.equal(probes, 1);
+  await writeFile(h.file, jsonl(limitEntry(), userEntry('continue', T0 + 15 * MIN), limitEntry({ uuid: 'limit-2', at: T0 + 20 * MIN })));
+  h.setNow(T0 + 25 * MIN);
+  await tick({ p: h.p, deps: h.deps, force: true });
+  assert.equal(probes, 2);
+});

@@ -147,7 +147,9 @@ export async function tick({ p = paths(), deps = realDeps, force = false } = {})
         const key = `${configDir}|${accountNow.get(configDir) ?? ''}`;
         const previous = accounts.probes[key];
         const switched = [...records.values()].some((r) => r.configDir === configDir && r.state === 'parked' && r.account && r.account !== accountNow.get(configDir));
-        const minGap = switched ? 5 * MINUTE : config.probe.everyMinutes * MINUTE;
+        // A limit newer than the cached probe needs a probe of its own, as an account switch does.
+        const newer = previous && [...records.values()].some((r) => r.configDir === configDir && r.state === 'parked' && r.hitAt >= previous.at);
+        const minGap = switched || newer ? 5 * MINUTE : config.probe.everyMinutes * MINUTE;
         let probe = previous;
         if (!previous || now - previous.at >= minGap) {
           probe = { at: now, ...(await deps.probeUsage(configDir)) };

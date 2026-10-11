@@ -79,7 +79,8 @@ export function availableAt(record, { now, accountNow, probe, probeEnabled, hold
   const candidates = [];
   const reset = Math.max(record.resetsAt ?? Infinity, switched ? 0 : hold ?? 0);
   if (Number.isFinite(reset) && now >= reset + RESET_MARGIN_MS) candidates.push(reset);
-  if (probe?.open === true && probe.at <= now) candidates.push(probe.at);
+  // A probe taken before this limit was hit says nothing about it.
+  if (probe?.open === true && probe.at > record.hitAt && probe.at <= now) candidates.push(probe.at);
   if (switched && !probeEnabled && record.accountChangeSeenAt) candidates.push(record.accountChangeSeenAt);
   return candidates.length ? Math.min(...candidates) : null;
 }
