@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `resume-after-limit`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -95,10 +95,73 @@ from the session's transcript and spends no tokens; it resumes a live session th
 socket and an exited one with `claude --bg --resume`. It does not report progress
 (`report-progress`) or supervise child agents (`agent-lifecycle`).
 
+`coding-teacher` teaches how a project's technologies and architecture work to someone from another
+field, in plain language: it asks for or infers the learner's background, draws each comparison from
+their own work and says where it stops, grounds every claim about the project in files it read, and
+goes one level deeper on request. On request it builds an illustrated lesson page from its carried
+template. It explains and changes nothing; an evidence-backed answer a developer will act on is
+`investigate-codebase`'s, and the documentation a repository keeps is `layer-repository-docs`'. It
+declares `## Bindings`, so a project can adapt it to its own learners and library
+([project adaptation](project-adaptation.md)).
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### Someone from another field learns how a project works, in their own terms
+
+**What.** A new skill, `coding-teacher`, teaches how a project's technologies and architecture
+work, in plain language, to someone who is not a programmer in that stack. It settles who is
+learning — their field, how much code they have seen, what they need to be able to do — from what
+they have said, or with one question, and draws each comparison from their own work: chosen
+because the mechanism matches, and followed by the sentence that says where it stops matching.
+Every claim about the project names a file read in that session, and exact facts about a
+technology come from its official documentation for the version the project installs. An answer
+has one shape — the short answer, the comparison in their terms, how it works, in this project, and
+specific next questions, with an optional quick check — and a four-level depth ladder (idea, in
+this project, under the hood, hands on) goes one level deeper each time the learner asks. On
+request it builds an illustrated lesson page: one plain question per component, an inline SVG
+picture per lesson whose motion shows the mechanism, a quick check, a system map that grows lesson
+by lesson, the big picture with journeys across the finished map, and every word in a one-line
+glossary. It starts from the project's own lessons page where there is one, and otherwise from
+`assets/lesson-page.html`, a working page with a made-up sample course to replace.
+
+**Why.** The skill began as one project's own teaching skill, written for the people who run that
+project. What made it work — the learner's field as the teaching material, the real files behind
+every claim, and the illustrated page — holds for any project and any learner, so it is published
+here, generalised, and a project can adapt it instead of keeping a copy of its own.
+
+**Impact.** It explains and changes nothing: no code, setting, deploy or data, and live state only
+through read-only means the project names. It never prints a secret, in text or in a picture.
+Motion on a lesson page stops for anyone whose system asks for reduced motion, and pauses on a
+button for anyone else; sections that reveal as they scroll in are never hidden from a reader whose
+script did not run. It declares `## Bindings` — twelve slots (the learner, the language, the
+library, the documentation source, live state, the model page, what examples leave out, where a
+page goes, where a change goes, and three sibling skills), seven hard lines and eight steps — so a
+project binds its own learners and library rather than forking it, as `docs/project-adaptation.md`
+describes.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. `docs/project-adaptation.md` now names six skills that
+declare `## Bindings`. The skill needs nothing installed. A lesson page is one HTML file that loads
+its fonts from Google Fonts and no script from anywhere.
+
+**Who should update.**
+
+- **Anyone who explains a project to people outside engineering, or is learning one:** install it.
+
+  ```bash
+  # in one project
+  npx skills add crissmoldovan/agent-skills --skill coding-teacher
+  # for every project on this machine
+  npx skills add crissmoldovan/agent-skills --skill coding-teacher --global --yes
+  ```
+
+- **A project that keeps its own teaching skill:** adapt this one instead. Bind its learner,
+  library and model page, add the project's own steps, and fixes reach the project when it moves
+  its pin.
+- **Everyone else:** nothing changes.
 
 ## Release checklist
 
