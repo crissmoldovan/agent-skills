@@ -100,6 +100,13 @@ test('coding-teacher: the lesson-page template is one self-contained page that r
   assert.match(template, /@media \(prefers-reduced-motion: ?reduce\)/);
   assert.match(template, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/);
   assert.match(template, /id="motion"[^>]*aria-pressed="false"/);
+  // Pause motion stops everything, the journey's own stepping included: its handler stops the
+  // journey timer as well as the animations, and reduced motion starts with neither running.
+  const motionHandler = template.match(/motionBtn\.addEventListener\('click', function \(\) \{([\s\S]*?)\n  \}\);/)?.[1] ?? '';
+  assert.match(motionHandler, /still = !still;/);
+  assert.match(motionHandler, /playing = !still;/, 'Pause motion leaves the journey stepping');
+  assert.match(motionHandler, /setTimer\(\);/, 'Pause motion leaves the journey timer running');
+  assert.match(template, /still = reduce, playing = !reduce/);
   // Revealing on scroll never hides anything from a reader whose script did not run.
   assert.match(template, /documentElement\.classList\.add\('js'\)/);
   assert.match(template, /\.js \.reveal\{/);

@@ -746,13 +746,20 @@ body.still svg *{animation-play-state:paused!important}
   }
 
   /* ---------- Pause motion, for anyone; reduced motion starts paused ---------- */
+  /* It stops everything: the pictures' animations, the journey dot, and the journey's own
+     stepping, whose Play/Pause button it keeps in step. Play motion starts them all again. */
   var motionBtn = document.getElementById('motion');
   function applyMotion() {
     document.body.classList.toggle('still', still);
     motionBtn.textContent = still ? 'Play motion' : 'Pause motion';
     motionBtn.setAttribute('aria-pressed', String(still));
   }
-  motionBtn.addEventListener('click', function () { still = !still; applyMotion(); });
+  motionBtn.addEventListener('click', function () {
+    still = !still;
+    playing = !still;
+    setTimer();
+    applyMotion();
+  });
   applyMotion();
 })();
 </script>
