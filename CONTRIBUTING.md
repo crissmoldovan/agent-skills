@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `resume-after-limit` — thirty-one in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher` — thirty-two in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -58,7 +58,11 @@ to another session, agent or person; and `resume-after-limit` owns continuing a 
 that a usage limit stopped, once the quota returns and only within its dormancy window — the
 scheduled tick that reads the limit from the transcript, the rules that decide, and the channel that
 puts the prompt in front of the session — while `report-progress` owns what a reader is told during
-long work and `agent-lifecycle` the visibility of child agents. A new skill must state which of these it does not duplicate.
+long work and `agent-lifecycle` the visibility of child agents; and `coding-teacher` owns teaching
+how a project's technologies and architecture work, in plain language, to someone from another field —
+the comparison drawn from their own work, the depth ladder, and the illustrated lesson page — while
+changing nothing, as `investigate-codebase` owns the evidence-backed answer a developer acts on and
+`layer-repository-docs` the documentation a repository keeps. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

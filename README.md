@@ -1,11 +1,12 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty-one public, portable Agent Skills for agent operations, reviews, releases
+  Thirty-two public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories,
-  evidence-backed investigation of what a change would touch, and sessions that
-  resume on their own after a usage limit.
+  evidence-backed investigation of what a change would touch, sessions that
+  resume on their own after a usage limit, and plain-language lessons in how a
+  project works.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -19,7 +20,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty-one skills. Each one below carries its own install command and a couple of
+Thirty-two skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -516,6 +517,22 @@ Ask it:
 
 More: [Skill](skills/resume-after-limit/SKILL.md) · [How it decides](skills/resume-after-limit/references/how-it-decides.md) · [Evidence](skills/resume-after-limit/references/evidence.md) · [Script](skills/resume-after-limit/scripts/resume.mjs) · [Scheduler installer](skills/resume-after-limit/scripts/install-scheduler.mjs)
 
+### `coding-teacher`
+
+Teach how a project's technologies and architecture work, in plain language, to someone from another field: ask or infer the learner's background, explain each idea with a comparison from their own work whose mechanism matches and that says where it stops matching, ground every claim about the project in its real files, and go one level deeper each time they ask. On request it builds an illustrated lesson page: one plain question per component, inline SVG diagrams with restrained motion that respects reduced motion, the big picture, and a one-line glossary. Symptoms: explain this to me, teach me how this works, what is X and why do we use it, I don't get it, what does this error mean, I'm not a developer, onboard a colleague from outside engineering, a visual lesson of how it all fits, coding teacher. It explains and changes nothing: no code, settings or data. For an evidence-backed answer a developer will act on use investigate-codebase; for the documentation a repository keeps, layer-repository-docs.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill coding-teacher
+```
+
+Ask it:
+
+- *"Explain how this project works to me. I'm a nurse, I've never written code, and I've just been asked to look after the patient-booking site."*
+- *"What is a database migration, and why does this repo have so many of them? Then go one level deeper."*
+- *"Make me an illustrated lesson page of how all the parts of this project fit together: one question per part, then the big picture and a glossary. I'm an accountant, so compare things to bookkeeping where it helps."*
+
+More: [Skill](skills/coding-teacher/SKILL.md) · [Learner and comparisons](skills/coding-teacher/references/learner-and-comparisons.md) · [Sources](skills/coding-teacher/references/sources.md) · [Lesson pages](skills/coding-teacher/references/lesson-pages.md) · [Lesson-page template](skills/coding-teacher/assets/lesson-page.html) · [A learning library](skills/coding-teacher/references/learning-library.md)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -567,7 +584,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty-one public skills from crissmoldovan/agent-skills.
+Install or update the thirty-two public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -635,9 +652,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty-one, in the order they appear above:
+The thirty-two, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -958,6 +975,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/investigate-codebase/references/documenting-the-run.md`](skills/investigate-codebase/references/documenting-the-run.md) — the run-record convention, carried byte-identically by each of the six.
 - [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
 - [`skills/resume-after-limit/references/evidence.md`](skills/resume-after-limit/references/evidence.md) — the usage-limit record, the live-session files and the inbox socket, each tagged observed, documented or not yet observed.
+- [`skills/coding-teacher/references/lesson-pages.md`](skills/coding-teacher/references/lesson-pages.md) — how an illustrated lesson page is planned and built: one question per component, the big picture, the glossary, and motion that respects reduced motion; the [template](skills/coding-teacher/assets/lesson-page.html) is a working page to start from.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.

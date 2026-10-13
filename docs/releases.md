@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, and `resume-after-limit`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -94,6 +94,15 @@ scheduler runs, armed by the user's own run of its installer, reads the limit an
 from the session's transcript and spends no tokens; it resumes a live session through its inbox
 socket and an exited one with `claude --bg --resume`. It does not report progress
 (`report-progress`) or supervise child agents (`agent-lifecycle`).
+
+`coding-teacher` teaches how a project's technologies and architecture work to someone from another
+field, in plain language: it asks for or infers the learner's background, draws each comparison from
+their own work and says where it stops, grounds every claim about the project in files it read, and
+goes one level deeper on request. On request it builds an illustrated lesson page from its carried
+template. It explains and changes nothing; an evidence-backed answer a developer will act on is
+`investigate-codebase`'s, and the documentation a repository keeps is `layer-repository-docs`'. It
+declares `## Bindings`, so a project can adapt it to its own learners and library
+([project adaptation](project-adaptation.md)).
 
 ## Unreleased
 

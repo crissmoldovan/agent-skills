@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!--
+  Lesson-page template for the coding-teacher skill.
+
+  Keep: the structure, the tokens, the drawing kit, the motion rules and the script.
+  Replace: every word of the sample course. It teaches a made-up restaurant booking site
+  ("Example Bookings") to a restaurant manager, so its comparisons come from a kitchen. Your
+  course uses the real project's components, read in the repository, and comparisons from your
+  learner's own field.
+
+  To add a lesson: copy a <section class="lesson">, add its dot to the lesson bar, give each new
+  map piece `from: <lesson number>` in MAP below, and add its words to the glossary.
+-->
+<title>Example Bookings Lessons</title>
+<meta name="description" content="Three short illustrated lessons on how a booking website works: the site, the database and the background worker, then the big picture.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* ---------- tokens: light, then dark (system), then dark (forced) ---------- */
+:root {
+  --paper:#F3F4F7; --card:#FFFFFF; --ink:#141821; --muted:#586174; --line:#D7DCE4;
+  --accent:#A3530A; --accent-ink:#FFFFFF; --good:#1D7A4B; --good-soft:#DDF2E6; --bad:#B53333; --bad-soft:#F8E1E1;
+  --glow:rgba(240,160,50,.20); --bar:rgba(243,244,247,.94);
+  /* Pictures sit on a dark panel in both themes, so the highlight roles read the same everywhere. */
+  --panel:#0B0E15; --panel-box:#161C28; --panel-box2:#1D2533; --panel-line:#2F394C;
+  --panel-ink:#E8EDF4; --panel-dim:#95A1B5; --panel-hi:#2B2415;
+  /* One job per colour, across the whole course. */
+  --hl-subject:#FFB547; /* the thing this lesson explains */
+  --hl-flow:#4CD3EA;    /* data, requests, anything moving */
+  --hl-pick:#F46BB2;    /* a selected row or item */
+  --hl-ok:#63E2A3;      /* success, live, allowed */
+  --hl-no:#FF7575;      /* refused, not allowed, failed */
+  --display:"Archivo","Arial Narrow",Arial,sans-serif;
+  --body:"Atkinson Hyperlegible","Segoe UI",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#0A0D12; --card:#131821; --ink:#E9EDF4; --muted:#9BA7B9; --line:#262E3B;
+    --accent:#F0A445; --accent-ink:#1A1206; --good:#5CD493; --good-soft:#12291D; --bad:#FF8080; --bad-soft:#2E1616;
+    --glow:rgba(255,181,71,.10); --bar:rgba(10,13,18,.94);
+    --panel:#05070B; --panel-box:#121824; --panel-box2:#19202D; --panel-line:#2B3446;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#0A0D12; --card:#131821; --ink:#E9EDF4; --muted:#9BA7B9; --line:#262E3B;
+  --accent:#F0A445; --accent-ink:#1A1206; --good:#5CD493; --good-soft:#12291D; --bad:#FF8080; --bad-soft:#2E1616;
+  --glow:rgba(255,181,71,.10); --bar:rgba(10,13,18,.94);
+  --panel:#05070B; --panel-box:#121824; --panel-box2:#19202D; --panel-line:#2B3446;
+  color-scheme:dark;
+}
+
+/* ---------- base ---------- */
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;padding:0 16px;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6}
+h1,h2,h3{margin:0;text-wrap:balance}
+p{margin:0}
+a{color:var(--accent)}
+b,strong{font-weight:700}
+code{font-family:var(--mono);font-size:.9em}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- lesson bar ---------- */
+.bar{position:sticky;top:0;z-index:20;margin:0 -16px;padding:.55rem 16px;display:flex;align-items:center;gap:1rem;
+  background:var(--bar);border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+.brand{font:750 .95rem var(--display);font-stretch:110%;color:var(--ink);text-decoration:none;white-space:nowrap}
+.dots{list-style:none;margin:0;padding:0;display:flex;gap:4px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+.dots a{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);
+  font:600 .75rem var(--mono);color:var(--muted);text-decoration:none}
+.dots a:hover{border-color:var(--accent);color:var(--ink)}
+.dots a.cur{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.bar-right{display:flex;align-items:center;gap:.6rem;white-space:nowrap}
+.score{font:500 .78rem var(--mono);color:var(--muted)}
+.score b{color:var(--ink)}
+.btn{font:600 .78rem var(--mono);color:var(--ink);background:var(--card);border:1.5px solid var(--line);border-radius:6px;padding:.35rem .6rem;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+@media (max-width:700px){.brand,.score{display:none}}
+
+/* ---------- hero ---------- */
+.hero{max-width:1040px;margin:0 auto;padding:clamp(2.5rem,7vw,4.5rem) 0 1rem;position:relative}
+.hero::before{content:"";position:absolute;inset:-2rem -16px auto;height:420px;z-index:-1;pointer-events:none;
+  background:radial-gradient(46% 70% at 50% 0%,var(--glow),transparent 72%)}
+.eyebrow{font:500 .74rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:1rem}
+.hero h1{font:800 clamp(2.2rem,6.4vw,4rem)/1.02 var(--display);font-stretch:115%;letter-spacing:-.015em;max-width:16ch}
+.lede{font-size:clamp(1.05rem,2.2vw,1.22rem);color:var(--muted);max-width:56ch;margin-top:1.3rem}
+.howto{list-style:none;margin:1.8rem 0 0;padding:0;display:flex;flex-wrap:wrap;gap:.5rem}
+.howto li{font-size:.86rem;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:.3rem .8rem;color:var(--muted)}
+.howto b{color:var(--ink)}
+
+/* ---------- panels: every picture sits on one ---------- */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:clamp(.6rem,2vw,1.1rem);margin:1.6rem 0 0}
+.panel figcaption{color:var(--panel-dim);font-size:.9rem;line-height:1.5;padding:.7rem .3rem .1rem}
+/* A wide picture scrolls inside its panel at phone width; the page never does. */
+.pic,.mapwrap{overflow-x:auto}
+.pic svg{display:block;width:100%;min-width:500px;height:auto}
+.map svg{display:block;width:100%;min-width:600px;height:auto}
+
+/* ---------- one lesson ---------- */
+main,.tail{max-width:800px;margin:0 auto}
+.lesson{padding:clamp(3rem,8vw,5rem) 0;border-top:1px solid var(--line);scroll-margin-top:60px}
+.kicker{font:600 .76rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:.7rem}
+.lesson h2{font:760 clamp(1.75rem,4.6vw,2.6rem)/1.06 var(--display);font-stretch:112%;letter-spacing:-.01em}
+.words{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin-top:1rem}
+.words .lbl{font:500 .72rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:.2rem}
+.words .w{font:500 .8rem var(--mono);border:1px solid var(--line);background:var(--card);border-radius:999px;padding:.12rem .6rem}
+.label{font:600 .72rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.45rem;display:flex;align-items:center;gap:.45rem}
+.short{margin-top:1.8rem}
+.short p:not(.label){font-size:clamp(1.15rem,2.6vw,1.34rem);line-height:1.45;font-weight:700;max-width:40ch}
+.more{margin-top:1.2rem;max-width:65ch}
+.more p + p{margin-top:.8rem}
+.pair{display:grid;gap:1rem;margin-top:1.8rem}
+@media (min-width:700px){.pair{grid-template-columns:1fr 1fr}}
+.pair aside{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1.1rem 1.2rem;min-width:0}
+.pair aside p:not(.label){font-size:.97rem}
+.pair .theirs .label{color:var(--accent)}
+
+/* quick check */
+.quiz{margin-top:1.8rem;border:1.5px dashed var(--line);border-radius:12px;padding:1.2rem 1.2rem 1.1rem}
+.quiz .q{font-weight:700;font-size:1.05rem;margin-bottom:.8rem}
+.opts{display:grid;gap:.5rem}
+.opts button{font:inherit;font-size:.97rem;text-align:left;color:var(--ink);background:var(--card);border:1.5px solid var(--line);border-radius:8px;
+  padding:.7rem .95rem;cursor:pointer;display:flex;gap:.7rem;align-items:flex-start;line-height:1.4}
+.opts button::before{content:attr(data-k);font:600 .78rem var(--mono);color:var(--muted);border:1.5px solid var(--line);border-radius:50%;
+  width:1.55rem;height:1.55rem;display:grid;place-items:center;flex:none}
+.opts button:hover:not(:disabled){border-color:var(--accent)}
+.opts button:disabled{cursor:default}
+.opts button.right{border-color:var(--good);background:var(--good-soft)}
+.opts button.right::before{content:"\2713";color:var(--good);border-color:var(--good)}
+.opts button.wrong{border-color:var(--bad);background:var(--bad-soft)}
+.opts button.wrong::before{content:"\2715";color:var(--bad);border-color:var(--bad)}
+.fb{margin-top:.8rem;font-size:.95rem;font-weight:700}
+.fb:empty{margin:0}
+.fb.ok{color:var(--good)} .fb.no{color:var(--bad)}
+
+/* map so far */
+.sofar{margin-top:2.2rem}
+.sofar .panel{margin-top:.5rem}
+.newon{font-size:.9rem;color:var(--panel-dim);padding:.6rem .3rem .1rem}
+.newon b{color:var(--hl-subject)}
+
+/* ---------- the big picture ---------- */
+.big{max-width:1040px;margin:0 auto}
+.jtabs{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.4rem}
+.jtab{font:inherit;font-size:.95rem;font-weight:700;color:var(--ink);background:var(--card);border:1.5px solid var(--line);border-radius:999px;padding:.5rem 1rem;cursor:pointer}
+.jtab:hover{border-color:var(--accent)}
+.jtab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.jbody{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;margin-top:1rem}
+@media (min-width:960px){.jbody{grid-template-columns:minmax(0,1fr) 300px;align-items:start}}
+.jbody .panel{margin-top:0}
+.jctl{display:flex;gap:.5rem;margin-bottom:.8rem}
+.jsteps{margin:0;padding:0;list-style:none;display:grid;gap:.4rem;counter-reset:s}
+.jsteps li{counter-increment:s;display:flex;gap:.7rem;align-items:flex-start;padding:.6rem .7rem;border-radius:8px;border:1.5px solid transparent;
+  cursor:pointer;font-size:.95rem;color:var(--muted);line-height:1.45}
+.jsteps li::before{content:counter(s);font:600 .76rem var(--mono);width:1.5rem;height:1.5rem;border-radius:50%;display:grid;place-items:center;flex:none;
+  border:1.5px solid var(--line);color:var(--muted)}
+.jsteps li.cur{border-color:var(--accent);background:var(--card);color:var(--ink)}
+.jsteps li.cur::before{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+/* ---------- glossary: every word in one line ---------- */
+.glossary{display:grid;gap:0 2rem;margin-top:1.6rem}
+@media (min-width:700px){.glossary{grid-template-columns:1fr 1fr}}
+.glossary div{padding:.7rem 0;border-bottom:1px solid var(--line);min-width:0}
+.glossary dt{font-weight:700;display:flex;justify-content:space-between;gap:1rem}
+.glossary dt a{font:500 .72rem var(--mono);color:var(--muted);text-decoration:none;white-space:nowrap}
+.glossary dt a:hover{color:var(--accent)}
+.glossary dd{margin:.15rem 0 0;color:var(--muted);font-size:.95rem}
+
+footer{max-width:800px;margin:0 auto;padding:2.5rem 0 4rem;border-top:1px solid var(--line);color:var(--muted);font-size:.95rem}
+footer p + p{margin-top:.6rem}
+
+/* ---------- reveal on scroll: only once the script has marked the page ---------- */
+.js .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+/* ---------- drawing kit ---------- */
+svg .bx{fill:var(--panel-box);stroke:var(--panel-line);stroke-width:2}
+svg .card{fill:var(--panel-box2);stroke:var(--panel-line);stroke-width:1.5}
+svg .scr{fill:var(--panel)}
+svg .bar{fill:var(--panel-line)}
+svg .ln{stroke:var(--panel-line);stroke-width:2;fill:none}
+svg .wire{stroke:var(--panel-dim);stroke-width:2;fill:none;stroke-dasharray:6 7}
+svg .wire-flow{stroke:var(--hl-flow);stroke-width:2;fill:none;stroke-dasharray:6 7}
+svg .ring{fill:none;stroke:var(--hl-subject);stroke-width:2.5}
+svg .colhl{fill:var(--hl-flow);fill-opacity:.09;stroke:var(--hl-flow);stroke-width:1.5;stroke-dasharray:4 4}
+svg .rowhl{fill:none;stroke:var(--hl-pick);stroke-width:2.5}
+svg .scan{fill:var(--hl-ok);fill-opacity:.18}
+svg .gear{fill:none;stroke:var(--hl-flow);stroke-width:9;stroke-dasharray:5.2 5.2}
+svg .envl{fill:none;stroke:var(--panel);stroke-width:2}
+svg .mk{fill:var(--panel-dim)} svg .mk-s{fill:var(--hl-subject)}
+svg .T{fill:var(--panel-ink);font-family:var(--body);font-weight:700;font-size:17px}
+svg .Ts{fill:var(--panel-ink);font-family:var(--body);font-size:14px}
+svg .Td{fill:var(--panel-dim);font-family:var(--body);font-size:13px}
+svg .Tm{fill:var(--panel-dim);font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.08em}
+svg .Tu{fill:var(--panel-ink);font-family:var(--mono);font-size:13px}
+svg .mid{text-anchor:middle} svg .end{text-anchor:end}
+svg .f-subject{fill:var(--hl-subject)} svg .f-flow{fill:var(--hl-flow)} svg .f-pick{fill:var(--hl-pick)}
+svg .f-ok{fill:var(--hl-ok)} svg .f-no{fill:var(--hl-no)}
+
+/* the map */
+svg .m-node rect{fill:var(--panel-box);stroke:var(--panel-line);stroke-width:2}
+svg .m-node.person rect{fill:var(--panel-box2)}
+svg .m-node.new rect,svg .m-node.on rect{stroke:var(--hl-subject);stroke-width:3}
+svg .m-node.on rect{fill:var(--panel-hi)}
+svg .m-frame rect{fill:none;stroke:var(--panel-dim);stroke-width:1.5;stroke-dasharray:7 6}
+svg .m-frame.new rect{stroke:var(--hl-subject);stroke-width:2.5}
+svg .m-edge{fill:none;stroke:var(--panel-dim);stroke-width:2}
+svg .m-edge.new,svg .m-edge.on{stroke:var(--hl-subject);stroke-width:3.5}
+svg .m-tag rect{fill:var(--panel);stroke:var(--hl-flow);stroke-width:1.5}
+svg .m-tag text{fill:var(--hl-flow)}
+svg .m-tag.new rect{stroke:var(--hl-subject)} svg .m-tag.new text{fill:var(--hl-subject)}
+svg .m-dot{fill:var(--hl-subject);stroke:var(--panel);stroke-width:2}
+
+/* ---------- motion: it shows a mechanism, or it is not there ---------- */
+/* A traveller moves from (--x1,--y1) to (--x2,--y2). Standing still, it rests at its start. */
+svg .travel{transform:translate(var(--x1),var(--y1));animation:travel 4s linear infinite}
+svg .travel.back{animation-name:travel-back}
+@keyframes travel{
+  0%{transform:translate(var(--x1),var(--y1));opacity:1}
+  45%{transform:translate(var(--x2),var(--y2));opacity:1}
+  50%,100%{transform:translate(var(--x2),var(--y2));opacity:0}
+}
+@keyframes travel-back{
+  0%,50%{transform:translate(var(--x1),var(--y1));opacity:0}
+  52%{transform:translate(var(--x1),var(--y1));opacity:1}
+  95%{transform:translate(var(--x2),var(--y2));opacity:1}
+  100%{transform:translate(var(--x2),var(--y2));opacity:0}
+}
+svg .flow{animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-13}}
+svg .blink{animation:blink 1.8s ease-in-out infinite}
+svg .d2{animation-delay:.6s} svg .d3{animation-delay:1.2s}
+@keyframes blink{50%{opacity:.25}}
+svg .spin{transform-box:fill-box;transform-origin:center;animation:spin 5s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* The scan is only there while it moves: standing still, the highlighted row says it all. */
+svg .sweep{opacity:0;animation:sweep 4s ease-in-out infinite}
+@keyframes sweep{0%{opacity:1;transform:translateY(0)}70%,85%{opacity:1;transform:translateY(var(--dy))}100%{opacity:0;transform:translateY(var(--dy))}}
+
+/* Pause motion, for anyone. */
+body.still svg *{animation-play-state:paused!important}
+/* Reduced motion: nothing moves, nothing fades in, nothing scrolls smoothly. */
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  svg *{animation:none!important}
+  .js .reveal{opacity:1;transform:none;transition:none}
+}
+@media print{.js .reveal{opacity:1;transform:none}}
+</style>
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0 0 L10 5 L0 10 Z"/></marker>
+    <marker id="arr-s" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="mk-s" d="M0 0 L10 5 L0 10 Z"/></marker>
+  </defs>
+</svg>
+
+<nav class="bar" aria-label="Lessons">
+  <a class="brand" href="#top">Example Bookings Lessons</a>
+  <ol class="dots">
+    <li><a href="#l1" title="Opening a website">1</a></li>
+    <li><a href="#l2" title="The database">2</a></li>
+    <li><a href="#l3" title="Background jobs">3</a></li>
+    <li><a href="#l4" title="The big picture">4</a></li>
+  </ol>
+  <div class="bar-right">
+    <span class="score">Checks right: <b id="score">0</b>/<span id="checks">4</span></span>
+    <button class="btn" id="motion" type="button" aria-pressed="false">Pause motion</button>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <p class="eyebrow">4 short lessons &middot; about 10 minutes &middot; no experience needed</p>
+  <h1>How the booking site works, from zero</h1>
+  <p class="lede">The developers talk about the site, the database and the worker. These lessons explain each one, in the order that makes them easiest to follow, and end with how they all fit together.</p>
+  <ul class="howto">
+    <li><b>A moving picture</b> of the idea</li>
+    <li><b>The short answer</b> in a sentence</li>
+    <li><b>In kitchen terms</b>, a comparison you know</li>
+    <li><b>In our project</b>, what it&rsquo;s called here</li>
+    <li><b>A quick check</b>, one question</li>
+    <li><b>Your map</b>, which grows each lesson</li>
+  </ul>
+  <figure class="panel">
+    <div class="mapwrap"><div class="map" id="heromap"></div></div>
+    <figcaption>This is the whole system on one page. Right now it probably looks like a jumble of boxes. Each lesson adds one piece, and by the end you&rsquo;ll be able to read every box and every line.</figcaption>
+  </figure>
+</header>
+
+<main>
+
+<!-- ============ LESSON 1 ============ -->
+<section class="lesson" id="l1">
+  <p class="kicker">Lesson 1 of 4</p>
+  <h2>What happens when you open a website?</h2>
+  <div class="words"><span class="lbl">New words</span><span class="w">browser</span><span class="w">server</span><span class="w">request</span></div>
+
+  <figure class="panel reveal">
+    <div class="pic">
+      <svg viewBox="0 0 640 250" role="img" aria-label="A guest's computer sends a request across the internet to a server, and the server sends the page back.">
+        <line class="wire flow" x1="215" y1="96" x2="462" y2="96"/>
+        <line class="wire flow" x1="462" y1="140" x2="215" y2="140"/>
+        <text class="Ts mid" x="338" y="72">&ldquo;Can I have the booking page?&rdquo;</text>
+        <text class="Ts mid" x="338" y="176">&ldquo;Here it is.&rdquo;</text>
+        <text class="Tm mid" x="338" y="214">OVER THE INTERNET</text>
+        <!-- the guest's computer -->
+        <rect class="bx" x="45" y="56" width="150" height="100" rx="8"/>
+        <rect class="scr" x="57" y="68" width="126" height="76" rx="3"/>
+        <rect class="f-subject" x="67" y="78" width="62" height="7" rx="2"/>
+        <rect class="bar" x="67" y="93" width="104" height="5" rx="2"/>
+        <rect class="bar" x="67" y="103" width="88" height="5" rx="2"/>
+        <rect class="bar" x="67" y="113" width="98" height="5" rx="2"/>
+        <path class="bx" d="M30 156 H210 L198 170 H42 Z"/>
+        <text class="T mid" x="120" y="204">A guest&rsquo;s computer</text>
+        <text class="Td mid" x="120" y="224">asks, using a browser</text>
+        <!-- the server -->
+        <rect class="bx" x="470" y="36" width="120" height="140" rx="8"/>
+        <rect class="bar" x="484" y="52" width="92" height="24" rx="3"/>
+        <rect class="bar" x="484" y="86" width="92" height="24" rx="3"/>
+        <rect class="bar" x="484" y="120" width="92" height="24" rx="3"/>
+        <circle class="f-ok blink" cx="564" cy="64" r="4"/>
+        <circle class="f-ok blink d2" cx="564" cy="98" r="4"/>
+        <circle class="f-subject blink d3" cx="564" cy="132" r="4"/>
+        <text class="T mid" x="530" y="204">The server</text>
+        <text class="Td mid" x="530" y="224">answers</text>
+        <!-- the request travels right, then the page travels back -->
+        <g class="travel" style="--x1:215px;--y1:96px;--x2:450px;--y2:96px">
+          <rect class="f-subject" x="-17" y="-12" width="34" height="24" rx="3"/>
+          <path class="envl" d="M-17 -12 L0 3 L17 -12"/>
+        </g>
+        <g class="travel back" style="--x1:450px;--y1:140px;--x2:215px;--y2:140px">
+          <rect class="f-flow" x="-13" y="-16" width="26" height="32" rx="2"/>
+          <rect class="scr" x="-8" y="-9" width="16" height="3"/>
+          <rect class="scr" x="-8" y="-2" width="16" height="3"/>
+          <rect class="scr" x="-8" y="5" width="11" height="3"/>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The guest&rsquo;s computer (left) asks; the server (right) answers. Every click starts this short exchange again.</figcaption>
+  </figure>
+
+  <div class="short reveal"><p class="label">The short answer</p><p>Opening a website is one computer asking another for a page. The one that answers is called a server.</p></div>
+  <div class="more">
+    <p>A <b>browser</b> is the program a guest looks at websites with: Chrome, Safari, Edge. When they type the address, the browser sends a <b>request</b>, a message asking for a page, across the internet to a <b>server</b>: a computer that stays switched on, waiting for requests.</p>
+    <p>The server sends the page back, and the browser draws it on the screen. This happens on every click, usually in well under a second.</p>
+  </div>
+  <div class="pair">
+    <aside class="theirs"><p class="label"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5h6l4-3v12l-4-3H3z" fill="currentColor"/></svg>In kitchen terms</p><p>It&rsquo;s the pass. An order goes in, a plate comes out. Where it stops matching: a server serves thousands of orders at once, in under a second, and forgets each guest as soon as it has answered them.</p></aside>
+    <aside class="ours"><p class="label"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3h5l2 2h7v9H1z" fill="currentColor"/></svg>In our project</p><p>The booking site is the server&rsquo;s answer. Its code is in the folder <code>web/</code>, and it runs on a hosting company&rsquo;s servers, so nobody&rsquo;s own computer needs to be on.</p></aside>
+  </div>
+  <div class="quiz" data-answer="0">
+    <p class="label">Quick check</p>
+    <p class="q">When a guest opens the booking site, what actually happens?</p>
+    <div class="opts">
+      <button type="button">Their browser asks a server for the page, and the server sends it back</button>
+      <button type="button">The page was already stored inside their browser</button>
+      <button type="button">The restaurant&rsquo;s own computer sends it to them</button>
+    </div>
+    <p class="fb" aria-live="polite" data-right="Right. Every page is a short exchange between the guest&rsquo;s browser and a server." data-wrong="Not quite. Each time, the browser asks a server for the page, and the server sends it back."></p>
+  </div>
+  <div class="sofar"><p class="label">Your map so far</p>
+    <div class="panel"><div class="mapwrap"><div class="map minimap" data-upto="1"></div></div><p class="newon">New on the map: <b>guests</b> and the <b>booking site</b>.</p></div>
+  </div>
+</section>
+
+<!-- ============ LESSON 2 ============ -->
+<section class="lesson" id="l2">
+  <p class="kicker">Lesson 2 of 4</p>
+  <h2>What is a database?</h2>
+  <div class="words"><span class="lbl">New words</span><span class="w">database</span><span class="w">table</span><span class="w">row</span><span class="w">column</span></div>
+
+  <figure class="panel reveal">
+    <div class="pic">
+      <svg viewBox="0 0 640 270" role="img" aria-label="A table of bookings with columns for time, guests, table and status. A search runs down the time column and highlights the booking at 19:30.">
+        <text class="Tm" x="70" y="30">TABLE: BOOKINGS</text>
+        <rect class="bx" x="60" y="40" width="480" height="200" rx="8"/>
+        <!-- header -->
+        <rect class="card" x="60" y="40" width="480" height="40" rx="8"/>
+        <text class="Tm" x="84" y="65">TIME</text>
+        <text class="Tm" x="200" y="65">GUESTS</text>
+        <text class="Tm" x="300" y="65">TABLE</text>
+        <text class="Tm" x="400" y="65">STATUS</text>
+        <!-- the column the search reads -->
+        <rect class="colhl" x="70" y="84" width="104" height="150" rx="4"/>
+        <!-- rows: example data -->
+        <line class="ln" x1="60" y1="120" x2="540" y2="120"/>
+        <line class="ln" x1="60" y1="160" x2="540" y2="160"/>
+        <line class="ln" x1="60" y1="200" x2="540" y2="200"/>
+        <text class="Tu" x="84" y="106">18:00</text><text class="Tu" x="200" y="106">2</text><text class="Tu" x="300" y="106">4</text><text class="Tu" x="400" y="106">confirmed</text>
+        <text class="Tu" x="84" y="146">18:30</text><text class="Tu" x="200" y="146">6</text><text class="Tu" x="300" y="146">12</text><text class="Tu" x="400" y="146">confirmed</text>
+        <text class="Tu" x="84" y="186">19:30</text><text class="Tu" x="200" y="186">4</text><text class="Tu" x="300" y="186">7</text><text class="Tu" x="400" y="186">waiting</text>
+        <text class="Tu" x="84" y="226">20:00</text><text class="Tu" x="200" y="226">3</text><text class="Tu" x="300" y="226">2</text><text class="Tu" x="400" y="226">confirmed</text>
+        <!-- the search moves down, the found row stays picked -->
+        <rect class="scan sweep" style="--dy:120px" x="62" y="82" width="476" height="36" rx="3"/>
+        <rect class="rowhl" x="64" y="163" width="472" height="34" rx="4"/>
+        <text class="Td" x="552" y="186">&larr; found</text>
+        <text class="Tm" x="70" y="262">ONE ROW PER BOOKING &middot; ONE COLUMN PER DETAIL</text>
+      </svg>
+    </div>
+    <figcaption>One table from the database: a row for each booking, a column for each detail. The search reads down the time column and picks out 19:30. (The bookings shown are examples.)</figcaption>
+  </figure>
+
+  <div class="short reveal"><p class="label">The short answer</p><p>A database is an organised store of information that a computer can search, sort and change in an instant.</p></div>
+  <div class="more">
+    <p>The information is kept in <b>tables</b>, one for each kind of thing: bookings, tables, opening hours. Each <b>row</b> is one thing, such as one booking, and each <b>column</b> is one detail every row has, such as its time.</p>
+    <p>Because every booking has the same columns, the site can ask the <b>database</b> questions like &ldquo;which tables are free at 19:30?&rdquo; and get the answer at once, even with years of bookings in it.</p>
+  </div>
+  <div class="pair">
+    <aside class="theirs"><p class="label"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5h6l4-3v12l-4-3H3z" fill="currentColor"/></svg>In kitchen terms</p><p>The reservations book: a line per booking, the same details on every line. Where it stops matching: many people can write in it at the same moment without overwriting each other, and it answers a question about every line ever written in moments.</p></aside>
+    <aside class="ours"><p class="label"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3h5l2 2h7v9H1z" fill="currentColor"/></svg>In our project</p><p>The bookings live in a table called <code>bookings</code>. Its columns are described in <code>db/schema.sql</code>, and the site reads and writes it from <code>web/bookings.ts</code>.</p></aside>
+  </div>
+  <div class="quiz" data-answer="1">
+    <p class="label">Quick check</p>
+    <p class="q">In the bookings table, what is one row?</p>
+    <div class="opts">
+      <button type="button">Every booking for one evening</button>
+      <button type="button">One booking, with all its details</button>
+      <button type="button">One detail, such as the time, for every booking</button>
+    </div>
+    <p class="fb" aria-live="polite" data-right="Right. A row is one thing, and the columns are its details." data-wrong="Not quite. A row is one booking; a column is one detail that every booking has."></p>
+  </div>
+  <div class="sofar"><p class="label">Your map so far</p>
+    <div class="panel"><div class="mapwrap"><div class="map minimap" data-upto="2"></div></div><p class="newon">New on the map: the <b>database</b>, where the site saves each booking.</p></div>
+  </div>
+</section>
+
+<!-- ============ LESSON 3 ============ -->
+<section class="lesson" id="l3">
+  <p class="kicker">Lesson 3 of 4</p>
+  <h2>What is a background job?</h2>
+  <div class="words"><span class="lbl">New words</span><span class="w">job</span><span class="w">queue</span><span class="w">worker</span></div>
+
+  <figure class="panel reveal">
+    <div class="pic">
+      <svg viewBox="0 0 640 250" role="img" aria-label="Jobs wait in a queue. The worker takes the next one, and an email leaves for the email service.">
+        <text class="Tm" x="40" y="40">THE QUEUE</text>
+        <line class="ln" x1="40" y1="96" x2="290" y2="96"/>
+        <!-- jobs waiting, oldest on the right -->
+        <rect class="card" x="50" y="62" width="56" height="30" rx="4"/><text class="Td mid" x="78" y="82">email</text>
+        <rect class="card" x="115" y="62" width="56" height="30" rx="4"/><text class="Td mid" x="143" y="82">email</text>
+        <rect class="card" x="180" y="62" width="56" height="30" rx="4"/><text class="Td mid" x="208" y="82">email</text>
+        <!-- the next job travels into the worker -->
+        <g class="travel" style="--x1:270px;--y1:77px;--x2:350px;--y2:112px">
+          <rect class="f-subject" x="-28" y="-15" width="56" height="30" rx="4"/>
+          <text class="Td mid" x="0" y="5" style="fill:var(--panel)">email</text>
+        </g>
+        <!-- the worker -->
+        <rect class="bx" x="330" y="60" width="140" height="120" rx="10"/>
+        <circle class="gear spin" cx="410" cy="112" r="24"/>
+        <text class="T mid" x="400" y="210">The worker</text>
+        <text class="Td mid" x="400" y="230">takes the next job</text>
+        <!-- the email leaves -->
+        <line class="wire-flow flow" x1="470" y1="120" x2="560" y2="120"/>
+        <g class="travel back" style="--x1:485px;--y1:120px;--x2:545px;--y2:120px">
+          <rect class="f-flow" x="-15" y="-10" width="30" height="20" rx="2"/>
+          <path class="envl" d="M-15 -10 L0 2 L15 -10"/>
+        </g>
+        <rect class="bx" x="560" y="90" width="64" height="60" rx="8"/>
+        <text class="Td mid" x="592" y="125">email</text>
+        <text class="Td mid" x="592" y="170">sent</text>
+        <text class="Td" x="40" y="130">The site adds a job and</text>
+        <text class="Td" x="40" y="148">answers the guest at once.</text>
+      </svg>
+    </div>
+    <figcaption>Jobs wait their turn in the queue. The worker takes the next one and does it, here sending a confirmation email, while the site has already answered the guest.</figcaption>
+  </figure>
+
+  <div class="short reveal"><p class="label">The short answer</p><p>A background job is work the site hands off to be done a moment later, so the guest doesn&rsquo;t have to wait for it.</p></div>
+  <div class="more">
+    <p>Some work is slow or can fail, like sending an email. Instead of making the guest wait, the site writes a <b>job</b>, a note of work to be done, and puts it in a <b>queue</b>, a waiting line of jobs.</p>
+    <p>A <b>worker</b> is a separate program that takes jobs from the queue one at a time and does them. If one fails, it can try again later without anyone noticing.</p>
+  </div>
+  <div class="pair">
+    <aside class="theirs"><p class="label"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5h6l4-3v12l-4-3H3z" fill="currentColor"/></svg>In kitchen terms</p><p>The ticket rail. Orders wait in turn, and a cook takes the next one when free. Where it stops matching: a failed job goes back on the rail by itself, and nobody has to be watching for the next one to start.</p></aside>
+    <aside class="ours"><p class="label"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3h5l2 2h7v9H1z" fill="currentColor"/></svg>In our project</p><p>The worker&rsquo;s code is in <code>worker/</code>. The confirmation email is the job <code>send-confirmation</code>, and it tries three times before it gives up.</p></aside>
+  </div>
+  <div class="quiz" data-answer="2">
+    <p class="label">Quick check</p>
+    <p class="q">Why does the site hand the confirmation email to a worker?</p>
+    <div class="opts">
+      <button type="button">Because the site isn&rsquo;t allowed to send emails</button>
+      <button type="button">So the email is sent before the booking is saved</button>
+      <button type="button">So the guest isn&rsquo;t kept waiting, and a failed send can be tried again</button>
+    </div>
+    <p class="fb" aria-live="polite" data-right="Right. The guest gets their answer at once, and the worker takes care of the email, retries included." data-wrong="Not quite. The point is speed and safety: the guest isn&rsquo;t kept waiting, and a failed send can be tried again."></p>
+  </div>
+  <div class="sofar"><p class="label">Your map so far</p>
+    <div class="panel"><div class="mapwrap"><div class="map minimap" data-upto="3"></div></div><p class="newon">New on the map: the <b>worker</b> and the <b>email service</b>. The map is complete.</p></div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ THE BIG PICTURE ============ -->
+<div class="big">
+<section class="lesson" id="l4">
+  <p class="kicker">Lesson 4 of 4</p>
+  <h2>The big picture</h2>
+  <div class="more"><p>Here is every piece together, the same map as at the top. Pick a journey to watch it move through the map one step at a time, or click any step to jump to it.</p></div>
+  <div class="jtabs" role="tablist" aria-label="Journeys">
+    <button type="button" class="jtab" role="tab" data-j="book" aria-selected="true">A guest books a table</button>
+    <button type="button" class="jtab" role="tab" data-j="look" aria-selected="false">A guest checks their booking</button>
+  </div>
+  <div class="jbody">
+    <div class="panel"><div class="mapwrap"><div class="map" id="bigmap"></div></div></div>
+    <div>
+      <div class="jctl"><button class="btn" id="jplay" type="button">Pause</button><button class="btn" id="jnext" type="button">Next step &rarr;</button></div>
+      <ol class="jsteps" id="jsteps"></ol>
+    </div>
+  </div>
+  <div class="quiz" data-answer="0" style="max-width:800px">
+    <p class="label">Final check</p>
+    <p class="q">A guest says their booking is on the site, but the confirmation email never came. Where would you look first?</p>
+    <div class="opts">
+      <button type="button">The worker: the email is its job, and it may have failed or still be retrying</button>
+      <button type="button">The database: the booking can&rsquo;t have been saved</button>
+      <button type="button">The guest&rsquo;s browser</button>
+    </div>
+    <p class="fb" aria-live="polite" data-right="Right. The booking reached the database, so the site did its part. Sending the email is the worker&rsquo;s job." data-wrong="Not quite. The booking shows on the site, so it was saved. The email is the worker&rsquo;s job, so that is where to look."></p>
+  </div>
+</section>
+</div>
+
+<!-- ============ GLOSSARY ============ -->
+<div class="tail">
+<section class="lesson" id="words">
+  <p class="kicker">Cheat sheet</p>
+  <h2>Every word, in one line</h2>
+  <dl class="glossary">
+    <div><dt>Browser <a href="#l1">lesson 1</a></dt><dd>The program you look at websites with.</dd></div>
+    <div><dt>Column <a href="#l2">lesson 2</a></dt><dd>One detail that every row in a table has.</dd></div>
+    <div><dt>Database <a href="#l2">lesson 2</a></dt><dd>An organised store of information a computer can search instantly.</dd></div>
+    <div><dt>Job <a href="#l3">lesson 3</a></dt><dd>A note of work to be done in the background.</dd></div>
+    <div><dt>Queue <a href="#l3">lesson 3</a></dt><dd>A waiting line of jobs.</dd></div>
+    <div><dt>Request <a href="#l1">lesson 1</a></dt><dd>A message from a browser asking a server for something.</dd></div>
+    <div><dt>Row <a href="#l2">lesson 2</a></dt><dd>One thing in a table, with all its details.</dd></div>
+    <div><dt>Server <a href="#l1">lesson 1</a></dt><dd>A computer that stays on, answering requests.</dd></div>
+    <div><dt>Table <a href="#l2">lesson 2</a></dt><dd>One list of things of the same kind in a database.</dd></div>
+    <div><dt>Worker <a href="#l3">lesson 3</a></dt><dd>A program that takes jobs from the queue and does them.</dd></div>
+  </dl>
+</section>
+</div>
+
+<footer>
+  <p>Want to go further? Ask the coding teacher about any piece on this page: it explains things the same way, then goes as deep as you like. The project&rsquo;s guides sit beside this page in its learning library.</p>
+  <p>Names, folders and numbers on this page come from the repository, last checked on <b>[date]</b> at <b>[revision]</b>. The bookings in the pictures are examples.</p>
+</footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function tx(parent, x, y, cls, s) { var t = el('text', { x: x, y: y, 'class': cls }, parent); t.textContent = s; return t; }
+  function each(selector, fn) { Array.prototype.forEach.call(document.querySelectorAll(selector), fn); }
+
+  /* ---------- the map: every piece, and the lesson it first appears in (`from`) ---------- */
+  /* frames group pieces (a hosting company, a service); `until` hides a piece after a lesson. */
+  var MAP = {
+    view: '0 0 760 316',
+    frames: [],
+    nodes: [
+      { id: 'guests', x: 20, y: 40, w: 150, h: 64, label: 'Guests', sub: 'anyone online', from: 1, person: true },
+      { id: 'site', x: 240, y: 40, w: 170, h: 64, label: 'Booking site', sub: 'what guests see', from: 1 },
+      { id: 'db', x: 560, y: 40, w: 170, h: 64, label: 'Database', sub: 'every booking', from: 2 },
+      { id: 'worker', x: 260, y: 230, w: 170, h: 64, label: 'Worker', sub: 'background jobs', from: 3 },
+      { id: 'email', x: 20, y: 230, w: 150, h: 64, label: 'Email service', sub: 'delivers mail', from: 3 }
+    ],
+    tags: [
+      { x: 325, y: 126, label: 'A WEB APP', from: 1 }
+    ],
+    edges: [
+      { id: 'visit', pts: [[170, 72], [240, 72]], from: 1 },
+      { id: 'sitedb', pts: [[410, 72], [560, 72]], from: 2, label: 'SAVES BOOKINGS', lx: 485, ly: 62, anchor: 'mid' },
+      { id: 'siteworker', pts: [[380, 104], [380, 230]], from: 3, label: 'HANDS OVER A JOB', lx: 392, ly: 170, anchor: 'start' },
+      { id: 'workeremail', pts: [[260, 262], [170, 262]], from: 3, label: 'SEND', lx: 215, ly: 252, anchor: 'mid' },
+      { id: 'emailguests', pts: [[95, 230], [95, 104]], from: 3, label: 'CONFIRMATION', lx: 107, ly: 172, anchor: 'start' }
+    ]
+  };
+
+  function drawMap(host, upto, markNew, label) {
+    var svg = el('svg', { viewBox: MAP.view, role: 'img', 'aria-label': label });
+    function show(o) { return o.from <= upto && (o.until == null || upto <= o.until); }
+    function isNew(o) { return markNew && o.from === upto; }
+    MAP.frames.filter(show).forEach(function (f) {
+      var g = el('g', { 'class': 'm-frame' + (isNew(f) ? ' new' : '') }, svg);
+      el('rect', { x: f.x, y: f.y, width: f.w, height: f.h, rx: 14 }, g);
+      tx(g, f.x + 2, f.y - 9, 'Tm', f.label);
+    });
+    var edges = {};
+    MAP.edges.filter(show).forEach(function (e) {
+      var line = el('polyline', { points: e.pts.map(function (p) { return p.join(','); }).join(' '), 'class': 'm-edge' + (isNew(e) ? ' new' : ''), 'marker-end': isNew(e) ? 'url(#arr-s)' : 'url(#arr)' }, svg);
+      edges[e.id] = { el: line, pts: e.pts };
+      if (e.label) tx(svg, e.lx, e.ly, 'Tm' + (e.anchor === 'mid' ? ' mid' : e.anchor === 'end' ? ' end' : '') + (isNew(e) ? ' f-subject' : ''), e.label);
+    });
+    var nodes = {};
+    MAP.nodes.filter(show).forEach(function (n) {
+      var g = el('g', { 'class': 'm-node' + (n.person ? ' person' : '') + (isNew(n) ? ' new' : '') }, svg);
+      el('rect', { x: n.x, y: n.y, width: n.w, height: n.h, rx: n.person ? 30 : 10 }, g);
+      tx(g, n.x + 16, n.y + 29, 'T', n.label);
+      tx(g, n.x + 16, n.y + 49, 'Td', n.sub);
+      nodes[n.id] = g;
+    });
+    MAP.tags.filter(show).forEach(function (t) {
+      var w = Math.round(t.label.length * 7.3 + 22), x = t.anchor === 'start' ? t.x : t.x - w / 2;
+      var g = el('g', { 'class': 'm-tag' + (isNew(t) ? ' new' : '') }, svg);
+      el('rect', { x: x, y: t.y - 13, width: w, height: 22, rx: 11 }, g);
+      tx(g, x + w / 2, t.y + 2, 'Tm mid', t.label);
+    });
+    host.appendChild(svg);
+    return { svg: svg, edges: edges, nodes: nodes };
+  }
+
+  drawMap(document.getElementById('heromap'), 99, false, 'The whole system: guests use the booking site, which saves bookings in the database and hands jobs to the worker, which sends confirmation emails through the email service.');
+  each('.minimap', function (h) { drawMap(h, +h.getAttribute('data-upto'), true, 'The map so far, with the newest piece highlighted.'); });
+
+  /* ---------- journeys across the finished map ---------- */
+  var big = drawMap(document.getElementById('bigmap'), 99, false, 'The whole system, with one journey highlighted step by step.');
+  var dot = el('circle', { r: 9, 'class': 'm-dot', cx: -40, cy: -40 }, big.svg);
+  var J = {
+    book: [
+      { edge: 'visit', dir: 1, nodes: ['guests', 'site'], text: 'A guest opens the booking site and picks a time.' },
+      { edge: 'sitedb', dir: 1, nodes: ['site', 'db'], text: 'The site saves the booking in the database.' },
+      { edge: 'siteworker', dir: 1, nodes: ['site', 'worker'], text: 'The site hands the worker a job, “send a confirmation”, and answers the guest straight away.' },
+      { edge: 'workeremail', dir: 1, nodes: ['worker', 'email'], text: 'The worker asks the email service to send it.' },
+      { edge: 'emailguests', dir: 1, nodes: ['email', 'guests'], text: 'The confirmation reaches the guest a few seconds later.' }
+    ],
+    look: [
+      { edge: 'visit', dir: 1, nodes: ['guests', 'site'], text: 'A guest opens the site to check their booking.' },
+      { edge: 'sitedb', dir: 1, nodes: ['site', 'db'], text: 'The site asks the database for it.' },
+      { edge: 'sitedb', dir: -1, nodes: ['db', 'site'], text: 'The database sends the booking back.' },
+      { edge: 'visit', dir: -1, nodes: ['site', 'guests'], text: 'The page with their booking appears.' }
+    ]
+  };
+  var cur = 'book', step = 0, still = reduce, playing = !reduce, timer = null, raf = null;
+  var list = document.getElementById('jsteps'), playBtn = document.getElementById('jplay');
+
+  function pointAt(pts, t) {
+    var segs = [], total = 0, i;
+    for (i = 1; i < pts.length; i++) { var d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); segs.push(d); total += d; }
+    var target = t * total;
+    for (i = 0; i < segs.length; i++) {
+      if (target <= segs[i] || i === segs.length - 1) {
+        var f = segs[i] ? Math.min(1, target / segs[i]) : 0;
+        return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f];
+      }
+      target -= segs[i];
+    }
+    return pts[pts.length - 1];
+  }
+  function renderList() {
+    list.innerHTML = '';
+    J[cur].forEach(function (s, i) {
+      var li = document.createElement('li'); li.textContent = s.text; li.tabIndex = 0;
+      li.addEventListener('click', function () { step = i; showStep(); });
+      li.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); step = i; showStep(); } });
+      list.appendChild(li);
+    });
+  }
+  function showStep() {
+    var s = J[cur][step];
+    each('#bigmap .on', function (n) { n.classList.remove('on'); });
+    Object.keys(big.edges).forEach(function (k) { var e = big.edges[k].el; e.setAttribute('marker-end', 'url(#arr)'); e.removeAttribute('marker-start'); });
+    s.nodes.forEach(function (id) { if (big.nodes[id]) big.nodes[id].classList.add('on'); });
+    if (raf) cancelAnimationFrame(raf);
+    if (s.edge) {
+      var e = big.edges[s.edge], pts = e.pts.slice();
+      e.el.classList.add('on');
+      if (s.dir < 0) { pts.reverse(); e.el.setAttribute('marker-end', 'none'); e.el.setAttribute('marker-start', 'url(#arr-s)'); }
+      else e.el.setAttribute('marker-end', 'url(#arr-s)');
+      big.svg.appendChild(dot); dot.style.display = '';
+      var t0 = performance.now(), D = 1300;
+      var tick = function (now) {
+        var k = still ? 1 : Math.min(1, (now - t0) / D); /* standing still, the dot jumps to the end */
+        var p = pointAt(pts, k); dot.setAttribute('cx', p[0]); dot.setAttribute('cy', p[1]);
+        if (k < 1) raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    } else dot.style.display = 'none';
+    Array.prototype.forEach.call(list.children, function (li, i) { li.classList.toggle('cur', i === step); });
+  }
+  function next() { step = (step + 1) % J[cur].length; showStep(); }
+  function setTimer() { if (timer) clearInterval(timer); timer = playing ? setInterval(next, 3200) : null; playBtn.textContent = playing ? 'Pause' : 'Play'; }
+  each('.jtab', function (b) {
+    b.addEventListener('click', function () {
+      cur = b.getAttribute('data-j'); step = 0;
+      each('.jtab', function (x) { x.setAttribute('aria-selected', String(x === b)); });
+      renderList(); showStep(); setTimer();
+    });
+  });
+  playBtn.addEventListener('click', function () { playing = !playing; setTimer(); });
+  document.getElementById('jnext').addEventListener('click', function () { next(); if (playing) setTimer(); });
+  renderList(); showStep(); setTimer();
+
+  /* ---------- quick checks ---------- */
+  var score = 0, scoreEl = document.getElementById('score');
+  document.getElementById('checks').textContent = document.querySelectorAll('.quiz').length;
+  each('.quiz', function (q, qi) {
+    var answer = +q.getAttribute('data-answer'), fb = q.querySelector('.fb');
+    var buttons = Array.prototype.slice.call(q.querySelectorAll('.opts button'));
+    buttons.forEach(function (b, i) {
+      b.id = 'q' + (qi + 1) + '-' + (i + 1);
+      b.setAttribute('data-k', 'ABC'.charAt(i));
+      b.addEventListener('click', function () {
+        if (q.classList.contains('done')) return;
+        q.classList.add('done');
+        buttons.forEach(function (x, j) { x.disabled = true; if (j === answer) x.classList.add('right'); });
+        if (i === answer) { score++; scoreEl.textContent = score; fb.textContent = fb.getAttribute('data-right'); fb.className = 'fb ok'; }
+        else { b.classList.add('wrong'); fb.textContent = fb.getAttribute('data-wrong'); fb.className = 'fb no'; }
+      });
+    });
+  });
+
+  /* ---------- the lesson dots follow the reader; sections reveal as they arrive ---------- */
+  var dots = {};
+  each('.dots a', function (a) { dots[a.getAttribute('href').slice(1)] = a; });
+  var reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    var follow = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting || !dots[en.target.id]) return;
+        Object.keys(dots).forEach(function (k) { dots[k].classList.toggle('cur', k === en.target.id); });
+        var a = dots[en.target.id], box = a.closest('.dots');
+        var left = a.offsetLeft - box.offsetLeft, right = left + a.offsetWidth;
+        if (left < box.scrollLeft) box.scrollLeft = left - 8;
+        else if (right > box.scrollLeft + box.clientWidth) box.scrollLeft = right - box.clientWidth + 8;
+      });
+    }, { rootMargin: '-35% 0px -60% 0px' });
+    each('.lesson[id]', function (s) { follow.observe(s); });
+    var arrive = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); arrive.unobserve(en.target); } });
+    }, { rootMargin: '0px 0px -10% 0px' });
+    Array.prototype.forEach.call(reveals, function (r) { arrive.observe(r); });
+  } else {
+    Array.prototype.forEach.call(reveals, function (r) { r.classList.add('in'); });
+  }
+
+  /* ---------- Pause motion, for anyone; reduced motion starts paused ---------- */
+  var motionBtn = document.getElementById('motion');
+  function applyMotion() {
+    document.body.classList.toggle('still', still);
+    motionBtn.textContent = still ? 'Play motion' : 'Pause motion';
+    motionBtn.setAttribute('aria-pressed', String(still));
+  }
+  motionBtn.addEventListener('click', function () { still = !still; applyMotion(); });
+  applyMotion();
+})();
+</script>
+
+</body>
+</html>
