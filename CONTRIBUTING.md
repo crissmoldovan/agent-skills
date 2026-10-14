@@ -64,7 +64,7 @@ the comparison drawn from their own work, the depth ladder, and the illustrated 
 changing nothing, as `investigate-codebase` owns the evidence-backed answer a developer acts on and
 `layer-repository-docs` the documentation a repository keeps; and `preregistered-model-study` owns a model or prompt comparison whose verdict can be trusted —
 the plan, freeze and dry run committed before any paid call, the dated addenda, the spend guard in
-code, parity with production, the provenance-aware judge panel, and the offline reproduction —
+code, request and output parity, the provenance-aware judge panel, and the offline reproduction —
 while `model-routing` owns which model runs everyday work. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.

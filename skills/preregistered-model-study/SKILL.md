@@ -35,16 +35,19 @@ because it existed before the thing it constrains.
   (each with a point rule and an interval rule), the sample size and why, and the invention bar.
 - **FREEZE** — a hash of every input the study consumes: items, prompts, policies, rubrics,
   model and provider pins, scorer code.
-- **DRY RUN** — for each arm, the request it would send beside the request production sends,
-  with every difference listed and each one intended.
+- **DRY RUN** — built offline, with nothing sent: the control's request beside production's for the
+  same items, proving request parity, and every arm's request beside it, with every difference
+  listed and each one intended.
 - **ADDENDA** — every change after the first paid call, dated, with its reason, each committed
   before the calls it governs.
 - **REPRODUCTION** — a `reproduce.sh` that rebuilds every number offline from committed data, and
   a checksum manifest covering every input it reads.
 
-The first three are committed before any paid call. A commit is what makes "decided before"
-checkable: a plan edited after the results arrived and committed once at the end cannot be told
-apart from a plan written to fit them, and a reader is right to assume the worse case.
+The first three are committed before any paid call. The first paid calls are output parity's: a
+stage of its own, with the items, pass rule and cap the plan gave it. A commit is what makes
+"decided before" checkable: a plan edited after the results arrived and committed once at the end
+cannot be told apart from a plan written to fit them, and a reader is right to assume the worse
+case.
 
 ### What this skill does not own
 
@@ -114,7 +117,9 @@ unmeasurable question is ceremony around a guess.
    straddling it is not a pass. **Invention** — answering where the truth cannot be determined
    from the evidence — is a bar of its own, counted and capped like any other harm. The sample
    size comes with its reason: the smallest difference worth detecting, and the interval width
-   that size will give. Templates are in [study files](references/study-files.md).
+   that size will give. Output parity (step 5) is registered here as a stage of its own, with its
+   items, its pass rule and its own cap inside the study's. Templates are in
+   [study files](references/study-files.md).
    **Complete when:** the plan is committed, and no paid call in the repository's history
    predates it.
 
@@ -131,13 +136,17 @@ unmeasurable question is ceremony around a guess.
    [the budget guard](references/budget-guard.md):
    - **A dedicated research key**, refused at start-up when it equals production's key — compared
      by hash, never printed.
-   - **A hard study cap**, enforced by reserving each call's worst case before the call — the
-     maximum input and output tokens at list price, for every attempt it may make — and settling
-     to the actual cost after it. A cap checked after the call is a report, not a cap.
+   - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
+     billed: the maximum input and output tokens at a ceiling price — the largest of the list
+     price, a stated margin over it, and the provider's maximum — for every attempt it may make.
+     After the call it settles to the actual cost. No settlement can exceed its reservation, so
+     `spent + reserved` never passes the cap; an actual cost above its reservation latches the
+     guard. A cap checked after the call is a report, not a cap.
    - **A balance floor that latches.** Once the key's remaining balance reads below the floor, the
      process refuses every further admission for the rest of its life, writes a STOP flag that
      every other process checks before each call, and admits nothing while a balance read is
-     still in flight.
+     still in flight — applying the read's result, latch and flag, before it lets waiting calls
+     through.
    - **One paying process at a time**, through an exclusive lock with safe stale-lock takeover: a
      lock whose owner has gone may be taken, one whose owner is alive may not, and the takeover
      itself is atomic.
@@ -150,24 +159,28 @@ unmeasurable question is ceremony around a guess.
    **Complete when:** each of the five parts has been watched refusing, and the evidence is in
    the study's audit log.
 
-4. **Prove parity with production before measuring anything.** Run the control arm on real items
-   and compare both its requests and its outputs with production's
-   ([parity and controls](references/parity-and-controls.md)). The requests must carry the same
-   system prompt, message layout, tool and schema definitions and parameters. The outputs must
-   agree with what production stored for the same items, within the noise step 6 measures. Pin
-   the serving provider for every arm: different providers of the "same" model can answer
-   differently, and a router may pick the provider by the request's layout, so a layout change
-   can silently change who serves the call.
-   **Complete when:** the control reproduces production's requests exactly and its outputs
-   within the noise floor, with the provider pinned and recorded — or each difference is listed,
-   explained and accepted in an addendum before step 5.
+4. **Prove request parity and dry-run every arm, offline, and commit it before any paid call.**
+   Build — without sending — the request production sends and the request each arm would send,
+   for the same real items ([parity and controls](references/parity-and-controls.md)). The
+   control's request must equal production's: the same system prompt, message layout, tool and
+   schema definitions, parameters and provider pin. Each other arm's request may differ from it
+   only where the plan intends — the model, the prompt under test — and nothing else: not a
+   reordered message, a dropped schema field, a changed temperature. Pin the serving provider in
+   every arm's request: different providers of the "same" model can answer differently, and a
+   router may pick the provider by the request's layout, so a layout change can silently change who
+   serves the call.
+   **Complete when:** the request-parity diff and every arm's diff are committed, every line of
+   difference is intended, and no paid call has been made.
 
-5. **Dry-run every arm, and commit the diff.** For one real item per arm, build the request the
-   arm would send and diff it against production's. Every difference must be one the plan
-   intends — the model, the prompt under test — and nothing else: not a reordered message, a
-   dropped schema field, a changed temperature.
-   **Complete when:** the dry-run diffs are committed, every line of difference is intended, and
-   still no paid call has been made.
+5. **Prove output parity as the first paid stage, under its own pre-registered cap.** Run the
+   control arm alone on the items the plan named for this stage, and compare its answers with what
+   production stored for them, against the pass rule the plan gave. Check the provider that served
+   every call against the pin. The stage spends only within its own cap, inside the study's. A
+   control that fails its pass rule stops the study here, with an addendum, because everything
+   measured against it would compare two systems neither of which is production's.
+   **Complete when:** the stage ran under its own cap, its plan committed before its first call;
+   every call was served by the pinned provider; and the result against its pass rule is committed
+   — or the study stopped with an addendum saying why.
 
 6. **Run, with the controls that make a difference readable.**
    - **A noise floor.** Run the baseline arm twice over the same items. Their disagreement is the
@@ -186,8 +199,9 @@ unmeasurable question is ceremony around a guess.
 7. **Put every change after the first paid call in a dated ADDENDUM, committed before the calls it
    governs.** A scorer bug fixed, an item dropped because its source vanished, an arm added, a bar
    clarified: each gets the date, what changed, why, which calls and numbers it affects, and the
-   commit it applies from. A change discovered after its calls ran is recorded as a correction to
-   those calls. It is never backdated.
+   commit it was written on. A file cannot name the commit that adds it, so the audit records the
+   addendum's own commit, and the first call it governs, once both exist. A change discovered after
+   its calls ran is recorded as a correction to those calls. It is never backdated.
    **Complete when:** every change since the first paid call has an addendum, and each
    addendum's commit precedes the first call it governs.
 
@@ -343,6 +357,14 @@ nothing says where either number can be rebuilt.
   study is not about, and the loss is reported as the model's.
 - **A cap checked after the call.** By the time the call returns, the money is spent. Reserve the
   worst case first.
+- **A reservation at list price.** Settlement takes the larger of list and reported cost, so a
+  reservation made at list price is exceeded by the first call billed above it, and the cap with
+  it. Reserve at a ceiling price that no settlement can pass.
+- **A balance read cleared before it is applied.** If the in-flight mark is cleared before the latch
+  and the STOP flag are set, a waiting call slips through the gap below the floor.
+- **Parity paid for before it was planned.** Running the control "just to check parity" is a paid
+  call nothing constrained, and both its spend and its result arrive before the plan could. Request
+  parity costs nothing and belongs in the dry run; output parity is a paid stage with its own cap.
 - **Two paying processes.** Each believes the remaining budget is its own, and together they spend
   twice it.
 - **A floor that unlatches.** Balance reads lag. A process that re-admits on a read showing
@@ -368,12 +390,16 @@ nothing says where either number can be rebuilt.
 - [ ] Every bar has a point rule and an interval rule, and invention has a bar of its own.
 - [ ] Every metric definition was read against named real items before it was frozen.
 - [ ] The research key is not production's, and the check that refuses production's key ran.
-- [ ] The cap reserves each call's worst case before the call; the floor latches, writes STOP and
-      blocks admissions during a balance read; one paying process holds the lock; costing is the
-      larger of list and reported per attempt, summed. Each part was watched refusing.
-- [ ] The control reproduced production's requests exactly and its outputs within the noise
-      floor, with the provider pinned for every arm.
+- [ ] The cap reserves, before each call, an upper bound on what it can be billed — tokens at a
+      ceiling price, for every attempt — so no settlement can exceed its reservation; the floor
+      latches, writes STOP and blocks admissions during a balance read, applying the result before
+      releasing them; one paying process holds the lock; costing is the larger of list and
+      reported per attempt, summed. Each part was watched refusing.
+- [ ] Request parity was proven offline, in the dry run, before any paid call: the control's
+      request equals production's, with the provider pinned in every arm's request.
 - [ ] Every dry-run difference from production's request is intended.
+- [ ] Output parity ran as the first paid stage, under a cap and pass rule committed before its
+      first call, and every call was served by the pinned provider.
 - [ ] The baseline ran twice for the noise floor; a layout-only control ran where layout or
       caching could change; arms were interleaved per item; every arm had the same inputs.
 - [ ] Every change after the first paid call has a dated addendum committed before the calls it
@@ -397,8 +423,9 @@ nothing says where either number can be rebuilt.
   templates, the shape of `reproduce.sh` and the manifest, and what the report and the audit carry.
 - [The budget guard](references/budget-guard.md): the five parts, a sketch of the admission path,
   the stale-lock takeover, and how to arm each part.
-- [Parity and controls](references/parity-and-controls.md): proving the harness is production's
-  twin, pinning providers, the noise floor, the layout-only control, and interleaving.
+- [Parity and controls](references/parity-and-controls.md): request parity offline in the dry run,
+  output parity as a capped paid stage, pinning providers, the noise floor, the layout-only
+  control, and interleaving.
 - [Judging and metrics](references/judging-and-metrics.md): the panel, provenance tags and the
   source-only reading, reporting each judge alone, the shortcut and its exactness test, invention,
   denominators and predicates.

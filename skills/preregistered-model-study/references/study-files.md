@@ -9,7 +9,11 @@ committed. The names are suggestions; the contents and the order are not.
 <study>/
   PLAN.md                 the question, arms, metrics, bars, sample size — first commit
   FREEZE.json             a hash for every input — committed before any paid call
+  dryrun/control.diff     request parity: the control's request against production's, built
+                          offline — before any paid call
   dryrun/<arm>.diff       each arm's request against production's — before any paid call
+  parity/                 output parity, the first paid stage: the control's answers against
+                          production's stored ones, under the stage's own cap
   addenda/<date>-<slug>.md   one per change after the first paid call
   code/                   harness, budget guard, judge runner, scorer
   data/raw/<arm>/         every response, stored as returned, with its cost per attempt
@@ -60,7 +64,12 @@ Bars:
 Judges:     J1 <vendor>, J2 <vendor>, J3 <vendor>; verdict = 2 of 3. J<k> shares a vendor with
             arm <arm>. Each judge is also reported alone.
 Shortcut:   judge every item / judge only where arms differ (exactness test: <fixture>)
-Budget:     study cap <amount>; balance floor <amount>; one paying process.
+Output parity (the first paid stage):
+            control only, on <n> items drawn by <rule>; pass rule: <agreement with production's
+            stored answers, and how it is measured>; stage cap <amount>, inside the study cap.
+            A fail stops the study with an addendum.
+Budget:     study cap <amount>; balance floor <amount>; ceiling price per model = the largest of
+            list, list + <margin>%, and the provider's maximum; one paying process.
 Stop rule:  stop and write an addendum if <condition>.
 Not covered: <item types, providers, volumes this study will not speak to>
 ```
@@ -71,7 +80,7 @@ One entry per input, hashed, with enough identity that a reader can find the sam
 
 ```json
 {
-  "frozen_at_commit": "<sha of the commit that adds this file>",
+  "written_on": "<sha of the parent commit this file was written on>",
   "items": { "file": "data/items.jsonl", "sha256": "<hash>", "rule": "<selection rule>", "seed": 0 },
   "prompts": [{ "arm": "A", "file": "prompts/a.txt", "sha256": "<hash>" }],
   "policies": [{ "file": "policies/<name>.md", "sha256": "<hash>" }],
@@ -86,11 +95,16 @@ The last field is not decoration. It names the real items each metric definition
 against before freezing, including the awkward ones — a field that does not apply, an empty
 source, a source that contradicts itself.
 
+A file cannot name the commit that adds it: that sha does not exist until the file is committed,
+and writing it in afterwards changes the file and so the sha. The freeze records the commit it was
+written on. The commit that adds it is recorded afterwards, in a later record — the audit's
+timeline in the next commit, or the pull request's description.
+
 ## ADDENDUM
 
 ```text
 # ADDENDUM <n> — <date> — <slug>
-Applies from commit: <sha>   Governs calls: <batch or range>   Committed before them: yes
+Written on: <sha of the parent commit>   Governs calls: <batch or range>   To be committed before them
 
 What changed:  <one paragraph>
 Why:           <what was found, and how>
@@ -98,8 +112,11 @@ Effect:        <which numbers move, measured: before -> after, or "none, measure
 Alternatives:  <what else was considered>
 ```
 
-A change found after its calls ran is recorded the same way, with "Committed before them: no" and
-the calls it should have governed. That is a correction, and it is stated as one.
+The addendum's own commit, and the time of the first call it governs, are recorded in the audit
+once both exist, so that "committed before the calls it governs" can be checked from two records
+rather than asserted by one. A change found after its calls ran is recorded the same way, marked
+"Committed after the calls it governs", with the calls it should have governed. That is a
+correction, and it is stated as one.
 
 ## reproduce.sh
 
@@ -138,7 +155,10 @@ arm appears in every chart, the control included.
 The audit is written for the next person to doubt the result. It carries:
 
 - a stage-by-stage timeline, with the commit each stage ran from;
-- the spend per stage, from the guard's ledger, against the cap;
+- the commit that added the PLAN, the FREEZE, the dry run and each addendum, and the time of the
+  first paid call after each — recorded once those commits exist, since none of those files can
+  name its own;
+- the spend per stage, from the guard's ledger, against that stage's cap and the study's;
 - every failure — a refused call, a malformed response, a timeout — and how it was scored;
 - every correction, with the outputs before and after, and the addendum or review record that
   carries it;
