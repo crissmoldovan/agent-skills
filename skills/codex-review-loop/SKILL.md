@@ -63,7 +63,8 @@ skill says so and proposes a split, and the person who owns the work decides.
 3. **The checks a fix must pass.** The tests, and the reproduce script if the pull request
    publishes numbers.
    **Complete when:** each is named with the command that runs it, and each has run once here.
-4. **A place for review records and a place for raw logs.** Records are committed with the work.
+4. **A place for review records and a place for raw logs.** Records go on the pull request, as a
+   comment or a section of its description, or in files committed after the fixes they describe.
    Raw logs live outside the repository, because a reviewer reading the repository can find old
    logs and quote them into the new one.
    **Complete when:** both locations are named.
@@ -100,8 +101,9 @@ skill says so and proposes a split, and the person who owns the work decides.
    with the evidence that refutes it.
 
 5. **Fix every verified finding above the lowest severity.** At the lowest severity, fix the cheap
-   ones and record the rest with a reason. A severity is a judgement, not a measurement: the same
-   defect can be graded differently on two heads, so judge a lowest-severity finding on its
+   ones and record the rest with a reason — in a round the next round will review. In the round
+   that stops the loop, step 12 decides instead. A severity is a judgement, not a measurement: the
+   same defect can be graded differently on two heads, so judge a lowest-severity finding on its
    content before deferring it.
    **Complete when:** every verified finding above the lowest severity is fixed, and every
    lowest-severity finding is fixed or recorded as deferred with a reason.
@@ -128,25 +130,38 @@ skill says so and proposes a split, and the person who owns the work decides.
    or "none", backed by a named command and its output.
 
 9. **Run the tests and the reproduce script on the fixed tree.**
-   **Complete when:** both have run on the commit that will be pushed, and their results are in
-   the record.
+   **Complete when:** both have run on the last fix commit, and their results are in the record.
 
 10. **Write the round's review record.** The head reviewed, the reviewer command, and for each
     finding its severity and title as the reviewer gave them, whether it was verified, its
     disposition, its armed evidence, its effect, and the commit that fixed it. A correction to an
     earlier round's record is written as a correction in this one. The earlier record is never
-    edited to look as though it had always been right.
-    **Complete when:** the record is committed with the fixes, and every finding in the last block
-    appears in it.
+    edited to look as though it had always been right. Put the record where it does not move the
+    head under review: on the pull request, as a comment or a section of its description. A
+    repository that keeps records as files commits each one after the fixes it describes, never
+    with them — a file cannot name the commit that adds it — so the next round reviews it along
+    with them. The last round's record always goes on the pull request: a commit after the last
+    review is a head nobody reviewed.
+    **Complete when:** every finding in the last block appears in the record, and the record is on
+    the pull request or in a commit after the fixes it names.
 
 11. **Push, and review the new head.** The fixes are new code and get their own round.
     **Complete when:** the next round is pinned to the pushed head, or the stop rule below applies.
 
-12. **Stop when a round returns only lowest-severity findings.** Fix the cheap ones and record the
-    rest, as in step 5. The loop is done; the pull request is reviewed at that head and no later
-    one.
-    **Complete when:** the last round's findings are all at the lowest severity, each fixed or
-    recorded.
+12. **Stop when a round returns only lowest-severity findings, and leave a reviewed head to merge.**
+    That round reviewed its head and nothing after it, so any commit made now is unreviewed. Take
+    one of two exits:
+    - **Defer and merge.** Record every finding as deferred, with where it is tracked, and merge the
+      head that round reviewed.
+    - **Fix, then confirm once.** Fix the findings worth fixing, armed as in step 6, push, and run
+      one confirmation round on the new head. If it returns nothing above the lowest severity, that
+      head is the one that merges, and anything it reports at the lowest severity is deferred, not
+      fixed — a fix would need another round, and the loop would not end. If it returns anything
+      above the lowest severity, the loop resumes at step 4 on that head.
+
+    **Complete when:** the head that will merge is the head of a round that returned only
+    lowest-severity findings — the stop round's, or its one confirmation round's — with no commit
+    after it, and every finding from that round is recorded as deferred with its tracking.
 
 13. **Split the pull request when rounds keep finding new kinds of bug.** Rephrasings of one defect
     converge. A run of rounds that each find a class of defect no earlier round found — the same
@@ -157,7 +172,8 @@ skill says so and proposes a split, and the person who owns the work decides.
     converging and the record shows it.
 
 14. **Merge only the head that was reviewed and checked.** Before merging, confirm that the pull
-    request's head is the head the last round reviewed; that it targets the branch it should,
+    request's head is the head the last round reviewed — under step 12, the stop round's head or
+    its confirmation round's, with no commit after it; that it targets the branch it should,
     not a base that has already merged and gone; that it is mergeable; and that every required
     check completed and passed on that exact commit. No checks is not a pass: a pull request that
     conflicts with its base gets no pull-request runs at all, silently. Then merge with the head
@@ -213,7 +229,7 @@ A specimen, not a prompt.
 ### A round's review record
 
 ```text
-Review round 3 — PR <number> — head <sha> against origin/main
+Review round 3 — PR <number> — head <sha> against origin/main — posted on the pull request
 Reviewer: codex review --base origin/main; last block only (2 earlier blocks discarded)
 
 [P1] The scorer counts a "does not apply" answer as an invention
@@ -235,7 +251,7 @@ Reviewer: codex review --base origin/main; last block only (2 earlier blocks dis
 Tests: <command> — all passing at <sha>. reproduce.sh: identical except tables/bar-2.csv, as above.
 Correction to round 2: its P1 on the cache key was marked fixed in <sha>; that commit fixed the
 read path only. The write path is fixed in this round, in <sha>.
-Next: round 4 on <sha>.
+Next: round 4 on <sha>, the last fix commit, once pushed.
 ```
 
 Each finding says whether it was true, what was done, how the fix was proven to matter, and what it
@@ -264,7 +280,12 @@ earlier round is stated where the reader will see it.
 - **Severity as a verdict.** The same defect has been graded high on one head and lower on the
   next, and the check went green with the defect still in place. Judge the content.
 - **Merging a head nobody reviewed.** A last "trivial" fix pushed after the final round merges
-  unreviewed and unchecked unless the merge is pinned to the reviewed head.
+  unreviewed and unchecked unless the merge is pinned to the reviewed head. The commonest version
+  is the stop round's own lowest-severity findings, fixed "because they were cheap" and merged
+  without the one confirmation round that would have reviewed them.
+- **A record committed with the fixes it names.** A file cannot carry the sha of the commit that
+  adds it, and a record committed after the last round is itself an unreviewed head. Records go
+  on the pull request, or in a commit after the fixes that the next round then reviews.
 - **No checks taken for passing checks.** A pull request in conflict with its base gets no
   pull-request runs at all. An empty checks list looks like a quiet queue, not a failure.
 - **Merging into a dead base.** A stacked pull request whose base branch already merged and was
@@ -287,13 +308,19 @@ earlier round is stated where the reader will see it.
 - [ ] Shared code touched by a fix was diffed against the base, and default-path changes are
       intended and tested.
 - [ ] Every finding has an effect line, and every "none" names the command that measured it.
-- [ ] Tests and the reproduce script ran on the commit that was pushed.
+- [ ] Tests and the reproduce script ran on the last fix commit of each round.
 - [ ] A review record exists for every round, and corrections to earlier rounds are stated in
       later records rather than edited into earlier ones.
 - [ ] The loop stopped on a round with only lowest-severity findings — or a split was proposed
       after rounds kept finding new kinds of bug.
-- [ ] The merged head is the reviewed head, its base is the intended branch, and every required
-      check completed and passed on that exact commit.
+- [ ] At the stop, its findings were either all deferred and the reviewed head merged, or fixed
+      and then reviewed by exactly one confirmation round, whose own lowest-severity findings were
+      deferred.
+- [ ] The merged head is the head of the stop round or of its one confirmation round, with no
+      commit after it; its base is the intended branch; and every required check completed and
+      passed on that exact commit.
+- [ ] Every record is on the pull request, or in a commit after the fixes it names — none names
+      its own commit, and none follows the last review.
 - [ ] The merge used `--match-head-commit`.
 
 ## Deeper reading
