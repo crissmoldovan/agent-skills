@@ -275,13 +275,15 @@ review_round() {  # review_round <n> <tree>
     || { echo "ROUND $1 FAILED: no final review was written; not a clean round"; return 1; }
 }
 
-# A round is terminal only if its final review grades nothing above the lowest grade — for the
-# Codex CLI, no P0, P1 or P2. Otherwise: fix, record, and run the next round. Never merge.
+# A round is terminal only if every grade in its final review is the lowest of the declared scale —
+# for the Codex CLI, P3. A grade above it, or one outside the scale (a P4, a P9), is not terminal:
+# fix and run the next round, or stop and establish the scale again. Never merge.
 terminal_round() {  # terminal_round <n>
-  local final="$REVIEW_LOGS/round-$1.final.txt"
+  local final="$REVIEW_LOGS/round-$1.final.txt" other
   [ -s "$final" ] || { echo "NOT TERMINAL: round $1 has no final review"; return 1; }
-  if grep -Eq '\[P[0-2]\]' "$final"; then
-    echo "NOT TERMINAL: round $1's final review still grades findings P0-P2; fix them and run the next round"
+  other=$(grep -Eo '\[P[0-9]+\]' "$final" | sort -u | grep -vx '\[P3\]' || true)
+  if [ -n "$other" ]; then
+    echo "NOT TERMINAL: round $1 grades findings other than the lowest, P3:" $other
     return 1
   fi
 }

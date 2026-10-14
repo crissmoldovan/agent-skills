@@ -281,7 +281,7 @@ function runExample({ mode, dirty = false, breakFetch = false }) {
   if (breakFetch) git('remote', 'set-url', 'origin', join(base, 'no-such-origin.git'));
   const stubs = `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done
   pwd -P > "$REVIEW_LOGS/codex-cwd"
-  case "$CODEX_MODE" in clean) printf '[P3] A small thing\\n' > "$out";; p1) printf '[P1] A real defect\\n' > "$out";; crash) return 1;; esac; }
+  case "$CODEX_MODE" in clean) printf '[P3] A small thing\\n' > "$out";; p1) printf '[P1] A real defect\\n' > "$out";; p4) printf '[P3] A small thing\\n[P4] A grade outside the scale\\n' > "$out";; crash) return 1;; esac; }
 gh() { case "$1 $2" in "pr view") echo "$(cat "$REVIEW_LOGS/round-$ROUND.head") main MERGEABLE";; "pr checks") echo true;; "pr merge") echo "MERGED $*";; esac; }`;
   const script = join(base, 'run.sh');
   writeFileSync(script, `${stubs}\n${exampleBash}\n`);
@@ -299,6 +299,12 @@ test('the example fails fast, and merges only after a terminal round on the revi
   assert.notEqual(open.status, 0, 'a round with a P1 left merged');
   assert.doesNotMatch(open.out, /MERGED/);
   assert.match(open.out, /NOT TERMINAL/);
+
+  // Blocks on #100 (severity 8): a grade outside the declared scale was read as terminal and merged.
+  const outside = runExample({ mode: 'p4' });
+  assert.notEqual(outside.status, 0, 'a round with a grade outside the scale merged');
+  assert.doesNotMatch(outside.out, /MERGED/);
+  assert.match(outside.out, /NOT TERMINAL: round 1 grades findings other than the lowest, P3: \[P4\]/);
 
   const crash = runExample({ mode: 'crash' });
   assert.notEqual(crash.status, 0, 'a failed round merged');
