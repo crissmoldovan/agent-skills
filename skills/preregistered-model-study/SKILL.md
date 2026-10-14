@@ -144,9 +144,10 @@ unmeasurable question is ceremony around a guess.
      guard. A cap checked after the call is a report, not a cap.
    - **A balance floor that latches.** Once the key's remaining balance reads below the floor, the
      process refuses every further admission for the rest of its life, writes a STOP flag that
-     every other process checks before each call, and admits nothing while a balance read is
+     every other process checks before each call, and admits nothing while any balance read is
      still in flight — applying the read's result, latch and flag, before it lets waiting calls
-     through.
+     through. Reads in flight are counted, so overlapping reads cannot release each other, and a
+     read that fails latches like one below the floor.
    - **One paying process at a time**, through an exclusive lock with safe stale-lock takeover: a
      lock whose owner has gone may be taken, one whose owner is alive may not, and the takeover
      itself is atomic.
@@ -361,7 +362,9 @@ nothing says where either number can be rebuilt.
   reservation made at list price is exceeded by the first call billed above it, and the cap with
   it. Reserve at a ceiling price that no settlement can pass.
 - **A balance read cleared before it is applied.** If the in-flight mark is cleared before the latch
-  and the STOP flag are set, a waiting call slips through the gap below the floor.
+  and the STOP flag are set, a waiting call slips through the gap below the floor. A single flag
+  fails the same way when two reads overlap, and a read that throws without releasing its mark
+  leaves every later admission waiting for ever.
 - **Parity paid for before it was planned.** Running the control "just to check parity" is a paid
   call nothing constrained, and both its spend and its result arrive before the plan could. Request
   parity costs nothing and belongs in the dry run; output parity is a paid stage with its own cap.
@@ -392,8 +395,8 @@ nothing says where either number can be rebuilt.
 - [ ] The research key is not production's, and the check that refuses production's key ran.
 - [ ] The cap reserves, before each call, an upper bound on what it can be billed — tokens at a
       ceiling price, for every attempt — so no settlement can exceed its reservation; the floor
-      latches, writes STOP and blocks admissions during a balance read, applying the result before
-      releasing them; one paying process holds the lock; costing is the larger of list and
+      latches, writes STOP and blocks admissions while any balance read is in flight, applying the
+      result before releasing them and failing closed when a read fails; one paying process holds the lock; costing is the larger of list and
       reported per attempt, summed. Each part was watched refusing.
 - [ ] Request parity was proven offline, in the dry run, before any paid call: the control's
       request equals production's, with the provider pinned in every arm's request.
