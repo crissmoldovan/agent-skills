@@ -17,8 +17,8 @@ const PROCEDURE_ORDER = [
   /^1\. \*\*Write the PLAN, and commit it before any paid call/,
   /^2\. \*\*FREEZE every input by hash/,
   /^3\. \*\*Build the budget guard in code, and arm it/,
-  /^4\. \*\*Prove parity with production before measuring anything/,
-  /^5\. \*\*Dry-run every arm, and commit the diff/,
+  /^4\. \*\*Prove request parity and dry-run every arm, offline, and commit it before any paid call/,
+  /^5\. \*\*Prove output parity as the first paid stage, under its own pre-registered cap/,
   /^6\. \*\*Run, with the controls/,
   /^7\. \*\*Put every change after the first paid call in a dated ADDENDUM, committed before the calls it governs/,
   /^8\. \*\*Judge with three vendors, and let the judges see provenance/,
@@ -47,18 +47,49 @@ test('the plan, the freeze and the dry run come before any paid call, and later 
   assert.match(steps[0], /\*\*Invention\*\*[^.]*answering where the truth cannot be determined/);
   assert.match(steps[0], /sample size comes with its reason/);
   assert.match(steps[1], /read every metric's definition against a handful of real items/);
-  assert.match(steps[4], /still no paid call has been made/);
-  assert.match(steps[4], /Every difference must be one the plan intends/);
+  assert.match(steps[3], /no paid call has been made/);
+  assert.match(steps[3], /may differ from it only where the plan intends/);
   assert.match(steps[6], /each addendum's commit precedes the first call it governs/);
   assert.match(steps[6], /It is never backdated/);
+  assert.match(steps[6], /A file cannot name the commit that adds it/);
+});
+
+// Review round 1: paid parity calls ran before the dry run was committed. Request parity is
+// offline and belongs to the dry run; output parity is the first paid stage, with its own cap.
+test('no step before output parity spends anything, and output parity is capped and registered first', () => {
+  const steps = procedureSteps(skill);
+  for (const [index, step] of steps.slice(0, 4).entries()) {
+    assert.doesNotMatch(step, /\bRun the control\b|paid stage|first paid/, `step ${index + 1} spends before the dry run is committed`);
+  }
+  assert.match(steps[3], /Build — without sending —/);
+  assert.match(steps[3], /The control's request must equal production's/);
+  assert.match(steps[4], /Run the control arm alone/);
+  assert.match(steps[4], /within its own cap, inside the study's/);
+  assert.match(steps[4], /its plan committed before its first call/);
+  assert.match(steps[0], /Output parity \(step 5\) is registered here as a stage of its own, with its items, its pass rule and its own cap/);
+  assert.match(flat, /The first three are committed before any paid call\. The first paid calls are output parity's/);
+  assert.match(parity, /\*\*Request parity is offline, and part of the dry run\.\*\*/);
+  assert.match(parity, /\*\*Output parity is paid, and a stage of its own\.\*\* It runs only after the dry run is committed/);
+  assert.match(files, /Output parity \(the first paid stage\):/);
+});
+
+// Review round 1: a file cannot contain the sha of the commit that adds it.
+test('no study file is asked to name the commit that adds it', () => {
+  assert.doesNotMatch(files, /commit that adds this file>/);
+  assert.match(files, /"written_on": "<sha of the parent commit this file was written on>"/);
+  assert.match(files, /A file cannot name the commit that adds it/);
+  assert.match(files, /Written on: <sha of the parent commit>/);
+  assert.doesNotMatch(files, /Applies from commit: <sha>/);
 });
 
 test('the budget guard has its five parts, and each is armed', () => {
   const guard = procedureSteps(skill)[2];
   assert.match(guard, /refused at start-up when it equals production's key/);
-  assert.match(guard, /reserving each call's worst case before the call/);
+  assert.match(guard, /reserving before each call an upper bound on what it can be billed/);
+  assert.match(guard, /at a ceiling price — the largest of the list price, a stated margin over it, and the provider's maximum/);
+  assert.match(guard, /No settlement can exceed its reservation/);
   assert.match(guard, /A cap checked after the call is a report, not a cap/);
-  assert.match(guard, /\*\*A balance floor that latches\.\*\*[^*]*writes a STOP flag that every other process checks[^*]*admits nothing while a balance read is still in flight/);
+  assert.match(guard, /\*\*A balance floor that latches\.\*\*[^*]*writes a STOP flag that every other process checks[^*]*admits nothing while a balance read is still in flight — applying the read's result, latch and flag, before it lets waiting calls through/);
   assert.match(guard, /exclusive lock with safe stale-lock takeover/);
   assert.match(guard, /the larger of the list-price cost and the provider-reported cost, summed/);
   assert.match(guard, /each of the five parts has been watched refusing/);
@@ -70,11 +101,43 @@ test('the budget guard has its five parts, and each is armed', () => {
   assert.match(budget, /every reserved row with no settlement[^.]*counts at its worst case/);
 });
 
+// Review round 1: a reservation at list price was exceeded by a settlement at the reported price.
+test('the reservation is an upper bound no settlement can exceed', () => {
+  assert.match(budget, /ceiling_price = max\(list_price, list_price \* \(1 \+ margin\), provider_max_price\)/);
+  assert.match(budget, /worst_attempt = max_input_tokens \* ceiling_input_price \+ max_output_tokens \* ceiling_output_price/);
+  assert.match(budget, /at every admission: spent \+ reserved \+ worst\(call\) <= cap/);
+  assert.match(budget, /for every call: settled cost <= worst\(call\)/);
+  assert.match(budget, /if actual > ticket\.worst:/);
+  assert.doesNotMatch(budget, /using list prices from a price table frozen/, 'the reservation is priced at list again');
+});
+
+// Review round 1: in_flight was cleared before the latch and STOP were set, an admission window.
+test('a balance read is applied before waiting admissions are released', () => {
+  const raw = read('references/budget-guard.md');
+  const block = raw.slice(raw.indexOf('check_balance():'));
+  const at = (text) => {
+    const index = block.indexOf(text);
+    assert.notEqual(index, -1, `check_balance() no longer contains: ${text}`);
+    return index;
+  };
+  const marked = at('in_flight = true');
+  const latch = at('latched = true');
+  const stop = at('create STOP flag atomically');
+  const cleared = at('in_flight = false');
+  const woken = at('wake every waiting admission');
+  assert.ok(marked < latch && latch < cleared, 'the latch is set after in_flight is cleared');
+  assert.ok(stop < cleared, 'the STOP flag is written after in_flight is cleared');
+  assert.ok(cleared < woken, 'waiters are released before in_flight is cleared');
+  assert.match(raw, /while in_flight: +wait/);
+  assert.match(budget, /re-checks STOP and the latch/);
+});
+
 test('parity is proven first, the provider is pinned, and the controls make a difference readable', () => {
   const steps = procedureSteps(skill);
-  assert.match(steps[3], /requests and its outputs with production's/);
-  assert.match(steps[3], /Pin the serving provider for every arm/);
+  assert.match(steps[3], /Pin the serving provider in every arm's request/);
   assert.match(steps[3], /a router may pick the provider by the request's layout/);
+  assert.match(steps[4], /compare its answers with what production stored for them/);
+  assert.match(steps[4], /Check the provider that served every call against the pin/);
   assert.match(steps[5], /Run the baseline arm twice over the same items/);
   assert.match(steps[5], /\*\*A layout-only control\*\*/);
   assert.match(steps[5], /\*\*Arms interleaved per item\.\*\*/);

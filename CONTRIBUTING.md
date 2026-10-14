@@ -65,7 +65,7 @@ the comparison drawn from their own work, the depth ladder, and the illustrated 
 changing nothing, as `investigate-codebase` owns the evidence-backed answer a developer acts on and
 `layer-repository-docs` the documentation a repository keeps; and `preregistered-model-study` owns a model or
 prompt comparison whose verdict can be trusted — the plan, freeze and dry run committed before any paid
-call, the dated addenda, the spend guard in code, parity with production, the provenance-aware judge
+call, the dated addenda, the spend guard in code, request and output parity, the provenance-aware judge
 panel, and the offline reproduction — while `model-routing` owns which model runs everyday work; and
 `codex-review-loop` owns an independent reviewer's rounds on a pull request — the last review block, a
 verified and armed fix for every finding above the lowest severity, the measured effect, the review

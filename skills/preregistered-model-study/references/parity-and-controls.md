@@ -6,12 +6,18 @@ arm is the system production actually runs, and only if the other things that di
 
 ## Parity: the control is production's twin
 
-Parity has two halves, and a study needs both.
+Parity has two halves, and a study needs both. They differ in one way that decides when each runs:
+request parity costs nothing, and output parity costs money.
 
-**Request parity.** Take a handful of real items production has processed. Capture the request
-production sent for each — from production's own request log, or by running production's request
-builder in a mode that builds and does not send. Build the control arm's request for the same
-items, and diff the two. Normalise only what does not reach the model, such as the key order inside
+| Half | Paid? | When | Committed |
+|---|---|---|---|
+| Request parity | no — built, never sent | inside the dry run | with the dry run, before any paid call |
+| Output parity | yes | the first paid stage, before any arm is measured | its plan and cap before its first call; its result after |
+
+**Request parity is offline, and part of the dry run.** Take a handful of real items production has
+processed. Capture the request production sent for each — from production's own request log, or by
+running production's request builder in a mode that builds and does not send. Build the control
+arm's request for the same items, without sending it, and diff the two. Normalise only what does not reach the model, such as the key order inside
 a JSON object. Never normalise array order: the order of messages, examples and tools is part of the
 prompt.
 
@@ -25,10 +31,14 @@ The differences that turn up are rarely the interesting ones:
 - whitespace or a trailing newline that changes what a prompt cache matches;
 - provider-routing preferences production sends and the harness does not.
 
-**Output parity.** Run the control on items production processed under the same frozen prompt and
-model, and compare its answers with what production stored. Agreement should be within the noise
-floor measured below. Larger disagreement means the harness is not production yet, or the control
-run is faulty, and every arm compared against it inherits the fault.
+**Output parity is paid, and a stage of its own.** It runs only after the dry run is committed, and
+only under what the plan registered for it: the items, the pass rule — how close the control's
+answers must come to production's — and a cap of its own inside the study's. Run the control alone
+on items production processed under the same frozen prompt and model, and compare its answers with
+what production stored. Larger disagreement than the pass rule allows means the harness is not
+production yet, or the control run is faulty, and every arm compared against it would inherit the
+fault: the study stops there, with an addendum. The noise floor measured later in the run says
+whether the pass rule's tolerance was reasonable; if it was too loose, say so in an addendum.
 
 A control that fails parity is not a slightly worse control. It is a different system, and the
 study would be measuring the distance between two systems neither of which is the one being decided
@@ -43,8 +53,10 @@ provider by the shape of the request — its length, its layout, whether it can 
 change that only touched the layout can move an arm to a different provider without anyone
 choosing to.
 
-- Pin one provider per arm, and turn off fallbacks for the study.
-- Record, per call, the provider that actually served it, from the response's own metadata.
+- Pin one provider per arm, in the request itself, and turn off fallbacks for the study. The pin is
+  part of the request, so request parity checks it offline.
+- Record, per call, the provider that actually served it, from the response's own metadata, from
+  the first paid call — output parity's — onwards.
 - After the run, check every call against its arm's pin. A pin that was not honoured is a finding,
   recorded in an addendum, and those calls are either rerun or reported separately.
 
