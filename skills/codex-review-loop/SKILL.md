@@ -1,6 +1,6 @@
 ---
 name: codex-review-loop
-description: "Run an independent AI code review on a pull request in rounds until a round returns only lowest-severity findings: start the reviewer in the background writing to a file, read only the last review block, check every finding against the code before acting, fix everything above the lowest severity with a check you watched fail by breaking the fix on purpose, measure each finding's effect on any published result, write a review record per round, split the pull request when rounds keep finding new kinds of bug, and merge only a head whose required checks ran on that exact commit. Symptoms: run codex review, get a second opinion on this PR, review until clean, the reviewer flagged a P1, is this ready to merge, codex review --base origin/main. The Blocks-hosted review loop is request-blocks-review's; containing a risky change is land-complex-change's."
+description: "Run an independent AI code review on a pull request in rounds until a round returns only lowest-severity findings: start the reviewer in the background writing to a file, read only the reviewer's final message, check every finding against the code before acting, fix everything above the lowest severity with a check you watched fail by breaking the fix on purpose, measure each finding's effect on any published result, write a review record per round, split the pull request when rounds keep finding new kinds of bug, and merge only a head whose required checks ran on that exact commit. Symptoms: run codex review, get a second opinion on this PR, review until clean, the reviewer flagged a P1, is this ready to merge, codex review --base origin/main. The Blocks-hosted review loop is request-blocks-review's; containing a risky change is land-complex-change's."
 license: MIT
 compatibility: "A git repository with a pull request, or a branch and its base, and a reviewer CLI that reviews a diff against a base and grades findings by severity. The examples use the Codex CLI; any reviewer with those two properties fits. Merge checks use the GitHub CLI. Output is the fixed branch, one review record per round, and either a merge pinned to the reviewed head or the stated reason it is not ready."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
@@ -21,7 +21,8 @@ This skill is the loop: what a round consists of, what each finding is owed, whe
 when it should stop and split instead, and what has to be true of the exact commit that merges. It
 is reviewer-agnostic. The examples use the Codex CLI, `codex review --base origin/main`, because
 that is a common reviewer that takes a base and grades its findings; any reviewer that does both
-fits.
+fits. Its `exec` form, `codex exec review --base origin/main -o <file>`, also writes the final
+review to a file of its own, which is how the examples read it.
 
 ### What this skill does not own
 
@@ -89,23 +90,25 @@ skill says so and proposes a split, and the person who owns the work decides.
 
 2. **Start the reviewer in the background, writing to a file.** A review can take many minutes, and
    output read live from a terminal arrives interleaved and half-finished. For example:
-   `codex review --base origin/main > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`, with the log directory
-   outside the repository. Wait for the process to exit before reading anything, and keep its exit
+   `codex exec review --base origin/main -o "$REVIEW_LOGS/round-<n>.final.txt" > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`,
+   with the log directory outside the repository and the final-review file removed before the
+   round starts, so a file from an earlier round can never stand in for this one. Wait for the process to exit before reading anything, and keep its exit
    status: a reviewer that exited non-zero did not finish a review.
    **Complete when:** the reviewer exited zero, and its full output is in the round's log file — or
    the round is recorded as failed and run again.
 
-3. **Read only the last review block.** A reviewer's log holds drafts, tool output and earlier
-   messages before its final review, and it can also quote old review files it found in the
-   repository. Extracting from the first block instead of the last presents earlier rounds'
-   findings as this round's. With the Codex CLI, every message opens with a line reading `codex`,
-   and the final block is everything after the last such line
-   ([the review record](references/review-record.md) has the extraction). A log with no such line,
-   or a final block with nothing after its marker, is a **failed round**, not a clean one: an
-   extraction that finds nothing returns nothing, and nothing reads exactly like "no findings".
-   **Complete when:** the reviewer exited zero, a non-empty final block was extracted, the round's
-   findings come from that block alone, and the record says how many earlier blocks were discarded
-   — or the round is recorded as failed and run again.
+3. **Read only the final review.** A reviewer's log holds drafts, tool output and earlier messages
+   before its final review, and it can quote old review files it found in the repository, so the
+   review has to be taken from a boundary nothing in the log can fake. The Codex CLI's exec form
+   writes the final message, and only that, to the file `-o` names: read that file. A reviewer
+   that only prints a log needs its final block cut out by a marker line, which is a fallback with a
+   known flaw — a quoted line that equals the marker restarts the cut and silently drops the
+   findings before it — so count the markers and compare the cut with the log by eye
+   ([the review record](references/review-record.md) has both). A final review that is missing or
+   empty is a **failed round**, not a clean one: nothing reads exactly like "no findings".
+   **Complete when:** the reviewer exited zero, its final review is non-empty, the round's findings
+   come from it alone, and the record says how it was taken — the `-o` file, or a marker cut with
+   its marker count — or the round is recorded as failed and run again.
 
 4. **Check every finding against the code or the data before acting on it.** A reviewer's claim
    about the codebase can be wrong: a line that does not do what it says, a caller that does not
@@ -205,7 +208,7 @@ skill says so and proposes a split, and the person who owns the work decides.
 
 ```text
 Run codex review on this PR against origin/main in the background, writing to a file. Read only the
-last review block. Fix every P0, P1 and P2 with a check you have watched fail, write the round's
+final review. Fix every P0, P1 and P2 with a check you have watched fail, write the round's
 review record, and go again until a round comes back with only P3s.
 ```
 
@@ -237,15 +240,15 @@ else
 fi
 echo "$sha" > "$REVIEW_LOGS/round-3.head"
 
-# A round counts only if the reviewer exited zero AND a non-empty final block was extracted.
-# The Codex CLI opens every message with a line reading "codex"; the final block follows the last.
+# A round counts only if the reviewer exited zero AND wrote a non-empty final review. The exec form
+# writes its final message, and only that, to the file -o names: no marker in the log can cut it.
 review_round() {  # review_round <n> <tree>
   local log="$REVIEW_LOGS/round-$1.log" final="$REVIEW_LOGS/round-$1.final.txt"
-  (cd "$2" && codex review --base origin/main) > "$log" 2>&1 &
+  rm -f "$final"     # a file from an earlier round must never stand in for this one
+  (cd "$2" && codex exec review --base origin/main -o "$final") > "$log" 2>&1 &
   wait $! || { echo "ROUND $1 FAILED: the reviewer exited non-zero; not a clean round"; return 1; }
-  grep -qx 'codex' "$log" || { echo "ROUND $1 FAILED: no final review block; not a clean round"; return 1; }
-  awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' "$log" > "$final"
-  tail -n +2 "$final" | grep -q '[^[:space:]]' || { echo "ROUND $1 FAILED: the final block is empty"; return 1; }
+  grep -q '[^[:space:]]' "$final" 2>/dev/null \
+    || { echo "ROUND $1 FAILED: no final review was written; not a clean round"; return 1; }
 }
 review_round 3 "$tree"
 
@@ -271,7 +274,7 @@ A specimen, not a prompt.
 
 ```text
 Review round 3 — PR <number> — head <sha> against origin/main — posted on the pull request
-Reviewer: codex review --base origin/main; last block only (2 earlier blocks discarded)
+Reviewer: codex exec review --base origin/main -o <file>; final review from the -o file
 
 [P1] The scorer counts a "does not apply" answer as an invention
   verified: yes — <file>:<line>; fixture item <id> reproduces it
@@ -320,6 +323,10 @@ earlier round is stated where the reader will see it.
   next round finds the next class. The way out is a smaller pull request, not another round.
 - **Severity as a verdict.** The same defect has been graded high on one head and lower on the
   next, and the check went green with the defect still in place. Judge the content.
+- **A marker the review itself can contain.** Cutting the final block out of a log at the last line
+  reading `codex` breaks the moment the review quotes a file or a command output with such a line:
+  the cut restarts there and the findings before it vanish, while the tail left over still looks
+  like a review. Take the final message from a file the reviewer writes, where it has one.
 - **A failed round read as a clean one.** A reviewer that crashed, was rate-limited or was logged
   out leaves a log with no final block, and an extraction over it returns nothing — which looks
   exactly like a review with no findings. A round counts only on a zero exit and a non-empty final
@@ -355,9 +362,10 @@ earlier round is stated where the reader will see it.
       checkout itself, or a fresh worktree checked out there.
 - [ ] The reviewer ran in the background to a log file outside the repository, and was read only
       after it exited.
-- [ ] Each round counted only on a zero exit and a non-empty extracted final block; any other
-      round was recorded as failed and run again.
-- [ ] Each round's findings came from the last review block alone.
+- [ ] Each round counted only on a zero exit and a non-empty final review; any other round was
+      recorded as failed and run again.
+- [ ] Each round's findings came from the reviewer's final message alone — the file its `-o`
+      option wrote, or, for a reviewer with only a log, a marker cut checked against the log.
 - [ ] The threshold came from the reviewer's declared scale — for the Codex CLI, P0 to P3: P0 to
       P2 fixed, a P3-only round stops the loop.
 - [ ] Every finding was verified against the code or data, or rejected with evidence.

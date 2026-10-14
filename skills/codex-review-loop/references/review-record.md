@@ -15,52 +15,66 @@ fixes, the record names them, and the next round reviews it along with them. The
 record still goes on the pull request: a record committed after the last review would itself be a
 head nobody reviewed.
 
-## Extracting the final block
+## Taking the final review
 
 A reviewer's log is not its review. Before the final review it prints the work it did on the way:
 drafts, commands it ran, files it read — including old review records or logs it found in the
-repository, which it may quote at length. The review is the last block.
+repository, which it may quote at length. The review is its final message, and it has to be taken
+from a boundary nothing in the log can fake.
 
-With the Codex CLI, every message in the log opens with a line reading `codex`, so the final block
-is everything after the last such line:
+**Where the reviewer writes its final message to a file, use that file.** The Codex CLI's exec form
+does — `codex exec review --base origin/main -o <file>` writes the final message, and only that,
+to the file, while the log goes to standard output as usual. Observed: on a scratch repository whose
+change contained a line reading exactly `codex`, the log held that marker line and the `-o` file
+held the review alone, finding included. Remove the file before the round starts, so a file from an
+earlier round can never stand in for this one.
+
+**Where the reviewer only prints a log, cutting by a marker is a fallback with a known flaw.** With
+the Codex CLI's log, every message opens with a line reading `codex`, and the final block is
+everything after the last such line:
 
 ```bash
 awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' round-3.log > round-3.final.txt
 grep -c '^codex$' round-3.log   # how many blocks there were; all but the last are discarded
 ```
 
+The flaw: a line that equals the marker inside quoted output — a file the review shows, a command's
+output — restarts the cut there. The findings before it vanish, and what is left still looks like a
+review. So count the markers, compare the cut block with the log by eye, and treat any cut that
+starts inside quoted text as a failed extraction. An extraction that takes the first block, or
+everything, fails the other way: it presents earlier rounds' findings as this one's.
+
+Keep raw logs outside the repository. A log committed in round 2 is a file the reviewer can read and
+quote in round 3.
+
 ## A failed round is not a clean round
 
-A round counts only when two things are true: the reviewer exited zero, and a non-empty final block
-was extracted. A reviewer that crashed, timed out, hit a rate limit or was logged out leaves a log
-with no marker, or with a marker and nothing after it. The extraction above then returns nothing,
-and nothing reads exactly like a review that found nothing. Test both before reading a single
-finding:
+A round counts only when two things are true: the reviewer exited zero, and its final review is
+non-empty. A reviewer that crashed, timed out, hit a rate limit or was logged out leaves no final
+review, or an empty one — and nothing reads exactly like a review that found nothing. Test both
+before reading a single finding:
 
 ```bash
-codex review --base origin/main > round-3.log 2>&1 &
+rm -f round-3.final.txt
+codex exec review --base origin/main -o round-3.final.txt > round-3.log 2>&1 &
 wait $! || echo "ROUND FAILED: the reviewer exited non-zero"
-grep -qx 'codex' round-3.log || echo "ROUND FAILED: no final review block"
-tail -n +2 round-3.final.txt | grep -q '[^[:space:]]' || echo "ROUND FAILED: the final block is empty"
+grep -q '[^[:space:]]' round-3.final.txt 2>/dev/null || echo "ROUND FAILED: no final review was written"
 ```
 
 A failed round is recorded as failed, with the reason, and run again. It never stops the loop.
 
 ## Another reviewer
 
-For another reviewer, find the equivalent: the marker its final message carries, or a
-machine-readable output mode if it has one. Check the extraction on a log you have read by eye
-before trusting it, and record in each round how many blocks were discarded. An extraction that
-takes the first block, or everything, will one day present earlier rounds' findings as this one's.
-
-Keep raw logs outside the repository. A log committed in round 2 is a file the reviewer can read and
-quote in round 3.
+For another reviewer, find the equivalent: an option that writes its final message to a file, a
+machine-readable output mode, or, last, the marker its final message carries. Check whichever it is
+on a log you have read by eye before trusting it, and record in each round how the final review was
+taken.
 
 ## Fields
 
 ```text
 Review round <n> — PR <number> — head <sha> against <base>
-Reviewer: <exact command>; last block only (<k> earlier blocks discarded)
+Reviewer: <exact command>; final review from <the -o file | a marker cut: <k> markers, checked by eye>
 
 [<severity>] <title, as the reviewer wrote it>
   verified:    yes — <file>:<line>; <the input that reproduces it>

@@ -17,7 +17,7 @@ const merge = read('references/merge-preconditions.md').replace(/\s+/g, ' ');
 const PROCEDURE_ORDER = [
   /^1\. \*\*Pin the head under review, and review exactly its bytes/,
   /^2\. \*\*Start the reviewer in the background, writing to a file/,
-  /^3\. \*\*Read only the last review block/,
+  /^3\. \*\*Read only the final review/,
   /^4\. \*\*Check every finding against the code or the data before acting on it/,
   /^5\. \*\*Fix every verified finding above the lowest severity/,
   /^6\. \*\*Arm every fix/,
@@ -46,14 +46,17 @@ test('it is reviewer-agnostic, with codex review --base origin/main as the main 
   assert.match(flat, /It is reviewer-agnostic/);
   assert.match(flat, /`codex review --base origin\/main`/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  assert.match(bash, /\(cd "\$2" && codex review --base origin\/main\) > "\$log" 2>&1 &$/m, 'the review does not run in the background to a file');
-  assert.match(bash, /^\s*awk '\/\^codex\$\/\{buf=""\}/m, 'the examples do not keep only the last block');
+  assert.match(bash, /\(cd "\$2" && codex exec review --base origin\/main -o "\$final"\) > "\$log" 2>&1 &$/m, 'the review does not run in the background, with its final message to a file');
+  // The marker cut stays documented as a fallback, with its flaw stated.
+  assert.match(record, /awk '\/\^codex\$\/\{buf=""\}/);
+  assert.match(record, /a line that equals the marker inside quoted output — a file the review shows, a command's output — restarts the cut there/);
 });
 
-test('only the last block is read, and every claim is checked before it is acted on', () => {
+test('only the final review is read, and every claim is checked before it is acted on', () => {
   const steps = procedureSteps(skill);
-  assert.match(steps[2], /Extracting from the first block instead of the last presents earlier rounds' findings as this round's/);
-  assert.match(steps[2], /how many earlier blocks were discarded/);
+  assert.match(steps[2], /writes the final message, and only that, to the file `-o` names: read that file/);
+  assert.match(steps[2], /a quoted line that equals the marker restarts the cut and silently drops the findings before it/);
+  assert.match(steps[2], /the record says how it was taken — the `-o` file, or a marker cut with its marker count/);
   assert.match(steps[3], /A reviewer's claim about the codebase can be wrong/);
   assert.match(steps[3], /rejected, with the evidence that refutes it/);
   assert.match(record, /Keep raw logs outside the repository/);
@@ -143,22 +146,38 @@ function runBash(script) {
   return { status: run.status, out: run.stdout + run.stderr };
 }
 
-test('a round counts only on a zero exit and a non-empty final block', () => {
+// Blocks on #100: a line reading exactly "codex" inside quoted output restarted a marker cut and
+// dropped the findings before it. The final review now comes from the file the reviewer writes.
+test('a round counts only on a zero exit and a non-empty final review, taken from the -o file', () => {
+  const stub = (body) => `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done; ${body}; }`;
   const reviewer = {
-    clean: `printf 'thinking\\ncodex\\nold draft\\ncodex\\n[P3] A small thing\\n'; return 0`,
-    crashed: `printf 'codex\\npartial\\n'; return 1`,
-    'no marker': `printf 'Error: not logged in\\nRun the login command and try again\\n'; return 0`,
-    'empty block': `printf 'working\\ncodex\\n   \\n'; return 0`,
+    clean: `printf 'log\\ncodex\\n'; printf '[P3] A small thing\\n' > "$out"; return 0`,
+    crashed: `printf 'codex\\npartial\\n' > "$out"; return 1`,
+    'no output': `printf 'Error: not logged in\\nRun the login command and try again\\n'; return 0`,
+    'empty review': `printf '   \\n' > "$out"; return 0`,
   };
   const results = {};
   for (const [name, body] of Object.entries(reviewer)) {
-    const { status } = runBash(`codex() { ${body}; }\nreview_round 1 .`);
+    const { status } = runBash(`${stub(body)}\nreview_round 1 .`);
     results[name] = status === 0 ? 'counted' : 'failed';
   }
-  assert.deepEqual(results, { clean: 'counted', crashed: 'failed', 'no marker': 'failed', 'empty block': 'failed' });
+  assert.deepEqual(results, { clean: 'counted', crashed: 'failed', 'no output': 'failed', 'empty review': 'failed' });
+
+  // A review that quotes a line reading exactly "codex" keeps every finding before it.
+  const quoted = runBash(`${stub(`printf 'log\\ncodex\\n'; printf '[P1] A real finding\\nquoted output:\\ncodex\\nend of quote\\n' > "$out"; return 0`)}
+review_round 1 . && cat "$REVIEW_LOGS/round-1.final.txt"`);
+  assert.equal(quoted.status, 0, quoted.out);
+  assert.match(quoted.out, /\[P1\] A real finding/, 'a finding before an embedded marker was lost');
+
+  // A final-review file left by an earlier round never stands in for this one.
+  const stale = runBash(`printf '[P2] From an earlier round\\n' > "$REVIEW_LOGS/round-1.final.txt"
+${stub(`printf 'log only\\n'; return 0`)}
+review_round 1 .`);
+  assert.notEqual(stale.status, 0, 'a stale final-review file counted as this round');
+
   const steps = procedureSteps(skill);
   assert.match(steps[1], /the reviewer exited zero, and its full output is in the round's log file — or the round is recorded as failed and run again/);
-  assert.match(steps[2], /is a \*\*failed round\*\*, not a clean one/);
+  assert.match(steps[2], /A final review that is missing or empty is a \*\*failed round\*\*, not a clean one/);
   assert.match(record, /## A failed round is not a clean round/);
 });
 
