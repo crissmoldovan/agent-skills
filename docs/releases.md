@@ -127,7 +127,8 @@ CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays `request-blocks
 `rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
 current or a non-empty next key, a next key generated into a private file and never printed, senders
 moved to a secret store and verified delivering, a fixed-window reconciliation of the receiver's
-handled requests against the senders' own delivery records before the old key is retired, a check that
+handled requests against the senders' own delivery records before the old key is retired — one to
+one by delivery id where there is one, and otherwise recorded as aggregate evidence — a check that
 the live domain serves the new build, and probes with the new key, a wrong key and no key. Placing a
 single credential stays `secure-credential-setup`'s.
 
@@ -148,8 +149,9 @@ bumped, the branch is merged, and a tag carries these notes.
   first paid stage, with its own pre-registered pass rule and cap. Every later change is a dated
   addendum committed before the calls it governs. The spend is guarded in code: a research key refused
   if it equals production's, a hard cap enforced by reserving before each call an upper bound on what
-  it can be billed, a balance floor that latches for the process, writes a STOP flag and blocks
-  admissions during a balance read until its result is applied, one paying process under an exclusive
+  it can be billed, a balance floor that latches for the process, writes a STOP flag, blocks
+  admissions while any balance read is in flight until its result is applied, and fails closed when
+  a read fails, one paying process under an exclusive
   lock with safe stale-lock takeover, and the larger of list and reported cost per attempt. It pins the
   serving provider, measures a noise floor and a layout-only
   control, and interleaves arms per item. Three judges from three vendors see provenance-tagged
@@ -163,7 +165,8 @@ bumped, the branch is merged, and a tag carries these notes.
   required checks have run.
 - `rotate-shared-secret` rotates a key services share with an overlap: a dual-key receiver where an
   empty value never matches, a next key that is never printed, senders moved to a secret store, a
-  fixed-window reconciliation that must match exactly before the old key is retired, a check that the
+  fixed-window reconciliation that must match exactly before the old key is retired — one to one by
+  delivery id, or else recorded as aggregate evidence — a check that the
   live domain really moved after each redeploy, and three probes.
 
 **Why.** Each began as a hard-won practice on one team: a series of model comparisons whose first
