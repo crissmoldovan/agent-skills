@@ -70,12 +70,19 @@ at intervals during one. Three rules:
 - **It writes a STOP flag.** On latching, the guard creates a STOP file in the study directory,
   atomically. Every process checks for it before every call and refuses while it exists. Only a
   person removes it, after reading why it was written.
-- **Nothing is admitted while a read is in flight, and the read's result is applied before
-  admissions resume.** A call admitted during the read is not covered by the read's verdict, so
-  admissions wait. When the read returns below the floor, the latch is set and the STOP flag
-  written first, under the same lock admissions take. Only then is the read marked finished and
-  are waiting calls released. Clearing the in-flight mark first opens a window in which a waiting
-  call sees neither the mark nor the latch, and is admitted below the floor.
+- **Nothing is admitted while any read is in flight, and each read's result is applied before
+  admissions resume.** A call admitted during a read is not covered by the read's verdict, so
+  admissions wait. When a read returns below the floor, the latch is set and the STOP flag
+  written first, under the same lock admissions take. Only then is the read counted as finished
+  and are waiting calls released. Clearing the in-flight mark first opens a window in which a
+  waiting call sees neither the mark nor the latch, and is admitted below the floor.
+- **Reads in flight are counted, not flagged.** Two reads can overlap — a scheduled one and one
+  before a batch. With a single flag, the first to finish clears it while the second is still
+  running, and admissions resume uncovered. A count reaches zero only when the last read is done.
+- **A read that fails is a breach: fail closed.** A balance that could not be read is treated as
+  one below the floor: the guard latches and writes STOP, with the reason, and a person decides
+  whether to resume. The read's bookkeeping is released on every path, error included. A read
+  that throws and leaves its in-flight mark behind makes every later admission wait for ever.
 
 Where the provider exposes no balance, record in the plan that the floor is unavailable. The cap
 then governs alone, and it should be set with that in mind.
@@ -114,13 +121,13 @@ re-added from the raw rows and the total checked.
 
 ## The admission path
 
-Everything that reads or writes `spent`, `reserved`, `latched` or `in_flight` holds one admission
-lock. `wait` releases that lock while it waits and takes it again before returning, as a condition
-variable does.
+Everything that reads or writes `spent`, `reserved`, `latched` or `reads_in_flight` holds one
+admission lock. `wait` releases that lock while it waits and takes it again before returning, as a
+condition variable does.
 
 ```text
 admit(call):                                    # holds the admission lock
-    while in_flight:                 wait       # never admit during a balance read
+    while reads_in_flight > 0:       wait       # never admit during any balance read
     if STOP flag exists or latched:  refuse     # re-checked after every wait
     w = worst(call)                             # an upper bound on what it can be billed
     if spent + reserved + w > cap:   refuse
@@ -137,19 +144,25 @@ settle(ticket, attempts):                       # holds the admission lock
 
 check_balance():
     with admission lock:
-        in_flight = true                        # from here, admissions wait
-    balance = read balance endpoint             # slow; the lock is not held
-    with admission lock:
-        if balance < floor:
-            latched = true                      # applied first ...
-            create STOP flag atomically
-        in_flight = false                       # ... cleared only after
-        wake every waiting admission            # each re-checks STOP and the latch
+        reads_in_flight += 1                    # from here, admissions wait
+    verdict = "breach"                          # fail closed unless the read succeeds
+    try:
+        balance = read balance endpoint         # slow; the lock is not held
+        if balance >= floor:  verdict = "ok"
+    finally:                                    # runs on success and on any error
+        with admission lock:
+            if verdict == "breach":             # below the floor, or unreadable
+                latched = true                  # applied first ...
+                create STOP flag atomically     # with the reason
+            reads_in_flight -= 1                # ... released only after
+            wake every waiting admission        # each re-checks STOP and the latch
 ```
 
-If `in_flight` were cleared before the latch and the flag were set, a waiting call could wake in
-the gap, find neither, and be admitted below the floor. The order above closes that window: by the
-time any waiter can run, the read's verdict is already in force.
+Three orderings matter here. The latch and the flag are set before `reads_in_flight` is
+decremented, so no waiter can wake in a gap where it finds neither. The decrement sits in
+`finally`, so a read that throws still releases its count — having first latched, because an
+unreadable balance is a breach. And the count, unlike a flag, stays above zero until the last of
+several overlapping reads is done.
 
 ## Arming each part
 
@@ -164,6 +177,8 @@ call and no real key:
 | Floor | stub the balance read to return less than the floor | latches, writes STOP, refuses the next admission |
 | STOP flag | create the flag by hand, start a second process | the second process refuses its first call |
 | In-flight read | stub the balance read to block and then return below the floor; request an admission during it | the admission waits, then is refused — never admitted |
+| Read failure | stub the balance read to throw; request an admission during it | latches, writes STOP with the reason; the admission is refused, not left waiting |
+| Overlapping reads | start two reads; let the first return above the floor while the second still blocks; request an admission | the admission waits until the second read finishes |
 | Lock | start a second paying process while the first holds the lock | the second refuses to start |
 | Stale takeover | leave a lock whose process no longer exists | it is taken over, once, by one contender |
 | Costing | feed a settled attempt with reported cost above list but within the ceiling | the ledger records the reported cost, and no latch |

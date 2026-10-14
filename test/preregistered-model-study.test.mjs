@@ -89,7 +89,8 @@ test('the budget guard has its five parts, and each is armed', () => {
   assert.match(guard, /at a ceiling price — the largest of the list price, a stated margin over it, and the provider's maximum/);
   assert.match(guard, /No settlement can exceed its reservation/);
   assert.match(guard, /A cap checked after the call is a report, not a cap/);
-  assert.match(guard, /\*\*A balance floor that latches\.\*\*[^*]*writes a STOP flag that every other process checks[^*]*admits nothing while a balance read is still in flight — applying the read's result, latch and flag, before it lets waiting calls through/);
+  assert.match(guard, /\*\*A balance floor that latches\.\*\*[^*]*writes a STOP flag that every other process checks[^*]*admits nothing while any balance read is still in flight — applying the read's result, latch and flag, before it lets waiting calls through/);
+  assert.match(guard, /Reads in flight are counted, so overlapping reads cannot release each other, and a read that fails latches like one below the floor/);
   assert.match(guard, /exclusive lock with safe stale-lock takeover/);
   assert.match(guard, /the larger of the list-price cost and the provider-reported cost, summed/);
   assert.match(guard, /each of the five parts has been watched refusing/);
@@ -111,25 +112,36 @@ test('the reservation is an upper bound no settlement can exceed', () => {
   assert.doesNotMatch(budget, /using list prices from a price table frozen/, 'the reservation is priced at list again');
 });
 
-// Review round 1: in_flight was cleared before the latch and STOP were set, an admission window.
-test('a balance read is applied before waiting admissions are released', () => {
+// Review round 1 (Codex): in_flight was cleared before the latch and STOP were set, an admission
+// window. Blocks, on the fix: a boolean let one of two overlapping reads release the other, and a
+// read that threw never cleared it, so every later admission waited for ever.
+test('a balance read is applied before waiting admissions are released, on every path', () => {
   const raw = read('references/budget-guard.md');
-  const block = raw.slice(raw.indexOf('check_balance():'));
+  const block = raw.slice(raw.indexOf('check_balance():'), raw.indexOf('```', raw.indexOf('check_balance():')));
   const at = (text) => {
     const index = block.indexOf(text);
     assert.notEqual(index, -1, `check_balance() no longer contains: ${text}`);
     return index;
   };
-  const marked = at('in_flight = true');
+  const counted = at('reads_in_flight += 1');
+  const failClosed = at('verdict = "breach"');
+  const attempt = at('try:');
+  const always = at('finally:');
   const latch = at('latched = true');
   const stop = at('create STOP flag atomically');
-  const cleared = at('in_flight = false');
+  const released = at('reads_in_flight -= 1');
   const woken = at('wake every waiting admission');
-  assert.ok(marked < latch && latch < cleared, 'the latch is set after in_flight is cleared');
-  assert.ok(stop < cleared, 'the STOP flag is written after in_flight is cleared');
-  assert.ok(cleared < woken, 'waiters are released before in_flight is cleared');
-  assert.match(raw, /while in_flight: +wait/);
+  assert.ok(counted < failClosed && failClosed < attempt, 'a read is not presumed a breach until it succeeds');
+  assert.ok(always < latch && always < released, 'the latch and the release are not on the path a failed read takes');
+  assert.ok(latch < released && stop < released, 'the read is released before its verdict is applied');
+  assert.ok(released < woken, 'waiters are woken before the read is released');
+  assert.doesNotMatch(block, /\bin_flight = (?:true|false)/, 'a boolean flag is back, and overlapping reads release each other');
+  assert.match(raw, /while reads_in_flight > 0: +wait/);
   assert.match(budget, /re-checks STOP and the latch/);
+  assert.match(budget, /\*\*Reads in flight are counted, not flagged\.\*\*/);
+  assert.match(budget, /\*\*A read that fails is a breach: fail closed\.\*\*/);
+  assert.match(raw, /^\| Read failure \| stub the balance read to throw/m);
+  assert.match(raw, /^\| Overlapping reads \| start two reads/m);
 });
 
 test('parity is proven first, the provider is pinned, and the controls make a difference readable', () => {
