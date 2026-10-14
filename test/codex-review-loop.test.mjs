@@ -224,3 +224,37 @@ test('each round reviews a clean tree at the pushed sha, or a fresh worktree che
   assert.match(exampleBash, /review_round 3 "\$tree"/);
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Each round reviewed a tree whose `git status --porcelain` was empty at that sha/);
 });
+
+// Blocks on #100 (severity 7): the -o path was taken relative to the reviewed tree, so a relative
+// REVIEW_LOGS wrote the final review into the tree under review, and an unset one into /. The recipe
+// now refuses anything but an absolute directory outside the tree; proven on a real detached worktree.
+test('the final review and the log stay outside the reviewed tree, a detached worktree included', () => {
+  const base = mkdtempSync(join(tmpdir(), 'review-tree-'));
+  const repo = join(base, 'repo');
+  const tree = join(base, 'repo-wt');
+  const logs = join(base, 'logs');
+  const stub = `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done; printf '[P3] A small thing\\n' > "$out"; return 0; }`;
+  const setup = [
+    `git init -q ${JSON.stringify(repo)}`,
+    `printf 'x\\n' > ${JSON.stringify(join(repo, 'file.txt'))}`,
+    `git -C ${JSON.stringify(repo)} add file.txt`,
+    `git -C ${JSON.stringify(repo)} -c user.email=reviewer@example.com -c user.name=reviewer commit -qm base`,
+    `git -C ${JSON.stringify(repo)} worktree add -q --detach ${JSON.stringify(tree)} HEAD`,
+  ].join('\n');
+
+  const relative = runBash(`${setup}\n${stub}\nREVIEW_LOGS=review-logs\nreview_round 1 ${JSON.stringify(tree)}`);
+  assert.notEqual(relative.status, 0, 'a relative REVIEW_LOGS was accepted');
+  assert.match(relative.out, /REVIEW_LOGS must be an absolute path/);
+
+  const inside = runBash(`${stub}\nREVIEW_LOGS=${JSON.stringify(join(tree, 'logs'))}\nreview_round 1 ${JSON.stringify(tree)}`);
+  assert.notEqual(inside.status, 0, 'a REVIEW_LOGS inside the reviewed tree was accepted');
+  assert.match(inside.out, /REVIEW_LOGS is inside the reviewed tree/);
+
+  const outside = runBash(`${stub}\nREVIEW_LOGS=${JSON.stringify(logs)}\nreview_round 1 ${JSON.stringify(tree)} && git -C ${JSON.stringify(tree)} status --porcelain && cat ${JSON.stringify(join(logs, 'round-1.final.txt'))}`);
+  assert.equal(outside.status, 0, outside.out);
+  assert.equal(outside.out.trim(), '[P3] A small thing', 'the worktree is not clean, or the final review is not in the log directory');
+
+  const steps = procedureSteps(skill);
+  assert.match(steps[1], /The log directory is an absolute path, checked to lie outside the reviewed tree/);
+  assert.match(exampleBash, /: "\$\{REVIEW_LOGS:\?set REVIEW_LOGS to an absolute directory outside the repository\}"/);
+});

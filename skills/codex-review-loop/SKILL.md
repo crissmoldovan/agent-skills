@@ -92,7 +92,9 @@ skill says so and proposes a split, and the person who owns the work decides.
    output read live from a terminal arrives interleaved and half-finished. For example:
    `codex exec review --base origin/main -o "$REVIEW_LOGS/round-<n>.final.txt" > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`,
    with the log directory outside the repository and the final-review file removed before the
-   round starts, so a file from an earlier round can never stand in for this one. Wait for the process to exit before reading anything, and keep its exit
+   round starts, so a file from an earlier round can never stand in for this one. The log
+   directory is an absolute path, checked to lie outside the reviewed tree: the reviewer runs
+   inside that tree, so a relative path would land the final review in the very tree under review. Wait for the process to exit before reading anything, and keep its exit
    status: a reviewer that exited non-zero did not finish a review.
    **Complete when:** the reviewer exited zero, and its full output is in the round's log file — or
    the round is recorded as failed and run again.
@@ -228,6 +230,10 @@ split this PR so that the part that keeps failing gets its own branch.
 ```
 
 ```bash
+# Logs live in an absolute directory outside every tree under review; review_round refuses anything else.
+: "${REVIEW_LOGS:?set REVIEW_LOGS to an absolute directory outside the repository}"
+mkdir -p "$REVIEW_LOGS"
+
 # Pin the head: the reviewed bytes must be the pushed commit. A dirty tree, or a HEAD that is not
 # the pushed head, is reviewed in a fresh worktree checked out at the pushed sha instead.
 git fetch origin
@@ -243,7 +249,11 @@ echo "$sha" > "$REVIEW_LOGS/round-3.head"
 # A round counts only if the reviewer exited zero AND wrote a non-empty final review. The exec form
 # writes its final message, and only that, to the file -o names: no marker in the log can cut it.
 review_round() {  # review_round <n> <tree>
-  local log="$REVIEW_LOGS/round-$1.log" final="$REVIEW_LOGS/round-$1.final.txt"
+  local tree_abs logs_abs log final
+  case "$REVIEW_LOGS" in /*) ;; *) echo "ROUND $1 REFUSED: REVIEW_LOGS must be an absolute path"; return 1;; esac
+  tree_abs=$(cd "$2" && pwd -P) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
+  case "$logs_abs/" in "$tree_abs"/*) echo "ROUND $1 REFUSED: REVIEW_LOGS is inside the reviewed tree"; return 1;; esac
+  log="$logs_abs/round-$1.log"; final="$logs_abs/round-$1.final.txt"
   rm -f "$final"     # a file from an earlier round must never stand in for this one
   (cd "$2" && codex exec review --base origin/main -o "$final") > "$log" 2>&1 &
   wait $! || { echo "ROUND $1 FAILED: the reviewer exited non-zero; not a clean round"; return 1; }
