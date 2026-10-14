@@ -105,13 +105,15 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 ([project adaptation](project-adaptation.md)).
 
 `preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
-plan, a hash freeze of every input and a dry run against production's own request before any paid call;
-puts every later change in a dated addendum committed before the calls it governs; enforces the spend
-in code with a research key refused if it is production's, a worst-case reservation per call, a balance
-floor that latches, one paying process and per-attempt costing; proves the harness reproduces
-production before measuring; judges with three vendors who see where each piece of evidence came from;
-reports quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest
-that rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
+plan, a hash freeze of every input and a dry run that proves request parity with production offline,
+all before any paid call; runs output parity as the first paid stage, under its own pre-registered
+cap; puts every later change in a dated addendum committed before the calls it governs; enforces the
+spend in code with a research key refused if it is production's, a reservation per call that bounds
+every billable unit so no settlement can exceed it, a balance floor that latches and fails closed,
+one paying process whose lock is fenced against a paused owner, and per-attempt costing; estimates
+the control's disagreement with itself as an A/A distribution rather than one draw; judges with three
+vendors who see where each piece of evidence came from; reports quality, harm and cost beside the
+bars; and ships a reproduce script and a checksum manifest that rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
 
 ## Unreleased
 
