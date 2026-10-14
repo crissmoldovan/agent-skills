@@ -18,13 +18,45 @@ Three channels leak, and none of them announces it:
   saved in shell history.
 - **A tool-call parameter** — handing the value to an agent tool that runs a query or sets a
   setting — is saved in the session transcript.
-- **A SQL statement containing the value** is saved in the client's history and can be saved in
-  the database's statement log. Use a client that reads the value from a file into a variable, so
-  that the statement names the variable and never contains the value (in `psql`,
-  ``\set key `cat <file>` `` and then `:'key'`).
+- **The value inside SQL text** is sent to the server as part of the statement, where the
+  statement log can keep it, and the client's history keeps it too. That includes every way of
+  building the text on the client: typing the value, string formatting, a template literal, and
+  client-side variables such as `psql`'s `:'name'`. A client-side variable is not a separate
+  channel. The client expands it into the statement before sending it, so the server receives the
+  literal value exactly as if it had been typed.
 
 Where a store cannot take a value except as an argument, place it by hand through the store's own
 interface, as `secure-credential-setup` describes, and record that it was done that way.
+
+## When the store is inside a database
+
+A database's own secret store is usually written with SQL, which is where the value most easily
+ends up in a log. In order of preference:
+
+1. **The store's own interface, reading from standard input or a file.** A command-line tool or API
+   that takes the value as data and builds no SQL from it on your side.
+2. **A parameterised call, with the value as a bound parameter.** The statement text holds only a
+   placeholder; the client library sends the value separately, as data, through the protocol's
+   parameter channel. The program reads the value from the key file itself, so it never appears on
+   a command line either:
+
+   ```js
+   // The statement text holds only $1 and $2; the value travels as a bound parameter.
+   const value = readFileSync(process.env.KEY_FILE, 'utf8');
+   await client.query('select <store>.set_secret($1, $2)', ['shared_key', value]);
+   ```
+
+3. **Check what the server logs before you send it.** A bound parameter keeps the value out of
+   the statement text, but not necessarily out of the log. Some servers log parameter values
+   alongside any statement they log. PostgreSQL, for one, writes bound parameters next to every
+   logged statement unless `log_parameter_max_length` is 0, and its default writes them in full.
+   Before placing the value, read the statement-logging and parameter-logging settings that apply
+   to the role and session you will use. If they would capture it, turn them off for that session
+   where you are allowed to, or use the store's own interface, or place it by hand. Record the
+   settings you read.
+
+Never interpolate the value into the statement and rely on the log being off: the log is one
+reader, and the client's history, a proxy and a slow-query report are others.
 
 ## The newline trap
 
