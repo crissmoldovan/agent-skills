@@ -136,7 +136,7 @@ test('a balance read is applied before waiting admissions are released, on every
   assert.ok(latch < released && stop < released, 'the read is released before its verdict is applied');
   assert.ok(released < woken, 'waiters are woken before the read is released');
   assert.doesNotMatch(block, /\bin_flight = (?:true|false)/, 'a boolean flag is back, and overlapping reads release each other');
-  assert.match(raw, /while reads_in_flight > 0 or now - last_read_at > staleness_limit:\s+wait/);
+  assert.match(raw, /while floor_available and \(reads_in_flight > 0 or now - last_read_at > staleness_limit\):\s+wait/);
   assert.match(budget, /re-checks STOP and the latch/);
   assert.match(budget, /\*\*Reads in flight are counted, not flagged\.\*\*/);
   assert.match(budget, /\*\*A read that fails is a breach: fail closed\.\*\*/);
@@ -286,9 +286,9 @@ test('every admission respects the floor and its stage cap, not only the study c
   const raw = read('references/budget-guard.md');
   const admit = raw.slice(raw.indexOf('admit(call):'), raw.indexOf('settle(ticket, attempts):'));
   assert.match(admit, /if stage_spent\[s\] \+ stage_reserved\[s\] \+ w > stage_cap\[s\]: +refuse/);
-  assert.match(admit, /if w > headroom: +refuse/);
+  assert.match(admit, /if floor_available and w > headroom: +refuse/);
   assert.match(admit, /now - last_read_at > staleness_limit/);
-  assert.match(admit, /reserved \+= w; stage_reserved\[s\] \+= w; headroom -= w/);
+  assert.match(admit, /reserved \+= w; stage_reserved\[s\] \+= w\n\s+if floor_available: +headroom -= w/);
   const check = raw.slice(raw.indexOf('check_balance():'));
   assert.match(check, /headroom = balance - floor - reserved - settled_since\(balance\)/);
   assert.match(budget, /\*\*The floor is part of every admission, not only of every read\.\*\*/);
@@ -311,4 +311,19 @@ test('a restart or takeover restores every total per stage as well as for the st
   assert.match(budget, /Persist both halves, with the stage on every row\./);
   assert.match(budget, /Restoring the study's total but not the stage's lets a stage spend past its cap after a restart/);
   assert.ok(raw.includes('| Stage cap after restart |'), 'no drill for a stage cap after a restart');
+});
+
+// Blocks on #101 (severity 8, twice): a provider with no balance endpoint deadlocked, because admission
+// waited for a read that could never come; and two successful reads finishing out of order let the
+// older one overwrite a newer, smaller headroom.
+test('no balance endpoint means no wait, and a late read never overwrites a newer one', () => {
+  const raw = read('references/budget-guard.md');
+  const check = raw.slice(raw.indexOf('check_balance():'));
+  assert.match(check, /read_seq \+= 1; my_read = read_seq/);
+  assert.match(check, /else if my_read > applied_read:/);
+  assert.match(check, /last_read_at = started_at/);
+  assert.match(check, /applied_read = my_read/);
+  assert.match(budget, /\`floor_available\` is false, so admission neither waits for a read nor checks a headroom/);
+  assert.match(budget, /Two successful reads can also finish in the opposite order to the one they started in/);
+  for (const drill of ['| No balance endpoint |', '| Reads out of order |']) assert.ok(raw.includes(drill), `no ${drill.trim()} drill`);
 });

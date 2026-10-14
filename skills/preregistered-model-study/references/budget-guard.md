@@ -114,8 +114,15 @@ at intervals during one. The rules:
   whether to resume. The read's bookkeeping is released on every path, error included. A read
   that throws and leaves its in-flight mark behind makes every later admission wait for ever.
 
-Where the provider exposes no balance, record in the plan that the floor is unavailable. The cap
-then governs alone, and it should be set with that in mind.
+Where the provider exposes no balance, record in the plan that the floor is unavailable. The study
+and stage caps then govern alone, and should be set with that in mind: `floor_available` is false,
+so admission neither waits for a read nor checks a headroom. A guard that waits for a read that can
+never come never admits anything.
+
+Two successful reads can also finish in the opposite order to the one they started in. Each read
+takes a sequence number when it starts, and its result is applied only if no later-started read has
+been applied already; its age counts from when it began. Otherwise the slower, older read
+overwrites the newer headroom with a larger, stale one.
 
 ### 4. One paying process at a time
 
@@ -182,21 +189,23 @@ acquire():                                      # once, before the first admissi
     spent = sum of settled rows; stage_spent[s] = sum of settled rows of stage s, for every s
     for every reserved row r with no settlement, of any generation:
         reserved += r.worst; stage_reserved[r.stage] += r.worst     # the study's total AND its stage's
-    last_read_at = never                        # no headroom until a fresh balance read
+    last_read_at = never; applied_read = 0      # with a floor: no headroom until a fresh balance read
 
 admit(call):                                    # holds the admission lock; call.stage is its stage s
-    while reads_in_flight > 0 or now - last_read_at > staleness_limit:
+    while floor_available and (reads_in_flight > 0 or now - last_read_at > staleness_limit):
         wait                                    # never admit during a read, or on a stale one
+                                                # (no balance endpoint: the caps govern alone, no wait)
     if STOP flag exists or latched:  refuse     # re-checked after every wait
     w = worst(call)                             # every billable unit, at its bound and ceiling price
     if w is unbounded:               refuse     # a unit with no cap, or missing from the price table
     s = call.stage
     if spent + reserved + w > cap:                              refuse     # the study's cap
     if stage_spent[s] + stage_reserved[s] + w > stage_cap[s]:   refuse     # the stage's own cap
-    if w > headroom:                                            refuse     # the floor, between reads
+    if floor_available and w > headroom:                        refuse     # the floor, between reads
     if not ledger.append_if_generation(my_gen, reserved row with s):   # one atomic step, before the call
         exit "fenced: a newer owner holds the study"
-    reserved += w; stage_reserved[s] += w; headroom -= w
+    reserved += w; stage_reserved[s] += w
+    if floor_available:  headroom -= w
     return ticket
 
 settle(ticket, attempts):                       # holds the admission lock
@@ -211,9 +220,11 @@ settle(ticket, attempts):                       # holds the admission lock
         latched = true
         create STOP flag atomically
 
-check_balance():
+check_balance():                                # only where floor_available
     with admission lock:
         reads_in_flight += 1                    # from here, admissions wait
+        read_seq += 1; my_read = read_seq       # the order reads were started in
+        started_at = now
     verdict = "breach"                          # fail closed unless the read succeeds
     try:
         balance = read balance endpoint         # slow; the lock is not held
@@ -223,9 +234,10 @@ check_balance():
             if verdict == "breach":             # below the floor, or unreadable
                 latched = true                  # applied first ...
                 create STOP flag atomically     # with the reason
-            else:
+            else if my_read > applied_read:     # a read that finished late never overwrites a newer one
                 headroom = balance - floor - reserved - settled_since(balance)   # what it may not show yet
-                last_read_at = now
+                last_read_at = started_at       # its age is counted from when it began, not when it ended
+                applied_read = my_read
             reads_in_flight -= 1                # ... released only after
             wake every waiting admission        # each re-checks STOP and the latch
 ```
@@ -264,6 +276,8 @@ call and no real key:
 | Floor between reads | let a read leave a headroom smaller than one call's worst case, with the study cap far away; admit that call | refused: it fits the study cap but would cross the floor |
 | Stale read | let the last successful read age past the staleness limit; request an admission | the admission waits for a fresh read |
 | Stage cap | admit an output-parity call whose worst case fits the study cap but exceeds the parity stage's cap | refused |
+| No balance endpoint | run with the floor marked unavailable; request an admission that fits the caps | admitted without waiting for a read |
+| Reads out of order | start two reads; let the later-started one finish first with a lower balance, then the earlier one with a higher | the earlier read's larger headroom is not applied |
 | Stage cap after restart | stop a process with parity reservations unsettled, start another, admit a parity call that fits only if those reservations were forgotten | refused: the restored reservations count against the parity stage |
 | Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
 | Unlisted unit | admit a call that can incur a unit the frozen price table does not list | refused at admission |
