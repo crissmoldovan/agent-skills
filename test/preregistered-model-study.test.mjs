@@ -266,3 +266,15 @@ test('the noise is an estimated A/A distribution; a single A/A pair is a diagnos
   assert.doesNotMatch(parity, /is the noise floor\./);
   assert.match(files, /A1\.\.Ak +A run <k> times over the same items, for the A\/A distribution/);
 });
+
+// Blocks, on the split PR: the FREEZE template hashed neither each arm's parameters nor the price
+// tables the guard reads, so either could change after preregistration under a complete-looking freeze.
+test('the freeze hashes each arm\'s parameters and every price table the guard reads', () => {
+  const raw = read('references/study-files.md');
+  const freeze = raw.slice(raw.indexOf('## FREEZE'), raw.indexOf('## ADDENDUM'));
+  assert.match(freeze, /"params": \[\{ "arm": "A", "file": "params\/a\.json", "sha256": "<hash>" \}\]/);
+  assert.match(freeze, /"price_tables": \[\{ "file": "prices\/<provider>\.json", "sha256": "<hash>"/);
+  assert.match(freeze.replace(/\s+/g, ' '), /Every price table the guard reads is hashed/);
+  assert.match(procedureSteps(skill)[1], /each arm's request parameters/);
+  assert.match(procedureSteps(skill)[1], /every price table the budget guard reads/);
+});

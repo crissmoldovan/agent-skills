@@ -88,10 +88,18 @@ One entry per input, hashed, with enough identity that a reader can find the sam
   "policies": [{ "file": "policies/<name>.md", "sha256": "<hash>" }],
   "judge_prompts": [{ "judge": "J1", "file": "judges/rubric.md", "sha256": "<hash>" }],
   "models": [{ "arm": "A", "model": "<model id>", "provider": "<pinned provider>" }],
+  "params": [{ "arm": "A", "file": "params/a.json", "sha256": "<hash>" }],
+  "price_tables": [{ "file": "prices/<provider>.json", "sha256": "<hash>", "covers": "every billable unit of every model the study calls" }],
   "code": [{ "file": "code/score.<ext>", "sha256": "<hash>" }],
   "metric_definitions_checked_against": ["<item id>", "<item id>", "<item id>"]
 }
 ```
+
+The freeze covers everything the harness and the guard read, not only what the arms are judged on.
+Each arm's request parameters are hashed, because a sampling parameter changed after the freeze
+changes the comparison while the prompts still match. Every price table the guard reads is hashed,
+because a price changed after the freeze changes every reservation and every settlement, and the
+offline reproduction of the spend with them.
 
 The last field is not decoration. It names the real items each metric definition was read
 against before freezing, including the awkward ones — a field that does not apply, an empty

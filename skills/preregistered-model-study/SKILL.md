@@ -33,8 +33,8 @@ because it existed before the thing it constrains.
 
 - **PLAN** — the question as a decision, the arms, the metrics with their predicates, the bars
   (each with a point rule and an interval rule), the sample size and why, and the invention bar.
-- **FREEZE** — a hash of every input the study consumes: items, prompts, policies, rubrics,
-  model and provider pins, scorer code.
+- **FREEZE** — a hash of every input the study consumes: items, prompts, each arm's parameters,
+  policies, rubrics, model and provider pins, the price tables the guard reads, scorer code.
 - **DRY RUN** — built offline, with nothing sent: the control's request beside production's for the
   same items, proving request parity, and every arm's request beside it, with every difference
   listed and each one intended.
@@ -123,10 +123,10 @@ unmeasurable question is ceremony around a guess.
    **Complete when:** the plan is committed, and no paid call in the repository's history
    predates it.
 
-2. **FREEZE every input by hash.** Items, with their selection rule and seed; prompts; policies;
-   rubrics; judge prompts; model identifiers with their provider pins; the scorer code. Before
-   freezing, read every metric's definition against a handful of real items, the awkward ones
-   included. A definition that counts "this field does not apply" as an invented answer will flip
+2. **FREEZE every input by hash.** Items, with their selection rule and seed; prompts; each arm's
+   request parameters; policies; rubrics; judge prompts; model identifiers with their provider
+   pins; every price table the budget guard reads; the scorer code. Before freezing, read every
+   metric's definition against a handful of real items, the awkward ones included. A definition that counts "this field does not apply" as an invented answer will flip
    a verdict, and only a real example shows that it does.
    **Complete when:** every input the run will read has a hash in the committed freeze, and each
    metric definition was checked against items named in the plan.
