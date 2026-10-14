@@ -25,6 +25,8 @@ export function matchSlot(
   current: string | undefined,
   next: string | undefined,
 ): Slot | null {
+  // No current key configured: refuse everything, a next key included. Fail closed.
+  if ((current ?? '') === '') return null;
   const key = presented ?? '';
   if (sameKey(key, current ?? '')) return 'current';
   if (sameKey(key, next ?? '')) return 'next';
@@ -54,6 +56,10 @@ Without the guard, an unset `NEXT` reads as the empty string, a request with no 
 empty string, and the two are equal. The receiver then accepts every unauthenticated request for
 exactly as long as no rotation is in progress — which is most of the time. Nothing fails, and
 nothing in normal traffic shows it.
+
+The same rule covers `CURRENT` itself: with no current key configured, the receiver refuses
+everything — a request carrying the next key included. A receiver left half-configured, with
+`NEXT` set and `CURRENT` missing, must fail closed rather than run on the next key alone.
 
 ### Log the slot, and the delivery id
 
@@ -87,6 +93,8 @@ form.
 | Empty header, `NEXT` set to empty | k1 | empty | empty | refused |
 | Nothing configured | unset | unset | empty | refused |
 | Nothing configured, any key | unset | unset | k1 | refused |
+| `CURRENT` unset, `NEXT` set | unset | k2 | k2 | refused |
+| `CURRENT` empty, `NEXT` set | empty | k2 | k2 | refused |
 | A prefix of the key | k1 | unset | k1 without its last character | refused |
 | Old key after promotion | k2 | unset | k1 | refused |
 
@@ -95,6 +103,7 @@ Use made-up values in tests, never a real key.
 ## Arming them
 
 Break the empty-value rule — delete the `=== ''` guard — and run the tests. The two "empty header"
-cases and the "missing header" case must fail. Restore the file from a byte copy and confirm the
+cases and the "missing header" case must fail. Then delete the current-key guard: the two "`CURRENT`
+unset or empty, `NEXT` set" cases must fail. Restore the file from a byte copy and confirm the
 guard is back by searching for it before running the tests again. A suite that stays green with the
 guard deleted is not testing the guard.

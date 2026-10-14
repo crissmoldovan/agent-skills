@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHmac } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
+import { tempDir } from './helpers/temp-dir.mjs';
 import { assertCatalogueShape, fenced, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
 
 const name = 'rotate-shared-secret';
@@ -78,8 +83,8 @@ test('the key never travels inside SQL text, and parameter logging is checked fi
   assert.match(flatProbe, /A client-side variable is not a separate channel\. The client expands it into the statement before sending it/);
   assert.match(flatProbe, /\*\*A parameterised call, with the value as a bound parameter\.\*\*/);
   assert.match(probe, /client\.query\('select <store>\.set_secret\(\$1, \$2\)', \['shared_key', value\]\)/);
-  assert.match(flatProbe, /\*\*Check what the server logs before you send it\.\*\*/);
-  assert.match(flatProbe, /unless `log_parameter_max_length` is 0/);
+  assert.match(flatProbe, /\*\*Check, and switch off, what the server logs before you send it\.\*\*/);
+  assert.match(flatProbe, /`log_parameter_max_length`, which writes bound parameters beside every logged statement and by default writes them in full/);
   const fourth = procedureSteps(skill)[3];
   assert.match(fourth, /the value travels as a bound parameter or through the store's own interface, never inside the statement text/);
   assert.match(skill, /- \*\*The key inside a SQL statement\.\*\*/);
@@ -135,15 +140,15 @@ test('the old key is probed wherever it safely can be, and otherwise the retirem
   assert.match(steps[7], /The old-key probe is not optional\./);
   assert.match(steps[7], /A stale replica, a region or instance the redeploy has not reached, or a promotion that landed on part of the fleet still accepts the old key/);
   assert.match(steps[7], /probe each of them/);
-  assert.match(steps[7], /record the retirement as \*\*UNVERIFIED\*\*, with the reason, and do not write that the old key is refused/);
-  assert.match(steps[7], /the new key accepted and the old key, the wrong key and the missing key refused, each with its status code — or the retirement recorded as UNVERIFIED/);
+  assert.match(steps[7], /the retirement is \*\*UNVERIFIED\*\* too, with the reason\. The record never says the old key is refused on less than that/);
+  assert.match(steps[7], /the new key accepted and the old key, the wrong key and the missing key refused, each with its status code, for every backend/);
   assert.match(steps[5], /keep a private copy of the old key for step 8/);
   assert.doesNotMatch(steps[5], /From this deploy on, the old key is refused\./, 'step 6 claims the refusal that only step 8 can show');
   assert.doesNotMatch(skill, /if you still hold it/i, 'the old-key probe is optional again');
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
   assert.match(bash, /-w 'old key: %\{http_code\}\\n' -H @"\$SCRATCH\/old\.hdr"/);
   assert.match(bash, /^rm -f [^\n]*"\$SCRATCH\/old\.key"[^\n]*"\$SCRATCH\/old\.hdr"/m);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /the new key was accepted, and the old key, a wrong key and no key were refused — or the retirement is recorded as UNVERIFIED/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /the new key was accepted, and the old key, a wrong key and no key were refused; a signing key was probed by signature and never sent; otherwise the retirement is recorded as UNVERIFIED/);
   const flatProbe = probe.replace(/\s+/g, ' ');
   assert.match(flatProbe, /So it is mandatory wherever it can be done safely/);
   assert.match(flatProbe, /the retirement is \*\*UNVERIFIED\*\*/);
@@ -156,4 +161,52 @@ test('local copies are deleted and the record holds no key and no hash', () => {
   assert.match(last, /no copy of the key exists outside the secret stores/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
   assert.match(bash, /^rm -f "\$SCRATCH\/next\.key"/m);
+});
+
+// Codex round 1 on #99. Four findings, each held here.
+const exampleBash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
+
+// [P1] A signing key never travels: the probe signs a fixed body with each key file and sends only
+// the signature. The sign() helper is run from the skill's own example, not read.
+test('a signing key is probed by signature, never sent: sign() reads the key from its file', async () => {
+  const line = exampleBash.split('\n').find((text) => text.startsWith('sign() {'));
+  assert.ok(line, 'the Usage Examples define no sign() for signing keys');
+  const dir = await tempDir('rotate-sign-');
+  const key = 'a-made-up-signing-key-for-the-test-only';
+  writeFileSync(join(dir, 'k'), key);
+  writeFileSync(join(dir, 'body.json'), '{"probe":true}');
+  const run = spawnSync('bash', ['-c', `${line}\nsign "$1" "$2"`, 'sign', join(dir, 'k'), join(dir, 'body.json')], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.stdout, createHmac('sha256', key).update('{"probe":true}').digest('hex'));
+  assert.doesNotMatch(line, /\$\(cat|-hmac|-macopt/, 'the key reaches a command line');
+  assert.match(exampleBash, /-H @"\$SCRATCH\/sig-old\.hdr" --data-binary @"\$SCRATCH\/probe\.json"/);
+  const eighth = procedureSteps(skill)[7];
+  assert.match(eighth, /\*\*A signing key never travels\.\*\*/);
+  assert.match(eighth, /The `x-shared-key` header in the examples is for bearer keys only/);
+});
+
+// [P1] Behind a load balancer, one probe reaches one backend.
+test('backends that cannot be addressed one by one leave the retirement UNVERIFIED without evidence for every backend', () => {
+  const eighth = procedureSteps(skill)[7];
+  assert.match(eighth, /a probe through the live domain reaches one backend and says nothing of the rest: the retirement stays \*\*UNVERIFIED\*\* unless deployment evidence shows every backend on the new configuration/);
+  assert.match(eighth, /or the probes are shown to have reached every backend, by answers that identify the backend that gave them/);
+  assert.match(probe.replace(/\s+/g, ' '), /One probe proves nothing about the rest/);
+});
+
+// [P2] No CURRENT key fails closed, even with NEXT set.
+test('the receiver refuses everything when CURRENT is unset or empty, NEXT included', () => {
+  assert.match(receiver, /if \(\(current \?\? ''\) === ''\) return null;/);
+  assert.ok(receiver.includes('| `CURRENT` unset, `NEXT` set | unset | k2 | k2 | refused |'), 'no test row for CURRENT unset with NEXT set');
+  assert.ok(receiver.includes('| `CURRENT` empty, `NEXT` set | empty | k2 | k2 | refused |'), 'no test row for CURRENT empty with NEXT set');
+  const guard = receiver.indexOf("if ((current ?? '') === '') return null;");
+  assert.ok(guard < receiver.indexOf("if (sameKey(key, next ?? '')) return 'next';"), 'the next key is checked before CURRENT is required');
+});
+
+// [P2] Both parameter-logging settings and statement logging, switched off before the call.
+test('statement logging and both parameter-logging settings are read and switched off before the value is sent', () => {
+  for (const setting of ["SET log_statement = 'none';", 'SET log_min_duration_statement = -1;', 'SET log_parameter_max_length = 0;', 'SET log_parameter_max_length_on_error = 0;']) {
+    assert.ok(probe.includes(setting), `the settings no longer switch off: ${setting}`);
+  }
+  assert.match(probe, /SHOW log_parameter_max_length_on_error;/);
+  assert.match(probe.replace(/\s+/g, ' '), /If any of them cannot be switched off for that session, do not send the value this way/);
 });

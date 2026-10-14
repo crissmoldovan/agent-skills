@@ -151,16 +151,29 @@ simpler — use this skill when it is not.
    redeploy.
 
 8. **Probe the live domain: the new key passes; the old key, a wrong key and no key are refused.**
-   Send the harmless probe four times, with each key read from a header file rather than written on
-   the command line. The old-key probe is not optional. A stale replica, a region or instance the
-   redeploy has not reached, or a promotion that landed on part of the fleet still accepts the old
-   key, and nothing else shows it. Where the receiver runs as replicas or regions that can be
-   addressed one by one, probe each of them. Where the old key cannot be probed safely — no copy
-   could be read from its store, or no probe is free of side effects — record the retirement as
-   **UNVERIFIED**, with the reason, and do not write that the old key is refused.
-   **Complete when:** the record shows, against the live domain and each addressable replica, the
-   new key accepted and the old key, the wrong key and the missing key refused, each with its status
-   code — or the retirement recorded as UNVERIFIED with the reason the old-key probe could not run.
+   Send the harmless probe four times. How a key is presented depends on the receiver:
+   - **A bearer key** travels in a header, read from a header file rather than written on the
+     command line.
+   - **A signing key never travels.** Sign the probe's fixed body with each key file — the new
+     key, the old key, a wrong key — reading the key inside the program, and send only the
+     signature, in the receiver's own header and scheme. The fourth probe sends no signature. The
+     `x-shared-key` header in the examples is for bearer keys only.
+
+   The old-key probe is not optional. A stale replica, a region or instance the redeploy has not
+   reached, or a promotion that landed on part of the fleet still accepts the old key, and nothing
+   else shows it. Where replicas or regions can be addressed one by one, probe each of them. Where
+   they sit behind a load balancer and cannot, a probe through the live domain reaches one backend
+   and says nothing of the rest: the retirement stays **UNVERIFIED** unless deployment evidence
+   shows every backend on the new configuration — the platform's own list of instances, each with
+   its deployment or configuration version — or the probes are shown to have reached every backend,
+   by answers that identify the backend that gave them. Where the old key cannot be probed safely
+   at all — no copy could be read from its store, or no probe is free of side effects — the
+   retirement is **UNVERIFIED** too, with the reason. The record never says the old key is refused
+   on less than that.
+   **Complete when:** the record shows the new key accepted and the old key, the wrong key and the
+   missing key refused, each with its status code, for every backend — each probed directly, or all
+   covered by deployment evidence or by probes shown to reach each one — or the retirement recorded
+   as UNVERIFIED with the reason.
 
 9. **Delete every local copy, and record what happened.** Remove the next and old key files, the
    header files and any copy made for comparison, and confirm they are gone. Write the record: the dates, the
@@ -209,8 +222,16 @@ curl -s -o /dev/null -w 'old key: %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST
 curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong' -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'no key: %{http_code}\n' -X POST "https://<receiver>/<probe-path>"
 
+# A signing key never travels: sign the fixed probe body with each key file, reading the key inside
+# the program, and send only the signature, in the receiver's own header and scheme.
+sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
+{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "$SCRATCH/sig-new.hdr"
+{ printf '<signature-header>: sha256='; sign "$SCRATCH/old.key" "$SCRATCH/probe.json"; echo; } > "$SCRATCH/sig-old.hdr"
+curl -s -o /dev/null -w 'signed, new key: %{http_code}\n' -H @"$SCRATCH/sig-new.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
+curl -s -o /dev/null -w 'signed, old key: %{http_code}\n' -H @"$SCRATCH/sig-old.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
+
 # Remove every local copy, and check that none is left.
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr"
+rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
 ls -A "$SCRATCH"
 ```
 
@@ -307,9 +328,10 @@ the record says what the match cannot rule out.
 - [ ] The search for other senders is recorded with its terms, its places and its result.
 - [ ] Log retention and the lack of caller identity, where it applies, are stated as caveats.
 - [ ] `NEXT` was promoted to `CURRENT` and then removed.
-- [ ] Against the live domain and each replica that can be addressed alone, the new key was
-      accepted, and the old key, a wrong key and no key were refused — or the retirement is recorded
-      as UNVERIFIED, with the reason the old-key probe could not run safely.
+- [ ] For every backend — each probed directly, or all covered by deployment evidence or by probes
+      shown to reach each one — the new key was accepted, and the old key, a wrong key and no key
+      were refused; a signing key was probed by signature and never sent; otherwise the retirement
+      is recorded as UNVERIFIED, with the reason.
 - [ ] Every local copy of the key was deleted, and the record holds no key value and no hash.
 
 ## Deeper reading

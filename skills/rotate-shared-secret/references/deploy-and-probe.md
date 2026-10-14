@@ -46,14 +46,28 @@ ends up in a log. In order of preference:
    await client.query('select <store>.set_secret($1, $2)', ['shared_key', value]);
    ```
 
-3. **Check what the server logs before you send it.** A bound parameter keeps the value out of
-   the statement text, but not necessarily out of the log. Some servers log parameter values
-   alongside any statement they log. PostgreSQL, for one, writes bound parameters next to every
-   logged statement unless `log_parameter_max_length` is 0, and its default writes them in full.
-   Before placing the value, read the statement-logging and parameter-logging settings that apply
-   to the role and session you will use. If they would capture it, turn them off for that session
-   where you are allowed to, or use the store's own interface, or place it by hand. Record the
-   settings you read.
+3. **Check, and switch off, what the server logs before you send it.** A bound parameter keeps the
+   value out of the statement text, but not necessarily out of the log. Some servers log parameter
+   values alongside a statement they log, and again when the statement fails. PostgreSQL, for one,
+   has three switches that matter: statement logging (`log_statement`,
+   `log_min_duration_statement`); `log_parameter_max_length`, which writes bound parameters beside
+   every logged statement and by default writes them in full; and
+   `log_parameter_max_length_on_error`, which writes them when the statement fails. Before placing
+   the value, in the session that will send it, read all of them, switch them off where you are
+   allowed to, and read them again:
+
+   ```sql
+   SET log_statement = 'none';
+   SET log_min_duration_statement = -1;
+   SET log_parameter_max_length = 0;
+   SET log_parameter_max_length_on_error = 0;
+   SHOW log_statement; SHOW log_min_duration_statement;
+   SHOW log_parameter_max_length; SHOW log_parameter_max_length_on_error;
+   ```
+
+   Changing them may need elevated rights. If any of them cannot be switched off for that session,
+   do not send the value this way: use the store's own interface, or place it by hand. Record the
+   settings you read before and after.
 
 Never interpolate the value into the statement and rely on the log being off: the log is one
 reader, and the client's history, a proxy and a slow-query report are others.
@@ -102,12 +116,31 @@ curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong'    
 curl -s -o /dev/null -w 'no key: %{http_code}\n'                                  -X POST "https://<receiver>/<probe-path>"
 ```
 
+For a **signing key**, nothing above travels: the key never leaves its file. Sign the fixed probe
+body with each key file inside a program, and send only the signature, in the receiver's own header
+and scheme — many also sign a timestamp, which the probe must include the same way:
+
+```bash
+sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
+{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "$SCRATCH/sig-new.hdr"
+curl -s -o /dev/null -w 'signed, new key: %{http_code}\n' -H @"$SCRATCH/sig-new.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
+```
+
+Do the same with the old key and a wrong key, and send the body once with no signature.
+
 Expected: the new key gets the probe's success code; the old key, the wrong key and no key get the
 receiver's refusal code. The old-key probe is the only direct evidence that the retirement took:
 the settings can say the old key is gone while a stale replica, a region the redeploy has not
 reached, or a promotion that landed on part of the fleet still accepts it. So it is mandatory
 wherever it can be done safely. Keep the old key's private copy from before the promotion for it,
 and probe every replica or region that can be addressed on its own.
+
+Where the backends sit behind a load balancer and cannot be addressed one by one, a probe through
+the live domain reaches whichever backend answered, and nothing more. One probe proves nothing about
+the rest. The retirement is verified only by deployment evidence that every backend runs the new
+configuration — the platform's own list of instances, each with its deployment or configuration
+version — or by probes shown to have reached every backend, through answers that identify the
+backend that gave them. Without either, it is **UNVERIFIED**.
 
 When it cannot be done safely — no copy of the old key could be read from its store, or there is no
 probe without side effects — the retirement is **UNVERIFIED**. Record exactly that, with the reason.

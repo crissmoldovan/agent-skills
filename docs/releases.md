@@ -132,7 +132,8 @@ delivery id where the senders send one, and otherwise by count and first and las
 as aggregate evidence. After every redeploy the live domain is checked against the new deployment,
 and probes show the new key accepted and the old key, a wrong key and no key refused. The old-key
 probe is mandatory wherever it can be done safely; where it cannot, the retirement is recorded as
-UNVERIFIED.
+UNVERIFIED. A signing key is probed by signature and never sent, and backends behind a load
+balancer count as verified only with deployment evidence or probes covering every one of them.
 
 **Why.** It generalises one team's rotation of a key that had sat as a literal where it should not,
 with every name and identifier taken out.
