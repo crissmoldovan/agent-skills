@@ -453,6 +453,9 @@ nothing says where either number can be rebuilt.
   templates, the shape of `reproduce.sh` and the manifest, and what the report and the audit carry.
 - [The budget guard](references/budget-guard.md): its single-process scope, the parts, a sketch of
   the admission path, the restart, and how to arm each part.
+- [A concurrent budget guard](references/concurrent-guard.md): a draft, later extension — fencing,
+  takeover and overlapping balance reads for a guard that admits calls concurrently. Not part of
+  the shipped guard, and unfinished.
 - [Parity and controls](references/parity-and-controls.md): request parity offline in the dry run,
   output parity as a capped paid stage, pinning providers, the A/A distribution, the layout-only
   control, and interleaving.
