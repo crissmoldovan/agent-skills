@@ -82,66 +82,14 @@ test('no study file is asked to name the commit that adds it', () => {
   assert.doesNotMatch(files, /Applies from commit: <sha>/);
 });
 
-test('the budget guard has its five parts, and each is armed', () => {
-  const guard = procedureSteps(skill)[2];
-  assert.match(guard, /refused at start-up when it equals production's key/);
-  assert.match(guard, /reserving before each call an upper bound on what it can be billed/);
-  assert.match(guard, /at its maximum quantity and a ceiling price \(the largest of the list price, a stated margin over it, and the provider's maximum\)/);
-  assert.match(guard, /No settlement can exceed its reservation/);
-  assert.match(guard, /A cap checked after the call is a report, not a cap/);
-  assert.match(guard, /\*\*A balance floor that latches, and that every admission respects\.\*\*[^*]*writes a STOP flag that every other process checks before each call, and admits nothing while any balance read is still in flight — applying the read's result, latch and flag, before it lets waiting calls through/);
-  assert.match(guard, /Reads in flight are counted, so overlapping reads cannot release each other, and a read that fails latches like one below the floor/);
-  assert.match(guard, /A lock that can go stale is taken over only on proof the owner is dead, or with a fencing token/);
-  assert.match(guard, /the larger of the list-price cost and the provider-reported cost, summed/);
-  assert.match(guard, /each of the five parts has been watched refusing/);
-  // The reference carries the sketch and the arming table.
-  assert.match(budget, /admit\(call\):/);
-  assert.match(budget, /\| Part \| Mutation \| Expected \|/);
-  assert.match(budget, /A later read that shows the balance recovered does not lift it/);
-  assert.match(budget, /Make the takeover atomic/);
-  assert.match(budget, /every reserved row with no settlement[^.]*counts at its worst case/);
-});
-
 // Review round 1: a reservation at list price was exceeded by a settlement at the reported price.
 test('the reservation is an upper bound no settlement can exceed', () => {
   assert.match(budget, /ceiling_price\(u\) = max\(list_price\(u\), list_price\(u\) \* \(1 \+ margin\), provider_max_price\(u\)\)/);
   assert.match(budget, /worst_attempt = request_fee_ceiling \+ sum over every billable unit u of max_quantity\(u\) \* ceiling_price\(u\)/);
   assert.match(budget, /at every admission: spent \+ reserved \+ worst\(call\) <= cap/);
   assert.match(budget, /for every call: settled cost <= worst\(call\)/);
-  assert.match(budget, /if actual > ticket\.worst:/);
+  assert.match(budget, /if actual > w: +# the bound was not a bound/);
   assert.doesNotMatch(budget, /using list prices from a price table frozen/, 'the reservation is priced at list again');
-});
-
-// Review round 1 (Codex): in_flight was cleared before the latch and STOP were set, an admission
-// window. Blocks, on the fix: a boolean let one of two overlapping reads release the other, and a
-// read that threw never cleared it, so every later admission waited for ever.
-test('a balance read is applied before waiting admissions are released, on every path', () => {
-  const raw = read('references/budget-guard.md');
-  const block = raw.slice(raw.indexOf('check_balance():'), raw.indexOf('```', raw.indexOf('check_balance():')));
-  const at = (text) => {
-    const index = block.indexOf(text);
-    assert.notEqual(index, -1, `check_balance() no longer contains: ${text}`);
-    return index;
-  };
-  const counted = at('reads_in_flight += 1');
-  const failClosed = at('verdict = "breach"');
-  const attempt = at('try:');
-  const always = at('finally:');
-  const latch = at('latched = true');
-  const stop = at('create STOP flag atomically');
-  const released = at('reads_in_flight -= 1');
-  const woken = at('wake every waiting admission');
-  assert.ok(counted < failClosed && failClosed < attempt, 'a read is not presumed a breach until it succeeds');
-  assert.ok(always < latch && always < released, 'the latch and the release are not on the path a failed read takes');
-  assert.ok(latch < released && stop < released, 'the read is released before its verdict is applied');
-  assert.ok(released < woken, 'waiters are woken before the read is released');
-  assert.doesNotMatch(block, /\bin_flight = (?:true|false)/, 'a boolean flag is back, and overlapping reads release each other');
-  assert.match(raw, /while floor_available and \(reads_in_flight > 0 or now - last_read_at > staleness_limit\):\s+wait/);
-  assert.match(budget, /re-checks STOP and the latch/);
-  assert.match(budget, /\*\*Reads in flight are counted, not flagged\.\*\*/);
-  assert.match(budget, /\*\*A read that fails is a breach: fail closed\.\*\*/);
-  assert.match(raw, /^\| Read failure \| stub the balance read to throw/m);
-  assert.match(raw, /^\| Overlapping reads \| start two reads/m);
 });
 
 test('parity is proven first, the provider is pinned, and the controls make a difference readable', () => {
@@ -211,33 +159,6 @@ test('the examples are asks and runnable commands, and the specimen states its p
   assert.match(flat, /The first three are committed before any paid call/);
 });
 
-// Review round 2: a stale-lock takeover did not fence the owner it replaced, so a paused or
-// partitioned owner could wake and admit paid calls against the same budget.
-test('a takeover fences the old owner: a generation every admission and settlement checks', () => {
-  const raw = read('references/budget-guard.md');
-  const path = raw.slice(raw.indexOf('acquire():'), raw.indexOf('check_balance():'));
-  const at = (text) => {
-    const index = path.indexOf(text);
-    assert.notEqual(index, -1, `the admission path no longer contains: ${text}`);
-    return index;
-  };
-  at('my_gen = ledger.increment_generation()');
-  at('reserved += r.worst; stage_reserved[r.stage] += r.worst');
-  const fencedReserve = at('if not ledger.append_if_generation(my_gen, reserved row with s):');
-  assert.ok(fencedReserve < at('reserved += w') && fencedReserve < at('return ticket'), 'the reservation is not fenced before the call is admitted');
-  const fencedSettle = at('if not ledger.append_if_generation(my_gen, settled row, one per attempt):');
-  assert.ok(fencedSettle < at('reserved -= ticket.worst; spent += actual'), 'a settlement is booked before its generation is checked');
-  at('ledger.append(settled row, one per attempt, marked stale, my_gen)');
-  assert.doesNotMatch(path, /reserved \+= w; ledger\.append\(reserved row\)/, 'an unfenced append is back');
-  assert.match(budget, /\*\*A stale heartbeat is not a dead owner\.\*\*/);
-  assert.match(budget, /\*\*proof the owner is dead\*\*/);
-  assert.match(budget, /\*\*Prefer a lock the kernel releases\.\*\*/);
-  assert.match(budget, /\*\*A fenced settlement is kept, never dropped\.\*\*/);
-  for (const drill of ['| Paused owner |', '| Fenced settlement |', '| Reused process id |']) {
-    assert.ok(raw.includes(drill), `the failure drills have no ${drill.trim()} row`);
-  }
-});
-
 // Review round 2: worst(call) counted tokens only; a call can also be billed per request, per image,
 // per second of audio, per hosted search and per tool invocation.
 test('the reservation bounds every billable unit, and a unit with no bound is not admitted', () => {
@@ -279,51 +200,79 @@ test('the freeze hashes each arm\'s parameters and every price table the guard r
   assert.match(procedureSteps(skill)[1], /every price table the budget guard reads/);
 });
 
-// Blocks on #101 (severity 8, twice): the floor was checked only by periodic reads, so a call that fit
-// the study cap could cross it before the next read; and output parity's own cap was documented but
-// admit checked only the study-wide cap.
-test('every admission respects the floor and its stage cap, not only the study cap', () => {
-  const raw = read('references/budget-guard.md');
-  const admit = raw.slice(raw.indexOf('admit(call):'), raw.indexOf('settle(ticket, attempts):'));
-  assert.match(admit, /if stage_spent\[s\] \+ stage_reserved\[s\] \+ w > stage_cap\[s\]: +refuse/);
-  assert.match(admit, /if floor_available and w > headroom: +refuse/);
-  assert.match(admit, /now - last_read_at > staleness_limit/);
-  assert.match(admit, /reserved \+= w; stage_reserved\[s\] \+= w\n\s+if floor_available: +headroom -= w/);
-  const check = raw.slice(raw.indexOf('check_balance():'));
-  assert.match(check, /headroom = balance - floor - reserved - settled_since\(balance\)/);
-  assert.match(budget, /\*\*The floor is part of every admission, not only of every read\.\*\*/);
-  assert.match(budget, /\*\*Every stage has its own cap, enforced at admission\.\*\*/);
-  assert.match(budget, /stage_spent\[s\] \+ stage_reserved\[s\] \+ worst\(call\) <= stage_cap\[s\]/);
-  for (const drill of ['| Floor between reads |', '| Stale read |', '| Stage cap |']) {
-    assert.ok(raw.includes(drill), `the failure drills have no ${drill.trim()} row`);
+// Cut-down (#101): the guard is single-threaded. Each property it keeps is held here and armed by
+// mutation; the concurrent design — fencing, takeover, overlapping reads — is a separate extension.
+const guardDoc = read('references/budget-guard.md');
+const guardPath = guardDoc.slice(guardDoc.indexOf('start():'), guardDoc.indexOf('\n```', guardDoc.indexOf('start():')));
+const callPath = guardPath.slice(guardPath.indexOf('call(c):'));
+const position = (text) => {
+  const at = callPath.indexOf(text);
+  assert.notEqual(at, -1, `call(c) no longer contains: ${text}`);
+  return at;
+};
+
+test('the guard is single-threaded: one process holding an OS lock, one call at a time, concurrency out of scope', () => {
+  const third = procedureSteps(skill)[2];
+  assert.match(third, /\*\*One paying process, one call at a time\.\*\*/);
+  assert.match(third, /an exclusive lock the kernel releases when it exits or dies — `flock` or its equivalent — for the whole run/);
+  assert.match(third, /The cap is hard only under this rule\./);
+  assert.match(third, /Concurrency is out of scope/);
+  assert.match(third, /refused at start-up when it equals production's key/);
+  assert.match(budget, /## Scope: one paying process, one call at a time/);
+  assert.match(budget, /The cap is hard only under that rule\./);
+  assert.match(budget, /Concurrency is out of scope: calls in parallel inside the process, two paying processes, balance reads running alongside calls, locks on shared storage or across hosts, and taking over another process's lock/);
+  assert.match(guardPath, /take the OS lock on <study>\/guard\.lock without waiting/);
+  for (const drill of ['| Lock |', '| Lock released on death |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
+});
+
+test('no concurrent mechanism is left in the admission path', () => {
+  for (const term of [/generation/, /reads_in_flight/, /headroom/, /staleness/, /\bwait\b/, /applied_read/, /takeover/]) {
+    assert.doesNotMatch(guardPath, term, `the single-threaded admission path still carries ${term}`);
   }
-  assert.match(procedureSteps(skill)[4], /the guard enforces that cap at every admission/);
 });
 
-// Blocks on #101 (severity 8): a restart or takeover restored reservations to the study's total only,
-// not to their stage, so a stage could spend past its own cap after recovery.
-test('a restart or takeover restores every total per stage as well as for the study', () => {
-  const raw = read('references/budget-guard.md');
-  const acquire = raw.slice(raw.indexOf('acquire():'), raw.indexOf('admit(call):'));
-  assert.match(acquire, /stage_spent\[s\] = sum of settled rows of stage s, for every s/);
-  assert.match(acquire, /reserved \+= r\.worst; stage_reserved\[r\.stage\] \+= r\.worst/);
-  assert.match(acquire, /last_read_at = never/);
-  assert.match(budget, /Persist both halves, with the stage on every row\./);
-  assert.match(budget, /Restoring the study's total but not the stage's lets a stage spend past its cap after a restart/);
-  assert.ok(raw.includes('| Stage cap after restart |'), 'no drill for a stage cap after a restart');
+test('the cap and the stage cap are checked before every call, against its full worst case', () => {
+  const cap = position('if spent + reserved + w > cap:');
+  const stageCap = position('if stage_spent[s] + stage_reserved[s] + w > stage_cap[s]:');
+  const reserve = position('ledger.append(reserved row: c, s, w); flush');
+  const send = position('attempts = send c');
+  assert.ok(cap < reserve && stageCap < reserve && reserve < send, 'a cap is checked after the reservation, or the call is sent before it is reserved');
+  assert.match(callPath, /if w is unbounded: +refuse/);
+  assert.match(procedureSteps(skill)[2], /A call is admitted only while `spent \+ reserved \+ worst <= cap`, and while its stage — output parity, the main run, judging — stays within its own pre-registered cap too/);
+  for (const drill of ['| Cap |', '| Stage cap |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
 });
 
-// Blocks on #101 (severity 8, twice): a provider with no balance endpoint deadlocked, because admission
-// waited for a read that could never come; and two successful reads finishing out of order let the
-// older one overwrite a newer, smaller headroom.
-test('no balance endpoint means no wait, and a late read never overwrites a newer one', () => {
-  const raw = read('references/budget-guard.md');
-  const check = raw.slice(raw.indexOf('check_balance():'));
-  assert.match(check, /read_seq \+= 1; my_read = read_seq/);
-  assert.match(check, /else if my_read > applied_read:/);
-  assert.match(check, /last_read_at = started_at/);
-  assert.match(check, /applied_read = my_read/);
-  assert.match(budget, /\`floor_available\` is false, so admission neither waits for a read nor checks a headroom/);
-  assert.match(budget, /Two successful reads can also finish in the opposite order to the one they started in/);
-  for (const drill of ['| No balance endpoint |', '| Reads out of order |']) assert.ok(raw.includes(drill), `no ${drill.trim()} drill`);
+test('the balance is read before every admission, and the floor latches', () => {
+  const read = position('balance = read balance');
+  const test = position('if the read failed or balance - unseen_spend - w < floor:');
+  const latch = position('latched = true; write STOP flag with the reason;  refuse');
+  const reserve = position('ledger.append(reserved row: c, s, w); flush');
+  assert.ok(read < test && test < latch && latch < reserve, 'the floor is not settled before the call is reserved');
+  assert.match(callPath, /^\s+if latched: +refuse/m);
+  assert.match(budget, /A later read that shows the balance recovered does not lift it/);
+  assert.match(budget, /\*\*A read that fails is a breach\.\*\*/);
+  assert.match(procedureSteps(skill)[2], /A read below that, or a read that fails, latches the run and writes a STOP flag with the reason/);
+  for (const drill of ['| Floor |', '| Floor crossing |', '| Read failure |', '| No balance endpoint |']) {
+    assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
+  }
+});
+
+test('a settlement above its reservation latches, and every row is on disk before the next admission', () => {
+  const send = position('attempts = send c');
+  const settled = position('ledger.append(settled rows: s, one per attempt); flush');
+  const over = position('if actual > w:');
+  const overLatch = callPath.indexOf('latched = true; write STOP flag with the reason', over);
+  assert.ok(send < settled && settled < over && over < overLatch, 'the settlement is not written, or not checked against its reservation');
+  assert.match(procedureSteps(skill)[2], /A settled cost above its reservation latches the guard and writes STOP/);
+  assert.ok(guardDoc.includes('| Settlement above the reservation |'), 'no settlement drill');
+});
+
+test('a restart restores the study and every stage from the ledger, unsettled reservations at their worst case', () => {
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /spent, stage_spent\[s\] += sums of the settled rows/);
+  assert.match(start, /reserved, stage_reserved\[s\] = worst cases of reservations with no settlement/);
+  assert.match(start, /if STOP flag exists or the ledger records a latch: refuse/);
+  assert.match(budget, /Restoring the study's total but not the stage's lets a stage spend past its cap/);
+  assert.match(procedureSteps(skill)[2], /\*\*Restart from the ledger\.\*\*/);
+  assert.ok(guardDoc.includes('| Restart |'), 'no restart drill');
 });

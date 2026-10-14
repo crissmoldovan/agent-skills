@@ -132,42 +132,42 @@ unmeasurable question is ceremony around a guess.
    metric definition was checked against items named in the plan.
 
 3. **Build the budget guard in code, and arm it before it guards anything.** An intention does not
-   stop a retry loop at two in the morning. The guard has five parts, detailed with a sketch in
-   [the budget guard](references/budget-guard.md):
+   stop a retry loop at two in the morning. The guard is single-threaded by design, and its parts
+   are detailed with a sketch in [the budget guard](references/budget-guard.md):
+   - **One paying process, one call at a time.** The process holds an exclusive lock the kernel
+     releases when it exits or dies — `flock` or its equivalent — for the whole run, and admits,
+     sends and settles calls strictly one at a time. The cap is hard only under this rule.
+     Concurrency is out of scope: parallel calls, a second process, locks on shared storage and
+     lock takeover each void it.
    - **A dedicated research key**, refused at start-up when it equals production's key — compared
      by hash, never printed.
    - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
      billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
      invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
      stated margin over it, and the provider's maximum), for every attempt it may make. A unit with
-     no cap in the request, or missing from the price table, makes the call unadmittable.
-     After the call it settles to the actual cost. No settlement can exceed its reservation, so
-     `spent + reserved` never passes the cap; an actual cost above its reservation latches the
-     guard. Each stage — output parity, the main run, judging — has its own pre-registered cap,
-     checked in the same admission step as the study's. A cap checked after the call is a report,
-     not a cap.
-   - **A balance floor that latches, and that every admission respects.** Each successful read sets
-     a headroom above the floor, net of everything the balance may not show yet, and every
-     admission must fit inside it; a read past the plan's staleness limit makes admissions wait.
-     Once the key's remaining balance reads below the floor, the process refuses every further
-     admission for the rest of its life, writes a STOP flag that every other process checks before
-     each call, and admits nothing while any balance read is still in flight — applying the read's
-     result, latch and flag, before it lets waiting calls through. Reads in flight are counted, so overlapping reads cannot release each other, and a
-     read that fails latches like one below the floor.
-   - **One paying process at a time**, through an exclusive lock — one the kernel releases when its
-     owner dies, where the study runs on one machine. A lock that can go stale is taken over only
-     on proof the owner is dead, or with a fencing token: a generation number in the shared ledger,
-     incremented by every new owner, that each admission and settlement checks in the same atomic
-     step that writes the ledger. A paused owner that wakes after a takeover is fenced before it can
-     send a call.
-   - **Conservative per-attempt costing**: for every attempt, retries and failures included, the
-     larger of the list-price cost and the provider-reported cost, summed.
+     no cap in the request, or missing from the price table, makes the call unadmittable. A call is
+     admitted only while `spent + reserved + worst <= cap`, and while its stage — output parity, the
+     main run, judging — stays within its own pre-registered cap too. A cap checked after the call
+     is a report, not a cap.
+   - **A balance floor, read before every admission, that latches.** A call is admitted only if
+     the balance just read, less any settled spend it may not show yet, stays at or above the floor
+     after the call's worst case. A read below that, or a read that fails, latches the run and
+     writes a STOP flag with the reason; a later, healthier read does not lift it. With no balance
+     endpoint, the plan says the floor is unavailable and the caps govern alone.
+   - **Settle each call before the next.** The cost is the larger of the list-price and the
+     provider-reported cost for every attempt, retries and failures included, summed. A settled
+     cost above its reservation latches the guard and writes STOP. The reservation row is on disk
+     before the call is sent, and the settled rows before the next admission.
+   - **Restart from the ledger.** A new process restores the study's and every stage's totals from
+     the settled rows, counts any reservation without a settlement at its worst case, and refuses
+     while a STOP flag or a recorded latch stands.
 
-   Then arm it. Set the cap below one call's worst case and watch it refuse. Set the floor above
-   the balance and watch it latch and write STOP. Start a second paying process and watch it
-   refuse the lock.
-   **Complete when:** each of the five parts has been watched refusing, and the evidence is in
-   the study's audit log.
+   Then arm it. Set the cap below one call's worst case and watch it refuse. Stub the balance below
+   the floor and watch it latch and write STOP. Settle a call above its reservation and watch it
+   latch. Kill the run between a reservation and its settlement, restart, and watch the reservation
+   counted at its worst case. Start a second paying process and watch it refuse the lock.
+   **Complete when:** each part has been watched refusing, and the evidence is in the study's audit
+   log.
 
 4. **Prove request parity and dry-run every arm, offline, and commit it before any paid call.**
    Build — without sending — the request production sends and the request each arm would send,
@@ -375,18 +375,14 @@ nothing says where either number can be rebuilt.
 - **A reservation at list price.** Settlement takes the larger of list and reported cost, so a
   reservation made at list price is exceeded by the first call billed above it, and the cap with
   it. Reserve at a ceiling price that no settlement can pass.
-- **A balance read cleared before it is applied.** If the in-flight mark is cleared before the latch
-  and the STOP flag are set, a waiting call slips through the gap below the floor. A single flag
-  fails the same way when two reads overlap, and a read that throws without releasing its mark
-  leaves every later admission waiting for ever.
 - **Parity paid for before it was planned.** Running the control "just to check parity" is a paid
   call nothing constrained, and both its spend and its result arrive before the plan could. Request
   parity costs nothing and belongs in the dry run; output parity is a paid stage with its own cap.
 - **Two paying processes.** Each believes the remaining budget is its own, and together they spend
-  twice it.
-- **A stale lock taken from a paused owner.** A heartbeat that stopped proves the owner stopped
-  refreshing, not that it stopped. Without a fencing token, the owner wakes after the takeover and
-  both processes admit paid calls against one budget.
+  twice it. An operating-system lock held for the run refuses the second one.
+- **Parallel calls under a single-threaded guard.** Each call reserves against a total the others
+  have not yet added to, and the floor read before one admission says nothing about the calls
+  already in flight. This guard's cap is hard only when calls go one at a time.
 - **A reservation that counts tokens only.** A call that also ran a hosted search, read an image or
   paid a per-request fee is billed past its reservation. Every billable unit is bounded, or the
   call is not admitted.
@@ -416,15 +412,17 @@ nothing says where either number can be rebuilt.
 - [ ] Every bar has a point rule and an interval rule, and invention has a bar of its own.
 - [ ] Every metric definition was read against named real items before it was frozen.
 - [ ] The research key is not production's, and the check that refuses production's key ran.
-- [ ] The cap reserves, before each call, an upper bound on what it can be billed — every billable
-      unit at its bound and a ceiling price, for every attempt — so no settlement can exceed its
-      reservation; each stage's own cap is checked in the same admission step; every admission
-      fits the headroom the last fresh balance read left above the floor; the floor
-      latches, writes STOP and blocks admissions while any balance read is in flight, applying the
-      result before releasing them and failing closed when a read fails; one paying process holds
-      the lock, and a stale lock is taken over only with proof of death or a fencing token every
-      admission and settlement checks; every billable unit is bounded and priced; costing is the
-      larger of list and reported per attempt, summed. Each part was watched refusing.
+- [ ] One paying process held an operating-system lock for the run, and calls were admitted, sent
+      and settled strictly one at a time.
+- [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its
+      bound and a ceiling price, for every attempt — and checked the study cap and the call's stage
+      cap; a unit with no cap or no price was refused.
+- [ ] The balance was read before every admission; a call that would cross the floor, a balance
+      below it, or a failed read latched the run and wrote STOP.
+- [ ] Each call was settled, at the larger of list and reported cost per attempt, before the next
+      admission; a settlement above its reservation latched the guard.
+- [ ] A restart restored the study's and every stage's totals from the ledger, with unsettled
+      reservations at their worst case. Each part was watched refusing.
 - [ ] Request parity was proven offline, in the dry run, before any paid call: the control's
       request equals production's, with the provider pinned in every arm's request.
 - [ ] Every dry-run difference from production's request is intended.
@@ -453,8 +451,8 @@ nothing says where either number can be rebuilt.
 
 - [Study files](references/study-files.md): the directory layout, the PLAN, FREEZE and ADDENDUM
   templates, the shape of `reproduce.sh` and the manifest, and what the report and the audit carry.
-- [The budget guard](references/budget-guard.md): the five parts, a sketch of the admission path,
-  the stale-lock takeover, and how to arm each part.
+- [The budget guard](references/budget-guard.md): its single-process scope, the parts, a sketch of
+  the admission path, the restart, and how to arm each part.
 - [Parity and controls](references/parity-and-controls.md): request parity offline in the dry run,
   output parity as a capped paid stage, pinning providers, the A/A distribution, the layout-only
   control, and interleaving.

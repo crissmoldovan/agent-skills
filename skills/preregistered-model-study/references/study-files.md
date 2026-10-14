@@ -69,11 +69,11 @@ Output parity (the first paid stage):
             stored answers, and how it is measured>; stage cap <amount>, inside the study cap.
             A fail stops the study with an addendum.
 Budget:     study cap <amount>; stage caps: output parity <amount>, main run <amount>, judging
-            <amount>; balance floor <amount>, with balance reads no older than <staleness limit>;
-            ceiling price per model = the largest of list, list + <margin>%, and the provider's
-            maximum, for every billable unit (tokens, per-request fees, images, audio, hosted
-            search, tool invocations), each capped in the request; one paying process, fenced by a
-            ledger generation if its lock can go stale.
+            <amount>; balance floor <amount>, read before every admission (or "unavailable":
+            no balance endpoint); ceiling price per model = the largest of list, list + <margin>%,
+            and the provider's maximum, for every billable unit (tokens, per-request fees, images,
+            audio, hosted search, tool invocations), each capped in the request; one paying
+            process holding an operating-system lock, calls one at a time.
 Stop rule:  stop and write an addendum if <condition>.
 Not covered: <item types, providers, volumes this study will not speak to>
 ```

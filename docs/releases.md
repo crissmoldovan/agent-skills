@@ -107,14 +107,16 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 `preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
 plan, a hash freeze of every input and a dry run that proves request parity with production offline,
 all before any paid call; runs output parity as the first paid stage, under its own pre-registered
-cap; puts every later change in a dated addendum committed before the calls it governs; enforces the
-spend in code with a research key refused if it is production's, a reservation per call that bounds
-every billable unit so no settlement can exceed it, stage caps and a balance floor checked at every
-admission, a floor that latches and fails closed,
-one paying process whose lock is fenced against a paused owner, and per-attempt costing; estimates
-the control's disagreement with itself as an A/A distribution rather than one draw; judges with three
-vendors who see where each piece of evidence came from; reports quality, harm and cost beside the
-bars; and ships a reproduce script and a checksum manifest that rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
+cap; puts every later change in a dated addendum committed before the calls it governs; and enforces
+the spend in code with a single-threaded guard — one paying process holding an operating-system lock,
+calls one at a time — that refuses a production key, reserves every billable unit of each call at a
+ceiling price against the study and stage caps, reads the balance before every admission and latches
+the floor, settles each call before the next and latches on a settlement above its reservation, and
+restores from its ledger on restart. Concurrency is out of scope, and the cap is hard only under the
+single-process rule. It estimates the control's disagreement with itself as an A/A distribution rather
+than one draw; judges with three vendors who see where each piece of evidence came from; reports
+quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest that
+rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
 
 ## Unreleased
 
