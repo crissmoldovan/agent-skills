@@ -109,7 +109,8 @@ plan, a hash freeze of every input and a dry run that proves request parity with
 all before any paid call; runs output parity as the first paid stage, under its own pre-registered
 cap; puts every later change in a dated addendum committed before the calls it governs; enforces the
 spend in code with a research key refused if it is production's, a reservation per call that bounds
-every billable unit so no settlement can exceed it, a balance floor that latches and fails closed,
+every billable unit so no settlement can exceed it, stage caps and a balance floor checked at every
+admission, a floor that latches and fails closed,
 one paying process whose lock is fenced against a paused owner, and per-attempt costing; estimates
 the control's disagreement with itself as an A/A distribution rather than one draw; judges with three
 vendors who see where each piece of evidence came from; reports quality, harm and cost beside the

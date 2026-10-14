@@ -55,10 +55,16 @@ worst(call)      = worst_attempt * max_attempts
 - **The attempts are every attempt.** That includes retries the harness makes, retries the
   provider's client library makes on its own, and a failed attempt that is still billed.
 
-The invariant is two inequalities, and the cap holds only while both do:
+- **Every stage has its own cap, enforced at admission.** A reservation carries the stage it belongs
+  to — output parity, the main run, judging — and the stage's pre-registered cap is checked in the
+  same step as the study's. A stage that would still fit the study cap but exceed its own is
+  refused, so a stage cannot spend another stage's allowance and leave the audit to find out after.
+
+The invariant is three inequalities, and the cap holds only while all of them do:
 
 ```text
 at every admission:   spent + reserved + worst(call) <= cap
+                      stage_spent[s] + stage_reserved[s] + worst(call) <= stage_cap[s]
 for every call:       settled cost <= worst(call)
 ```
 
@@ -74,7 +80,14 @@ settlement — a call that may have been billed when the process died — counts
 ### 3. A balance floor that latches
 
 Where the provider exposes the key's remaining balance, the guard reads it before each batch and
-at intervals during one. Three rules:
+at intervals during one. The rules:
+
+- **The floor is part of every admission, not only of every read.** A read alone lets a call that
+  fits the study cap carry the key below the floor before the next read can latch. Each successful
+  read therefore sets a headroom — the balance, less the floor, less every reservation not yet
+  settled and every settlement the balance may not show yet — and every admission must fit inside
+  it, and takes its worst case out of it. Settlements never add headroom back; only the next read
+  does. A read older than the staleness limit the plan states makes admissions wait for a fresh one.
 
 - **It latches.** The first read below the floor sets a latch that refuses every admission for the
   rest of the process's life. A later read that shows the balance recovered does not lift it:
@@ -164,15 +177,19 @@ acquire():                                      # once, before the first admissi
     my_gen = ledger.increment_generation()      # atomic; the new value is this owner's fencing token
     reserved += every unsettled reservation of an older generation, at its worst case
 
-admit(call):                                    # holds the admission lock
-    while reads_in_flight > 0:       wait       # never admit during any balance read
+admit(call):                                    # holds the admission lock; call.stage is its stage s
+    while reads_in_flight > 0 or now - last_read_at > staleness_limit:
+        wait                                    # never admit during a read, or on a stale one
     if STOP flag exists or latched:  refuse     # re-checked after every wait
     w = worst(call)                             # every billable unit, at its bound and ceiling price
     if w is unbounded:               refuse     # a unit with no cap, or missing from the price table
-    if spent + reserved + w > cap:   refuse
-    if not ledger.append_if_generation(my_gen, reserved row):   # one atomic step, before the call
+    s = call.stage
+    if spent + reserved + w > cap:                              refuse     # the study's cap
+    if stage_spent[s] + stage_reserved[s] + w > stage_cap[s]:   refuse     # the stage's own cap
+    if w > headroom:                                            refuse     # the floor, between reads
+    if not ledger.append_if_generation(my_gen, reserved row with s):   # one atomic step, before the call
         exit "fenced: a newer owner holds the study"
-    reserved += w
+    reserved += w; stage_reserved[s] += w; headroom -= w
     return ticket
 
 settle(ticket, attempts):                       # holds the admission lock
@@ -182,6 +199,7 @@ settle(ticket, attempts):                       # holds the admission lock
         if actual > ticket.worst:  create STOP flag atomically             # the flag is shared
         exit "fenced"                           # its reservation stays counted by the new owner
     reserved -= ticket.worst; spent += actual
+    stage_reserved[ticket.stage] -= ticket.worst; stage_spent[ticket.stage] += actual   # headroom is not returned
     if actual > ticket.worst:                   # the bound was not a bound
         latched = true
         create STOP flag atomically
@@ -198,6 +216,9 @@ check_balance():
             if verdict == "breach":             # below the floor, or unreadable
                 latched = true                  # applied first ...
                 create STOP flag atomically     # with the reason
+            else:
+                headroom = balance - floor - reserved - settled_since(balance)   # what it may not show yet
+                last_read_at = now
             reads_in_flight -= 1                # ... released only after
             wake every waiting admission        # each re-checks STOP and the latch
 ```
@@ -233,6 +254,9 @@ call and no real key:
 | Paused owner | suspend the owner, let its heartbeat go stale and a second process take over, then resume the first and request an admission | the first is refused as fenced before any call and exits; its unsettled reservations still count at worst case |
 | Fenced settlement | settle a call from an owner whose generation is no longer current | the settlement is kept as a stale-generation row; the reservation stays counted; the process exits |
 | Reused process id | leave a lock whose process id now belongs to a process started after the lock was written | not taken as proof of death: the takeover fences by generation |
+| Floor between reads | let a read leave a headroom smaller than one call's worst case, with the study cap far away; admit that call | refused: it fits the study cap but would cross the floor |
+| Stale read | let the last successful read age past the staleness limit; request an admission | the admission waits for a fresh read |
+| Stage cap | admit an output-parity call whose worst case fits the study cap but exceeds the parity stage's cap | refused |
 | Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
 | Unlisted unit | admit a call that can incur a unit the frozen price table does not list | refused at admission |
 | Stale takeover | leave a lock whose process no longer exists | it is taken over, once, by one contender |

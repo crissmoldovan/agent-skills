@@ -143,12 +143,16 @@ unmeasurable question is ceremony around a guess.
      no cap in the request, or missing from the price table, makes the call unadmittable.
      After the call it settles to the actual cost. No settlement can exceed its reservation, so
      `spent + reserved` never passes the cap; an actual cost above its reservation latches the
-     guard. A cap checked after the call is a report, not a cap.
-   - **A balance floor that latches.** Once the key's remaining balance reads below the floor, the
-     process refuses every further admission for the rest of its life, writes a STOP flag that
-     every other process checks before each call, and admits nothing while any balance read is
-     still in flight — applying the read's result, latch and flag, before it lets waiting calls
-     through. Reads in flight are counted, so overlapping reads cannot release each other, and a
+     guard. Each stage — output parity, the main run, judging — has its own pre-registered cap,
+     checked in the same admission step as the study's. A cap checked after the call is a report,
+     not a cap.
+   - **A balance floor that latches, and that every admission respects.** Each successful read sets
+     a headroom above the floor, net of everything the balance may not show yet, and every
+     admission must fit inside it; a read past the plan's staleness limit makes admissions wait.
+     Once the key's remaining balance reads below the floor, the process refuses every further
+     admission for the rest of its life, writes a STOP flag that every other process checks before
+     each call, and admits nothing while any balance read is still in flight — applying the read's
+     result, latch and flag, before it lets waiting calls through. Reads in flight are counted, so overlapping reads cannot release each other, and a
      read that fails latches like one below the floor.
    - **One paying process at a time**, through an exclusive lock — one the kernel releases when its
      owner dies, where the study runs on one machine. A lock that can go stale is taken over only
@@ -181,7 +185,8 @@ unmeasurable question is ceremony around a guess.
 5. **Prove output parity as the first paid stage, under its own pre-registered cap.** Run the
    control arm alone on the items the plan named for this stage, and compare its answers with what
    production stored for them, against the pass rule the plan gave. Check the provider that served
-   every call against the pin. The stage spends only within its own cap, inside the study's. A
+   every call against the pin. The stage spends only within its own cap, inside the study's, and
+   the guard enforces that cap at every admission. A
    control that fails its pass rule stops the study here, with an addendum, because everything
    measured against it would compare two systems neither of which is production's.
    **Complete when:** the stage ran under its own cap, its plan committed before its first call;
@@ -413,7 +418,8 @@ nothing says where either number can be rebuilt.
 - [ ] The research key is not production's, and the check that refuses production's key ran.
 - [ ] The cap reserves, before each call, an upper bound on what it can be billed — every billable
       unit at its bound and a ceiling price, for every attempt — so no settlement can exceed its
-      reservation; the floor
+      reservation; each stage's own cap is checked in the same admission step; every admission
+      fits the headroom the last fresh balance read left above the floor; the floor
       latches, writes STOP and blocks admissions while any balance read is in flight, applying the
       result before releasing them and failing closed when a read fails; one paying process holds
       the lock, and a stale lock is taken over only with proof of death or a fencing token every
