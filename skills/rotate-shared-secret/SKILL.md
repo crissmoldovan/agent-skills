@@ -52,9 +52,9 @@ Install the companions with `npx skills add crissmoldovan/agent-skills`.
 Do not use it for a credential you hold against someone else's service, where you do not run the
 receiver: rotate that in the provider's console and place it with `secure-credential-setup`. Do not
 use it for asymmetric signing keys that carry a key id; those rotate by publishing the new public key
-beside the old one, and the overlap here is built in. And where a short outage is acceptable and the
-only sender deploys together with the receiver, a plain swap is simpler — use this skill when it is
-not.
+beside the old one, so the scheme already has the overlap this skill builds by hand. And where a
+short outage is acceptable and the only sender deploys together with the receiver, a plain swap is
+simpler — use this skill when it is not.
 
 ## Prerequisites
 
