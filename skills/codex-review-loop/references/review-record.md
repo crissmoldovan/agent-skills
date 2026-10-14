@@ -29,6 +29,25 @@ awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' round-3.log > ro
 grep -c '^codex$' round-3.log   # how many blocks there were; all but the last are discarded
 ```
 
+## A failed round is not a clean round
+
+A round counts only when two things are true: the reviewer exited zero, and a non-empty final block
+was extracted. A reviewer that crashed, timed out, hit a rate limit or was logged out leaves a log
+with no marker, or with a marker and nothing after it. The extraction above then returns nothing,
+and nothing reads exactly like a review that found nothing. Test both before reading a single
+finding:
+
+```bash
+codex review --base origin/main > round-3.log 2>&1 &
+wait $! || echo "ROUND FAILED: the reviewer exited non-zero"
+grep -qx 'codex' round-3.log || echo "ROUND FAILED: no final review block"
+tail -n +2 round-3.final.txt | grep -q '[^[:space:]]' || echo "ROUND FAILED: the final block is empty"
+```
+
+A failed round is recorded as failed, with the reason, and run again. It never stops the loop.
+
+## Another reviewer
+
 For another reviewer, find the equivalent: the marker its final message carries, or a
 machine-readable output mode if it has one. Check the extraction on a log you have read by eye
 before trusting it, and record in each round how many blocks were discarded. An extraction that

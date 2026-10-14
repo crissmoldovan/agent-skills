@@ -57,9 +57,14 @@ skill says so and proposes a split, and the person who owns the work decides.
 1. **A pushed branch with a known base.** The base is the branch the pull request merges into,
    fetched in this session.
    **Complete when:** `git fetch origin` ran, and the head sha under review is written down.
-2. **A reviewer that reviews a diff against a base and grades severity.** Its scale is known, and
-   so is its lowest grade — on a P0 to P2 scale, P2.
-   **Complete when:** the reviewer command and its lowest severity are named.
+2. **A reviewer that reviews a diff against a base and grades severity, and its declared scale.**
+   Take the scale from the reviewer itself — its documentation or its own output — never from
+   memory, and derive the threshold from it: every grade above the lowest is fixed, and a round
+   with only the lowest grade stops the loop. The Codex CLI grades P0 to P3, so with it P0, P1 and
+   P2 are fixed and a round with only P3 findings stops the loop. A finding graded outside the
+   declared scale stops the round until the scale is established again.
+   **Complete when:** the reviewer command, its declared scale and its lowest grade are named,
+   with where the scale was read.
 3. **The checks a fix must pass.** The tests, and the reproduce script if the pull request
    publishes numbers.
    **Complete when:** each is named with the command that runs it, and each has run once here.
@@ -73,24 +78,34 @@ skill says so and proposes a split, and the person who owns the work decides.
 
 ## Procedure
 
-1. **Pin the head under review.** Record `git rev-parse HEAD` for the round, after the push. Every
-   finding, fix and check in the round is about that commit.
-   **Complete when:** the round's record names the head sha, and the remote branch points at it.
+1. **Pin the head under review, and review exactly its bytes.** Record the sha for the round, after
+   the push. A reviewer reads the working tree it runs in, so the tree must be that commit and
+   nothing else. `git status --porcelain` is empty and `HEAD` is the pushed head; otherwise the
+   round runs in a fresh worktree checked out at the recorded sha
+   (`git worktree add --detach <path> <sha>`). An uncommitted edit, an untracked file or an
+   unpushed commit in the reviewed tree is reviewed and never merged — or merged and never reviewed.
+   **Complete when:** the round's record names the head sha, the remote branch points at it, and the
+   reviewer ran in a tree whose `git status --porcelain` was empty at that sha.
 
 2. **Start the reviewer in the background, writing to a file.** A review can take many minutes, and
    output read live from a terminal arrives interleaved and half-finished. For example:
    `codex review --base origin/main > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`, with the log directory
-   outside the repository. Wait for the process to exit before reading anything.
-   **Complete when:** the reviewer has exited, and its full output is in the round's log file.
+   outside the repository. Wait for the process to exit before reading anything, and keep its exit
+   status: a reviewer that exited non-zero did not finish a review.
+   **Complete when:** the reviewer exited zero, and its full output is in the round's log file — or
+   the round is recorded as failed and run again.
 
 3. **Read only the last review block.** A reviewer's log holds drafts, tool output and earlier
    messages before its final review, and it can also quote old review files it found in the
    repository. Extracting from the first block instead of the last presents earlier rounds'
    findings as this round's. With the Codex CLI, every message opens with a line reading `codex`,
    and the final block is everything after the last such line
-   ([the review record](references/review-record.md) has the extraction).
-   **Complete when:** the round's findings come from the last block alone, and the record says how
-   many earlier blocks were discarded.
+   ([the review record](references/review-record.md) has the extraction). A log with no such line,
+   or a final block with nothing after its marker, is a **failed round**, not a clean one: an
+   extraction that finds nothing returns nothing, and nothing reads exactly like "no findings".
+   **Complete when:** the reviewer exited zero, a non-empty final block was extracted, the round's
+   findings come from that block alone, and the record says how many earlier blocks were discarded
+   — or the round is recorded as failed and run again.
 
 4. **Check every finding against the code or the data before acting on it.** A reviewer's claim
    about the codebase can be wrong: a line that does not do what it says, a caller that does not
@@ -178,16 +193,20 @@ skill says so and proposes a split, and the person who owns the work decides.
     check completed and passed on that exact commit. No checks is not a pass: a pull request that
     conflicts with its base gets no pull-request runs at all, silently. Then merge with the head
     pinned, so that a push in between makes the merge fail instead of merging unreviewed code
-    ([merge preconditions](references/merge-preconditions.md)).
-    **Complete when:** the merge ran with `--match-head-commit` set to the reviewed head, or the
-    record says which precondition is not met.
+    ([merge preconditions](references/merge-preconditions.md)). Run these as a **gate**, not a
+    report: each predicate is tested, and the merge command runs only if every one holds. Printing
+    the state and merging anyway is not a gate. Required checks must come back as a zero exit, a
+    non-empty list and every one passed. A repository that declares no required checks does not
+    pass this gate: name the checks that must pass and test each by name.
+    **Complete when:** the merge ran with `--match-head-commit` set to the reviewed head, after the
+    gate's predicates all held — or the gate refused, and the record says which predicate failed.
 
 ## Usage Examples
 
 ```text
 Run codex review on this PR against origin/main in the background, writing to a file. Read only the
-last review block. Fix every P0 and P1 with a check you have watched fail, write the round's review
-record, and go again until a round comes back with only P2s.
+last review block. Fix every P0, P1 and P2 with a check you have watched fail, write the round's
+review record, and go again until a round comes back with only P3s.
 ```
 
 ```text
@@ -206,20 +225,42 @@ split this PR so that the part that keeps failing gets its own branch.
 ```
 
 ```bash
-# One round: pin the head, review it against the base in the background, keep the raw log outside the repo.
+# Pin the head: the reviewed bytes must be the pushed commit. A dirty tree, or a HEAD that is not
+# the pushed head, is reviewed in a fresh worktree checked out at the pushed sha instead.
 git fetch origin
-git rev-parse HEAD > "$REVIEW_LOGS/round-3.head"
-codex review --base origin/main > "$REVIEW_LOGS/round-3.log" 2>&1 &
-wait $!
+sha=$(git rev-parse HEAD)
+if [ -z "$(git status --porcelain)" ] && [ "$sha" = "$(git rev-parse '@{upstream}')" ]; then
+  tree=.
+else
+  sha=$(git rev-parse '@{upstream}'); tree="$REVIEW_TREE"
+  git worktree add --detach "$tree" "$sha"
+fi
+echo "$sha" > "$REVIEW_LOGS/round-3.head"
 
-# Keep only the final block: the Codex CLI opens every message with a line reading "codex".
-awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' \
-  "$REVIEW_LOGS/round-3.log" > "$REVIEW_LOGS/round-3.final.txt"
+# A round counts only if the reviewer exited zero AND a non-empty final block was extracted.
+# The Codex CLI opens every message with a line reading "codex"; the final block follows the last.
+review_round() {  # review_round <n> <tree>
+  local log="$REVIEW_LOGS/round-$1.log" final="$REVIEW_LOGS/round-$1.final.txt"
+  (cd "$2" && codex review --base origin/main) > "$log" 2>&1 &
+  wait $! || { echo "ROUND $1 FAILED: the reviewer exited non-zero; not a clean round"; return 1; }
+  grep -qx 'codex' "$log" || { echo "ROUND $1 FAILED: no final review block; not a clean round"; return 1; }
+  awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' "$log" > "$final"
+  tail -n +2 "$final" | grep -q '[^[:space:]]' || { echo "ROUND $1 FAILED: the final block is empty"; return 1; }
+}
+review_round 3 "$tree"
 
-# Merge only the reviewed head, and only once its required checks have run on it.
-gh pr view <pr> --json headRefOid,baseRefName,mergeable,mergeStateStatus
-gh pr checks <pr> --required
-gh pr merge <pr> --squash --match-head-commit "$(cat "$REVIEW_LOGS/round-3.head")"
+# The merge is a gate: every predicate is tested, and gh pr merge runs only if all of them hold.
+merge_if_ready() {  # merge_if_ready <pr> <reviewed-sha> <base>
+  local state ok
+  state=$(gh pr view "$1" --json headRefOid,baseRefName,mergeable \
+    --jq '[.headRefOid, .baseRefName, .mergeable] | join(" ")') || return 1
+  [ "$state" = "$2 $3 MERGEABLE" ] || { echo "REFUSE: head, base or mergeability differs: $state"; return 1; }
+  ok=$(gh pr checks "$1" --required --json bucket --jq 'length > 0 and all(.[]; .bucket == "pass")') \
+    || { echo "REFUSE: no required checks reported, or gh failed"; return 1; }
+  [ "$ok" = true ] || { echo "REFUSE: a required check has not passed"; return 1; }
+  gh pr merge "$1" --squash --match-head-commit "$2"
+}
+merge_if_ready <pr> "$(cat "$REVIEW_LOGS/round-3.head")" main
 ```
 
 ## What it looks like
@@ -244,7 +285,7 @@ Reviewer: codex review --base origin/main; last block only (2 earlier blocks dis
             loads one row
   disposition: rejected, evidence above
 
-[P2] A log line misspells an arm label
+[P3] A log line misspells an arm label
   disposition: fixed (cheap) in <sha>
   effect: none — reproduce.sh output byte-identical before and after
 
@@ -279,6 +320,20 @@ earlier round is stated where the reader will see it.
   next round finds the next class. The way out is a smaller pull request, not another round.
 - **Severity as a verdict.** The same defect has been graded high on one head and lower on the
   next, and the check went green with the defect still in place. Judge the content.
+- **A failed round read as a clean one.** A reviewer that crashed, was rate-limited or was logged
+  out leaves a log with no final block, and an extraction over it returns nothing — which looks
+  exactly like a review with no findings. A round counts only on a zero exit and a non-empty final
+  block.
+- **A dirty tree under review.** The reviewer reads the files in front of it. An edit made after
+  the push, or a file never committed, is reviewed and then never merged, and a commit not yet
+  pushed is merged without the review having seen it on the branch. Review a clean tree at the
+  pushed sha, or a fresh worktree checked out there.
+- **The lowest grade taken from memory.** One reviewer's scale ends at P2 and another's at P3. A
+  threshold copied from the wrong one stops the loop a grade early and leaves a whole grade of
+  findings unfixed. Read the scale from the reviewer.
+- **A merge recipe that prints instead of gating.** Commands that show the head, the checks and
+  the mergeability, followed by a merge, merge whatever they showed. And `gh pr checks --json`
+  exits zero even when a check has failed, so only the buckets themselves can gate.
 - **Merging a head nobody reviewed.** A last "trivial" fix pushed after the final round merges
   unreviewed and unchecked unless the merge is pinned to the reviewed head. The commonest version
   is the stop round's own lowest-severity findings, fixed "because they were cheap" and merged
@@ -296,9 +351,15 @@ earlier round is stated where the reader will see it.
 ## Verification
 
 - [ ] Each round names the head sha it reviewed, and the remote branch pointed at it.
+- [ ] Each round reviewed a tree whose `git status --porcelain` was empty at that sha — the
+      checkout itself, or a fresh worktree checked out there.
 - [ ] The reviewer ran in the background to a log file outside the repository, and was read only
       after it exited.
+- [ ] Each round counted only on a zero exit and a non-empty extracted final block; any other
+      round was recorded as failed and run again.
 - [ ] Each round's findings came from the last review block alone.
+- [ ] The threshold came from the reviewer's declared scale — for the Codex CLI, P0 to P3: P0 to
+      P2 fixed, a P3-only round stops the loop.
 - [ ] Every finding was verified against the code or data, or rejected with evidence.
 - [ ] Every verified finding above the lowest severity was fixed; lowest-severity findings were
       fixed if cheap and otherwise recorded with a reason.
@@ -321,6 +382,8 @@ earlier round is stated where the reader will see it.
       passed on that exact commit.
 - [ ] Every record is on the pull request, or in a commit after the fixes it names — none names
       its own commit, and none follows the last review.
+- [ ] The merge was gated: head, base and mergeability matched, the required checks were a
+      non-empty all-passed list from a zero-exit call, and only then did the merge run.
 - [ ] The merge used `--match-head-commit`.
 
 ## Deeper reading

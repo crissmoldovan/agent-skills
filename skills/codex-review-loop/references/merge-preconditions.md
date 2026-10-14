@@ -40,27 +40,60 @@ is the answer more often than an outage is.
 
 ## 4. Every required check ran and passed on that exact commit
 
+The required checks pass this gate only as a zero exit, a non-empty list, and every check passed.
+How the GitHub CLI reports them, measured rather than assumed:
+
+| Call | What it does when… |
+|---|---|
+| `gh pr checks <pr>` (no `--json`) | a check failed: exits 1; checks pending: exits 8 |
+| `gh pr checks <pr> --json name,bucket` | a check failed: **exits 0**, with `"bucket": "fail"` in the list |
+| `gh pr checks <pr> --required …` | the repository declares no required checks: exits 1, "no required checks reported" |
+
+So the exit code alone cannot gate the JSON form, and an empty list is not a pass. Read the buckets:
+
 ```bash
-gh pr checks <pr> --required
+gh pr checks <pr> --required --json bucket --jq 'length > 0 and all(.[]; .bucket == "pass")'
+```
+
+It must exit zero and print `true`. A repository that declares no required checks fails this test,
+and that is correct: nobody has said which checks matter, so nothing has shown them passing. Name
+the checks that must pass, and test each of them by name instead:
+
+```bash
+gh pr checks <pr> --json name,bucket --jq '[.[] | select(.name == "<check>")] | length == 1 and all(.[]; .bucket == "pass")'
+```
+
+To be sure the answer is about the reviewed commit and not an older head, ask about the sha itself:
+
+```bash
 gh api "repos/<owner>/<repo>/commits/<sha>/check-runs" \
   --jq '.check_runs[] | [.name, .status, .conclusion] | @tsv'
 ```
 
-The first lists the required checks for the pull request. The second asks about the reviewed sha by
-name, so the answer cannot come from an older head. Take the list of required checks from the
-repository's branch rules, not from memory. Every one must appear, completed, with a passing
-conclusion. A required check that is missing has not passed; it has not run. A check that ran on an
-earlier head says nothing about this one.
+A required check that is missing has not passed; it has not run. A check that ran on an earlier
+head says nothing about this one.
 
-## 5. Merge with the head pinned
+## 5. Merge only through the gate, with the head pinned
+
+Every predicate above is a test whose failure refuses the merge. Commands that print the state and
+are followed by a merge are not a gate — they merge whatever they printed.
 
 ```bash
-gh pr merge <pr> --squash --match-head-commit <reviewed-sha>
+merge_if_ready() {  # merge_if_ready <pr> <reviewed-sha> <base>
+  local state ok
+  state=$(gh pr view "$1" --json headRefOid,baseRefName,mergeable \
+    --jq '[.headRefOid, .baseRefName, .mergeable] | join(" ")') || return 1
+  [ "$state" = "$2 $3 MERGEABLE" ] || { echo "REFUSE: head, base or mergeability differs: $state"; return 1; }
+  ok=$(gh pr checks "$1" --required --json bucket --jq 'length > 0 and all(.[]; .bucket == "pass")') \
+    || { echo "REFUSE: no required checks reported, or gh failed"; return 1; }
+  [ "$ok" = true ] || { echo "REFUSE: a required check has not passed"; return 1; }
+  gh pr merge "$1" --squash --match-head-commit "$2"
+}
 ```
 
-`--match-head-commit` makes the merge fail if the head moved after the checks above: a push from
-another session, a bot's commit, an accidental force-push. Without it, the merge takes whatever the
-head is at that moment. Use the repository's merge method; the pin is what matters.
+`--match-head-commit` makes the merge fail if the head moved after the checks: a push from another
+session, a bot's commit, an accidental force-push. Without it, the merge takes whatever the head is
+at that moment. Use the repository's merge method; the gate and the pin are what matter.
 
 ## After the merge
 

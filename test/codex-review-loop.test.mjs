@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { assertCatalogueShape, fenced, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
 
@@ -11,7 +15,7 @@ const arming = read('references/arming-a-fix.md').replace(/\s+/g, ' ');
 const merge = read('references/merge-preconditions.md').replace(/\s+/g, ' ');
 
 const PROCEDURE_ORDER = [
-  /^1\. \*\*Pin the head under review/,
+  /^1\. \*\*Pin the head under review, and review exactly its bytes/,
   /^2\. \*\*Start the reviewer in the background, writing to a file/,
   /^3\. \*\*Read only the last review block/,
   /^4\. \*\*Check every finding against the code or the data before acting on it/,
@@ -42,8 +46,8 @@ test('it is reviewer-agnostic, with codex review --base origin/main as the main 
   assert.match(flat, /It is reviewer-agnostic/);
   assert.match(flat, /`codex review --base origin\/main`/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  assert.match(bash, /^codex review --base origin\/main > \S+ 2>&1 &$/m, 'the review does not run in the background to a file');
-  assert.match(bash, /^awk '\/\^codex\$\/\{buf=""\}/m, 'the examples do not keep only the last block');
+  assert.match(bash, /\(cd "\$2" && codex review --base origin\/main\) > "\$log" 2>&1 &$/m, 'the review does not run in the background to a file');
+  assert.match(bash, /^\s*awk '\/\^codex\$\/\{buf=""\}/m, 'the examples do not keep only the last block');
 });
 
 test('only the last block is read, and every claim is checked before it is acted on', () => {
@@ -110,8 +114,8 @@ test('merging is pinned to the reviewed head, with its required checks run on th
   assert.match(mergeStep, /No checks is not a pass/);
   assert.match(mergeStep, /`--match-head-commit`/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  assert.match(bash, /^gh pr checks <pr> --required$/m);
-  assert.match(bash, /^gh pr merge <pr> --squash --match-head-commit /m);
+  assert.match(bash, /gh pr checks "\$1" --required --json bucket --jq 'length > 0 and all\(\.\[\]; \.bucket == "pass"\)'/);
+  assert.match(bash, /^\s*gh pr merge "\$1" --squash --match-head-commit "\$2"$/m);
   assert.match(merge, /\*\*no pull-request run is dispatched at all\*\*/);
   assert.match(merge, /commits\/<sha>\/check-runs/);
   assert.match(merge, /Retarget it to the real base first/);
@@ -120,4 +124,84 @@ test('merging is pinned to the reviewed head, with its required checks run on th
 test('the Blocks-hosted loop stays with request-blocks-review', () => {
   assert.match(skill, /^\| The review loop with Blocks as the reviewer \| `request-blocks-review` \|/m);
   assert.match(section(skill, 'When to Use'), /Do not use it for the\s+Blocks-hosted loop/);
+});
+
+// Review round 2. The example's two recipes are run, not read: review_round and merge_if_ready are
+// taken from the skill's own Usage Examples and driven with a stub reviewer and a stub gh, so the
+// guard is on what they do. A stub gh never merges; it reports that it would have.
+const exampleBash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
+function exampleFunction(name) {
+  const start = exampleBash.indexOf(`${name}() {`);
+  assert.notEqual(start, -1, `the Usage Examples no longer define ${name}`);
+  return exampleBash.slice(start, exampleBash.indexOf('\n}\n', start) + 3);
+}
+function runBash(script) {
+  const dir = mkdtempSync(join(tmpdir(), 'review-loop-'));
+  const file = join(dir, 'run.sh');
+  writeFileSync(file, `REVIEW_LOGS=${JSON.stringify(dir)}\n${exampleFunction('review_round')}\n${exampleFunction('merge_if_ready')}\n${script}\n`);
+  const run = spawnSync('bash', [file], { encoding: 'utf8' });
+  return { status: run.status, out: run.stdout + run.stderr };
+}
+
+test('a round counts only on a zero exit and a non-empty final block', () => {
+  const reviewer = {
+    clean: `printf 'thinking\\ncodex\\nold draft\\ncodex\\n[P3] A small thing\\n'; return 0`,
+    crashed: `printf 'codex\\npartial\\n'; return 1`,
+    'no marker': `printf 'Error: not logged in\\nRun the login command and try again\\n'; return 0`,
+    'empty block': `printf 'working\\ncodex\\n   \\n'; return 0`,
+  };
+  const results = {};
+  for (const [name, body] of Object.entries(reviewer)) {
+    const { status } = runBash(`codex() { ${body}; }\nreview_round 1 .`);
+    results[name] = status === 0 ? 'counted' : 'failed';
+  }
+  assert.deepEqual(results, { clean: 'counted', crashed: 'failed', 'no marker': 'failed', 'empty block': 'failed' });
+  const steps = procedureSteps(skill);
+  assert.match(steps[1], /the reviewer exited zero, and its full output is in the round's log file — or the round is recorded as failed and run again/);
+  assert.match(steps[2], /is a \*\*failed round\*\*, not a clean one/);
+  assert.match(record, /## A failed round is not a clean round/);
+});
+
+test('the merge recipe is a gate: gh pr merge runs only when every predicate holds', () => {
+  const gh = (state, checks, checksStatus = 0) => `gh() { case "$1 $2" in
+    "pr view") echo "${state}";;
+    "pr checks") echo "${checks}"; return ${checksStatus};;
+    "pr merge") echo "MERGED $*";;
+  esac; }`;
+  const attempt = (stubs) => runBash(`${stubs}\nmerge_if_ready 7 abc main`);
+  const ready = attempt(gh('abc main MERGEABLE', 'true'));
+  assert.equal(ready.status, 0, ready.out);
+  assert.match(ready.out, /MERGED pr merge 7 --squash --match-head-commit abc/);
+  for (const [why, stubs] of [
+    ['the head moved', gh('def main MERGEABLE', 'true')],
+    ['the base differs', gh('abc develop MERGEABLE', 'true')],
+    ['it is not mergeable', gh('abc main CONFLICTING', 'true')],
+    ['a required check did not pass', gh('abc main MERGEABLE', 'false')],
+    ['no required checks are declared', gh('abc main MERGEABLE', 'no required checks reported', 1)],
+  ]) {
+    const run = attempt(stubs);
+    assert.notEqual(run.status, 0, `the gate let a merge through when ${why}`);
+    assert.doesNotMatch(run.out, /MERGED/, `gh pr merge ran when ${why}`);
+    assert.match(run.out, /REFUSE/, `the gate did not say why it refused when ${why}`);
+  }
+  assert.match(procedureSteps(skill)[13], /Run these as a \*\*gate\*\*, not a report: each predicate is tested, and the merge command runs only if every one holds/);
+  assert.match(merge, /\*\*exits 0\*\*, with `"bucket": "fail"`/);
+});
+
+test("the threshold comes from the reviewer's declared scale: Codex grades P0 to P3", () => {
+  const prerequisite = section(skill, 'Prerequisites').replace(/\s+/g, ' ');
+  assert.match(prerequisite, /The Codex CLI grades P0 to P3, so with it P0, P1 and P2 are fixed and a round with only P3 findings stops the loop/);
+  assert.match(prerequisite, /Take the scale from the reviewer itself/);
+  assert.doesNotMatch(skill, /P0 to P2 scale|only P2s/);
+  assert.match(section(skill, 'Usage Examples').replace(/\s+/g, ' '), /Fix every P0, P1 and P2 with a check you have watched fail.*only P3s/);
+  assert.match(section(skill, 'What it looks like'), /^\[P3\] A log line misspells an arm label$/m);
+});
+
+test('each round reviews a clean tree at the pushed sha, or a fresh worktree checked out there', () => {
+  const first = procedureSteps(skill)[0];
+  assert.match(first, /`git status --porcelain` is empty and `HEAD` is the pushed head; otherwise the round runs in a fresh worktree checked out at the recorded sha/);
+  assert.match(exampleBash, /\[ -z "\$\(git status --porcelain\)" \] && \[ "\$sha" = "\$\(git rev-parse '@\{upstream\}'\)" \]/);
+  assert.match(exampleBash, /git worktree add --detach "\$tree" "\$sha"/);
+  assert.match(exampleBash, /review_round 3 "\$tree"/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Each round reviewed a tree whose `git status --porcelain` was empty at that sha/);
 });
