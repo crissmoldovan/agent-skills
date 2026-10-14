@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { assertCatalogueShape, fenced, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
+import { removeOnExit } from './helpers/temp-dir.mjs';
 
 const name = 'codex-review-loop';
 const loaded = readSkill(name);
@@ -139,7 +140,7 @@ function exampleFunction(name) {
   return exampleBash.slice(start, exampleBash.indexOf('\n}\n', start) + 3);
 }
 function runBash(script) {
-  const dir = mkdtempSync(join(tmpdir(), 'review-loop-'));
+  const dir = removeOnExit(mkdtempSync(join(tmpdir(), 'review-loop-')));
   const file = join(dir, 'run.sh');
   writeFileSync(file, `REVIEW_LOGS=${JSON.stringify(dir)}\n${exampleFunction('review_round')}\n${exampleFunction('merge_if_ready')}\n${script}\n`);
   const run = spawnSync('bash', [file], { encoding: 'utf8' });
@@ -221,7 +222,7 @@ test('each round reviews a clean tree at the pushed sha, or a fresh worktree che
   assert.match(first, /`git status --porcelain` is empty and `HEAD` is the pushed head; otherwise the round runs in a fresh worktree checked out at the recorded sha/);
   assert.match(exampleBash, /\[ -z "\$\(git status --porcelain\)" \] && \[ "\$sha" = "\$\(git rev-parse '@\{upstream\}'\)" \]/);
   assert.match(exampleBash, /git worktree add --detach "\$tree" "\$sha"/);
-  assert.match(exampleBash, /review_round 3 "\$tree"/);
+  assert.match(exampleBash, /^review_round "\$ROUND" "\$tree"/m);
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Each round reviewed a tree whose `git status --porcelain` was empty at that sha/);
 });
 
@@ -229,7 +230,7 @@ test('each round reviews a clean tree at the pushed sha, or a fresh worktree che
 // REVIEW_LOGS wrote the final review into the tree under review, and an unset one into /. The recipe
 // now refuses anything but an absolute directory outside the tree; proven on a real detached worktree.
 test('the final review and the log stay outside the reviewed tree, a detached worktree included', () => {
-  const base = mkdtempSync(join(tmpdir(), 'review-tree-'));
+  const base = removeOnExit(mkdtempSync(join(tmpdir(), 'review-tree-')));
   const repo = join(base, 'repo');
   const tree = join(base, 'repo-wt');
   const logs = join(base, 'logs');
@@ -257,4 +258,101 @@ test('the final review and the log stay outside the reviewed tree, a detached wo
   const steps = procedureSteps(skill);
   assert.match(steps[1], /The log directory is an absolute path, checked to lie outside the reviewed tree/);
   assert.match(exampleBash, /: "\$\{REVIEW_LOGS:\?set REVIEW_LOGS to an absolute directory outside the repository\}"/);
+});
+
+// Codex round 1 on #100. The whole example block is run, end to end, against a real git origin and
+// clone, a stub reviewer, and a stub gh that reports a merge instead of making one.
+function runExample({ mode, dirty = false, breakFetch = false }) {
+  const base = removeOnExit(mkdtempSync(join(tmpdir(), 'review-e2e-')));
+  const origin = join(base, 'origin.git');
+  const work = join(base, 'work');
+  const logs = join(base, 'logs');
+  const tmp = join(base, 'tmp');
+  mkdirSync(tmp);
+  const git = (...args) => execFileSync('git', args, { cwd: work, stdio: 'pipe', encoding: 'utf8' }).trim();
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'pipe' });
+  execFileSync('git', ['clone', '-q', origin, work], { stdio: 'pipe' });
+  writeFileSync(join(work, 'file.txt'), 'x\n');
+  git('add', 'file.txt');
+  git('-c', 'user.email=reviewer@example.com', '-c', 'user.name=reviewer', 'commit', '-qm', 'base');
+  git('push', '-q', '-u', 'origin', 'HEAD');
+  const sha = git('rev-parse', 'HEAD');
+  if (dirty) writeFileSync(join(work, 'untracked.txt'), 'not committed\n');
+  if (breakFetch) git('remote', 'set-url', 'origin', join(base, 'no-such-origin.git'));
+  const stubs = `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done
+  pwd -P > "$REVIEW_LOGS/codex-cwd"
+  case "$CODEX_MODE" in clean) printf '[P3] A small thing\\n' > "$out";; p1) printf '[P1] A real defect\\n' > "$out";; crash) return 1;; esac; }
+gh() { case "$1 $2" in "pr view") echo "$(cat "$REVIEW_LOGS/round-$ROUND.head") main MERGEABLE";; "pr checks") echo true;; "pr merge") echo "MERGED $*";; esac; }`;
+  const script = join(base, 'run.sh');
+  writeFileSync(script, `${stubs}\n${exampleBash}\n`);
+  const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, PR: '7', ROUND: '1', TMPDIR: tmp, CODEX_MODE: mode } });
+  const cwdFile = join(logs, 'codex-cwd');
+  return { status: run.status, out: run.stdout + run.stderr, sha, tmp: realpathSync(tmp), reviewedIn: existsSync(cwdFile) ? readFileSync(cwdFile, 'utf8').trim() : null };
+}
+
+test('the example fails fast, and merges only after a terminal round on the reviewed head', () => {
+  const clean = runExample({ mode: 'clean' });
+  assert.equal(clean.status, 0, clean.out);
+  assert.match(clean.out, new RegExp(`MERGED pr merge 7 --squash --match-head-commit ${clean.sha}`));
+
+  const open = runExample({ mode: 'p1' });
+  assert.notEqual(open.status, 0, 'a round with a P1 left merged');
+  assert.doesNotMatch(open.out, /MERGED/);
+  assert.match(open.out, /NOT TERMINAL/);
+
+  const crash = runExample({ mode: 'crash' });
+  assert.notEqual(crash.status, 0, 'a failed round merged');
+  assert.doesNotMatch(crash.out, /MERGED/);
+  assert.match(crash.out, /ROUND 1 FAILED/);
+
+  const noFetch = runExample({ mode: 'clean', breakFetch: true });
+  assert.notEqual(noFetch.status, 0, 'a failed fetch did not stop the recipe');
+  assert.equal(noFetch.reviewedIn, null, 'the reviewer ran after the fetch failed');
+  assert.doesNotMatch(noFetch.out, /MERGED/);
+
+  assert.match(exampleBash, /^set -euo pipefail$/m);
+  assert.match(exampleBash, /^terminal_round "\$ROUND"/m);
+});
+
+test('a dirty tree is reviewed in an allocated, absolute REVIEW_TREE outside the repository', () => {
+  const dirty = runExample({ mode: 'clean', dirty: true });
+  assert.equal(dirty.status, 0, dirty.out);
+  assert.ok(dirty.reviewedIn && dirty.reviewedIn.startsWith(dirty.tmp) && dirty.reviewedIn.endsWith('/tree'),
+    `the dirty tree was reviewed in ${dirty.reviewedIn}, not in a fresh tree under the allocated temporary directory`);
+  assert.match(exampleBash, /^: "\$\{REVIEW_TREE:=\$\(mktemp -d "\$\{TMPDIR:-\/tmp\}\/review-tree\.XXXXXX"\)\/tree\}"$/m);
+  assert.match(exampleBash, /case "\$REVIEW_TREE" in \/\*\) ;; \*\) echo "REFUSE: REVIEW_TREE must be an absolute path"; exit 1;; esac/);
+});
+
+test('nothing above the lowest grade is deferred; an owner override blocks the stop and the merge', () => {
+  assert.doesNotMatch(record, /deferral needs the owner's agreement/);
+  assert.match(record, /\*\*Only a lowest-severity finding can be deferred\.\*\*/);
+  assert.match(record, /until it is fixed, or re-scored and graded no higher by a later round's final review, it blocks the stop rule and the merge/);
+  assert.match(procedureSteps(skill)[4], /Nothing above the lowest severity is deferred\. An owner who disputes a grade re-scores the finding explicitly, with the reason in the record/);
+});
+
+test('the review record uses the same absolute, outside-tree REVIEW_LOGS as the main recipe', () => {
+  const raw = read('references/review-record.md');
+  for (const block of fenced(raw, 'bash')) {
+    assert.doesNotMatch(block, /(?:^|[\s>])round-\d\.(?:log|final\.txt)/m, `a review-record example writes a relative log path:\n${block}`);
+  }
+  assert.match(raw, /: "\$\{REVIEW_LOGS:\?set REVIEW_LOGS to an absolute directory outside the repository\}"/);
+});
+
+test('the specimen record meets its own contract: effect for every finding, verification and arming for every fix', () => {
+  const specimen = fenced(section(skill, 'What it looks like'), 'text')[0];
+  const findings = specimen.split(/\n(?=\[P\d\])/).filter((chunk) => /^\[P\d\]/.test(chunk));
+  assert.ok(findings.length >= 3, 'the specimen has too few findings to show the contract');
+  for (const finding of findings) {
+    const title = finding.split('\n')[0];
+    assert.match(finding, /\n {2}verified: /, `no verified line: ${title}`);
+    assert.match(finding, /\n {2}effect: /, `no effect line: ${title}`);
+    if (/\n {2}disposition: fixed/.test(finding)) assert.match(finding, /\n {2}armed: /, `a fix with no armed line: ${title}`);
+  }
+});
+
+test('every temporary directory these tests create is registered for removal', () => {
+  const source = readFileSync(new URL(import.meta.url), 'utf8');
+  const made = source.match(/mkdtempSync\(/g).length - 1;  // less this test's own pattern
+  const registered = source.match(/removeOnExit\(mkdtempSync\(/g).length - 1;
+  assert.equal(registered, made, 'a mkdtempSync is not wrapped in removeOnExit');
 });

@@ -125,6 +125,10 @@ skill says so and proposes a split, and the person who owns the work decides.
    that stops the loop, step 12 decides instead. A severity is a judgement, not a measurement: the
    same defect can be graded differently on two heads, so judge a lowest-severity finding on its
    content before deferring it.
+   Nothing above the lowest severity is deferred. An owner who disputes a grade re-scores the
+   finding explicitly, with the reason in the record — and until the finding is fixed or re-scored
+   that way, and a round's final review no longer grades it above the lowest, it blocks the stop
+   rule and the merge.
    **Complete when:** every verified finding above the lowest severity is fixed, and every
    lowest-severity finding is fixed or recorded as deferred with a reason.
 
@@ -230,8 +234,18 @@ split this PR so that the part that keeps failing gets its own branch.
 ```
 
 ```bash
-# Logs live in an absolute directory outside every tree under review; review_round refuses anything else.
+# Fail fast: a command that fails stops the recipe, so nothing after it runs on a false premise —
+# no review of a tree that was never fetched, no merge after a failed or non-terminal round.
+set -euo pipefail
+
+# Required up front: the pull request, this round's number, and an absolute log directory outside
+# every tree under review. A fresh review tree, when one is needed, is an absolute temporary path.
+: "${PR:?set PR to the pull request number}"
+: "${ROUND:?set ROUND to the number of this round}"
 : "${REVIEW_LOGS:?set REVIEW_LOGS to an absolute directory outside the repository}"
+: "${REVIEW_TREE:=$(mktemp -d "${TMPDIR:-/tmp}/review-tree.XXXXXX")/tree}"
+case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute path"; exit 1;; esac
+case "$REVIEW_TREE" in /*) ;; *) echo "REFUSE: REVIEW_TREE must be an absolute path"; exit 1;; esac
 mkdir -p "$REVIEW_LOGS"
 
 # Pin the head: the reviewed bytes must be the pushed commit. A dirty tree, or a HEAD that is not
@@ -244,7 +258,7 @@ else
   sha=$(git rev-parse '@{upstream}'); tree="$REVIEW_TREE"
   git worktree add --detach "$tree" "$sha"
 fi
-echo "$sha" > "$REVIEW_LOGS/round-3.head"
+echo "$sha" > "$REVIEW_LOGS/round-$ROUND.head"
 
 # A round counts only if the reviewer exited zero AND wrote a non-empty final review. The exec form
 # writes its final message, and only that, to the file -o names: no marker in the log can cut it.
@@ -260,7 +274,17 @@ review_round() {  # review_round <n> <tree>
   grep -q '[^[:space:]]' "$final" 2>/dev/null \
     || { echo "ROUND $1 FAILED: no final review was written; not a clean round"; return 1; }
 }
-review_round 3 "$tree"
+
+# A round is terminal only if its final review grades nothing above the lowest grade — for the
+# Codex CLI, no P0, P1 or P2. Otherwise: fix, record, and run the next round. Never merge.
+terminal_round() {  # terminal_round <n>
+  local final="$REVIEW_LOGS/round-$1.final.txt"
+  [ -s "$final" ] || { echo "NOT TERMINAL: round $1 has no final review"; return 1; }
+  if grep -Eq '\[P[0-2]\]' "$final"; then
+    echo "NOT TERMINAL: round $1's final review still grades findings P0-P2; fix them and run the next round"
+    return 1
+  fi
+}
 
 # The merge is a gate: every predicate is tested, and gh pr merge runs only if all of them hold.
 merge_if_ready() {  # merge_if_ready <pr> <reviewed-sha> <base>
@@ -273,7 +297,10 @@ merge_if_ready() {  # merge_if_ready <pr> <reviewed-sha> <base>
   [ "$ok" = true ] || { echo "REFUSE: a required check has not passed"; return 1; }
   gh pr merge "$1" --squash --match-head-commit "$2"
 }
-merge_if_ready <pr> "$(cat "$REVIEW_LOGS/round-3.head")" main
+
+review_round "$ROUND" "$tree"      # a failed round stops here
+terminal_round "$ROUND"            # so does a round with P0-P2 findings left
+merge_if_ready "$PR" "$sha" main   # and only then the gate, then the merge
 ```
 
 ## What it looks like
@@ -297,9 +324,13 @@ Reviewer: codex exec review --base origin/main -o <file>; final review from the 
   verified: no — the header is read once (<file>:<line>); a fixture with a header and one row
             loads one row
   disposition: rejected, evidence above
+  effect: none — nothing was changed; reproduce.sh output byte-identical at this head
 
 [P3] A log line misspells an arm label
+  verified: yes — <file>:<line> prints "arm-B" where the label is "arm B"
   disposition: fixed (cheap) in <sha>
+  armed: test "log lines use the arm's label" failed with the fix broken; passed after a restore
+         from a byte copy, checked with cmp
   effect: none — reproduce.sh output byte-identical before and after
 
 Tests: <command> — all passing at <sha>. reproduce.sh: identical except tables/bar-2.csv, as above.
@@ -308,8 +339,9 @@ read path only. The write path is fixed in this round, in <sha>.
 Next: round 4 on <sha>, the last fix commit, once pushed.
 ```
 
-Each finding says whether it was true, what was done, how the fix was proven to matter, and what it
-changed in the published numbers. The rejected finding carries its evidence. The correction to the
+Every finding has a verified line and an effect line, and every fix an armed line: the record meets
+the contract it describes. Each finding says whether it was true, what was done, how the fix was
+proven to matter, and what it changed in the published numbers. The rejected finding carries its evidence. The correction to the
 earlier round is stated where the reader will see it.
 
 ## Pitfalls

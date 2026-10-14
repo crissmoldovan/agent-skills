@@ -34,8 +34,8 @@ the Codex CLI's log, every message opens with a line reading `codex`, and the fi
 everything after the last such line:
 
 ```bash
-awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' round-3.log > round-3.final.txt
-grep -c '^codex$' round-3.log   # how many blocks there were; all but the last are discarded
+awk '/^codex$/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' "$REVIEW_LOGS/round-3.log" > "$REVIEW_LOGS/round-3.final.txt"
+grep -c '^codex$' "$REVIEW_LOGS/round-3.log"   # how many blocks there were; all but the last are discarded
 ```
 
 The flaw: a line that equals the marker inside quoted output — a file the review shows, a command's
@@ -55,11 +55,18 @@ review, or an empty one — and nothing reads exactly like a review that found n
 before reading a single finding:
 
 ```bash
-rm -f round-3.final.txt
-codex exec review --base origin/main -o round-3.final.txt > round-3.log 2>&1 &
+# The same log directory as the main recipe: absolute, and outside the tree under review.
+: "${REVIEW_LOGS:?set REVIEW_LOGS to an absolute directory outside the repository}"
+case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute path"; exit 1;; esac
+final="$REVIEW_LOGS/round-3.final.txt"
+rm -f "$final"
+codex exec review --base origin/main -o "$final" > "$REVIEW_LOGS/round-3.log" 2>&1 &
 wait $! || echo "ROUND FAILED: the reviewer exited non-zero"
-grep -q '[^[:space:]]' round-3.final.txt 2>/dev/null || echo "ROUND FAILED: no final review was written"
+grep -q '[^[:space:]]' "$final" 2>/dev/null || echo "ROUND FAILED: no final review was written"
 ```
+
+The skill's `review_round` does all of this and also refuses a log directory inside the tree under
+review.
 
 A failed round is recorded as failed, with the reason, and run again. It never stops the loop.
 
@@ -106,7 +113,10 @@ in order to know how far to trust the reviewer.
   that head merges only after one confirmation round has reviewed it; findings that confirmation
   round reports at the lowest severity are deferred, not fixed.
 - **deferred** — verified and real, not fixed in this pull request. The reason is stated and the
-  place it is tracked is named. Above the lowest severity, deferral needs the owner's agreement.
+  place it is tracked is named. **Only a lowest-severity finding can be deferred.** A finding above
+  it is fixed or rejected with evidence. An owner who disputes its grade re-scores it explicitly,
+  with the reason in the record — and until it is fixed, or re-scored and graded no higher by a
+  later round's final review, it blocks the stop rule and the merge.
 - **rejected** — the claim does not hold. The evidence is recorded: the line that shows it, and the
   input that behaves correctly. A rejection without evidence is a disagreement, not a disposition.
 - **duplicate** — the same defect as an earlier finding, perhaps worded differently or graded
