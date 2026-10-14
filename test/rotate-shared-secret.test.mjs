@@ -98,6 +98,17 @@ test('the old key is retired only on an exact fixed-window match, a search, and 
   const fifth = procedureSteps(skill)[4];
   assert.match(fifth, /Pick a fixed window that starts after the last sender moved and is longer than the slowest sender's cycle/);
   assert.match(fifth, /They must match exactly: the same count, and the same first and last second/);
+  // Blocks, on review round 1's head: equal totals and endpoints are not one to one, because a lost
+  // delivery and an unknown request in the middle of the window cancel. Ids are proof; counts are not.
+  assert.match(fifth, /match the ids one to one instead: that is proof/);
+  assert.match(fifth, /the count and endpoints are aggregate evidence, not proof — a lost delivery and an unknown request in the middle of the window cancel exactly — and the record says so/);
+  assert.match(fifth, /the ids match one to one, or the counts and the first and last seconds match exactly and the record calls that aggregate evidence/);
+  assert.match(reconcile, /\*\*One to one, by a per-request id: proof\.\*\*/);
+  assert.match(reconcile, /\*\*By count and endpoints: aggregate evidence, not proof\.\*\*/);
+  assert.match(reconcile, /What the slot cannot catch is an unknown caller that already holds the next key/);
+  const flatSkill = skill.replace(/\s+/g, ' ');
+  assert.doesNotMatch(flatSkill, /Matching the first and last second as well, and checking the slot where it is logged, is what tells them apart/, 'the pitfall claims the endpoints tell a cancellation apart');
+  assert.match(flatSkill, /A per-request id matched one to one tells them apart/);
   assert.match(fifth, /search code and configuration for any other sender/);
   assert.match(fifth, /the log retention, any paging the tools needed, and whether the logs identify the caller at all/);
   assert.match(reconcile, /Use the senders' records, not the receiver's/);
