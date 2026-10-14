@@ -103,9 +103,12 @@ admission** — nothing else is in flight at that moment, so the read describes 
 will start from.
 
 - **A call that would cross the floor is not admitted.** The admission needs
-  `balance - unseen_spend - worst(call) >= floor`, where `unseen_spend` is spend already settled
-  that the balance may not show yet — for a provider whose balance lags, everything settled since
-  the balance's own as-of time. A balance already below the floor fails the same test.
+  `balance - unseen_spend - reserved - worst(call) >= floor`. `unseen_spend` is spend already
+  settled that the balance may not show yet — for a provider whose balance lags, everything settled
+  since the balance's own as-of time. `reserved` is every reservation still standing: a call whose
+  outcome is unknown (part 5), or one a crashed run left unsettled (part 6), may have been billed
+  without the balance showing it, so its worst case comes off the balance too. A balance already
+  below the floor fails the same test.
 - **It latches.** The first failure sets a latch that refuses every admission for the rest of the
   run, and writes a STOP flag in the study directory with the reason. A later read that shows the
   balance recovered does not lift it: balance reads lag, and a run that re-admits on a lagging read
@@ -177,7 +180,7 @@ call(c):                                                         # one at a time
     if stage_spent[s] + stage_reserved[s] + w > stage_cap[s]: refuse        # the stage's own cap
     if floor_available:
         balance = read balance                                   # before this admission, every time
-        if the read failed or balance - unseen_spend - w < floor:
+        if the read failed or balance - unseen_spend - reserved - w < floor:
             latched = true; write STOP flag with the reason;  refuse
     ledger.append(reserved row: c, s, w); flush                  # on disk before the call is sent
     reserved += w; stage_reserved[s] += w                        # counted in memory until it settles
@@ -211,6 +214,7 @@ call and no real key:
 | Cap | set the cap below one call's worst case | refuses the first admission |
 | Stage cap | admit an output-parity call whose worst case fits the study cap but exceeds the parity stage's cap | refused |
 | Floor | stub the balance read to return less than the floor | latches, writes STOP with the reason, refuses this and every later admission |
+| Floor with an unknown call | let a call throw after its reservation, then stub a lagging balance that does not show it, and admit a call that fits only if the thrown call is forgotten | latches and refuses: the thrown call's worst case comes off the balance |
 | Floor crossing | stub a balance just above the floor, then admit a call whose worst case would cross it | latches and refuses, though the call fits the study cap |
 | Read failure | stub the balance read to fail | latches and refuses: an unreadable balance is a breach |
 | No balance endpoint | run with the floor marked unavailable; admit a call that fits the caps | admitted on the caps alone |

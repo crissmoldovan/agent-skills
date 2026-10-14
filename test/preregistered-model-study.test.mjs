@@ -244,13 +244,16 @@ test('the cap and the stage cap are checked before every call, against its full 
 
 test('the balance is read before every admission, and the floor latches', () => {
   const read = position('balance = read balance');
-  const test = position('if the read failed or balance - unseen_spend - w < floor:');
+  const test = position('if the read failed or balance - unseen_spend - reserved - w < floor:');
   const latch = position('latched = true; write STOP flag with the reason;  refuse');
   const reserve = position('ledger.append(reserved row: c, s, w); flush');
   assert.ok(read < test && test < latch && latch < reserve, 'the floor is not settled before the call is reserved');
   assert.match(callPath, /^\s+if latched: +refuse/m);
   assert.match(budget, /A later read that shows the balance recovered does not lift it/);
   assert.match(budget, /\*\*A read that fails is a breach\.\*\*/);
+  // Blocks on #101 (severity 8): an unknown-outcome reservation was left out of the floor test.
+  assert.match(budget, /`reserved` is every reservation still standing: a call whose outcome is unknown \(part 5\), or one a crashed run left unsettled \(part 6\), may have been billed without the balance showing it/);
+  assert.ok(guardDoc.includes('| Floor with an unknown call |'), 'no drill for the floor with an unknown call');
   assert.match(procedureSteps(skill)[2], /A read below that, or a read that fails, latches the run and writes a STOP flag with the reason/);
   for (const drill of ['| Floor |', '| Floor crossing |', '| Read failure |', '| No balance endpoint |']) {
     assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
