@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
@@ -210,3 +210,38 @@ test('statement logging and both parameter-logging settings are read and switche
   assert.match(probe, /SHOW log_parameter_max_length_on_error;/);
   assert.match(probe.replace(/\s+/g, ' '), /If any of them cannot be switched off for that session, do not send the value this way/);
 });
+
+// Blocks on #99 (severity 7): without pipefail the generator's status was tr's, so a failed openssl
+// left an empty key file that a store would accept. Run from the example, with a real and a failing
+// openssl.
+test('key generation is atomic and length-checked: a failed generator leaves no key file', async () => {
+  const lines = exampleBash.split('\n');
+  const start = lines.indexOf('umask 077');
+  const end = lines.findIndex((line) => line.includes('GENERATION FAILED'));
+  assert.ok(start >= 0 && end > start, 'the example has no generation block');
+  const block = lines.slice(start, end + 1).join('\n');
+  const generate = async (stub) => {
+    const dir = await tempDir('rotate-gen-');
+    const run = spawnSync('bash', ['-c', `${stub}\nSCRATCH=${JSON.stringify(dir)}\n${block}`], { encoding: 'utf8' });
+    const key = join(dir, 'next.key');
+    return { out: run.stdout + run.stderr, key, made: existsSync(key), tmpLeft: existsSync(join(dir, 'next.key.tmp')) };
+  };
+  const good = await generate('');
+  assert.ok(good.made, good.out);
+  const value = readFileSync(good.key, 'utf8');
+  assert.match(value, /^[0-9a-f]{64}$/, 'the key is not 64 hex characters with no newline');
+  assert.equal(statSync(good.key).mode & 0o777, 0o600, 'the key file is not 0600');
+  assert.ok(!good.out.includes(value), 'the key was printed');
+  for (const [why, stub] of [
+    ['openssl fails', 'openssl() { return 1; }'],
+    ['openssl writes too little', 'openssl() { printf "abc"; }'],
+    ['openssl writes a full-length value and then fails', 'openssl() { printf "%064d" 0; return 1; }'],
+  ]) {
+    const bad = await generate(stub);
+    assert.equal(bad.made, false, `a key file was left when ${why}`);
+    assert.equal(bad.tmpLeft, false, `a temporary key file was left when ${why}`);
+    assert.match(bad.out, /GENERATION FAILED: no key was written/);
+  }
+  assert.match(probe, /rm -f [^\n]*"\$SCRATCH\/sig-new\.hdr" "\$SCRATCH\/sig-old\.hdr"/, 'the reference cleanup leaves the signature header files');
+});
+

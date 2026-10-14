@@ -76,7 +76,8 @@ reader, and the client's history, a proxy and a slow-query report are others.
 
 `openssl rand -hex 32 > file` writes a trailing newline. One store keeps it and another trims it,
 and the sender and the receiver now hold different keys. Every delivery fails, and both sides look
-correctly configured. Generate without it — `openssl rand -hex 32 | tr -d '\n' > file` — and when two
+correctly configured. Generate without it, under `pipefail`, into a temporary file whose exact length
+is checked before it is renamed into place — the example in the skill does this — and when two
 copies must agree, compare their hashes inside the shell and print only the verdict.
 
 ## Confirming that the live domain moved
@@ -151,7 +152,7 @@ Record the status codes, not the response bodies, which may echo request headers
 ## Cleaning up
 
 ```bash
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr"
+rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
 ls -A "$SCRATCH"
 ```
 

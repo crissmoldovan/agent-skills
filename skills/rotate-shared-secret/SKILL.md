@@ -92,12 +92,14 @@ simpler — use this skill when it is not.
    the live domain serves the build that contains them.
 
 2. **Generate the next key into a 0600 file, and never print it.** `umask 077`, then write the
-   output of a cryptographic random source straight to a file, with no trailing newline. Never echo
+   output of a cryptographic random source to a temporary file, with no trailing newline, check its
+   exact length, and only then rename it into place: a generator that failed must leave no key file
+   at all, never an empty one that a store would accept. Never echo
    it, open it in a viewer, pass it as a command-line argument, or hand it to a tool call as a
    parameter: each of those puts it in a terminal, a process list or a transcript. When two copies
    must be the same, compare their hashes inside the shell and print only "same" or "different".
-   **Complete when:** the key file exists with mode 0600, and no output of any command so far
-   contains the key or its hash.
+   **Complete when:** the key file exists with mode 0600 and its exact expected length, and no output
+   of any command so far contains the key, its hash or its length.
 
 3. **Set it on the receiver as `NEXT`, redeploy, and confirm the live domain moved.** Feed the file
    to the platform's secret command on standard input. Redeploy, then read the deployment id the
@@ -203,9 +205,14 @@ new deployment and not the previous one.
 ```
 
 ```bash
-# Generate the next key where only you can read it, with no trailing newline, printing nothing.
+# Generate the next key where only you can read it: no trailing newline, its exact length checked,
+# and renamed into place only then, so a failed generator leaves no key file. Nothing is printed.
 umask 077
-openssl rand -hex 32 | tr -d '\n' > "$SCRATCH/next.key"
+set -o pipefail
+openssl rand -hex 32 | tr -d '\n' > "$SCRATCH/next.key.tmp" \
+  && [ "$(wc -c < "$SCRATCH/next.key.tmp" | tr -d ' ')" -eq 64 ] \
+  && mv "$SCRATCH/next.key.tmp" "$SCRATCH/next.key" \
+  || { rm -f "$SCRATCH/next.key.tmp"; echo "GENERATION FAILED: no key was written"; }
 ls -l "$SCRATCH/next.key"
 
 # Compare two copies without printing either one or its hash.
