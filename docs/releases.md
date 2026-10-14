@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `preregistered-model-study`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -103,6 +103,15 @@ template. It explains and changes nothing; an evidence-backed answer a developer
 `investigate-codebase`'s, and the documentation a repository keeps is `layer-repository-docs`'. It
 declares `## Bindings`, so a project can adapt it to its own learners and library
 ([project adaptation](project-adaptation.md)).
+
+`preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
+plan, a hash freeze of every input and a dry run against production's own request before any paid call;
+puts every later change in a dated addendum committed before the calls it governs; enforces the spend
+in code with a research key refused if it is production's, a worst-case reservation per call, a balance
+floor that latches, one paying process and per-attempt costing; proves the harness reproduces
+production before measuring; judges with three vendors who see where each piece of evidence came from;
+reports quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest
+that rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
 
 ## Unreleased
 

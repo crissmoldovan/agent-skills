@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher` — thirty-two in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `preregistered-model-study` — thirty-three in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -62,7 +62,10 @@ long work and `agent-lifecycle` the visibility of child agents; and `coding-teac
 how a project's technologies and architecture work, in plain language, to someone from another field —
 the comparison drawn from their own work, the depth ladder, and the illustrated lesson page — while
 changing nothing, as `investigate-codebase` owns the evidence-backed answer a developer acts on and
-`layer-repository-docs` the documentation a repository keeps. A new skill must state which of these it does not duplicate.
+`layer-repository-docs` the documentation a repository keeps; and `preregistered-model-study` owns a model or prompt comparison whose verdict can be trusted —
+the plan, freeze and dry run committed before any paid call, the dated addenda, the spend guard in
+code, parity with production, the provenance-aware judge panel, and the offline reproduction —
+while `model-routing` owns which model runs everyday work. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 
