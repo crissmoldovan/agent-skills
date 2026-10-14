@@ -106,11 +106,12 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 ([project adaptation](project-adaptation.md)).
 
 `preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
-plan, a hash freeze of every input and a dry run against production's own request before any paid call;
-puts every later change in a dated addendum committed before the calls it governs; enforces the spend
-in code with a research key refused if it is production's, a worst-case reservation per call, a balance
-floor that latches, one paying process and per-attempt costing; proves the harness reproduces
-production before measuring; judges with three vendors who see where each piece of evidence came from;
+plan, a hash freeze of every input and a dry run that proves request parity with production offline,
+all before any paid call; runs output parity as the first paid stage, under its own pre-registered
+cap; puts every later change in a dated addendum committed before the calls it governs; enforces the
+spend in code with a research key refused if it is production's, a reservation per call that no
+settlement can exceed, a balance floor that latches and takes effect before waiting calls resume, one
+paying process and per-attempt costing; judges with three vendors who see where each piece of evidence came from;
 reports quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest
 that rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
 
@@ -118,8 +119,9 @@ that rebuild every number offline. Which model runs everyday work stays `model-r
 review block, checks each finding against the code before acting, fixes everything above the lowest
 severity with a check watched failing under a deliberate break and restored from a byte copy, measures
 each finding's effect on published results, writes a review record per round, stops when only
-lowest-severity findings remain, splits the pull request when rounds keep finding new kinds of bug, and
-merges only the reviewed head with its required checks run on that commit. The examples use the Codex
+lowest-severity findings remain — deferring them, or fixing them and running one confirmation round —
+splits the pull request when rounds keep finding new kinds of bug, and merges only a head that was
+itself reviewed, with its required checks run on that commit. The examples use the Codex
 CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays `request-blocks-review`'s.
 
 `rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
@@ -141,21 +143,24 @@ bumped, the branch is merged, and a tag carries these notes.
 - `preregistered-model-study` runs a model or prompt comparison whose verdict a reader can check. Before
   any paid call it commits a PLAN (the question as a decision, the arms, metrics with their predicates,
   bars with a point rule and an interval rule, invention as a bar of its own, the sample size and why),
-  a FREEZE of every input by hash, and a dry run showing each arm's request differs from production's
-  only where intended. Every later change is a dated addendum committed before the calls it governs.
-  The spend is guarded in code: a research key refused if it equals production's, a hard cap enforced
-  by reserving each call's worst case before the call, a balance floor that latches for the process,
-  writes a STOP flag and blocks admissions during a balance read, one paying process under an exclusive
-  lock with safe stale-lock takeover, and the larger of list and reported cost per attempt. It proves
-  parity with production first, pins the serving provider, measures a noise floor and a layout-only
+  a FREEZE of every input by hash, and a dry run, built offline, that proves request parity with
+  production and shows each arm's request differs from it only where intended. Output parity is the
+  first paid stage, with its own pre-registered pass rule and cap. Every later change is a dated
+  addendum committed before the calls it governs. The spend is guarded in code: a research key refused
+  if it equals production's, a hard cap enforced by reserving before each call an upper bound on what
+  it can be billed, a balance floor that latches for the process, writes a STOP flag and blocks
+  admissions during a balance read until its result is applied, one paying process under an exclusive
+  lock with safe stale-lock takeover, and the larger of list and reported cost per attempt. It pins the
+  serving provider, measures a noise floor and a layout-only
   control, and interleaves arms per item. Three judges from three vendors see provenance-tagged
   evidence and a source-only reading, and each is reported alone. A `reproduce.sh` and a checksum
   manifest rebuild every number offline, and every gate is armed by mutation.
 - `codex-review-loop` runs an independent reviewer — `codex review --base origin/main` in its examples —
   in rounds: in the background to a file, the last review block only, every finding checked against the
   code, every fix above the lowest severity armed by a deliberate break restored from a byte copy, its
-  effect on published numbers measured, a review record per round, a stop rule, a split rule, and a
-  merge pinned with `--match-head-commit` to the head whose required checks ran.
+  effect on published numbers measured, a review record per round, a stop rule that leaves a reviewed
+  head to merge, a split rule, and a merge pinned with `--match-head-commit` to that head once its
+  required checks have run.
 - `rotate-shared-secret` rotates a key services share with an overlap: a dual-key receiver where an
   empty value never matches, a next key that is never printed, senders moved to a secret store, a
   fixed-window reconciliation that must match exactly before the old key is retired, a check that the
