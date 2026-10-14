@@ -137,8 +137,10 @@ unmeasurable question is ceremony around a guess.
    - **A dedicated research key**, refused at start-up when it equals production's key — compared
      by hash, never printed.
    - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
-     billed: the maximum input and output tokens at a ceiling price — the largest of the list
-     price, a stated margin over it, and the provider's maximum — for every attempt it may make.
+     billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
+     invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
+     stated margin over it, and the provider's maximum), for every attempt it may make. A unit with
+     no cap in the request, or missing from the price table, makes the call unadmittable.
      After the call it settles to the actual cost. No settlement can exceed its reservation, so
      `spent + reserved` never passes the cap; an actual cost above its reservation latches the
      guard. A cap checked after the call is a report, not a cap.
@@ -148,9 +150,12 @@ unmeasurable question is ceremony around a guess.
      still in flight — applying the read's result, latch and flag, before it lets waiting calls
      through. Reads in flight are counted, so overlapping reads cannot release each other, and a
      read that fails latches like one below the floor.
-   - **One paying process at a time**, through an exclusive lock with safe stale-lock takeover: a
-     lock whose owner has gone may be taken, one whose owner is alive may not, and the takeover
-     itself is atomic.
+   - **One paying process at a time**, through an exclusive lock — one the kernel releases when its
+     owner dies, where the study runs on one machine. A lock that can go stale is taken over only
+     on proof the owner is dead, or with a fencing token: a generation number in the shared ledger,
+     incremented by every new owner, that each admission and settlement checks in the same atomic
+     step that writes the ledger. A paused owner that wakes after a takeover is fenced before it can
+     send a call.
    - **Conservative per-attempt costing**: for every attempt, retries and failures included, the
      larger of the list-price cost and the provider-reported cost, summed.
 
@@ -184,8 +189,11 @@ unmeasurable question is ceremony around a guess.
    — or the study stopped with an addendum saying why.
 
 6. **Run, with the controls that make a difference readable.**
-   - **A noise floor.** Run the baseline arm twice over the same items. Their disagreement is the
-     floor, and a difference between arms smaller than it is not a finding.
+   - **An A/A distribution, not a single draw.** Run the baseline arm several times over the same
+     items, or resample paired item-level differences between baseline runs, and estimate how far
+     the control differs from itself — a distribution with its interval, not one number. A
+     difference between arms inside that distribution is not a finding. A single A/A comparison is
+     a diagnostic, able to show that the harness is unstable, but never a floor and never a veto.
    - **A layout-only control** whenever a content change can also change the prompt's layout or
      its caching: an arm that carries the layout change without the content change, so the two
      effects can be told apart.
@@ -194,8 +202,9 @@ unmeasurable question is ceremony around a guess.
    - **The same inputs for every arm.** An arm that lacked an input for some items lost those
      items for a reason the study is not about.
 
-   **Complete when:** both baseline runs, every arm and every control have run over the frozen
-   items, interleaved, and every response is stored raw with its cost.
+   **Complete when:** every baseline repeat, every arm and every control have run over the frozen
+   items, interleaved; the A/A distribution is estimated with its interval and its method; and
+   every response is stored raw with its cost.
 
 7. **Put every change after the first paid call in a dated ADDENDUM, committed before the calls it
    governs.** A scorer bug fixed, an item dropped because its source vanished, an arm added, a bar
@@ -258,7 +267,7 @@ unmeasurable question is ceremony around a guess.
     published carries its correction.
 
 13. **Write the report for the decision, and say what the study cannot tell.** The verdict per bar;
-    quality, harm and cost per arm; each judge alone; the noise floor; every correction; and what
+    quality, harm and cost per arm; each judge alone; the A/A distribution; every correction; and what
     the study did not cover — item types it did not sample, providers it did not pin, volume it
     did not price.
     **Complete when:** the report answers the plan's question in the plan's terms, and a reader can
@@ -314,13 +323,13 @@ Bar 2 — invention: an answer given where the source cannot determine it
   bar (from PLAN, commit <sha>): B-A <= 1.0 point and upper bound <= 2.0
   result: FAIL — the upper bound is above 2.0
   each judge alone: J1 FAIL, J2 FAIL, J3 pass; majority FAIL
-  noise floor (baseline run 1 against run 2): <f> points
+  A/A distribution (<k> baseline runs, paired resampling): 95% of A-vs-A differences within +/- <f> points
   rebuilt by: reproduce.sh -> tables/bar-2.csv
 ```
 
 Every number has its predicate, its interval and its source; the bar is quoted from a commit that
-predates the calls; the judges are visible one by one; and the noise floor says how much of the
-difference could be chance.
+predates the calls; the judges are visible one by one; and the A/A distribution says how much of
+the difference the control produces against itself.
 
 ### The same result, reported badly
 
@@ -328,8 +337,8 @@ difference could be chance.
 Model B hallucinates slightly less than A (3.9% vs 4.1%) and costs 60% less, so it's the winner.
 ```
 
-No predicate, so nobody can tell what the 3.9% is a share of. No interval and no noise floor, so a
-0.2-point gap could be chance. "Winner" comes from a non-inferiority bar that only ever asked
+No predicate, so nobody can tell what the 3.9% is a share of. No interval and no A/A distribution,
+so a 0.2-point gap could be the control disagreeing with itself. "Winner" comes from a non-inferiority bar that only ever asked
 whether B was safe to switch to. No judge is visible, so it may rest on one judge's taste. And
 nothing says where either number can be rebuilt.
 
@@ -370,6 +379,15 @@ nothing says where either number can be rebuilt.
   parity costs nothing and belongs in the dry run; output parity is a paid stage with its own cap.
 - **Two paying processes.** Each believes the remaining budget is its own, and together they spend
   twice it.
+- **A stale lock taken from a paused owner.** A heartbeat that stopped proves the owner stopped
+  refreshing, not that it stopped. Without a fencing token, the owner wakes after the takeover and
+  both processes admit paid calls against one budget.
+- **A reservation that counts tokens only.** A call that also ran a hosted search, read an image or
+  paid a per-request fee is billed past its reservation. Every billable unit is bounded, or the
+  call is not admitted.
+- **One A/A pair taken as the noise floor.** Two runs are one draw of how far the control differs
+  from itself. Treated as a hard floor, it vetoes real differences on a lucky draw and passes
+  noise on an unlucky one.
 - **A floor that unlatches.** Balance reads lag. A process that re-admits on a read showing
   recovery spends past the floor on stale data; the latch holds for the life of the process.
 - **A manifest that missed a file.** A file read from another study changed underneath, and the
@@ -393,18 +411,23 @@ nothing says where either number can be rebuilt.
 - [ ] Every bar has a point rule and an interval rule, and invention has a bar of its own.
 - [ ] Every metric definition was read against named real items before it was frozen.
 - [ ] The research key is not production's, and the check that refuses production's key ran.
-- [ ] The cap reserves, before each call, an upper bound on what it can be billed — tokens at a
-      ceiling price, for every attempt — so no settlement can exceed its reservation; the floor
+- [ ] The cap reserves, before each call, an upper bound on what it can be billed — every billable
+      unit at its bound and a ceiling price, for every attempt — so no settlement can exceed its
+      reservation; the floor
       latches, writes STOP and blocks admissions while any balance read is in flight, applying the
-      result before releasing them and failing closed when a read fails; one paying process holds the lock; costing is the larger of list and
-      reported per attempt, summed. Each part was watched refusing.
+      result before releasing them and failing closed when a read fails; one paying process holds
+      the lock, and a stale lock is taken over only with proof of death or a fencing token every
+      admission and settlement checks; every billable unit is bounded and priced; costing is the
+      larger of list and reported per attempt, summed. Each part was watched refusing.
 - [ ] Request parity was proven offline, in the dry run, before any paid call: the control's
       request equals production's, with the provider pinned in every arm's request.
 - [ ] Every dry-run difference from production's request is intended.
 - [ ] Output parity ran as the first paid stage, under a cap and pass rule committed before its
       first call, and every call was served by the pinned provider.
-- [ ] The baseline ran twice for the noise floor; a layout-only control ran where layout or
-      caching could change; arms were interleaved per item; every arm had the same inputs.
+- [ ] The A/A distribution was estimated from repeated baseline runs or paired resampling, with
+      its interval; no single A/A pair was used as a floor or a veto; a layout-only control ran
+      where layout or caching could change; arms were interleaved per item; every arm had the same
+      inputs.
 - [ ] Every change after the first paid call has a dated addendum committed before the calls it
       governs.
 - [ ] Three judges from three vendors scored every item; the majority and each judge alone are
@@ -427,7 +450,7 @@ nothing says where either number can be rebuilt.
 - [The budget guard](references/budget-guard.md): the five parts, a sketch of the admission path,
   the stale-lock takeover, and how to arm each part.
 - [Parity and controls](references/parity-and-controls.md): request parity offline in the dry run,
-  output parity as a capped paid stage, pinning providers, the noise floor, the layout-only
+  output parity as a capped paid stage, pinning providers, the A/A distribution, the layout-only
   control, and interleaving.
 - [Judging and metrics](references/judging-and-metrics.md): the panel, provenance tags and the
   source-only reading, reporting each judge alone, the shortcut and its exactness test, invention,

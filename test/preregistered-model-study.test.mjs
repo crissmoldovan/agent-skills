@@ -86,12 +86,12 @@ test('the budget guard has its five parts, and each is armed', () => {
   const guard = procedureSteps(skill)[2];
   assert.match(guard, /refused at start-up when it equals production's key/);
   assert.match(guard, /reserving before each call an upper bound on what it can be billed/);
-  assert.match(guard, /at a ceiling price — the largest of the list price, a stated margin over it, and the provider's maximum/);
+  assert.match(guard, /at its maximum quantity and a ceiling price \(the largest of the list price, a stated margin over it, and the provider's maximum\)/);
   assert.match(guard, /No settlement can exceed its reservation/);
   assert.match(guard, /A cap checked after the call is a report, not a cap/);
   assert.match(guard, /\*\*A balance floor that latches\.\*\*[^*]*writes a STOP flag that every other process checks[^*]*admits nothing while any balance read is still in flight — applying the read's result, latch and flag, before it lets waiting calls through/);
   assert.match(guard, /Reads in flight are counted, so overlapping reads cannot release each other, and a read that fails latches like one below the floor/);
-  assert.match(guard, /exclusive lock with safe stale-lock takeover/);
+  assert.match(guard, /A lock that can go stale is taken over only on proof the owner is dead, or with a fencing token/);
   assert.match(guard, /the larger of the list-price cost and the provider-reported cost, summed/);
   assert.match(guard, /each of the five parts has been watched refusing/);
   // The reference carries the sketch and the arming table.
@@ -104,8 +104,8 @@ test('the budget guard has its five parts, and each is armed', () => {
 
 // Review round 1: a reservation at list price was exceeded by a settlement at the reported price.
 test('the reservation is an upper bound no settlement can exceed', () => {
-  assert.match(budget, /ceiling_price = max\(list_price, list_price \* \(1 \+ margin\), provider_max_price\)/);
-  assert.match(budget, /worst_attempt = max_input_tokens \* ceiling_input_price \+ max_output_tokens \* ceiling_output_price/);
+  assert.match(budget, /ceiling_price\(u\) = max\(list_price\(u\), list_price\(u\) \* \(1 \+ margin\), provider_max_price\(u\)\)/);
+  assert.match(budget, /worst_attempt = request_fee_ceiling \+ sum over every billable unit u of max_quantity\(u\) \* ceiling_price\(u\)/);
   assert.match(budget, /at every admission: spent \+ reserved \+ worst\(call\) <= cap/);
   assert.match(budget, /for every call: settled cost <= worst\(call\)/);
   assert.match(budget, /if actual > ticket\.worst:/);
@@ -150,7 +150,7 @@ test('parity is proven first, the provider is pinned, and the controls make a di
   assert.match(steps[3], /a router may pick the provider by the request's layout/);
   assert.match(steps[4], /compare its answers with what production stored for them/);
   assert.match(steps[4], /Check the provider that served every call against the pin/);
-  assert.match(steps[5], /Run the baseline arm twice over the same items/);
+  assert.match(steps[5], /\*\*An A\/A distribution, not a single draw\.\*\*/);
   assert.match(steps[5], /\*\*A layout-only control\*\*/);
   assert.match(steps[5], /\*\*Arms interleaved per item\.\*\*/);
   assert.match(steps[5], /\*\*The same inputs for every arm\.\*\*/);
@@ -207,6 +207,62 @@ test('the examples are asks and runnable commands, and the specimen states its p
   assert.match(specimen, /predicate:/);
   assert.match(specimen, /95% interval/);
   assert.match(specimen, /each judge alone/);
-  assert.match(specimen, /noise floor/);
+  assert.match(specimen, /A\/A distribution \(<k> baseline runs, paired resampling\)/);
   assert.match(flat, /The first three are committed before any paid call/);
+});
+
+// Review round 2: a stale-lock takeover did not fence the owner it replaced, so a paused or
+// partitioned owner could wake and admit paid calls against the same budget.
+test('a takeover fences the old owner: a generation every admission and settlement checks', () => {
+  const raw = read('references/budget-guard.md');
+  const path = raw.slice(raw.indexOf('acquire():'), raw.indexOf('check_balance():'));
+  const at = (text) => {
+    const index = path.indexOf(text);
+    assert.notEqual(index, -1, `the admission path no longer contains: ${text}`);
+    return index;
+  };
+  at('my_gen = ledger.increment_generation()');
+  at('reserved += every unsettled reservation of an older generation, at its worst case');
+  const fencedReserve = at('if not ledger.append_if_generation(my_gen, reserved row):');
+  assert.ok(fencedReserve < at('reserved += w') && fencedReserve < at('return ticket'), 'the reservation is not fenced before the call is admitted');
+  const fencedSettle = at('if not ledger.append_if_generation(my_gen, settled row, one per attempt):');
+  assert.ok(fencedSettle < at('reserved -= ticket.worst; spent += actual'), 'a settlement is booked before its generation is checked');
+  at('ledger.append(settled row, one per attempt, marked stale, my_gen)');
+  assert.doesNotMatch(path, /reserved \+= w; ledger\.append\(reserved row\)/, 'an unfenced append is back');
+  assert.match(budget, /\*\*A stale heartbeat is not a dead owner\.\*\*/);
+  assert.match(budget, /\*\*proof the owner is dead\*\*/);
+  assert.match(budget, /\*\*Prefer a lock the kernel releases\.\*\*/);
+  assert.match(budget, /\*\*A fenced settlement is kept, never dropped\.\*\*/);
+  for (const drill of ['| Paused owner |', '| Fenced settlement |', '| Reused process id |']) {
+    assert.ok(raw.includes(drill), `the failure drills have no ${drill.trim()} row`);
+  }
+});
+
+// Review round 2: worst(call) counted tokens only; a call can also be billed per request, per image,
+// per second of audio, per hosted search and per tool invocation.
+test('the reservation bounds every billable unit, and a unit with no bound is not admitted', () => {
+  const raw = read('references/budget-guard.md');
+  assert.match(budget, /\*\*Every billable unit, not only tokens\.\*\*/);
+  for (const unit of ['a fee per request', 'images in and out', 'audio in and out', 'hosted search or web queries', 'tool invocations']) {
+    assert.ok(budget.includes(unit), `the billable units no longer include ${unit}`);
+  }
+  assert.match(budget, /\*\*Every unit has a bound, or the call is not admitted\.\*\*/);
+  assert.match(raw, /if w is unbounded: +refuse/);
+  for (const drill of ['| Unbounded unit |', '| Unlisted unit |']) assert.ok(raw.includes(drill), `no ${drill.trim()} drill`);
+  assert.match(budget, /`list_cost` uses every billable unit the provider reported/);
+});
+
+// Review round 2: one A/A pair was used as a hard noise floor.
+test('the noise is an estimated A/A distribution; a single A/A pair is a diagnostic, not a veto', () => {
+  const sixth = procedureSteps(skill)[5];
+  assert.match(sixth, /Run the baseline arm several times over the same items, or resample paired item-level differences between baseline runs/);
+  assert.match(sixth, /A single A\/A comparison is a diagnostic, able to show that the harness is unstable, but never a floor and never a veto/);
+  assert.match(sixth, /the A\/A distribution is estimated with its interval and its method/);
+  assert.doesNotMatch(skill, /Run the baseline arm twice over the same items/);
+  assert.match(parity, /## The A\/A distribution/);
+  assert.match(parity, /\*\*Repeated runs\.\*\*/);
+  assert.match(parity, /\*\*Paired resampling\.\*\*/);
+  assert.match(parity, /It is not a floor, and it vetoes nothing/);
+  assert.doesNotMatch(parity, /is the noise floor\./);
+  assert.match(files, /A1\.\.Ak +A run <k> times over the same items, for the A\/A distribution/);
 });

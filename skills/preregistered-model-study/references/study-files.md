@@ -44,7 +44,7 @@ Decision:   <what changes if the answer is yes>, decided by <role>.
 Arms:
   A (control)  <model> via <pinned provider>, prompt <file>, params <file>
   B            <model> via <pinned provider>, prompt <file>, params <file>
-  A'           A run a second time, for the noise floor
+  A1..Ak       A run <k> times over the same items, for the A/A distribution (why <k>: <reason>)
   L            layout-only control: A's content in B's layout (only if layout or caching changes)
 
 Items:      <n> items drawn by <rule> with seed <seed>, from <source>, frozen in FREEZE.json.
@@ -69,7 +69,9 @@ Output parity (the first paid stage):
             stored answers, and how it is measured>; stage cap <amount>, inside the study cap.
             A fail stops the study with an addendum.
 Budget:     study cap <amount>; balance floor <amount>; ceiling price per model = the largest of
-            list, list + <margin>%, and the provider's maximum; one paying process.
+            list, list + <margin>%, and the provider's maximum, for every billable unit (tokens,
+            per-request fees, images, audio, hosted search, tool invocations), each capped in the
+            request; one paying process, fenced by a ledger generation if its lock can go stale.
 Stop rule:  stop and write an addendum if <condition>.
 Not covered: <item types, providers, volumes this study will not speak to>
 ```
@@ -149,7 +151,7 @@ manifest does not list. A file the study consumes is then either listed or a lou
 ## The report and the audit
 
 The report is written for the decision: the verdict per bar, then quality, harm and cost per arm,
-then each judge alone, the noise floor, every correction, and what the study does not cover. Every
+then each judge alone, the A/A distribution, every correction, and what the study does not cover. Every
 arm appears in every chart, the control included.
 
 The audit is written for the next person to doubt the result. It carries:

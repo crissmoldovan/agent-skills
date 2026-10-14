@@ -25,13 +25,26 @@ before admitting a call, an **upper bound on what that call can be billed**, and
 only if the bound really is one:
 
 ```text
-ceiling_price = max(list_price, list_price * (1 + margin), provider_max_price)   per model, per token kind
-worst_attempt = max_input_tokens * ceiling_input_price + max_output_tokens * ceiling_output_price
-worst(call)   = worst_attempt * max_attempts
+ceiling_price(u) = max(list_price(u), list_price(u) * (1 + margin), provider_max_price(u))
+                   for every billable unit u of the model, as its price sheet lists them
+worst_attempt    = request_fee_ceiling + sum over every billable unit u of max_quantity(u) * ceiling_price(u)
+worst(call)      = worst_attempt * max_attempts
 ```
 
-- **The price is a ceiling, not the list price.** Settlement (part 5) charges each attempt the
-  larger of its list cost and its reported cost. A reservation made at list price is therefore
+- **Every billable unit, not only tokens.** A call can be billed for input and output tokens
+  (reasoning and other hidden tokens included), cache writes priced above ordinary input, a fee per
+  request, images in and out, audio in and out, hosted search or web queries, code execution, file
+  search and other tool invocations — whatever the price sheet lists for that model. The frozen
+  price table lists every unit the call can incur, and `worst_attempt` sums all of them. A
+  reservation that counts tokens alone is exceeded by the first call that also searched the web.
+- **Every unit has a bound, or the call is not admitted.** `max_quantity(u)` comes from the request
+  itself: the output-token limit, the number of images sent, the cap on tool calls, the cap on
+  search queries. A unit whose quantity the request does not cap — an agent allowed unlimited
+  hosted searches — or that the price table does not list cannot be bounded, so the guard refuses
+  the call. Cap it in the request, or leave that feature out of the study.
+
+- **The price is a ceiling, not the list price.** Settlement (part 5) charges each attempt, unit by
+  unit, the larger of its list cost and its reported cost. A reservation made at list price is therefore
   exceeded by the first attempt billed above list, and the cap with it. Take the largest of the
   frozen list price, the list price plus a margin stated in the plan, and the highest price any
   provider serving that model charges.
@@ -92,13 +105,32 @@ then governs alone, and it should be set with that in mind.
 Two processes that each hold the whole remaining budget will spend twice it. The guard takes an
 exclusive lock before its first admission and holds it until it exits.
 
+- **Prefer a lock the kernel releases.** Where every paying process runs on one machine with a
+  local file system, hold an operating-system lock on an open file for the life of the process.
+  The kernel releases it when the process dies, so there is never a stale lock to take over — and a
+  paused owner still holds it, so nobody takes over from a process that might wake up. The rest of
+  this part is for locks that outlive their owner: a file on shared storage, or several hosts.
 - **Create the lock atomically**, with an exclusive create that fails if the file exists. The lock
   records the owner's host, process id, start time and a heartbeat the owner refreshes every few
   seconds.
-- **A stale lock may be taken over; a live one may not.** A lock is stale when its owner is on this
-  host and its process no longer exists, or when its heartbeat is older than several refresh
-  intervals. A lock from another host can only be judged by its heartbeat, so set that threshold
-  generously.
+- **A stale heartbeat is not a dead owner.** It proves the owner stopped refreshing, not that it
+  stopped. A paused process — a debugger, a suspended laptop, a long garbage collection — or a host
+  cut off from the network can wake up and carry on admitting paid calls. So a takeover is safe
+  only with one of two things:
+  - **proof the owner is dead**: it was on this host, no process has its id, or the process that
+    has it started after the lock was written, since a reused process id is not the owner; or
+  - **a fencing token**: a generation number in the shared ledger that only ever increases. Taking
+    the lock, fresh or by takeover, increments it, and the owner keeps the value it got. Every
+    admission and every settlement writes to the ledger only if the generation is still the
+    owner's, in one atomic step: a compare-and-append under a short lock the kernel releases, or a
+    database transaction that checks the generation. A fenced owner's admission fails before its
+    call is sent, and the process exits.
+- **The new owner inherits the old owner's open reservations.** Reservations an older generation
+  made and never settled count at their worst case, and the new owner never releases them: the old
+  owner may yet have made those calls.
+- **A fenced settlement is kept, never dropped.** The money was spent whether or not the owner was
+  current. The settlement is appended as a stale-generation row, the reservation it settles stays
+  counted, and the fenced process exits.
 - **Make the takeover atomic.** Two contenders that both judge a lock stale must not both win.
   Create a takeover marker exclusively — only one contender can — re-check staleness while holding
   it, replace the lock by an atomic rename, then remove the marker.
@@ -113,7 +145,8 @@ cost(attempt) = max(list_cost(attempt), reported_cost(attempt))
 cost(call)    = sum of cost(attempt) over every attempt the call made
 ```
 
-`list_cost` uses the tokens the provider reported and the frozen price table. When the provider
+`list_cost` uses every billable unit the provider reported — tokens, requests, images, audio,
+searches, tool invocations — and the frozen price table. When the provider
 reports no cost for an attempt, use the list cost; when it reports no tokens for a failed attempt,
 charge that attempt its `worst_attempt`. None of these can exceed the reservation, because the
 reservation was made at the ceiling price. The ledger keeps one row per attempt, so the spend can be
@@ -126,18 +159,29 @@ admission lock. `wait` releases that lock while it waits and takes it again befo
 condition variable does.
 
 ```text
+acquire():                                      # once, before the first admission
+    take the lock                               # kernel-released, exclusive create, or takeover
+    my_gen = ledger.increment_generation()      # atomic; the new value is this owner's fencing token
+    reserved += every unsettled reservation of an older generation, at its worst case
+
 admit(call):                                    # holds the admission lock
     while reads_in_flight > 0:       wait       # never admit during any balance read
     if STOP flag exists or latched:  refuse     # re-checked after every wait
-    w = worst(call)                             # an upper bound on what it can be billed
+    w = worst(call)                             # every billable unit, at its bound and ceiling price
+    if w is unbounded:               refuse     # a unit with no cap, or missing from the price table
     if spent + reserved + w > cap:   refuse
-    reserved += w; ledger.append(reserved row)  # persisted before the call
+    if not ledger.append_if_generation(my_gen, reserved row):   # one atomic step, before the call
+        exit "fenced: a newer owner holds the study"
+    reserved += w
     return ticket
 
 settle(ticket, attempts):                       # holds the admission lock
     actual = sum(max(list_cost(a), reported_cost(a)) for a in attempts)
+    if not ledger.append_if_generation(my_gen, settled row, one per attempt):
+        ledger.append(settled row, one per attempt, marked stale, my_gen)   # real spend is kept
+        if actual > ticket.worst:  create STOP flag atomically             # the flag is shared
+        exit "fenced"                           # its reservation stays counted by the new owner
     reserved -= ticket.worst; spent += actual
-    ledger.append(settled row, one per attempt)
     if actual > ticket.worst:                   # the bound was not a bound
         latched = true
         create STOP flag atomically
@@ -158,8 +202,14 @@ check_balance():
             wake every waiting admission        # each re-checks STOP and the latch
 ```
 
-Three orderings matter here. The latch and the flag are set before `reads_in_flight` is
-decremented, so no waiter can wake in a gap where it finds neither. The decrement sits in
+The fencing token works because of where the reservation is written. It is appended under the
+owner's generation before the call is sent, so a paused owner that wakes after a takeover is in one
+of two states: its next append fails and it sends nothing, or the call it is about to send was
+already recorded — and the new owner, which counted every older unsettled reservation at its worst
+case when it took over, has already budgeted for it. Either way no paid call escapes the cap.
+
+Three orderings matter in `check_balance`. The latch and the flag are set before
+`reads_in_flight` is decremented, so no waiter can wake in a gap where it finds neither. The decrement sits in
 `finally`, so a read that throws still releases its count — having first latched, because an
 unreadable balance is a breach. And the count, unlike a flag, stays above zero until the last of
 several overlapping reads is done.
@@ -180,6 +230,11 @@ call and no real key:
 | Read failure | stub the balance read to throw; request an admission during it | latches, writes STOP with the reason; the admission is refused, not left waiting |
 | Overlapping reads | start two reads; let the first return above the floor while the second still blocks; request an admission | the admission waits until the second read finishes |
 | Lock | start a second paying process while the first holds the lock | the second refuses to start |
+| Paused owner | suspend the owner, let its heartbeat go stale and a second process take over, then resume the first and request an admission | the first is refused as fenced before any call and exits; its unsettled reservations still count at worst case |
+| Fenced settlement | settle a call from an owner whose generation is no longer current | the settlement is kept as a stale-generation row; the reservation stays counted; the process exits |
+| Reused process id | leave a lock whose process id now belongs to a process started after the lock was written | not taken as proof of death: the takeover fences by generation |
+| Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
+| Unlisted unit | admit a call that can incur a unit the frozen price table does not list | refused at admission |
 | Stale takeover | leave a lock whose process no longer exists | it is taken over, once, by one contender |
 | Costing | feed a settled attempt with reported cost above list but within the ceiling | the ledger records the reported cost, and no latch |
 

@@ -37,7 +37,7 @@ answers must come to production's — and a cap of its own inside the study's. R
 on items production processed under the same frozen prompt and model, and compare its answers with
 what production stored. Larger disagreement than the pass rule allows means the harness is not
 production yet, or the control run is faulty, and every arm compared against it would inherit the
-fault: the study stops there, with an addendum. The noise floor measured later in the run says
+fault: the study stops there, with an addendum. The A/A distribution measured later in the run says
 whether the pass rule's tolerance was reasonable; if it was too loose, say so in an addendum.
 
 A control that fails parity is not a slightly worse control. It is a different system, and the
@@ -60,15 +60,30 @@ choosing to.
 - After the run, check every call against its arm's pin. A pin that was not honoured is a finding,
   recorded in an addendum, and those calls are either rerun or reported separately.
 
-## The noise floor
+## The A/A distribution
 
-Run the baseline arm twice over the same items, interleaved with everything else. Many models are
-not deterministic even at temperature zero, and providers change behaviour between hours. The
-disagreement between the two baseline runs, per metric, is the noise floor.
+Many models are not deterministic even at temperature zero, and providers change behaviour between
+hours, so the control disagrees with itself. How far it does is not one number. Two runs of the
+baseline are a single draw from that spread: read as a floor, a lucky draw vetoes a real difference
+and an unlucky one lets noise through as a finding.
 
-A difference between arms smaller than the floor is reported as "within noise", not as a win or a
-loss. A difference larger than the floor is not thereby significant — the interval rule in the plan
-decides that — but a difference smaller than it is certainly not a finding.
+Estimate the distribution instead, and say how:
+
+- **Repeated runs.** Run the baseline arm k times over the same items, interleaved with everything
+  else, and take the spread of A-versus-A differences across the pairs of runs. The plan says what
+  k is and why; more runs cost more and narrow the estimate.
+- **Paired resampling.** With fewer runs, resample the items — the same items for both runs of
+  each pair — and recompute the A-versus-A difference each time, giving its distribution and an
+  interval from one or a few pairs of runs.
+
+Report the distribution with its interval and its method: "95% of A-versus-A differences fall
+within +/- f points (k runs, paired resampling over n items)". A difference between arms inside it
+is reported as "within noise", not as a win or a loss. A difference outside it is not thereby
+significant — the plan's interval rule decides that — but one inside it is not a finding.
+
+A single A/A comparison is still worth running early. It is a diagnostic: a large disagreement
+shows that the harness, the provider or the sampling is unstable, and is a reason to look before
+spending more. It is not a floor, and it vetoes nothing.
 
 ## The layout-only control
 
