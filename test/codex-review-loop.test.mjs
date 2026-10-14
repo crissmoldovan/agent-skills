@@ -22,7 +22,7 @@ const PROCEDURE_ORDER = [
   /^9\. \*\*Run the tests and the reproduce script on the fixed tree/,
   /^10\. \*\*Write the round's review record/,
   /^11\. \*\*Push, and review the new head/,
-  /^12\. \*\*Stop when a round returns only lowest-severity findings/,
+  /^12\. \*\*Stop when a round returns only lowest-severity findings, and leave a reviewed head to merge/,
   /^13\. \*\*Split the pull request when rounds keep finding new kinds of bug/,
   /^14\. \*\*Merge only the head that was reviewed and checked/,
 ];
@@ -70,9 +70,38 @@ test('every fix above the lowest severity is armed, restored from a byte copy, a
 
 test('the loop has a stop rule and a split rule', () => {
   const steps = procedureSteps(skill);
-  assert.match(steps[11], /the last round's findings are all at the lowest severity, each fixed or recorded/);
   assert.match(steps[12], /each find a class of defect no earlier round found/);
   assert.match(steps[12], /propose a split/);
+});
+
+// Review round 1: fixing the stop round's lowest-severity findings made a head nobody reviewed. The
+// head that merges must itself have been reviewed, so the stop rule and the merge rule must agree.
+test('the stop rule leaves a reviewed head to merge, and the merge rule names that head', () => {
+  const steps = procedureSteps(skill);
+  const stop = steps[11];
+  assert.match(stop, /any commit made now is unreviewed/);
+  assert.match(stop, /\*\*Defer and merge\.\*\* Record every finding as deferred, with where it is tracked, and merge the head that round reviewed/);
+  assert.match(stop, /\*\*Fix, then confirm once\.\*\*[^*]*run one confirmation round on the new head/);
+  assert.match(stop, /anything it reports at the lowest severity is deferred, not fixed/);
+  assert.match(stop, /If it returns anything above the lowest severity, the loop resumes at step 4/);
+  assert.match(stop, /the head that will merge is the head of a round that returned only lowest-severity findings — the stop round's, or its one confirmation round's — with no commit after it/);
+  assert.doesNotMatch(stop, /The loop is done; the pull request is reviewed at that head and no later one/);
+  assert.match(steps[4], /In the round that stops the loop, step 12 decides instead/);
+  assert.match(steps[13], /confirm that the pull request's head is the head the last round reviewed — under step 12, the stop round's head or its confirmation round's, with no commit after it;/);
+  assert.match(record, /that head merges only after one confirmation round has reviewed it/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /fixed and then reviewed by exactly one confirmation round, whose own lowest-severity findings were deferred/);
+});
+
+// Review round 1, the same class as a file naming its own commit: a record committed with the fixes
+// it names cannot carry their sha, and one committed after the last round is an unreviewed head.
+test('records never name their own commit and never follow the last review', () => {
+  const steps = procedureSteps(skill);
+  assert.match(steps[9], /never with them — a file cannot name the commit that adds it/);
+  assert.match(steps[9], /The last round's record always goes on the pull request: a commit after the last review is a head nobody reviewed/);
+  assert.doesNotMatch(steps[9], /the record is committed with the fixes/);
+  assert.match(record, /commits each one \*\*after\*\* the fixes it describes, never together with them/);
+  assert.doesNotMatch(record, /One record per round, committed with that round's fixes/);
+  assert.doesNotMatch(read('references/review-record.md'), /round <n\+1> on <sha>/);
 });
 
 test('merging is pinned to the reviewed head, with its required checks run on that commit', () => {

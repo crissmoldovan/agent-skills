@@ -1,8 +1,19 @@
 # The review record
 
-One record per round, committed with that round's fixes. It is what lets a reader who saw none of
-the rounds tell which findings were real, what was done about each, how each fix was proven to
-matter, and what it changed.
+One record per round. It is what lets a reader who saw none of the rounds tell which findings were
+real, what was done about each, how each fix was proven to matter, and what it changed.
+
+## Where it goes
+
+On the pull request, as a comment or a section of its description. That is the one place a record
+can name every commit it refers to without moving the head under review.
+
+A repository that keeps records as files commits each one **after** the fixes it describes, never
+together with them. A file cannot name the commit that adds it: that sha does not exist until the
+file is committed, and writing it in afterwards changes the file and so the sha. Committed after the
+fixes, the record names them, and the next round reviews it along with them. The last round's
+record still goes on the pull request: a record committed after the last review would itself be a
+head nobody reviewed.
 
 ## Extracting the final block
 
@@ -41,10 +52,13 @@ Reviewer: <exact command>; last block only (<k> earlier blocks discarded)
                from a byte copy, checked with <cmp | grep for identifier>
   effect:      <numbers that moved, from -> to, by <command>> | none — <command> output identical
 
-Tests:       <command> at <sha> — <result>
-Reproduce:   <command> at <sha> — <result>
+Tests:       <command> at <sha of the last fix commit> — <result>
+Reproduce:   <command> at <sha of the last fix commit> — <result>
 Corrections: <anything an earlier record got wrong, stated here>
-Next:        round <n+1> on <sha> | stop: only lowest-severity findings | split proposed: <link>
+Next:        round <n+1> on the pushed head
+             | stop, defer and merge <sha this round reviewed>
+             | stop, fix and confirm: one confirmation round on the pushed head
+             | split proposed: <link>
 ```
 
 Every finding in the final block appears, including the ones that were rejected. A record that lists
@@ -55,7 +69,9 @@ in order to know how far to trust the reviewer.
 
 - **fixed** — verified, fixed, armed, effect measured.
 - **fixed (cheap)** — a lowest-severity finding fixed because fixing it cost less than recording it.
-  It still gets its effect line.
+  It still gets its effect line. In the round that stops the loop, a cheap fix makes a new head, and
+  that head merges only after one confirmation round has reviewed it; findings that confirmation
+  round reports at the lowest severity are deferred, not fixed.
 - **deferred** — verified and real, not fixed in this pull request. The reason is stated and the
   place it is tracked is named. Above the lowest severity, deferral needs the owner's agreement.
 - **rejected** — the claim does not hold. The evidence is recorded: the line that shows it, and the
