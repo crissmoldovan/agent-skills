@@ -41,7 +41,8 @@ const slot = matchSlot(
   process.env.SHARED_KEY_NEXT,
 );
 if (slot === null) return new Response('unauthorized', { status: 401 });
-log.info({ event: 'shared-key-auth', slot }); // the slot, never the key
+// The slot and the sender's delivery id, never the key.
+log.info({ event: 'shared-key-auth', slot, delivery: request.headers.get('x-delivery-id') ?? null });
 ```
 
 The same shape works for a signed webhook: verify the signature with `CURRENT`, then with `NEXT`
@@ -54,11 +55,17 @@ empty string, and the two are equal. The receiver then accepts every unauthentic
 exactly as long as no rotation is in progress — which is most of the time. Nothing fails, and
 nothing in normal traffic shows it.
 
-### Log the slot
+### Log the slot, and the delivery id
 
 Logging which slot matched is what turns the reconciliation from a count into a check. Once every
 sender has moved, every handled request should say `next`. One that says `current` is a caller still
 on the old key, found before the old key is retired rather than after.
+
+The slot cannot see an unknown caller that already holds the next key. The delivery id can: where
+each sender puts a unique id on every request and records it, the ids the receiver logs are matched
+one to one against the senders' records, and an id no sender issued is a caller nobody mapped. A
+match by count alone is aggregate evidence, because a lost delivery and an unknown request can
+cancel.
 
 ### Configuration with whitespace
 

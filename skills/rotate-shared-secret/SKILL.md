@@ -112,6 +112,8 @@ simpler — use this skill when it is not.
    the `next` slot at the receiver. A key written as a literal in a definition — a trigger, a job, a
    configuration file — is readable by anyone who can read that definition, and changing it means
    redefining code; reading it from a store fixes both. Remove the literal and any fallback to it.
+   While the sender is being changed anyway, have it send a unique delivery id on every request and
+   record it, so that step 5 can match requests one to one.
    Where the store is written with SQL, the value travels as a bound parameter or through the
    store's own interface, never inside the statement text, and the server's statement and parameter
    logging are checked first ([deploy and probe](references/deploy-and-probe.md)).
@@ -121,14 +123,18 @@ simpler — use this skill when it is not.
 5. **Prove no other caller exists before retiring the old key.** Pick a fixed window that starts
    after the last sender moved and is longer than the slowest sender's cycle. Count the receiver's
    handled requests in the window and the senders' own delivery records for the same window. They
-   must match exactly: the same count, and the same first and last second. If the receiver logs the
-   slot, every request in the window must have matched `next`. Then search code and configuration
-   for any other sender — repositories, CI, schedulers, database definitions, provider dashboards,
-   runbooks with example requests. State what the evidence cannot see: the log retention, any
+   must match exactly: the same count, and the same first and last second. Where the senders send a
+   delivery id and the receiver logs it, match the ids one to one instead: that is proof. Without
+   ids, the count and endpoints are aggregate evidence, not proof — a lost delivery and an unknown
+   request in the middle of the window cancel exactly — and the record says so. If the receiver
+   logs the slot, every request in the window must have matched `next`. Then search code and
+   configuration for any other sender — repositories, CI, schedulers, database definitions,
+   provider dashboards, runbooks with example requests. State what the evidence cannot see: the log retention, any
    paging the tools needed, and whether the logs identify the caller at all
    ([proving no other caller](references/proving-no-other-caller.md)).
-   **Complete when:** the counts and the first and last seconds match exactly, the search terms and
-   places are recorded with what they found, and the caveats are written beside the result.
+   **Complete when:** the ids match one to one, or the counts and the first and last seconds match
+   exactly and the record calls that aggregate evidence; the search terms and places are recorded
+   with what they found; and the caveats are written beside the result.
 
 6. **Promote `NEXT` to `CURRENT`, and remove `NEXT`.** Set `CURRENT` from the same key file, on
    standard input, and delete `NEXT`. From this deploy on, the old key is refused.
@@ -209,13 +215,15 @@ Receiver, authenticated requests handled:  <n>   first 00:00:07   last 23:59:41
 Sender A, delivery records:                <a>   first 00:00:07   last 23:59:41
 Sender B, delivery records:                <b>   first 02:15:00   last 23:45:00
 Senders together: <a> + <b> = <n> — an exact match, with the same first and last second
+Delivery ids: <n> logged at the receiver, <n> recorded by the senders, matched one to one;
+  none unknown, none missing
 
 Search for other senders: "<header name>", "<setting name>", "<receiver path>" across the
   repositories, CI secrets, the scheduler, database function and trigger definitions, and the
   provider's webhook dashboard. Found: sender A and sender B, nothing else.
 Caveats: receiver logs are kept for 7 days, so a caller rarer than weekly would not appear. The log
   command returns at most 1,000 entries per call; the count was paged. The logs carry no caller
-  identity: the match is by count and time, not by name.
+  identity beyond the delivery id, so the match is by id and time, not by name.
 Decision: retire the old key.
 ```
 
@@ -246,9 +254,10 @@ the record says what the match cannot rule out.
   domain every time.
 - **Retiring on a code search alone.** Senders live in schedulers, dashboards, database definitions
   and scripts on someone's machine. A search finds what was written down in the places searched.
-- **Equal counts, different requests.** A lost delivery and an unknown caller in the same window
-  cancel out in a count. Matching the first and last second as well, and checking the slot where it
-  is logged, is what tells them apart.
+- **Equal counts, different requests.** A lost delivery and an unknown caller in the middle of the
+  window cancel out in a count, and the first and last seconds do not move. A per-request id matched
+  one to one tells them apart. Without one, the match is aggregate evidence, and the record says
+  so. The `current` slot catches any caller still on the old key either way.
 - **A window shorter than the slowest sender.** A weekly job is invisible in a daily window.
 - **Counting one page.** A log tool that returns a capped number of entries per call returns exactly
   the cap when there are more. A count equal to the cap is a reason to page, not a result.
@@ -274,8 +283,9 @@ the record says what the match cannot rule out.
       each delivered a request the receiver logged as matching `next`.
 - [ ] The reconciliation window started after the last sender moved and was longer than the slowest
       sender's cycle.
-- [ ] Receiver requests and sender delivery records matched exactly, in count and in first and last
-      second, with paging where the tools capped entries.
+- [ ] Receiver requests and sender delivery records matched exactly: one to one by delivery id,
+      or else in count and in first and last second, recorded as aggregate evidence — with paging
+      where the tools capped entries.
 - [ ] The search for other senders is recorded with its terms, its places and its result.
 - [ ] Log retention and the lack of caller identity, where it applies, are stated as caveats.
 - [ ] `NEXT` was promoted to `CURRENT` and then removed.
