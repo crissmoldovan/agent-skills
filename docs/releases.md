@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `codex-review-loop`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -103,6 +103,14 @@ template. It explains and changes nothing; an evidence-backed answer a developer
 `investigate-codebase`'s, and the documentation a repository keeps is `layer-repository-docs`'. It
 declares `## Bindings`, so a project can adapt it to its own learners and library
 ([project adaptation](project-adaptation.md)).
+
+`codex-review-loop` runs an independent reviewer over a pull request in rounds. It reads only the last
+review block, checks each finding against the code before acting, fixes everything above the lowest
+severity with a check watched failing under a deliberate break and restored from a byte copy, measures
+each finding's effect on published results, writes a review record per round, stops when only
+lowest-severity findings remain, splits the pull request when rounds keep finding new kinds of bug, and
+merges only the reviewed head with its required checks run on that commit. The examples use the Codex
+CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays `request-blocks-review`'s.
 
 ## Unreleased
 
