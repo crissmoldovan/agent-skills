@@ -134,6 +134,58 @@ single credential stays `secure-credential-setup`'s.
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+### Three disciplines for work that has to be believed: a model study, a review loop, a key rotation
+
+**What.** Three new skills.
+
+- `preregistered-model-study` runs a model or prompt comparison whose verdict a reader can check. Before
+  any paid call it commits a PLAN (the question as a decision, the arms, metrics with their predicates,
+  bars with a point rule and an interval rule, invention as a bar of its own, the sample size and why),
+  a FREEZE of every input by hash, and a dry run showing each arm's request differs from production's
+  only where intended. Every later change is a dated addendum committed before the calls it governs.
+  The spend is guarded in code: a research key refused if it equals production's, a hard cap enforced
+  by reserving each call's worst case before the call, a balance floor that latches for the process,
+  writes a STOP flag and blocks admissions during a balance read, one paying process under an exclusive
+  lock with safe stale-lock takeover, and the larger of list and reported cost per attempt. It proves
+  parity with production first, pins the serving provider, measures a noise floor and a layout-only
+  control, and interleaves arms per item. Three judges from three vendors see provenance-tagged
+  evidence and a source-only reading, and each is reported alone. A `reproduce.sh` and a checksum
+  manifest rebuild every number offline, and every gate is armed by mutation.
+- `codex-review-loop` runs an independent reviewer — `codex review --base origin/main` in its examples —
+  in rounds: in the background to a file, the last review block only, every finding checked against the
+  code, every fix above the lowest severity armed by a deliberate break restored from a byte copy, its
+  effect on published numbers measured, a review record per round, a stop rule, a split rule, and a
+  merge pinned with `--match-head-commit` to the head whose required checks ran.
+- `rotate-shared-secret` rotates a key services share with an overlap: a dual-key receiver where an
+  empty value never matches, a next key that is never printed, senders moved to a secret store, a
+  fixed-window reconciliation that must match exactly before the old key is retired, a check that the
+  live domain really moved after each redeploy, and three probes.
+
+**Why.** Each began as a hard-won practice on one team: a series of model comparisons whose first
+verdicts did not survive scrutiny, a review loop run for many rounds on the pull requests that fixed
+them, and a rotation of a key that had sat as a literal where it should not. What made each one work
+holds for any project, so they are published here, generalised, with every name and identifier taken
+out.
+
+**Impact.** The three are instructions; none installs anything or runs on its own. A model study
+spends money only through a guard the skill describes and the user builds, and refuses to start on a
+production key. The review loop merges only when asked, and only the reviewed head. The rotation never
+prints a key or its hash, and retires the old key only on the reconciliation's evidence.
+
+**Compatibility.** **Minor. No migration.** Three skills are added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. None declares `## Bindings`.
+
+**Who should update.**
+
+- **Anyone who compares models or prompts before changing what production runs, reviews pull requests
+  with an AI reviewer, or owns a key two services share:** install the one you need.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill preregistered-model-study codex-review-loop rotate-shared-secret
+  ```
+
+- **Everyone else:** nothing changes.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
