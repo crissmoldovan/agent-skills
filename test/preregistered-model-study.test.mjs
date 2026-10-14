@@ -276,3 +276,21 @@ test('a restart restores the study and every stage from the ledger, unsettled re
   assert.match(procedureSteps(skill)[2], /\*\*Restart from the ledger\.\*\*/);
   assert.ok(guardDoc.includes('| Restart |'), 'no restart drill');
 });
+
+// Blocks on #101 (severity 8): a thrown provider call skipped settlement and was never counted in
+// memory, so a harness that caught the error could admit the next call past the caps.
+test('a call that throws keeps its worst case reserved; nothing releases it but a person', () => {
+  const reserve = position('ledger.append(reserved row: c, s, w); flush');
+  const counted = position('reserved += w; stage_reserved[s] += w');
+  const attempt = position('try:');
+  const thrown = position('except any error:');
+  const unknown = position('ledger.append(unknown-outcome row: c, s); flush');
+  const reraise = position('raise');
+  const released = position('reserved -= w; stage_reserved[s] -= w');
+  const settled = position('ledger.append(settled rows: s, one per attempt); flush');
+  assert.ok(reserve < counted && counted < attempt, 'the reservation is not counted in memory before the call is sent');
+  assert.ok(thrown < unknown && unknown < reraise, 'a thrown call is not recorded as unknown-outcome');
+  assert.ok(reraise < settled && settled < released, 'the reservation is released before the call is settled');
+  assert.match(budget, /Its reservation stays counted at its worst case, in memory and through an unknown-outcome row in the ledger, and the guard never releases it/);
+  assert.ok(guardDoc.includes('| Thrown call |'), 'no drill for a thrown call');
+});

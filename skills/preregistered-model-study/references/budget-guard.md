@@ -90,8 +90,9 @@ at every admission:   spent + reserved + worst(call) <= cap
 for every call:       settled cost <= worst(call)
 ```
 
-Under this guard nothing is in flight at an admission, so `reserved` holds only reservations a
-crashed run left unsettled (part 6). A settled cost above its reservation means the bound was not a
+Under this guard nothing is in flight at an admission, so `reserved` holds only reservations whose
+outcome is unknown: a call that threw before it could be settled, or one a crashed run left
+unsettled (part 6). A settled cost above its reservation means the bound was not a
 bound: the guard latches and writes STOP, and the study stops until the bound is corrected in an
 addendum.
 
@@ -132,9 +133,16 @@ attempt, use the list cost; when it reports no usage for a failed attempt, charg
 `worst_attempt`. The ledger keeps one row per attempt, so the spend can be re-added from the raw
 rows and the total checked.
 
-The reservation row is appended and flushed **before** the call is sent, and the settled rows
-**after** it and before the next admission. The ledger on disk is then always at most one call
-behind the truth, and that one call is recorded as reserved.
+The reservation row is appended and flushed **before** the call is sent, and counted in memory, and
+the settled rows **after** it and before the next admission. The ledger on disk is then always at
+most one call behind the truth, and that one call is recorded as reserved.
+
+A call that throws — a network error, a timeout, a client library that gives up — may still have
+been billed, and nothing says how much. It is not settled, because there is no cost to settle it
+at. Its reservation stays counted at its worst case, in memory and through an unknown-outcome row in
+the ledger, and the guard never releases it. A person reconciles it against the provider's own
+record and writes the outcome into the ledger. A harness that catches the error and admits the next
+call therefore still has the unknown call's worst case standing against both caps.
 
 ### 6. A restart restores everything from the ledger
 
@@ -172,9 +180,15 @@ call(c):                                                         # one at a time
         if the read failed or balance - unseen_spend - w < floor:
             latched = true; write STOP flag with the reason;  refuse
     ledger.append(reserved row: c, s, w); flush                  # on disk before the call is sent
-    attempts = send c                                            # the only call in flight
+    reserved += w; stage_reserved[s] += w                        # counted in memory until it settles
+    try:
+        attempts = send c                                        # the only call in flight
+    except any error:                                            # the outcome is unknown: it may be billed
+        ledger.append(unknown-outcome row: c, s); flush          # the reservation stays counted, never released here
+        raise                                                    # a call whose bill is unknown is not settled
     actual = sum(max(list_cost(a), reported_cost(a)) for a in attempts)
     ledger.append(settled rows: s, one per attempt); flush       # on disk before the next admission
+    reserved -= w; stage_reserved[s] -= w
     spent += actual; stage_spent[s] += actual
     if actual > w:                                               # the bound was not a bound
         latched = true; write STOP flag with the reason
@@ -201,6 +215,7 @@ call and no real key:
 | Read failure | stub the balance read to fail | latches and refuses: an unreadable balance is a breach |
 | No balance endpoint | run with the floor marked unavailable; admit a call that fits the caps | admitted on the caps alone |
 | Settlement above the reservation | settle a call whose reported cost exceeds its reservation | latches, writes STOP, refuses the next admission |
+| Thrown call | make the send throw after the reservation row is written, catch it, and admit the next call | the thrown call's worst case still counts against the study and stage caps; nothing released it |
 | Restart | kill the process after a reservation row and before its settlement, then start another | the unsettled reservation counts at its worst case, for the study and its stage; settled totals are restored per stage |
 | STOP flag | create the flag by hand, then start the run | refuses until a person removes it |
 | Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
