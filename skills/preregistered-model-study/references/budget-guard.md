@@ -73,9 +73,13 @@ cost ever exceeds its reservation, the bound was not a bound. The guard then lat
 STOP exactly as it does at the floor, and the study stops until the bound is corrected in an
 addendum.
 
-Persist both halves. Write a `reserved` row to the ledger before the call and a `settled` row
-after it. On start-up, `spent` is the sum of the settled rows, and every reserved row with no
-settlement — a call that may have been billed when the process died — counts at its worst case.
+Persist both halves, with the stage on every row. Write a `reserved` row to the ledger before the
+call and a `settled` row after it. On start-up, and on every takeover, rebuild every total from the
+ledger, per stage as well as for the study: `spent` and each `stage_spent[s]` are the sums of the
+settled rows, and every reserved row with no settlement — a call that may have been billed when the
+process died — counts at its worst case in `reserved` and in its own stage's `stage_reserved[s]`.
+Restoring the study's total but not the stage's lets a stage spend past its cap after a restart.
+The new process has read no balance yet, so it admits nothing until a fresh read sets the headroom.
 
 ### 3. A balance floor that latches
 
@@ -175,7 +179,10 @@ condition variable does.
 acquire():                                      # once, before the first admission
     take the lock                               # kernel-released, exclusive create, or takeover
     my_gen = ledger.increment_generation()      # atomic; the new value is this owner's fencing token
-    reserved += every unsettled reservation of an older generation, at its worst case
+    spent = sum of settled rows; stage_spent[s] = sum of settled rows of stage s, for every s
+    for every reserved row r with no settlement, of any generation:
+        reserved += r.worst; stage_reserved[r.stage] += r.worst     # the study's total AND its stage's
+    last_read_at = never                        # no headroom until a fresh balance read
 
 admit(call):                                    # holds the admission lock; call.stage is its stage s
     while reads_in_flight > 0 or now - last_read_at > staleness_limit:
@@ -257,6 +264,7 @@ call and no real key:
 | Floor between reads | let a read leave a headroom smaller than one call's worst case, with the study cap far away; admit that call | refused: it fits the study cap but would cross the floor |
 | Stale read | let the last successful read age past the staleness limit; request an admission | the admission waits for a fresh read |
 | Stage cap | admit an output-parity call whose worst case fits the study cap but exceeds the parity stage's cap | refused |
+| Stage cap after restart | stop a process with parity reservations unsettled, start another, admit a parity call that fits only if those reservations were forgotten | refused: the restored reservations count against the parity stage |
 | Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
 | Unlisted unit | admit a call that can incur a unit the frozen price table does not list | refused at admission |
 | Stale takeover | leave a lock whose process no longer exists | it is taken over, once, by one contender |

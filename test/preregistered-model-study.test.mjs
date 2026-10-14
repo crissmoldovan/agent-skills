@@ -222,7 +222,7 @@ test('a takeover fences the old owner: a generation every admission and settleme
     return index;
   };
   at('my_gen = ledger.increment_generation()');
-  at('reserved += every unsettled reservation of an older generation, at its worst case');
+  at('reserved += r.worst; stage_reserved[r.stage] += r.worst');
   const fencedReserve = at('if not ledger.append_if_generation(my_gen, reserved row with s):');
   assert.ok(fencedReserve < at('reserved += w') && fencedReserve < at('return ticket'), 'the reservation is not fenced before the call is admitted');
   const fencedSettle = at('if not ledger.append_if_generation(my_gen, settled row, one per attempt):');
@@ -298,4 +298,17 @@ test('every admission respects the floor and its stage cap, not only the study c
     assert.ok(raw.includes(drill), `the failure drills have no ${drill.trim()} row`);
   }
   assert.match(procedureSteps(skill)[4], /the guard enforces that cap at every admission/);
+});
+
+// Blocks on #101 (severity 8): a restart or takeover restored reservations to the study's total only,
+// not to their stage, so a stage could spend past its own cap after recovery.
+test('a restart or takeover restores every total per stage as well as for the study', () => {
+  const raw = read('references/budget-guard.md');
+  const acquire = raw.slice(raw.indexOf('acquire():'), raw.indexOf('admit(call):'));
+  assert.match(acquire, /stage_spent\[s\] = sum of settled rows of stage s, for every s/);
+  assert.match(acquire, /reserved \+= r\.worst; stage_reserved\[r\.stage\] \+= r\.worst/);
+  assert.match(acquire, /last_read_at = never/);
+  assert.match(budget, /Persist both halves, with the stage on every row\./);
+  assert.match(budget, /Restoring the study's total but not the stage's lets a stage spend past its cap after a restart/);
+  assert.ok(raw.includes('| Stage cap after restart |'), 'no drill for a stage cap after a restart');
 });
