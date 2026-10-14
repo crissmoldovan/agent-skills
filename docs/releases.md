@@ -105,15 +105,16 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 ([project adaptation](project-adaptation.md)).
 
 `codex-review-loop` runs an independent reviewer over a pull request in rounds. Each round reviews a
-clean tree at the pushed sha and counts only on a zero exit and a non-empty final review block; it
-reads only that block, checks each finding against the code before acting, fixes everything above
-the lowest grade of the reviewer's declared scale with a check watched failing under a deliberate
-break and restored from a byte copy, measures each finding's effect on published results, and keeps
-a review record per round where it cannot move the head. It stops when only lowest-grade findings
-remain — deferring them, or fixing them and running one confirmation round — splits the pull
-request when rounds keep finding new kinds of bug, and merges through a gate that tests head, base,
-mergeability and required checks before it calls the merge, pinned to the reviewed head. The examples use the Codex
-CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays `request-blocks-review`'s.
+clean tree at the pushed sha and counts only on a zero exit and a non-empty final review, taken from
+the file the reviewer writes rather than cut from its log; it reads only that review, checks each
+finding against the code before acting, fixes everything above the lowest grade of the reviewer's
+declared scale with a check watched failing under a deliberate break and restored from a byte copy,
+measures each finding's effect on published results, and keeps a review record per round where it
+cannot move the head. It stops when only lowest-grade findings remain — deferring them, or fixing
+them and running one confirmation round — splits the pull request when rounds keep finding new kinds
+of bug, and merges through a gate that tests head, base, mergeability and required checks before it
+calls the merge, pinned to the reviewed head. The examples use the Codex CLI; the loop is
+reviewer-agnostic. The Blocks-hosted loop stays `request-blocks-review`'s.
 
 ## Unreleased
 
