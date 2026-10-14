@@ -95,20 +95,30 @@ Read the key from a header file so that it is not on the command line:
 
 ```bash
 { printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "$SCRATCH/probe.hdr"
+{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "$SCRATCH/old.hdr"
 curl -s -o /dev/null -w 'new key: %{http_code}\n'   -H @"$SCRATCH/probe.hdr"       -X POST "https://<receiver>/<probe-path>"
+curl -s -o /dev/null -w 'old key: %{http_code}\n'   -H @"$SCRATCH/old.hdr"         -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong'      -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'no key: %{http_code}\n'                                  -X POST "https://<receiver>/<probe-path>"
 ```
 
-Expected: the new key gets the probe's success code; the wrong key and no key get the receiver's
-refusal code. If you still hold the old key, probe with it as well: after the promotion it must be
-refused, and it is the most direct evidence that the retirement took. Record the status codes, not
-the response bodies, which may echo request headers.
+Expected: the new key gets the probe's success code; the old key, the wrong key and no key get the
+receiver's refusal code. The old-key probe is the only direct evidence that the retirement took:
+the settings can say the old key is gone while a stale replica, a region the redeploy has not
+reached, or a promotion that landed on part of the fleet still accepts it. So it is mandatory
+wherever it can be done safely. Keep the old key's private copy from before the promotion for it,
+and probe every replica or region that can be addressed on its own.
+
+When it cannot be done safely — no copy of the old key could be read from its store, or there is no
+probe without side effects — the retirement is **UNVERIFIED**. Record exactly that, with the reason.
+Never write "the old key is refused" on the strength of the settings alone.
+
+Record the status codes, not the response bodies, which may echo request headers.
 
 ## Cleaning up
 
 ```bash
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/probe.hdr"
+rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr"
 ls -A "$SCRATCH"
 ```
 

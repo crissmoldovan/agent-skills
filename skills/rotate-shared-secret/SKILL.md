@@ -1,6 +1,6 @@
 ---
 name: rotate-shared-secret
-description: "Rotate a secret that services share without downtime: the receiver accepts the current key or a next key, with an empty value never matching; the next key is generated into a 0600 file and never printed; every sender moves to a secret store and is verified delivering; the old key is retired only after the receiver's handled requests in a fixed window match the senders' own delivery records exactly and a search finds no other caller; then the receiver is redeployed, the live domain is confirmed to serve the new build, and probes show the new key passing and a wrong key and no key refused. Symptoms: rotate the webhook secret, the shared key may have leaked, the key is a literal in a trigger or config file, change the token without breaking anything, who else calls with this key, retire the old secret. Placing a single credential is secure-credential-setup's; a change crossing code, schema and jobs is land-complex-change's."
+description: "Rotate a secret that services share without downtime: the receiver accepts the current key or a next key, with an empty value never matching; the next key is generated into a 0600 file and never printed; every sender moves to a secret store and is verified delivering; the old key is retired only after the receiver's handled requests in a fixed window match the senders' own delivery records exactly and a search finds no other caller; then the receiver is redeployed, the live domain is confirmed to serve the new build, and probes show the new key passing and the old key, a wrong key and no key refused. Symptoms: rotate the webhook secret, the shared key may have leaked, the key is a literal in a trigger or config file, change the token without breaking anything, who else calls with this key, retire the old secret. Placing a single credential is secure-credential-setup's; a change crossing code, schema and jobs is land-complex-change's."
 license: MIT
 compatibility: "A receiver you can redeploy and whose live domain can be traced to a deployment; senders that can read a secret store; request logs on the receiver and delivery records on each sender covering one window. A shell with openssl, shasum and curl. Output is the new key in place on every side, the old key refused, a reconciliation record and a probe record. No key value or hash appears in any output."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
@@ -136,9 +136,12 @@ simpler — use this skill when it is not.
    exactly and the record calls that aggregate evidence; the search terms and places are recorded
    with what they found; and the caveats are written beside the result.
 
-6. **Promote `NEXT` to `CURRENT`, and remove `NEXT`.** Set `CURRENT` from the same key file, on
-   standard input, and delete `NEXT`. From this deploy on, the old key is refused.
-   **Complete when:** the receiver's settings hold the new key as `CURRENT` and no `NEXT`.
+6. **Promote `NEXT` to `CURRENT`, and remove `NEXT`.** First keep a private copy of the old key
+   for step 8: read it from its store into a 0600 file, the same way values travel everywhere else
+   here, never printed. Then set `CURRENT` from the next key's file, on standard input, and delete
+   `NEXT`. From this deploy on, the old key should be refused — step 8 is what shows that it is.
+   **Complete when:** the receiver's settings hold the new key as `CURRENT` and no `NEXT`, and the
+   old key is in a 0600 file for the probe, or the record says why no copy could be read.
 
 7. **Redeploy, and verify that the live domain moved.** A production redeploy can leave a custom
    domain pointing at the previous build, and until it moves, the old key still works there. Read
@@ -147,14 +150,20 @@ simpler — use this skill when it is not.
    **Complete when:** the live domain's deployment id is the new deployment's, read after the
    redeploy.
 
-8. **Probe the live domain: the new key passes, a wrong key and no key are refused.** Send the
-   harmless probe three times, with the key read from a header file rather than written on the
-   command line. Add the old key as a fourth probe if you still hold it.
-   **Complete when:** the record shows the new key accepted and the wrong key and the missing key
-   refused, each with its status code, against the live domain.
+8. **Probe the live domain: the new key passes; the old key, a wrong key and no key are refused.**
+   Send the harmless probe four times, with each key read from a header file rather than written on
+   the command line. The old-key probe is not optional. A stale replica, a region or instance the
+   redeploy has not reached, or a promotion that landed on part of the fleet still accepts the old
+   key, and nothing else shows it. Where the receiver runs as replicas or regions that can be
+   addressed one by one, probe each of them. Where the old key cannot be probed safely — no copy
+   could be read from its store, or no probe is free of side effects — record the retirement as
+   **UNVERIFIED**, with the reason, and do not write that the old key is refused.
+   **Complete when:** the record shows, against the live domain and each addressable replica, the
+   new key accepted and the old key, the wrong key and the missing key refused, each with its status
+   code — or the retirement recorded as UNVERIFIED with the reason the old-key probe could not run.
 
-9. **Delete every local copy, and record what happened.** Remove the key file, the header file and
-   any copy made for comparison, and confirm they are gone. Write the record: the dates, the
+9. **Delete every local copy, and record what happened.** Remove the next and old key files, the
+   header files and any copy made for comparison, and confirm they are gone. Write the record: the dates, the
    window, the counts, the search, the deployment ids, the probes and the caveats. No key value and
    no hash.
    **Complete when:** no copy of the key exists outside the secret stores, and the record is
@@ -189,14 +198,19 @@ ls -l "$SCRATCH/next.key"
 # Compare two copies without printing either one or its hash.
 [ "$(shasum -a 256 < "$SCRATCH/next.key")" = "$(shasum -a 256 < "$SCRATCH/next.copy")" ] && echo same || echo DIFFERENT
 
-# Probe the live domain with the new key, a wrong key and no key. The key travels in a header file.
+# Before promoting: keep a private copy of the old key for the old-key probe, read from its store.
+<platform-cli> secrets get SHARED_KEY > "$SCRATCH/old.key"
+
+# Probe the live domain with the new key, the old key, a wrong key and no key. Keys travel in header files.
 { printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "$SCRATCH/probe.hdr"
+{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "$SCRATCH/old.hdr"
 curl -s -o /dev/null -w 'new key: %{http_code}\n' -H @"$SCRATCH/probe.hdr" -X POST "https://<receiver>/<probe-path>"
+curl -s -o /dev/null -w 'old key: %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong' -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'no key: %{http_code}\n' -X POST "https://<receiver>/<probe-path>"
 
 # Remove every local copy, and check that none is left.
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/probe.hdr"
+rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr"
 ls -A "$SCRATCH"
 ```
 
@@ -263,6 +277,10 @@ the record says what the match cannot rule out.
   the cap when there are more. A count equal to the cap is a reason to page, not a result.
 - **A fallback to the old literal.** A sender that reads "the store, or else the old value" still
   holds the old value, and recovers to it when the store read fails.
+- **Retirement claimed without the old-key probe.** The settings say the old key is gone and the
+  probes for the new key pass, while one replica the redeploy did not reach still accepts the old
+  key. Only a probe with the old key itself, against every replica that can be addressed, shows it;
+  without one, the honest record is UNVERIFIED.
 - **`NEXT` left set after the promotion.** Two keys are then accepted indefinitely, and the second
   one is the key that was meant to be retired.
 
@@ -289,7 +307,9 @@ the record says what the match cannot rule out.
 - [ ] The search for other senders is recorded with its terms, its places and its result.
 - [ ] Log retention and the lack of caller identity, where it applies, are stated as caveats.
 - [ ] `NEXT` was promoted to `CURRENT` and then removed.
-- [ ] Against the live domain, the new key was accepted, and a wrong key and no key were refused.
+- [ ] Against the live domain and each replica that can be addressed alone, the new key was
+      accepted, and the old key, a wrong key and no key were refused — or the retirement is recorded
+      as UNVERIFIED, with the reason the old-key probe could not run safely.
 - [ ] Every local copy of the key was deleted, and the record holds no key value and no hash.
 
 ## Deeper reading

@@ -19,7 +19,7 @@ const PROCEDURE_ORDER = [
   /^5\. \*\*Prove no other caller exists before retiring the old key/,
   /^6\. \*\*Promote `NEXT` to `CURRENT`, and remove `NEXT`/,
   /^7\. \*\*Redeploy, and verify that the live domain moved/,
-  /^8\. \*\*Probe the live domain: the new key passes, a wrong key and no key are refused/,
+  /^8\. \*\*Probe the live domain: the new key passes; the old key, a wrong key and no key are refused/,
   /^9\. \*\*Delete every local copy, and record what happened/,
 ];
 
@@ -56,10 +56,10 @@ test('the key is never printed, never an argument, and copies are compared witho
   assert.match(bash, /openssl rand -hex 32 \| tr -d '\\n' > /);
   assert.match(bash, /&& echo same \|\| echo DIFFERENT/);
   // Every read of the key file goes into a file, never to the terminal or onto a command line.
-  for (const line of bash.split('\n').filter((text) => /cat "\$SCRATCH\/next\.key"/.test(text))) {
-    assert.match(line, /^\{ printf '[^']*'; cat "\$SCRATCH\/next\.key"; echo; \} > /, `the key reaches the terminal or a command line: ${line}`);
+  for (const line of bash.split('\n').filter((text) => /cat "\$SCRATCH\/(?:next|old)\.key"/.test(text))) {
+    assert.match(line, /^\{ printf '[^']*'; cat "\$SCRATCH\/(?:next|old)\.key"; echo; \} > /, `the key reaches the terminal or a command line: ${line}`);
   }
-  assert.doesNotMatch(bash, /\$\(cat [^)]*next\.key\)/, 'the key is substituted onto a command line');
+  assert.doesNotMatch(bash, /\$\(cat [^)]*(?:next|old)\.key\)/, 'a key is substituted onto a command line');
   assert.doesNotMatch(bash, /shasum[^|\n]*next\.key\s*$/m, 'a hash of the key is printed');
   assert.match(probe, /Moving the value: standard input or a file, never an argument/);
   assert.match(probe, /## The newline trap/);
@@ -117,16 +117,37 @@ test('the old key is retired only on an exact fixed-window match, a search, and 
   assert.match(reconcile, /Record the search terms/);
 });
 
-test('every redeploy is checked against the live domain, and the probes cover all three cases', () => {
+test('every redeploy is checked against the live domain, and the probes cover the new, old, wrong and missing key', () => {
   const steps = procedureSteps(skill);
   assert.match(steps[2], /read the deployment id the live domain serves and compare it with the one the redeploy produced; promote it if they differ/);
   assert.match(steps[6], /A production redeploy can leave a custom domain pointing at the previous build/);
   assert.match(steps[6], /the live domain's deployment id is the new deployment's, read after the redeploy/);
-  assert.match(steps[7], /the new key accepted and the wrong key and the missing key refused/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  for (const label of ['new key', 'wrong key', 'no key']) assert.ok(bash.includes(`-w '${label}: %{http_code}\\n'`), `no ${label} probe`);
+  for (const label of ['new key', 'old key', 'wrong key', 'no key']) assert.ok(bash.includes(`-w '${label}: %{http_code}\\n'`), `no ${label} probe`);
   assert.match(bash, /-H @"\$SCRATCH\/probe\.hdr"/, 'the probe key is not read from a header file');
   assert.match(probe, /Probe only after the live domain is confirmed to be on the new deployment/);
+});
+
+// Review round 2: the old-key probe was optional, so a stale replica or a partial promotion that
+// still accepts the old key could pass unseen while the record claimed the key was refused.
+test('the old key is probed wherever it safely can be, and otherwise the retirement is UNVERIFIED', () => {
+  const steps = procedureSteps(skill);
+  assert.match(steps[7], /The old-key probe is not optional\./);
+  assert.match(steps[7], /A stale replica, a region or instance the redeploy has not reached, or a promotion that landed on part of the fleet still accepts the old key/);
+  assert.match(steps[7], /probe each of them/);
+  assert.match(steps[7], /record the retirement as \*\*UNVERIFIED\*\*, with the reason, and do not write that the old key is refused/);
+  assert.match(steps[7], /the new key accepted and the old key, the wrong key and the missing key refused, each with its status code — or the retirement recorded as UNVERIFIED/);
+  assert.match(steps[5], /keep a private copy of the old key for step 8/);
+  assert.doesNotMatch(steps[5], /From this deploy on, the old key is refused\./, 'step 6 claims the refusal that only step 8 can show');
+  assert.doesNotMatch(skill, /if you still hold it/i, 'the old-key probe is optional again');
+  const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
+  assert.match(bash, /-w 'old key: %\{http_code\}\\n' -H @"\$SCRATCH\/old\.hdr"/);
+  assert.match(bash, /^rm -f [^\n]*"\$SCRATCH\/old\.key"[^\n]*"\$SCRATCH\/old\.hdr"/m);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /the new key was accepted, and the old key, a wrong key and no key were refused — or the retirement is recorded as UNVERIFIED/);
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /So it is mandatory wherever it can be done safely/);
+  assert.match(flatProbe, /the retirement is \*\*UNVERIFIED\*\*/);
+  assert.doesNotMatch(flatProbe, /If you still hold the old key/);
 });
 
 test('local copies are deleted and the record holds no key and no hash', () => {
