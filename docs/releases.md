@@ -107,14 +107,51 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 `rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
 current or a non-empty next key, a next key generated into a private file and never printed, senders
 moved to a secret store and verified delivering, a fixed-window reconciliation of the receiver's
-handled requests against the senders' own delivery records before the old key is retired, a check that
-the live domain serves the new build, and probes with the new key, a wrong key and no key. Placing a
-single credential stays `secure-credential-setup`'s.
+handled requests against the senders' own delivery records before the old key is retired — one to
+one by delivery id where there is one, and otherwise recorded as aggregate evidence — a check that
+the live domain serves the new build, and probes with the new key, the old key, a wrong key and no
+key, the old-key probe mandatory wherever it can be done safely and the retirement recorded as
+UNVERIFIED where it cannot. Placing a single credential stays `secure-credential-setup`'s.
 
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### A shared secret rotates without downtime, and its retirement is proven or marked unverified
+
+**What.** A new skill, `rotate-shared-secret`, rotates a key that services share — a webhook
+signing key, a service-to-service bearer key — with an overlap, so nothing fails while the senders
+move. The receiver accepts the current key or a next key, and an empty value never matches. The
+next key is generated into a 0600 file and never printed, and copies are compared by hash inside
+the shell with only the verdict printed. Every sender moves to a secret store; where that store is
+written with SQL, the value travels as a bound parameter after the server's parameter logging has
+been read, never inside the statement text. Before the old key is retired, the receiver's handled
+requests in a fixed window are reconciled against the senders' own delivery records: one to one by
+delivery id where the senders send one, and otherwise by count and first and last second, recorded
+as aggregate evidence. After every redeploy the live domain is checked against the new deployment,
+and probes show the new key accepted and the old key, a wrong key and no key refused. The old-key
+probe is mandatory wherever it can be done safely; where it cannot, the retirement is recorded as
+UNVERIFIED.
+
+**Why.** It generalises one team's rotation of a key that had sat as a literal where it should not,
+with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. It never prints a
+key or its hash, and retires the old key only on the reconciliation's evidence and the old-key probe.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`.
+
+**Who should update.**
+
+- **Anyone who owns a key two services share:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill rotate-shared-secret
+  ```
+
+- **Everyone else:** nothing changes.
 
 ## Release checklist
 
