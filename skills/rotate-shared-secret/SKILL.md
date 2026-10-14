@@ -112,6 +112,9 @@ simpler — use this skill when it is not.
    the `next` slot at the receiver. A key written as a literal in a definition — a trigger, a job, a
    configuration file — is readable by anyone who can read that definition, and changing it means
    redefining code; reading it from a store fixes both. Remove the literal and any fallback to it.
+   Where the store is written with SQL, the value travels as a bound parameter or through the
+   store's own interface, never inside the statement text, and the server's statement and parameter
+   logging are checked first ([deploy and probe](references/deploy-and-probe.md)).
    **Complete when:** every sender on the map has delivered at least one request that the receiver
    logged as matching `next`, and no sender still holds the old value anywhere.
 
@@ -229,6 +232,10 @@ the record says what the match cannot rule out.
 - **The key as an argument.** A command-line argument is visible in the process list and saved in
   shell history. A tool-call parameter is saved in the transcript. Values travel on standard input
   or in files.
+- **The key inside a SQL statement.** A client-side variable — `psql`'s `:'name'`, string formatting,
+  a template literal — is expanded into the statement before it is sent, so the server receives
+  and can log the literal value. Send it as a bound parameter, and check first whether the server
+  logs parameters too.
 - **A hash printed for comparison.** A hash is a stable fingerprint of the key in every place the
   output lands. Compare inside the shell and print only the verdict.
 - **A trailing newline on one side.** A key file written with a newline, fed to one store that
@@ -259,8 +266,9 @@ the record says what the match cannot rule out.
       failing with the empty-value rule broken.
 - [ ] The next key was generated into a 0600 file, with no trailing newline, and no output
       contained the key or its hash.
-- [ ] Every value reached every store on standard input or from a file, never as an argument or a
-      tool parameter.
+- [ ] Every value reached every store on standard input or from a file, never as an argument, a
+      tool parameter or part of a SQL statement's text; where SQL was the way in, the value was a
+      bound parameter and the server's parameter logging was read first.
 - [ ] After each redeploy, the live domain's deployment id was read and matched the new deployment.
 - [ ] Every sender reads the key from a secret store, with no literal and no fallback left, and
       each delivered a request the receiver logged as matching `next`.

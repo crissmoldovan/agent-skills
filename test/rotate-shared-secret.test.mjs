@@ -65,6 +65,27 @@ test('the key is never printed, never an argument, and copies are compared witho
   assert.match(probe, /## The newline trap/);
 });
 
+// Review round 1: psql's :'name' variables are expanded into the statement text on the client, so the
+// server receives, and can log, the literal value. No file of the skill may recommend building SQL
+// text around the value; the way in is a bound parameter, after checking parameter logging.
+test('the key never travels inside SQL text, and parameter logging is checked first', () => {
+  const files = [skill, receiver, read('references/proving-no-other-caller.md'), probe];
+  for (const text of files) {
+    assert.doesNotMatch(text, /\\set \w+ `cat/, 'a file recommends reading the key into a psql variable');
+    assert.doesNotMatch(text, /and then `:'\w+'`/, 'a file recommends interpolating a psql variable');
+  }
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /A client-side variable is not a separate channel\. The client expands it into the statement before sending it/);
+  assert.match(flatProbe, /\*\*A parameterised call, with the value as a bound parameter\.\*\*/);
+  assert.match(probe, /client\.query\('select <store>\.set_secret\(\$1, \$2\)', \['shared_key', value\]\)/);
+  assert.match(flatProbe, /\*\*Check what the server logs before you send it\.\*\*/);
+  assert.match(flatProbe, /unless `log_parameter_max_length` is 0/);
+  const fourth = procedureSteps(skill)[3];
+  assert.match(fourth, /the value travels as a bound parameter or through the store's own interface, never inside the statement text/);
+  assert.match(skill, /- \*\*The key inside a SQL statement\.\*\*/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /never as an argument, a tool parameter or part of a SQL statement's text/);
+});
+
 test('senders move to a secret store and are verified delivering on the next slot', () => {
   const fourth = procedureSteps(skill)[3];
   assert.match(fourth, /read it from the store instead of wherever it held the old one/);
