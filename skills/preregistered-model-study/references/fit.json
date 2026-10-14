@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "comparing models or prompts where the verdict will decide what production runs"
+}

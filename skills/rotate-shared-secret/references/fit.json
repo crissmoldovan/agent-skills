@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "requestOnly",
+  "useWhen": "rotating a key that services share, or retiring one that may have leaked or sits where it should not"
+}

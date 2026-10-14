@@ -8,7 +8,8 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `preregistered-model-study`,
+`codex-review-loop`, and `rotate-shared-secret`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -103,6 +104,30 @@ template. It explains and changes nothing; an evidence-backed answer a developer
 `investigate-codebase`'s, and the documentation a repository keeps is `layer-repository-docs`'. It
 declares `## Bindings`, so a project can adapt it to its own learners and library
 ([project adaptation](project-adaptation.md)).
+
+`preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
+plan, a hash freeze of every input and a dry run against production's own request before any paid call;
+puts every later change in a dated addendum committed before the calls it governs; enforces the spend
+in code with a research key refused if it is production's, a worst-case reservation per call, a balance
+floor that latches, one paying process and per-attempt costing; proves the harness reproduces
+production before measuring; judges with three vendors who see where each piece of evidence came from;
+reports quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest
+that rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
+
+`codex-review-loop` runs an independent reviewer over a pull request in rounds. It reads only the last
+review block, checks each finding against the code before acting, fixes everything above the lowest
+severity with a check watched failing under a deliberate break and restored from a byte copy, measures
+each finding's effect on published results, writes a review record per round, stops when only
+lowest-severity findings remain, splits the pull request when rounds keep finding new kinds of bug, and
+merges only the reviewed head with its required checks run on that commit. The examples use the Codex
+CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays `request-blocks-review`'s.
+
+`rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
+current or a non-empty next key, a next key generated into a private file and never printed, senders
+moved to a secret store and verified delivering, a fixed-window reconciliation of the receiver's
+handled requests against the senders' own delivery records before the old key is retired, a check that
+the live domain serves the new build, and probes with the new key, a wrong key and no key. Placing a
+single credential stays `secure-credential-setup`'s.
 
 ## Unreleased
 
