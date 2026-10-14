@@ -1,12 +1,12 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty-two public, portable Agent Skills for agent operations, reviews, releases
+  Thirty-three public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories,
   evidence-backed investigation of what a change would touch, sessions that
-  resume on their own after a usage limit, and plain-language lessons in how a
-  project works.
+  resume on their own after a usage limit, plain-language lessons in how a
+  project works, and secrets rotated without downtime.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -20,7 +20,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty-two skills. Each one below carries its own install command and a couple of
+Thirty-three skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -533,6 +533,22 @@ Ask it:
 
 More: [Skill](skills/coding-teacher/SKILL.md) · [Learner and comparisons](skills/coding-teacher/references/learner-and-comparisons.md) · [Sources](skills/coding-teacher/references/sources.md) · [Lesson pages](skills/coding-teacher/references/lesson-pages.md) · [Lesson-page template](skills/coding-teacher/assets/lesson-page.html) · [A learning library](skills/coding-teacher/references/learning-library.md)
 
+### `rotate-shared-secret`
+
+Rotate a secret that services share without downtime: the receiver accepts the current key or a next key, with an empty value never matching; the next key is generated into a 0600 file and never printed; every sender moves to a secret store and is verified delivering; the old key is retired only after the receiver's handled requests in a fixed window match the senders' own delivery records exactly and a search finds no other caller; then the receiver is redeployed, the live domain is confirmed to serve the new build, and probes show the new key passing and a wrong key and no key refused. Symptoms: rotate the webhook secret, the shared key may have leaked, the key is a literal in a trigger or config file, change the token without breaking anything, who else calls with this key, retire the old secret. Placing a single credential is secure-credential-setup's; a change crossing code, schema and jobs is land-complex-change's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill rotate-shared-secret
+```
+
+Ask it:
+
+- *"Use rotate-shared-secret: rotate the key the scheduler sends to the web app without downtime, and retire the old one only on evidence that nothing else still uses it."*
+- *"The webhook key is written as a literal in a database trigger definition. Move it into the database's secret store as part of a rotation, and tell me who else could be calling the endpoint with the old key."*
+- *"You redeployed the receiver. Before you probe anything, show me that the live domain is serving the new deployment and not the previous one."*
+
+More: [Skill](skills/rotate-shared-secret/SKILL.md) · [The dual-key receiver](skills/rotate-shared-secret/references/dual-key-receiver.md) · [Proving no other caller](skills/rotate-shared-secret/references/proving-no-other-caller.md) · [Deploy and probe](skills/rotate-shared-secret/references/deploy-and-probe.md)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -584,7 +600,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty-two public skills from crissmoldovan/agent-skills.
+Install or update the thirty-three public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -652,9 +668,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty-two, in the order they appear above:
+The thirty-three, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -976,6 +992,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/mine-session-transcripts/references/record-shapes.md`](skills/mine-session-transcripts/references/record-shapes.md) — the records an agent-session transcript holds, which of them are a person's words, and the harness versions each shape was observed on.
 - [`skills/resume-after-limit/references/evidence.md`](skills/resume-after-limit/references/evidence.md) — the usage-limit record, the live-session files and the inbox socket, each tagged observed, documented or not yet observed.
 - [`skills/coding-teacher/references/lesson-pages.md`](skills/coding-teacher/references/lesson-pages.md) — how an illustrated lesson page is planned and built: one question per component, the big picture, the glossary, and motion that respects reduced motion; the [template](skills/coding-teacher/assets/lesson-page.html) is a working page to start from.
+- [`skills/rotate-shared-secret/references/proving-no-other-caller.md`](skills/rotate-shared-secret/references/proving-no-other-caller.md) — the fixed-window reconciliation that retires an old key, where else senders hide, and what log retention and tooling limits leave unseen.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.

@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `rotate-shared-secret`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -103,6 +103,13 @@ template. It explains and changes nothing; an evidence-backed answer a developer
 `investigate-codebase`'s, and the documentation a repository keeps is `layer-repository-docs`'. It
 declares `## Bindings`, so a project can adapt it to its own learners and library
 ([project adaptation](project-adaptation.md)).
+
+`rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
+current or a non-empty next key, a next key generated into a private file and never printed, senders
+moved to a secret store and verified delivering, a fixed-window reconciliation of the receiver's
+handled requests against the senders' own delivery records before the old key is retired, a check that
+the live domain serves the new build, and probes with the new key, a wrong key and no key. Placing a
+single credential stays `secure-credential-setup`'s.
 
 ## Unreleased
 
