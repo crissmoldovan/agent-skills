@@ -94,8 +94,8 @@ skill says so and proposes a split, and the person who owns the work decides.
 2. **Start the reviewer in the background, writing to a file.** A review can take many minutes, and
    output read live from a terminal arrives interleaved and half-finished. For example:
    `codex exec review --base origin/main -o "$REVIEW_LOGS/round-<n>.final.txt" > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`,
-   with the final-review file removed first and no round number reused, so nothing from an earlier
-   round stands in for this one. The log directory is an absolute path, checked to lie outside the
+   with the final-review file removed first and each round number reserved once, atomically, so
+   nothing from an earlier or a concurrent round stands in for this one. The log directory is an absolute path, checked to lie outside the
    reviewed tree and the checkout: a relative path would land the final review in the tree under
    review, and a log in the checkout gets committed and quoted by a later round. Wait for the
    process to exit before reading anything, and keep its exit status: a reviewer that exited
@@ -219,6 +219,9 @@ skill says so and proposes a split, and the person who owns the work decides.
     5. It targets the branch it should, not a base that merged and is gone, and it is mergeable.
     6. Every required check completed and passed on that exact commit: a zero exit, a non-empty
        list, every one passed. No checks is not a pass, and a conflicting pull request gets none.
+    7. If the diff adds or changes a file the reviewer takes instructions from — its project
+       instruction files, such as `AGENTS.md` for Codex — the pull request configured its own review:
+       a person has read those changes and recorded that in the round's record, or it does not merge.
 
     Then merge with the head pinned, so that a push in between fails the merge instead of merging
     unreviewed code: `gh pr merge <n> --merge --match-head-commit <reviewed sha>`.
@@ -283,9 +286,9 @@ terminal_round() {  # terminal_round <n>
   [ -z "$other" ] || { echo "NOT TERMINAL: round $1 grades findings other than the lowest, P3:" $other; return 1; }
 }
 
-# A round number is never reused. Review exactly the pushed bytes, in a fresh detached worktree, never
-# the checkout, whose ignored files `git status --porcelain` hides; it goes however the script exits.
-if ls "$REVIEW_LOGS/round-$ROUND".* >/dev/null 2>&1; then echo "REFUSE: round $ROUND has run before; review as a new round"; exit 1; fi
+# A round number is reserved atomically, by mkdir, and never reused. Review exactly the pushed bytes in a
+# fresh detached worktree, never the checkout, whose ignored files `git status --porcelain` hides.
+mkdir -p "$REVIEW_LOGS" && mkdir "$REVIEW_LOGS/round-$ROUND.lock" 2>/dev/null || { echo "REFUSE: round $ROUND is taken: it ran, or is running; review as a new round"; exit 1; }
 git fetch origin
 sha=$(git rev-parse '@{upstream}'); base=$(git rev-parse origin/main)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/review-tree.XXXXXX"); tree="$scratch/tree"
@@ -392,10 +395,6 @@ earlier round is stated where the reader will see it.
 - **A record committed with the fixes it names.** A file cannot carry the sha of the commit that
   adds it, and a record committed after the last round is itself an unreviewed head. Records go
   on the pull request, or in a commit after the fixes that the next round then reviews.
-- **No checks taken for passing checks.** A pull request in conflict with its base gets no
-  pull-request runs at all. An empty checks list looks like a quiet queue, not a failure.
-- **Merging into a dead base.** A stacked pull request whose base branch already merged and was
-  deleted can still report "merged" — into a branch that goes nowhere. Retarget it first.
 - **Editing an earlier round's record.** A record quietly corrected in place makes every other
   record untrustworthy. Corrections go forward, stated as corrections.
 
@@ -438,7 +437,8 @@ earlier round is stated where the reader will see it.
 - [ ] The merge ran by hand after every line of step 14's checklist held: the reviewed head, not
       reviewed before by a round that did not end the loop; a complete disposition per finding, or
       the review recorded clean; the recorded base still the branch's tip; the intended branch,
-      mergeable; and a non-empty, all-passed list of required checks from a zero-exit call.
+      mergeable; a non-empty, all-passed list of required checks from a zero-exit call; and any
+      change to the reviewer's instruction files read by a person and recorded.
 - [ ] The merge used `--match-head-commit`.
 
 ## Deeper reading

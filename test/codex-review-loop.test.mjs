@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -273,7 +273,7 @@ gh() { echo "gh $*" >> ${JSON.stringify(ghCalls)}; }`;
   writeFileSync(script, `${stubs}\n${exampleBash}\n`);
   const cwdFile = join(logs, 'codex-cwd');
   return {
-    sha, baseSha, git, work, logs, tmp: realpathSync(tmp),
+    sha, baseSha, git, work, logs, script, tmp: realpathSync(tmp),
     review(mode = 'p3', ROUND = '1') {
       rmSync(cwdFile, { force: true });
       const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, ROUND, TMPDIR: tmp, CODEX_MODE: mode } });
@@ -332,6 +332,8 @@ test("the merge is a person's checklist: every line is there, and no runnable me
     [4, /4\. The base branch's live tip \(`git ls-remote origin refs\/heads\/<base>`\) is the base the round recorded \(`round-<n>\.base`\)\. If it moved, review again/],
     [5, /5\. It targets the branch it should, not a base that merged and is gone, and it is mergeable\./],
     [6, /6\. Every required check completed and passed on that exact commit: a zero exit, a non-empty list, every one passed\. No checks is not a pass/],
+    // Codex round 7 on #100 [P1]: a pull request that edits the reviewer's own instructions configures its review.
+    [7, /7\. If the diff adds or changes a file the reviewer takes instructions from — its project instruction files, such as `AGENTS\.md` for Codex — the pull request configured its own review: a person has read those changes and recorded that in the round's record, or it does not merge\./],
     ['the merge', /Then merge with the head pinned, so that a push in between fails the merge instead of merging unreviewed code: `gh pr merge <n> --merge --match-head-commit <reviewed sha>`\./],
   ]) assert.match(checklist, pattern, `the checklist lost line ${line}`);
   assert.match(procedureSteps(skill)[11], /The records go in the round's dispositions file, one complete line per finding, which the merge checklist reads/);
@@ -353,9 +355,11 @@ test("the merge is a person's checklist: every line is there, and no runnable me
     '## 4. The base has not moved since the review',
     '## 5. It lands on the branch it should, and it is mergeable',
     '## 6. Every required check ran and passed on that exact commit',
+    '## 7. Nothing in the diff told the reviewer what to say',
   ]);
+  assert.match(merge, /a Codex session's own record of a review opens with `AGENTS\.md instructions for <the directory it ran in>`/);
   assert.match(merge, /gh pr merge <pr> --merge --match-head-commit <reviewed sha>/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The merge ran by hand after every line of step 14's checklist held/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The merge ran by hand after every line of step 14's checklist held: .* and any change to the reviewer's instruction files read by a person and recorded/);
   assert.match(flat, /\*\*A scripted merge gate\.\*\* Three rounds running found a new way for one to merge what nobody reviewed/);
   assert.match(flat, /fix a head graded above the lowest; do not review it again until a run grades it lower/);
 });
@@ -373,14 +377,41 @@ test('a round number is never reused, and nothing is pinned until the review suc
   writeFileSync(join(repo.work, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\nprintf "TOKEN=generated\\n" > generated.env\n', { mode: 0o755 });
   const again = repo.review();
   assert.notEqual(again.status, 0, 'a round number ran twice');
-  assert.match(again.out, /REFUSE: round 1 has run before; review as a new round/);
+  assert.match(again.out, /REFUSE: round 1 is taken: it ran, or is running; review as a new round/);
   assert.deepEqual(['head', 'base', 'final.txt', 'dispositions'].map((file) => readFileSync(join(repo.logs, `round-1.${file}`), 'utf8')), before, 'a refused rerun changed the round it refused');
 
   // A new round whose setup fails before the review pins nothing, so no checklist can rest on it.
   const failed = repo.review('p3', '2');
   assert.match(failed.out, /REFUSE: the review tree is not exactly/);
-  assert.deepEqual(readdirSync(repo.logs).filter((file) => file.startsWith('round-2.')), [], 'a round that never reviewed left a pin or a file');
-  assert.match(procedureSteps(skill)[1], /no round number reused, so nothing from an earlier round stands in for this one/);
+  assert.deepEqual(readdirSync(repo.logs).filter((file) => file.startsWith('round-2.')), ['round-2.lock'], 'a round that never reviewed left a pin, or did not keep its number');
+  assert.match(procedureSteps(skill)[1], /each round number reserved once, atomically, so nothing from an earlier or a concurrent round stands in for this one/);
+});
+
+// Codex round 7 on #100 [P1]: the round-number check was an ls, so two sessions starting the same
+// round both passed it and wrote one round's log, final review and pins over the other's.
+test('two sessions that start the same round at once: exactly one gets it', async () => {
+  const repo = exampleRepo();
+  const start = () => new Promise((resolve) => {
+    const child = spawn('bash', [repo.script], { cwd: repo.work, env: { PATH: process.env.PATH, REVIEW_LOGS: repo.logs, ROUND: '1', TMPDIR: repo.tmp, CODEX_MODE: 'p3' } });
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { out += chunk; });
+    child.on('close', (status) => resolve({ status, out }));
+  });
+  const runs = await Promise.all([start(), start()]);
+  assert.equal(runs.filter((run) => run.status === 0).length, 1, `both sessions ran round 1:\n${runs.map((run) => run.out).join('\n---\n')}`);
+  assert.ok(runs.some((run) => /REFUSE: round 1 is taken: it ran, or is running; review as a new round/.test(run.out)), 'the second session was not refused by the reservation');
+  assert.match(exampleBash, /^mkdir -p "\$REVIEW_LOGS" && mkdir "\$REVIEW_LOGS\/round-\$ROUND\.lock" 2>\/dev\/null \|\| \{/m);
+  assert.doesNotMatch(exampleBash, /\bls "\$REVIEW_LOGS/, 'the round number is checked by a listing again, which two sessions can both pass');
+});
+
+// Codex round 7 on #100 [P2]: the post-merge check compared whole files with the reviewed head, which
+// a correct merge fails whenever the base changed one of the same files on another line.
+test('after the merge, what landed is checked by parentage, not by comparing files', () => {
+  const after = read('references/merge-preconditions.md').slice(read('references/merge-preconditions.md').indexOf('## After the merge'));
+  assert.match(after, /\[ "\$\(git rev-parse "\$merge\^2"\)" = "<reviewed sha>" \]/);
+  assert.doesNotMatch(after, /git diff --stat <reviewed-sha> origin\/<base>/, 'the whole-file comparison is back');
+  assert.match(after.replace(/\s+/g, ' '), /a correct merge carries both changes and that comparison reports a difference/);
 });
 
 // Codex round 5 on #100 [P2]: the review runs in a temporary worktree, so a REVIEW_LOGS inside the

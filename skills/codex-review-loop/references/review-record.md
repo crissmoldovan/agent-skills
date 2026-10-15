@@ -69,8 +69,9 @@ The skill's `review_round` does all of this, refuses a log directory inside the 
 and removes the final review of a round that failed, so no later step can read one.
 
 A failed round is recorded as failed, with the reason, and run again as a new round. It never stops
-the loop. A round number is never reused: the review step refuses one that has run before, so a final
-review or dispositions left by an earlier run can never be read against a later head.
+the loop. A round number is never reused: the review step reserves it atomically and refuses one
+that is taken, by a run that finished or one still going, so a final review or dispositions left by
+an earlier run can never be read against a later head.
 
 ## Another reviewer
 
@@ -142,8 +143,9 @@ A finding with no line blocks the merge; so does a line with any disposition but
 own confirmation round. Each line is read whole: it starts with the finding, a deferral names
 both its reason and `tracked in <where>`, and a rejection carries its evidence. A bare
 `deferred: cosmetic` or an empty `rejected:` blocks the merge as a missing line does. The review
-step refuses a round number that has run before and pins the round only once its review succeeded,
-so neither dispositions nor a final review from an earlier run stand in for this one.
+step reserves each round number atomically, refuses one that is taken, and pins the round only once
+its review succeeded, so neither dispositions nor a final review from an earlier run stand in for
+this one.
 
 A final review that grades no finding at all is not clean on its face. A clean Codex review is
 plain prose — its overall verdict, with no grade and no fixed wording (seen in a Codex session's own

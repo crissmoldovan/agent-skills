@@ -115,7 +115,17 @@ gh api "repos/<owner>/<repo>/commits/<sha>/check-runs" \
 A required check that is missing has not passed; it has not run. A check that ran on an earlier
 head says nothing about this one.
 
-## Then merge by hand, with the head pinned
+## 7. Nothing in the diff told the reviewer what to say
+
+A reviewer reads project instruction files from the tree it runs in — for Codex, `AGENTS.md`; a Codex
+session's own record of a review opens with `AGENTS.md instructions for <the directory it ran in>`.
+The round runs in a worktree at the pull request's head, so a pull request that adds or edits such a
+file hands the reviewer instructions nobody has reviewed: one line can tell it to grade everything
+P3. A round over such a diff is not independent until a person has read those changes and recorded
+that in the round's record.
+
+```bash
+git diff --name-only <recorded base>...<reviewed sha> | grep -E '(^|/)AGENTS(\.override)?\.md
 
 ```bash
 gh pr merge <pr> --merge --match-head-commit <reviewed sha>
@@ -127,13 +137,16 @@ at that moment. Use the repository's merge method; the checklist and the pin are
 
 ## After the merge
 
-Fetch the base and confirm that what landed is what was reviewed: the files the
-pull request changed should be identical on the base and at the reviewed head:
+Confirm that what landed is what was reviewed: with `--merge`, the merge commit's second parent is
+the reviewed head.
 
 ```bash
 git fetch origin
-git diff --stat <reviewed-sha> origin/<base> -- <the paths the pull request changed>
+merge=$(gh pr view <pr> --json mergeCommit --jq .mergeCommit.oid)
+[ "$(git rev-parse "$merge^2")" = "<reviewed sha>" ] && echo "merged the reviewed head"
 ```
 
-An empty diff is the answer. A non-empty one means the base moved those files too, or the merge did
-not carry what was reviewed, and either deserves a look before anyone is told it shipped.
+Do not compare the merged files with the reviewed head's. When the base changed one of the same
+files on another line, a correct merge carries both changes and that comparison reports a
+difference. A squash or rebase merge has no second parent; check those by the pull request's own
+record of the commit it merged.
