@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, and `codex-review-loop`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, and `preregistered-model-study`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -128,6 +128,22 @@ the required checks passed; then `gh pr merge --match-head-commit` pins the revi
 examples use the Codex CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays
 `request-blocks-review`'s.
 
+`preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
+plan, a hash freeze of every input and of every executable, configuration and runtime that can change
+a request, a spend or a verdict, and a dry run that proves request parity with production offline,
+all pushed before the study's first paid call; runs output parity as the first paid stage, under its own pre-registered
+cap; puts every later change in a dated addendum committed before the calls it governs, or records
+one found after them as a dated correction; and enforces the spend in code with a single-threaded
+guard — one research account, one paying process holding an operating-system lock, calls one at a
+time — that refuses production's account or any other paid credential, reserves every billable unit of each call at a
+ceiling price against the study and stage caps, reads the balance before every admission and latches
+the floor, settles each call before the next and latches on a settlement above its reservation, and
+on restart re-derives every total and invariant from its ledger. Concurrency is out of scope, and the cap is hard only under the
+single-process rule. It estimates the control's disagreement with itself as an A/A distribution rather
+than one draw; judges with three vendors who see where each piece of evidence came from; reports
+quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest that
+rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
@@ -209,6 +225,60 @@ step, package, gate or adapter changes. It does not declare `## Bindings`.
 
   ```bash
   npx skills add crissmoldovan/agent-skills --skill codex-review-loop
+  ```
+
+- **Everyone else:** nothing changes.
+
+### A model comparison whose verdict a reader can check
+
+**What.** A new skill, `preregistered-model-study`, runs a model or prompt comparison so that its
+verdict can be checked by someone who was not there. Before the study's first paid call it commits,
+and pushes to the study's pull request, a PLAN — the question as a decision, the arms, metrics with
+their predicates, bars with a point rule and an interval rule, invention as a bar of its own, the
+sample size and why — a FREEZE, taken once the spend guard is built and armed, that hashes every
+input and every executable, configuration and runtime that can change a request, a spend or a
+verdict, and a dry run, built offline, that proves request parity with production and shows each arm
+differs from it only where intended. The data is classified first: the study uses only data that
+every recipient, each candidate provider and each judge vendor, is approved to receive, and every
+artefact that carries it is kept where its class allows. Output parity is the first paid stage, with
+its own pre-registered pass rule and cap, and every later change is a dated addendum committed
+before the calls it governs, or, when found after them, a dated correction, never backdated. The
+spend is guarded in code by a single-threaded guard — one research account for every paid call, one
+paying process holding an operating-system lock, calls one at a time — that refuses production's
+account (compared by the provider's account identity, or the billing account the plan records), any
+other paid credential and a client library that retries on its own; reserves every billable unit of
+each call — tokens, per-request fees, images, audio, hosted search, tool invocations — at a ceiling
+price, for every attempt, against the study's cap and the call's stage cap; reads the balance before
+every admission and latches the floor, failing closed when a read fails, or records the floor as
+unavailable where the provider has none; settles each call before the next at the larger of list and
+reported cost per attempt, latching on a settlement above its reservation and closing that ledger;
+and on restart re-derives every total and invariant from its ledger. Concurrency is out of scope.
+The control's disagreement with itself is estimated as an A/A distribution with its interval, never
+read off one pair of runs. Three judges from three vendors, on the same account, give one verdict
+per normalised answer, reused by every arm that gave it; they see provenance-tagged evidence and a
+source-only reading, and each is reported alone. Quality, harm and cost are reported beside the
+bars, because passing a bar is not being better. A `reproduce.sh`, which checks every frozen file
+against the freeze itself before the manifest and runs under the frozen runtime and dependency lock,
+and a checksum manifest rebuild every number offline, and every gate is armed by mutation.
+
+**Why.** It generalises a series of model comparisons on one team whose first verdicts did not
+survive scrutiny, with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. A study spends
+money only through a guard the skill describes and the user builds, and refuses to start on a
+production account.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`. It names
+`codex-review-loop` as the owner of each study pull request's review round, so it lands after that
+skill.
+
+**Who should update.**
+
+- **Anyone who compares models or prompts before changing what production runs:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill preregistered-model-study
   ```
 
 - **Everyone else:** nothing changes.

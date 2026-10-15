@@ -1,13 +1,13 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty-four public, portable Agent Skills for agent operations, reviews, releases
+  Thirty-five public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories,
   evidence-backed investigation of what a change would touch, sessions that
   resume on their own after a usage limit, plain-language lessons in how a
-  project works, secrets rotated without downtime, and independent review loops that end on a
-  reviewed head.
+  project works, secrets rotated without downtime, independent review loops that end on a
+  reviewed head, and model comparisons whose verdicts can be trusted.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -21,7 +21,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty-four skills. Each one below carries its own install command and a couple of
+Thirty-five skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -566,6 +566,22 @@ Ask it:
 
 More: [Skill](skills/codex-review-loop/SKILL.md) · [The review record](skills/codex-review-loop/references/review-record.md) · [Arming a fix](skills/codex-review-loop/references/arming-a-fix.md) · [Merge preconditions](skills/codex-review-loop/references/merge-preconditions.md)
 
+### `preregistered-model-study`
+
+Run a model or prompt comparison whose verdict can be trusted: before any paid call, commit the plan, a freeze of every input by hash, and a dry run proving each arm differs from production only where intended; put every later change in a dated addendum committed before the calls it governs, or record it as a dated correction if found after them; cap the spend in code; prove the harness reproduces production before measuring; judge with three vendors who can see where each piece of evidence came from; and ship a reproduce script and checksum manifest that rebuild every number offline. Symptoms: compare these models, is the cheaper model good enough, bake-off, A/B this prompt, run an eval before we switch, can we trust this benchmark, the study overspent, the judge rewarded an answer that made things up. Which model runs everyday work is model-routing's; the review round on each study pull request is codex-review-loop's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill preregistered-model-study
+```
+
+Ask it:
+
+- *"Use preregistered-model-study: before we switch to the cheaper model, commit the plan, the freeze and a dry run before spending anything, and cap the spend in code."*
+- *"Prove the harness sends what production sends before we measure anything. Show me one real item's request from production and from the control arm, diffed, with the serving provider pinned on both."*
+- *"The last comparison's judge preferred the answer that made things up. Rerun the judging with three vendors, tag which fields the model wrote or guessed, give each judge a source-only reading too, and report every judge on its own as well as the majority."*
+
+More: [Skill](skills/preregistered-model-study/SKILL.md) · [Study files](skills/preregistered-model-study/references/study-files.md) · [The budget guard](skills/preregistered-model-study/references/budget-guard.md) · [Parity and controls](skills/preregistered-model-study/references/parity-and-controls.md) · [Judging and metrics](skills/preregistered-model-study/references/judging-and-metrics.md)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -617,7 +633,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty-four public skills from crissmoldovan/agent-skills.
+Install or update the thirty-five public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -685,9 +701,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty-four, in the order they appear above:
+The thirty-five, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -1011,6 +1027,7 @@ Installing it is the user's standing consent, and `--remove` is how it is withdr
 - [`skills/coding-teacher/references/lesson-pages.md`](skills/coding-teacher/references/lesson-pages.md) — how an illustrated lesson page is planned and built: one question per component, the big picture, the glossary, and motion that respects reduced motion; the [template](skills/coding-teacher/assets/lesson-page.html) is a working page to start from.
 - [`skills/rotate-shared-secret/references/proving-no-other-caller.md`](skills/rotate-shared-secret/references/proving-no-other-caller.md) — the fixed-window reconciliation that retires an old key, where else senders hide, and what log retention and tooling limits leave unseen.
 - [`skills/codex-review-loop/references/review-record.md`](skills/codex-review-loop/references/review-record.md) — extracting a reviewer's final block, the record each review round leaves, its dispositions, and how a finding's effect is measured.
+- [`skills/preregistered-model-study/references/budget-guard.md`](skills/preregistered-model-study/references/budget-guard.md) — the spend guard a paid model study runs behind: a research key refused if it is production's, a cap enforced by reserving an upper bound on each call's billable cost, a balance floor that latches, one paying process, and per-attempt costing.
 - [`docs/architecture.md`](docs/architecture.md) — catalogue architecture.
 - [`docs/releases.md`](docs/releases.md) — release process and versioning.
 - [`docs/public-content-policy.md`](docs/public-content-policy.md) — public/private boundary.
