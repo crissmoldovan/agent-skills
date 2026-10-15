@@ -65,8 +65,8 @@ wait $! || echo "ROUND FAILED: the reviewer exited non-zero"
 grep -q '[^[:space:]]' "$final" 2>/dev/null || echo "ROUND FAILED: no final review was written"
 ```
 
-The skill's `review_round` does all of this and also refuses a log directory inside the tree under
-review.
+The skill's `review_round` does all of this, refuses a log directory inside the tree under review,
+and removes the final review of a round that failed, so no later step can read one.
 
 A failed round is recorded as failed, with the reason, and run again. It never stops the loop.
 
@@ -121,6 +121,30 @@ in order to know how far to trust the reviewer.
   input that behaves correctly. A rejection without evidence is a disagreement, not a disposition.
 - **duplicate** — the same defect as an earlier finding, perhaps worded differently or graded
   differently. Name the earlier one and its state.
+
+## The dispositions file
+
+The merge step does not take the record's word for it; it reads the dispositions of the round it
+merges from a file beside that round's final review, `round-<n>.dispositions` in the log directory,
+written after the findings were read and verified. One line per graded finding of the final review:
+the finding's first line exactly as the reviewer wrote it, less a leading `- `, then ` => `, then
+its disposition.
+
+```text
+[P3] Log line misspells an arm label — src/report.py:41-41 => deferred: cosmetic, tracked in #212
+[P3] Retry delay is not jittered — src/fetch.py:88-90 => rejected: jitter is applied in the caller, src/client.py:17
+```
+
+A finding with no line blocks the merge; so does a line with any disposition but `deferred` or
+`rejected`, because a finding fixed in the stop round makes a new head, which merges only after its
+own confirmation round. The review step removes the file when a round starts, so dispositions
+written for an earlier run never stand in for this one.
+
+A final review that grades no finding at all is not clean on its face. A clean Codex review is
+plain prose — its overall verdict, with no grade and no fixed wording (seen in a Codex session's own
+record of a clean review) — and so is a reviewer's error message, or a half-written reply. Only the
+person who read it can tell them apart, so the merge step refuses such a round as failed unless the
+file says so in a line of its own, `clean: <the reviewer's verdict, quoted>`.
 
 ## Measuring an effect
 

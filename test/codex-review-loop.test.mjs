@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -142,7 +142,8 @@ function exampleFunction(name) {
 function runBash(script) {
   const dir = removeOnExit(mkdtempSync(join(tmpdir(), 'review-loop-')));
   const file = join(dir, 'run.sh');
-  writeFileSync(file, `REVIEW_LOGS=${JSON.stringify(dir)}\n${exampleFunction('review_round')}\n${exampleFunction('merge_if_ready')}\n${script}\n`);
+  const functions = ['review_round', 'terminal_round', 'recorded_round', 'merge_if_ready'].map(exampleFunction).join('\n');
+  writeFileSync(file, `REVIEW_LOGS=${JSON.stringify(dir)}\n${functions}\n${script}\n`);
   const run = spawnSync('bash', [file], { encoding: 'utf8' });
   return { status: run.status, out: run.stdout + run.stderr };
 }
@@ -183,23 +184,28 @@ review_round 1 .`);
 });
 
 test('the merge recipe is a gate: gh pr merge runs only when every predicate holds', () => {
-  const gh = (state, checks, checksStatus = 0) => `gh() { case "$1 $2" in
+  // The base branch's live tip comes from the remote; this stub plays the remote.
+  const gh = (state, checks, checksStatus = 0, tip = 'b4se') => `gh() { case "$1 $2" in
     "pr view") echo "${state}";;
     "pr checks") echo "${checks}"; return ${checksStatus};;
     "pr merge") echo "MERGED $*";;
-  esac; }`;
-  const attempt = (stubs) => runBash(`${stubs}\nmerge_if_ready 7 abc main`);
+  esac; }
+git() { [ "$1 $2 $3" = "ls-remote origin refs/heads/main" ] && printf '%s\\trefs/heads/main\\n' '${tip}'; }`;
+  const attempt = (stubs, base = 'b4se') => runBash(`${stubs}\nmerge_if_ready 7 abc main ${base}`);
   const ready = attempt(gh('abc main MERGEABLE', 'true'));
   assert.equal(ready.status, 0, ready.out);
   assert.match(ready.out, /MERGED pr merge 7 --squash --match-head-commit abc/);
-  for (const [why, stubs] of [
+  for (const [why, stubs, base] of [
     ['the head moved', gh('def main MERGEABLE', 'true')],
     ['the base differs', gh('abc develop MERGEABLE', 'true')],
     ['it is not mergeable', gh('abc main CONFLICTING', 'true')],
     ['a required check did not pass', gh('abc main MERGEABLE', 'false')],
     ['no required checks are declared', gh('abc main MERGEABLE', 'no required checks reported', 1)],
+    // Codex round 4 on #100: the gate read the base's name, never the sha the review diffed against.
+    ['the base branch moved after the review', gh('abc main MERGEABLE', 'true', 0, 'm0ved')],
+    ['no base was recorded', gh('abc main MERGEABLE', 'true', 0, ''), "''"],
   ]) {
-    const run = attempt(stubs);
+    const run = attempt(stubs, base);
     assert.notEqual(run.status, 0, `the gate let a merge through when ${why}`);
     assert.doesNotMatch(run.out, /MERGED/, `gh pr merge ran when ${why}`);
     assert.match(run.out, /REFUSE/, `the gate did not say why it refused when ${why}`);
@@ -215,15 +221,6 @@ test("the threshold comes from the reviewer's declared scale: Codex grades P0 to
   assert.doesNotMatch(skill, /P0 to P2 scale|only P2s/);
   assert.match(section(skill, 'Usage Examples').replace(/\s+/g, ' '), /Fix every P0, P1 and P2 with a check you have watched fail.*only P3s/);
   assert.match(section(skill, 'What it looks like'), /^\[P3\] A log line misspells an arm label$/m);
-});
-
-test('each round reviews a clean tree at the pushed sha, or a fresh worktree checked out there', () => {
-  const first = procedureSteps(skill)[0];
-  assert.match(first, /`git status --porcelain` is empty and `HEAD` is the pushed head; otherwise the round runs in a fresh worktree checked out at the recorded sha/);
-  assert.match(exampleBash, /\[ -z "\$\(git status --porcelain\)" \] && \[ "\$sha" = "\$\(git rev-parse '@\{upstream\}'\)" \]/);
-  assert.match(exampleBash, /git worktree add --detach "\$tree" "\$sha"/);
-  assert.match(exampleBash, /^review_round "\$ROUND" "\$tree"/m);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Each round reviewed a tree whose `git status --porcelain` was empty at that sha/);
 });
 
 // Blocks on #100 (severity 7): the -o path was taken relative to the reviewed tree, so a relative
@@ -261,72 +258,203 @@ test('the final review and the log stay outside the reviewed tree, a detached wo
 });
 
 // Codex round 1 on #100. The whole example block is run, end to end, against a real git origin and
-// clone, a stub reviewer, and a stub gh that reports a merge instead of making one.
-function runExample({ mode, dirty = false, breakFetch = false }) {
+// clone, a stub reviewer, and a stub gh that reports a merge instead of making one. Codex round 4 on
+// #100 split it into STEP=review and STEP=merge, with the findings' dispositions written between.
+const FINDING = '[P3] A small thing — file.txt:1-1';
+const REVIEWS = {
+  p3: ['The change is mostly sound.', '', 'Full review comments:', '', `- ${FINDING}`, '  A detail.'],
+  p3x2: ['Two small things.', '', 'Full review comments:', '', `- ${FINDING}`, '  A detail.', '- [P3] Another small thing — file.txt:1-1', '  Another detail.'],
+  p1: ['A defect.', '', 'Full review comments:', '', '- [P1] A real defect — file.txt:1-1', '  It breaks.'],
+  p4: ['Out of scale.', '', 'Full review comments:', '', `- ${FINDING}`, '- [P4] A grade outside the scale — file.txt:1-1'],
+  prose: ['The change is correct and the tests cover it.'],
+  garbled: ['Error: stream disconnected before completion'],
+};
+function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false } = {}) {
   const base = removeOnExit(mkdtempSync(join(tmpdir(), 'review-e2e-')));
   const origin = join(base, 'origin.git');
   const work = join(base, 'work');
   const logs = join(base, 'logs');
   const tmp = join(base, 'tmp');
   mkdirSync(tmp);
-  const git = (...args) => execFileSync('git', args, { cwd: work, stdio: 'pipe', encoding: 'utf8' }).trim();
+  const git = (...args) => execFileSync('git', ['-c', 'user.email=reviewer@example.com', '-c', 'user.name=reviewer', ...args], { cwd: work, stdio: 'pipe', encoding: 'utf8' }).trim();
   execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'pipe' });
   execFileSync('git', ['clone', '-q', origin, work], { stdio: 'pipe' });
   writeFileSync(join(work, 'file.txt'), 'x\n');
-  git('add', 'file.txt');
-  git('-c', 'user.email=reviewer@example.com', '-c', 'user.name=reviewer', 'commit', '-qm', 'base');
-  git('push', '-q', '-u', 'origin', 'HEAD');
+  writeFileSync(join(work, '.gitignore'), 'generated.env\n');
+  git('add', '.');
+  git('commit', '-qm', 'base');
+  git('push', '-q', 'origin', 'HEAD:refs/heads/main');
+  git('checkout', '-q', '-b', 'feature');
+  writeFileSync(join(work, 'file.txt'), 'y\n');
+  git('commit', '-qam', 'change');
+  git('push', '-q', '-u', 'origin', 'feature');
   const sha = git('rev-parse', 'HEAD');
+  const baseSha = git('rev-parse', 'origin/main');
+  if (ignored) writeFileSync(join(work, 'generated.env'), 'TOKEN=generated\n');
   if (dirty) writeFileSync(join(work, 'untracked.txt'), 'not committed\n');
+  if (hook) writeFileSync(join(work, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\nprintf "TOKEN=generated\\n" > generated.env\n', { mode: 0o755 });
   if (breakFetch) git('remote', 'set-url', 'origin', join(base, 'no-such-origin.git'));
+  const reviews = Object.entries(REVIEWS).map(([mode, lines]) => `${mode}) printf '%s\\n' ${lines.map((line) => `'${line}'`).join(' ')} > "$out";;`).join('\n    ');
   const stubs = `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done
-  pwd -P > "$REVIEW_LOGS/codex-cwd"
-  case "$CODEX_MODE" in clean) printf '[P3] A small thing\\n' > "$out";; p1) printf '[P1] A real defect\\n' > "$out";; p4) printf '[P3] A small thing\\n[P4] A grade outside the scale\\n' > "$out";; crash) return 1;; esac; }
+  pwd -P > "$REVIEW_LOGS/codex-cwd"; ls -a > "$REVIEW_LOGS/codex-ls"
+  case "$CODEX_MODE" in
+    ${reviews}
+    crash) printf 'partial\\n' > "$out"; return 1;;
+  esac; }
 gh() { case "$1 $2" in "pr view") echo "$(cat "$REVIEW_LOGS/round-$ROUND.head") main MERGEABLE";; "pr checks") echo true;; "pr merge") echo "MERGED $*";; esac; }`;
   const script = join(base, 'run.sh');
   writeFileSync(script, `${stubs}\n${exampleBash}\n`);
-  const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, PR: '7', ROUND: '1', TMPDIR: tmp, CODEX_MODE: mode } });
   const cwdFile = join(logs, 'codex-cwd');
-  return { status: run.status, out: run.stdout + run.stderr, sha, tmp: realpathSync(tmp), reviewedIn: existsSync(cwdFile) ? readFileSync(cwdFile, 'utf8').trim() : null };
+  return {
+    sha, baseSha, git, tmp: realpathSync(tmp),
+    step(STEP, mode = 'p3') {
+      rmSync(cwdFile, { force: true });
+      const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, PR: '7', ROUND: '1', TMPDIR: tmp, CODEX_MODE: mode, STEP } });
+      return {
+        status: run.status, out: run.stdout + run.stderr,
+        reviewedIn: existsSync(cwdFile) ? readFileSync(cwdFile, 'utf8').trim() : null,
+        reviewerSaw: existsSync(join(logs, 'codex-ls')) ? readFileSync(join(logs, 'codex-ls'), 'utf8') : '',
+      };
+    },
+    record(lines) { mkdirSync(logs, { recursive: true }); writeFileSync(join(logs, 'round-1.dispositions'), `${lines.join('\n')}\n`); },
+    left: () => ({ temp: readdirSync(tmp), worktrees: git('worktree', 'list', '--porcelain').split('\n').filter((line) => line.startsWith('worktree ')).length }),
+  };
 }
 
-test('the example fails fast, and merges only after a terminal round on the reviewed head', () => {
-  const clean = runExample({ mode: 'clean' });
-  assert.equal(clean.status, 0, clean.out);
-  assert.match(clean.out, new RegExp(`MERGED pr merge 7 --squash --match-head-commit ${clean.sha}`));
+test('the example fails fast, and merges only a terminal round whose findings are recorded', () => {
+  const repo = exampleRepo();
+  const review = repo.step('review');
+  assert.equal(review.status, 0, review.out);
+  assert.doesNotMatch(review.out, /MERGED/, 'the review step merged');
+  assert.match(review.out, /Round 1 is terminal: record a disposition for each finding/);
+  repo.record([`${FINDING} => deferred: cosmetic, tracked in #1`]);
+  const merged = repo.step('merge');
+  assert.equal(merged.status, 0, merged.out);
+  assert.match(merged.out, new RegExp(`MERGED pr merge 7 --squash --match-head-commit ${repo.sha}`));
+  assert.deepEqual(repo.left(), { temp: [], worktrees: 1 }, 'the merge step allocated a temporary directory or a worktree');
 
-  const open = runExample({ mode: 'p1' });
-  assert.notEqual(open.status, 0, 'a round with a P1 left merged');
-  assert.doesNotMatch(open.out, /MERGED/);
-  assert.match(open.out, /NOT TERMINAL/);
+  for (const [mode, refusal] of [
+    ['p1', /NOT TERMINAL/],
+    // Blocks on #100 (severity 8): a grade outside the declared scale was read as terminal and merged.
+    ['p4', /NOT TERMINAL: round 1 grades findings other than the lowest, P3: \[P4\]/],
+    ['crash', /ROUND 1 FAILED/],
+  ]) {
+    const open = exampleRepo();
+    const round = open.step('review', mode);
+    assert.notEqual(round.status, 0, `a ${mode} round passed its review step`);
+    assert.match(round.out, refusal);
+    // Even with every finding recorded, and a reader's "clean", the merge step re-reads the round.
+    open.record([`${FINDING} => deferred: cosmetic, tracked in #1`, '- [P1] A real defect — file.txt:1-1 => deferred: no', 'clean: the reviewer said so']);
+    const merge = open.step('merge', mode);
+    assert.notEqual(merge.status, 0, `a ${mode} round merged`);
+    assert.doesNotMatch(merge.out, /MERGED/);
+    assert.match(merge.out, /NOT TERMINAL/, `the merge step did not re-read the ${mode} round`);
+  }
 
-  // Blocks on #100 (severity 8): a grade outside the declared scale was read as terminal and merged.
-  const outside = runExample({ mode: 'p4' });
-  assert.notEqual(outside.status, 0, 'a round with a grade outside the scale merged');
-  assert.doesNotMatch(outside.out, /MERGED/);
-  assert.match(outside.out, /NOT TERMINAL: round 1 grades findings other than the lowest, P3: \[P4\]/);
-
-  const crash = runExample({ mode: 'crash' });
-  assert.notEqual(crash.status, 0, 'a failed round merged');
-  assert.doesNotMatch(crash.out, /MERGED/);
-  assert.match(crash.out, /ROUND 1 FAILED/);
-
-  const noFetch = runExample({ mode: 'clean', breakFetch: true });
+  const noFetch = exampleRepo({ breakFetch: true }).step('review');
   assert.notEqual(noFetch.status, 0, 'a failed fetch did not stop the recipe');
   assert.equal(noFetch.reviewedIn, null, 'the reviewer ran after the fetch failed');
-  assert.doesNotMatch(noFetch.out, /MERGED/);
 
   assert.match(exampleBash, /^set -euo pipefail$/m);
-  assert.match(exampleBash, /^terminal_round "\$ROUND"/m);
+  assert.match(exampleBash, /^ {4}terminal_round "\$ROUND" {10}# so does a round with P0-P2 findings left$/m);
 });
 
-test('a dirty tree is reviewed in an allocated, absolute REVIEW_TREE outside the repository', () => {
-  const dirty = runExample({ mode: 'clean', dirty: true });
-  assert.equal(dirty.status, 0, dirty.out);
-  assert.ok(dirty.reviewedIn && dirty.reviewedIn.startsWith(dirty.tmp) && dirty.reviewedIn.endsWith('/tree'),
-    `the dirty tree was reviewed in ${dirty.reviewedIn}, not in a fresh tree under the allocated temporary directory`);
-  assert.match(exampleBash, /^: "\$\{REVIEW_TREE:=\$\(mktemp -d "\$\{TMPDIR:-\/tmp\}\/review-tree\.XXXXXX"\)\/tree\}"$/m);
-  assert.match(exampleBash, /case "\$REVIEW_TREE" in \/\*\) ;; \*\) echo "REFUSE: REVIEW_TREE must be an absolute path"; exit 1;; esac/);
+// Codex round 4 on #100 [P1]: a P3-only round merged in the same run that reviewed it, before
+// anyone read, verified or recorded its findings.
+test('a lowest-grade round never merges until every one of its findings has a disposition', () => {
+  const repo = exampleRepo();
+  const second = '[P3] Another small thing — file.txt:1-1';
+  repo.record([`${FINDING} => deferred: left from an earlier run, tracked in #1`, `${second} => deferred: also stale, tracked in #2`]);
+  assert.equal(repo.step('review', 'p3x2').status, 0);
+  const stale = repo.step('merge', 'p3x2');
+  assert.match(stale.out, /NOT RECORDED: round 1 has no dispositions file/, 'dispositions from before the round stood in for it');
+  for (const [why, lines, missing] of [
+    ['one finding has no line', [`${FINDING} => deferred: cosmetic, tracked in #1`], second],
+    ['a finding is marked fixed in the stop round', [`${FINDING} => deferred: cosmetic, tracked in #1`, `${second} => fixed in abc123`], second],
+    ['a line names the finding loosely', ['[P3] A small thing => rejected: it is fine', `${second} => rejected: handled in the caller`], FINDING],
+  ]) {
+    repo.record(lines);
+    const run = repo.step('merge', 'p3x2');
+    assert.notEqual(run.status, 0, `it merged when ${why}`);
+    assert.doesNotMatch(run.out, /MERGED/, `gh pr merge ran when ${why}`);
+    assert.ok(run.out.includes(`NOT RECORDED: round 1 has no disposition for: ${missing}`), `it did not name the unrecorded finding when ${why}:\n${run.out}`);
+  }
+  repo.record([`${FINDING} => deferred: cosmetic, tracked in #1`, `${second} => rejected: handled in the caller, file.txt:1`]);
+  const merged = repo.step('merge', 'p3x2');
+  assert.equal(merged.status, 0, merged.out);
+  assert.match(merged.out, /MERGED/);
+  assert.match(procedureSteps(skill)[11], /The merge step reads those records: one line per finding in the round's dispositions file, and it refuses while any finding has none/);
+  assert.match(read('references/review-record.md'), /^## The dispositions file$/m);
+});
+
+// Codex round 4 on #100 [P1]: a non-empty review with no grade in it passed as a clean round. A clean
+// Codex review is prose with no grade, so only a reader can tell it from an error message.
+test('a review that grades nothing is a failed round unless a reader recorded it clean', () => {
+  const garbled = exampleRepo();
+  assert.equal(garbled.step('review', 'garbled').status, 0);
+  const unread = garbled.step('merge', 'garbled');
+  assert.match(unread.out, /NOT RECORDED/);
+  garbled.record(['# nothing to record']);
+  const failed = garbled.step('merge', 'garbled');
+  assert.notEqual(failed.status, 0, 'a review that grades nothing merged with no reader calling it clean');
+  assert.doesNotMatch(failed.out, /MERGED/);
+  assert.match(failed.out, /ROUND 1 FAILED: its final review grades no finding, and no reader recorded it clean/);
+
+  const prose = exampleRepo();
+  assert.equal(prose.step('review', 'prose').status, 0);
+  prose.record(['clean: "The change is correct and the tests cover it."']);
+  const merged = prose.step('merge', 'prose');
+  assert.equal(merged.status, 0, merged.out);
+  assert.match(merged.out, /MERGED/);
+  assert.match(procedureSteps(skill)[2], /a clean Codex review is plain prose, with no grade and no fixed wording, so a person reads it and records it clean, or the round failed/);
+});
+
+// Codex round 4 on #100 [P1]: the gate checked the base's name, so a base that advanced after the
+// review still merged. It now compares the branch's live tip with the base the round recorded.
+test('the merge refuses a base that moved after the review', () => {
+  const repo = exampleRepo();
+  assert.equal(repo.step('review').status, 0);
+  repo.record([`${FINDING} => deferred: cosmetic, tracked in #1`]);
+  const moved = repo.git('commit-tree', 'origin/main^{tree}', '-p', 'origin/main', '-m', 'the base moves on');
+  repo.git('push', '-q', 'origin', `${moved}:refs/heads/main`);
+  const run = repo.step('merge');
+  assert.notEqual(run.status, 0, 'a base that moved after the review merged');
+  assert.doesNotMatch(run.out, /MERGED/);
+  assert.ok(run.out.includes(`REFUSE: main is at ${moved}, not ${repo.baseSha}, the base the review diffed against`), run.out);
+  assert.match(read('references/merge-preconditions.md'), /^## 3\. The base has not moved since the review$/m);
+  assert.match(merge, /`baseRefOid` is the base as of the head's last push, not the branch's tip/);
+});
+
+// Codex round 4 on #100 [P2] x2: a checkout holding only ignored files was reviewed in place, and
+// every round left a temporary directory, and a dirty one a registered worktree, behind.
+test('every round reviews a fresh worktree at the pushed sha, and leaves nothing behind', () => {
+  for (const [why, options, mode] of [
+    ['a clean checkout', {}, 'p3'],
+    ['a checkout holding only ignored files', { ignored: true }, 'p3'],
+    ['a dirty checkout', { dirty: true }, 'p3'],
+    ['a round that is not terminal', {}, 'p1'],
+    ['a round that failed', {}, 'crash'],
+  ]) {
+    const repo = exampleRepo(options);
+    const run = repo.step('review', mode);
+    assert.ok(run.reviewedIn && run.reviewedIn.startsWith(repo.tmp) && run.reviewedIn.endsWith('/tree'),
+      `${why} was reviewed in ${run.reviewedIn}, not a fresh worktree`);
+    assert.doesNotMatch(run.reviewerSaw, /generated\.env|untracked\.txt/, `the reviewer read a file that is not the commit, in ${why}`);
+    assert.deepEqual(repo.left(), { temp: [], worktrees: 1 }, `${why} left a temporary directory or a worktree behind`);
+  }
+  // A worktree that holds more than the commit — here a hook writes into it — is refused, not reviewed.
+  const hooked = exampleRepo({ hook: true });
+  const refused = hooked.step('review');
+  assert.notEqual(refused.status, 0, 'a review tree holding a file that is not the commit was reviewed');
+  assert.equal(refused.reviewedIn, null);
+  assert.match(refused.out, /REFUSE: the review tree is not exactly/);
+  assert.deepEqual(hooked.left(), { temp: [], worktrees: 1 }, 'a refused round left a temporary directory or a worktree behind');
+
+  assert.match(procedureSteps(skill)[0], /every round runs in a fresh worktree checked out at the recorded sha \(`git worktree add --detach <path> <sha>`\), never in the checkout\. `git status --porcelain` does not list ignored files/);
+  assert.doesNotMatch(exampleBash, /tree=\.|REVIEW_TREE/);
+  assert.match(exampleBash, /git worktree add --detach "\$tree" "\$sha"/);
+  assert.match(exampleBash, /^ {4}review_round "\$ROUND" "\$tree"/m);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Each round reviewed a fresh worktree at that sha whose `git status --porcelain --ignored` was empty — never the checkout — and the worktree and its directory were removed after/);
 });
 
 test('nothing above the lowest grade is deferred; an owner override blocks the stop and the merge', () => {

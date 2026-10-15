@@ -16,7 +16,7 @@ is unreviewed code, and either gets its own round or does not merge.
 ## 2. The base is the branch it should land in
 
 ```bash
-gh pr view <pr> --json baseRefName,baseRefOid
+gh pr view <pr> --json baseRefName
 ```
 
 A stacked pull request targets another feature branch. When that branch merges and is deleted, the
@@ -26,7 +26,28 @@ checks run on the new merge, and review the new diff, which may now conflict or 
 did not before. Verify that it landed by content — the merged files on the base match the reviewed
 ones — and not by a count of commits.
 
-## 3. It is mergeable
+## 3. The base has not moved since the review
+
+The reviewer diffed the head against one commit of the base. If the base branch advances after the
+review, the merge lands on code the reviewer never saw, and nothing about the head says so: it still
+matches, it can still read `MERGEABLE`, and in a repository that does not require branches to be up
+to date its checks stay green. So the round records the base sha it reviewed against — the tip of
+`origin/main` right after its fetch — and the gate compares it with the branch's tip now:
+
+```bash
+git ls-remote origin refs/heads/<base> | cut -f1   # must equal the base sha the round recorded
+```
+
+Do not read it from the pull request. `baseRefOid` is the base as of the head's last push, not the
+branch's tip, measured: an open pull request reported a `baseRefOid` 17 commits behind its base
+branch, while it read `MERGEABLE` and GitHub's own test merge was built on the branch's real tip. A
+gate that compares `baseRefOid` with the recorded base passes after the base has moved.
+
+A base that moved means review again, on a fresh round, not merge. Nothing pins the base at the
+merge the way `--match-head-commit` pins the head, so the check leaves the seconds between it and
+the merge open; a branch rule that requires branches to be up to date before merging closes them.
+
+## 4. It is mergeable
 
 ```bash
 gh pr view <pr> --json mergeable,mergeStateStatus
@@ -38,7 +59,7 @@ all** — no queued run, no failure, nothing. It looks exactly like a slow or br
 pull request gets no runs while others do, read `mergeable` before anything else; `CONFLICTING`
 is the answer more often than an outage is.
 
-## 4. Every required check ran and passed on that exact commit
+## 5. Every required check ran and passed on that exact commit
 
 The required checks pass this gate only as a zero exit, a non-empty list, and every check passed.
 How the GitHub CLI reports them, measured rather than assumed:
@@ -73,17 +94,26 @@ gh api "repos/<owner>/<repo>/commits/<sha>/check-runs" \
 A required check that is missing has not passed; it has not run. A check that ran on an earlier
 head says nothing about this one.
 
-## 5. Merge only through the gate, with the head pinned
+## 6. Merge only through the gate, with the head pinned
 
 Every predicate above is a test whose failure refuses the merge. Commands that print the state and
 are followed by a merge are not a gate — they merge whatever they printed.
 
+The gate runs in a step of its own, never in the run that made the review. Between the two, every
+finding of the round is read, verified and given a disposition, and the gate checks that each one
+has its line ([the review record](review-record.md#the-dispositions-file)). A recipe that merges as
+soon as a round comes back terminal merges findings nobody read, and passes a garbled review with no
+grade in it as a clean one.
+
 ```bash
-merge_if_ready() {  # merge_if_ready <pr> <reviewed-sha> <base>
-  local state ok
+merge_if_ready() {  # merge_if_ready <pr> <reviewed-head> <base-branch> <reviewed-base-sha>
+  local state tip ok
   state=$(gh pr view "$1" --json headRefOid,baseRefName,mergeable \
     --jq '[.headRefOid, .baseRefName, .mergeable] | join(" ")') || return 1
   [ "$state" = "$2 $3 MERGEABLE" ] || { echo "REFUSE: head, base or mergeability differs: $state"; return 1; }
+  tip=$(git ls-remote origin "refs/heads/$3" | cut -f1) || return 1
+  [ -n "$4" ] && [ "$tip" = "$4" ] \
+    || { echo "REFUSE: $3 is at ${tip:-nothing}, not $4, the base the review diffed against: review again"; return 1; }
   ok=$(gh pr checks "$1" --required --json bucket --jq 'length > 0 and all(.[]; .bucket == "pass")') \
     || { echo "REFUSE: no required checks reported, or gh failed"; return 1; }
   [ "$ok" = true ] || { echo "REFUSE: a required check has not passed"; return 1; }
