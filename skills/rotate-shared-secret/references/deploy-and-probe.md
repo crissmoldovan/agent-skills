@@ -18,67 +18,30 @@ Three channels leak, and none of them announces it:
   saved in shell history.
 - **A tool-call parameter** — handing the value to an agent tool that runs a query or sets a
   setting — is saved in the session transcript.
-- **The value inside SQL text** is sent to the server as part of the statement, where the
-  statement log can keep it, and the client's history keeps it too. That includes every way of
-  building the text on the client: typing the value, string formatting, a template literal, and
-  client-side variables such as `psql`'s `:'name'`. A client-side variable is not a separate
-  channel. The client expands it into the statement before sending it, so the server receives the
-  literal value exactly as if it had been typed.
+- **The value sent through SQL** reaches whatever on that connection records statements or
+  parameters, and the client's history keeps it too. That includes every way of sending it: typing
+  it into the statement, string formatting, a template literal, client-side variables such as
+  `psql`'s `:'name'`, and a bound parameter. A client-side variable is not a separate channel. The
+  client expands it into the statement before sending it, so the server receives the literal value
+  exactly as if it had been typed.
 
 Where a store cannot take a value except as an argument, place it by hand through the store's own
 interface, as `secure-credential-setup` describes, and record that it was done that way.
 
 ## When the store is inside a database
 
-A database's own secret store is usually written with SQL, which is where the value most easily
-ends up in a log. In order of preference:
+A database's own secret store is usually written with SQL, and SQL is where a value most easily
+ends up in a log. A bound parameter keeps it out of the statement text but not out of every record:
+the server's statement and parameter logging, an audit or plan-logging extension, a pooler or proxy
+in between, a driver's debug log or an APM agent's query capture in the client. Each has its own
+switch, or none, and showing that every one is off is rarely possible. So **the key does not go in
+through SQL at all** — not in the statement text, not through a client-side variable, not as a
+bound parameter.
 
-1. **The store's own interface, reading from standard input or a file.** A command-line tool or API
-   that takes the value as data and builds no SQL from it on your side.
-2. **A parameterised call, with the value as a bound parameter.** The statement text holds only a
-   placeholder; the client library sends the value separately, as data, through the protocol's
-   parameter channel. The program reads the value from the key file itself, so it never appears on
-   a command line either:
-
-   ```js
-   // The statement text holds only $1 and $2; the value travels as a bound parameter.
-   const value = readFileSync(process.env.KEY_FILE, 'utf8');
-   await client.query('select <store>.set_secret($1, $2)', ['shared_key', value]);
-   ```
-
-3. **Check, and switch off, what the server logs before you send it.** A bound parameter keeps the
-   value out of the statement text, but not necessarily out of the log. Some servers log parameter
-   values alongside a statement they log, and again when the statement fails. PostgreSQL, for one,
-   has three switches that matter: statement logging (`log_statement`,
-   `log_min_duration_statement`); `log_parameter_max_length`, which writes bound parameters beside
-   every logged statement and by default writes them in full; and
-   `log_parameter_max_length_on_error`, which writes them when the statement fails. Before placing
-   the value, in the session that will send it, read all of them, switch them off where you are
-   allowed to, and read them again:
-
-   ```sql
-   SET log_statement = 'none';
-   SET log_min_duration_statement = -1;
-   SET log_parameter_max_length = 0;
-   SET log_parameter_max_length_on_error = 0;
-   SHOW log_statement; SHOW log_min_duration_statement;
-   SHOW log_parameter_max_length; SHOW log_parameter_max_length_on_error;
-   ```
-
-   Changing them may need elevated rights. If any of them cannot be switched off for that session,
-   do not send the value this way: use the store's own interface, or place it by hand.
-
-   These are the server's own switches, and the server is not the only recorder. Anything else on
-   that connection that writes down bound parameters keeps the value just as well — for example an
-   audit or plan-logging extension on the server, a pooler or proxy in between, or a driver's debug
-   log or an APM agent's query capture in the client — and each has its own switch, or none. So the
-   rule is not "these settings are off". It is: **send the value over SQL only when you can show
-   that nothing on that connection records bound parameters.** Where you cannot show it — a layer
-   you cannot inspect, a setting you cannot read or change — use the store's own interface, or
-   place it by hand. Record what you read before and after, layer by layer.
-
-Never interpolate the value into the statement and rely on the log being off: the log is one
-reader, and the client's history, a proxy and a slow-query report are others.
+It goes in through the store's own interface: a command-line tool or API that takes the value as
+data, from standard input or a file, and builds no SQL from it on your side. Where the store has no
+such interface, place it by hand through the store's console, as `secure-credential-setup`
+describes, and record that it was done that way.
 
 ## The newline trap
 
@@ -86,7 +49,8 @@ reader, and the client's history, a proxy and a slow-query report are others.
 and the sender and the receiver now hold different keys. Every delivery fails, and both sides look
 correctly configured. Generate without it, under `pipefail`, into a temporary file whose exact length
 is checked before it is renamed into place — the example in the skill does this — and when two
-copies must agree, compare their hashes inside the shell and print only the verdict.
+copies must agree, compare them byte for byte with `cmp -s` inside the shell, tracing off, and
+print only the verdict: same, different, or a read error that is never taken for either.
 
 ## Confirming that the live domain moved
 
@@ -113,18 +77,28 @@ previous build proves something about the previous build.
 
 The same holds instance by instance. When `NEXT` is first set (step 3), every backend must accept
 both keys before any sender moves, not only the backend that answered: a sender moved while one
-backend still lacks `NEXT` fails on every request routed to it. The evidence is the same as for the
-retirement below — each backend probed on its own, the platform's list of instances with each
+backend still lacks `NEXT` fails on every request routed to it. When `CURRENT` is promoted (step
+6), `NEXT` stays set until every backend logs the new key as `current`: a backend the promotion
+missed still accepts it as `next`, but only while `NEXT` is there. The evidence is the same as for
+the retirement below — each backend probed on its own, the platform's list of instances with each
 one's version, or answers that identify the backend.
 
 ## The probes
 
 Use the harmless probe request from the prerequisites: one that authenticates and changes nothing.
+
+A bearer probe sends the key itself, in a header, through every layer a delivery passes: the
+sender's instrumentation, a proxy, WAF or CDN, an APM agent, the receiver's access log. Any of them
+that records request headers keeps the key before the receiver's slot-only log applies. So before
+the first probe, each layer on the path is shown not to record that header, or to redact it. If
+that cannot be shown, the rotation stops there. A signing key, which never travels, does not need
+this.
+
 Read the key from a header file so that it is not on the command line:
 
 ```bash
-{ printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "$SCRATCH/probe.hdr"
-{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "$SCRATCH/old.hdr"
+{ printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "${SCRATCH:?}/probe.hdr"
+{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "${SCRATCH:?}/old.hdr"
 curl -s -o /dev/null -w 'new key: %{http_code}\n'   -H @"$SCRATCH/probe.hdr"       -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'old key: %{http_code}\n'   -H @"$SCRATCH/old.hdr"         -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong'      -X POST "https://<receiver>/<probe-path>"
@@ -137,7 +111,7 @@ and scheme — many also sign a timestamp, which the probe must include the same
 
 ```bash
 sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
-{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "$SCRATCH/sig-new.hdr"
+{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "${SCRATCH:?}/sig-new.hdr"
 curl -s -o /dev/null -w 'signed, new key: %{http_code}\n' -H @"$SCRATCH/sig-new.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
 ```
 
@@ -175,7 +149,7 @@ Record the status codes, not the response bodies, which may echo request headers
 ## Cleaning up
 
 ```bash
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
+rm -f "${SCRATCH:?}/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
 ls -A "$SCRATCH"
 ```
 

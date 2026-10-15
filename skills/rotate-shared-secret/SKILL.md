@@ -2,7 +2,7 @@
 name: rotate-shared-secret
 description: "Rotate a secret that services share without downtime: the receiver accepts the current key or a next key, with an empty value never matching; the next key is generated into a 0600 file and never printed; every sender moves to a secret store and is verified delivering; the old key is retired only after the receiver's handled requests in a fixed window match the senders' own delivery records exactly and a search finds no other caller; then the receiver is redeployed, the live domain is confirmed to serve the new build, and probes show the new key passing and the old key, a wrong key and no key refused. Symptoms: rotate the webhook secret, the shared key may have leaked, the key is a literal in a trigger or config file, change the token without breaking anything, who else calls with this key, retire the old secret. Placing a single credential is secure-credential-setup's; a change crossing code, schema and jobs is land-complex-change's."
 license: MIT
-compatibility: "A receiver you can redeploy and whose live domain can be traced to a deployment; senders that can read a secret store; request logs on the receiver and delivery records on each sender covering one window. A shell with openssl, shasum and curl. Output is the new key in place on every side, the old key refused, a reconciliation record and a probe record. No key value or hash appears in any output."
+compatibility: "A receiver you can redeploy and whose live domain can be traced to a deployment; senders that can read a secret store; request logs on the receiver and delivery records on each sender covering one window. A bash shell with openssl and curl. Output is the new key in place on every side, the old key refused, a reconciliation record and a probe record. No key value or hash appears in any output."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
@@ -15,12 +15,10 @@ passing through a terminal, a transcript or a log. And the old value can be reti
 nothing is still using it — which nobody actually knows, because the list of senders is a memory,
 not a measurement.
 
-Each of those has a quiet way to go wrong. A receiver that accepts "the current key or the next key"
-with the next key unset accepts an empty header too. A key generated with a trailing newline is
-stored with it on one side and without it on the other. A production redeploy reports success while
-the custom domain keeps serving the previous build, so the probes pass against the old key's code.
-A code search finds two senders, and a third — a scheduled job configured in a dashboard years ago
-— stops working the morning after.
+Each of those goes wrong quietly. With the next key unset, "the current key or the next key"
+accepts an empty header too. A redeploy reports success while the domain serves the previous build.
+A code search finds two senders, and a third, a job configured in a dashboard years ago, stops
+working the morning after.
 
 This skill rotates with an overlap, so nothing fails while the senders move, and it retires the old
 key on evidence: the receiver's handled requests matched one for one against the senders' own
@@ -49,12 +47,11 @@ Install the companions with `npx skills add crissmoldovan/agent-skills`.
   been readable wherever it sat.
 - Nobody can say with evidence who else calls the receiver with the key.
 
-Do not use it for a credential you hold against someone else's service, where you do not run the
-receiver: rotate that in the provider's console and place it with `secure-credential-setup`. Do not
-use it for asymmetric signing keys that carry a key id; those rotate by publishing the new public key
-beside the old one, so the scheme already has the overlap this skill builds by hand. And where a
-short outage is acceptable and the only sender deploys together with the receiver, a plain swap is
-simpler — use this skill when it is not.
+Not for a credential you hold against someone else's service: rotate that in the provider's
+console and place it with `secure-credential-setup`. Not for asymmetric signing keys that carry a
+key id: publishing the new public key beside the old one is already the overlap this skill builds by
+hand. And where a short outage is acceptable and the only sender deploys with the receiver, a plain
+swap is simpler.
 
 ## Prerequisites
 
@@ -77,7 +74,12 @@ simpler — use this skill when it is not.
    idempotent.
    **Complete when:** the probe request is written down and its expected success code known.
 6. **A private scratch directory.** Outside any repository, created under `umask 077`.
-   **Complete when:** the directory exists and only you can read it.
+   **Complete when:** it exists, is yours with mode 700, and `SCRATCH` names it in your shell.
+7. **A request path that keeps no copy of a bearer key.** Any layer that records request headers —
+   the sender's instrumentation, a proxy, WAF or CDN, an APM agent, an access log — keeps the key.
+   **Complete when:** before the first probe, every layer on the path is shown not to record that
+   header, or to redact it; if that cannot be shown, the rotation stops. A signing key never
+   travels.
 
 ## Procedure
 
@@ -87,8 +89,8 @@ So every claim below about what the receiver accepts, or what a sender sends, co
 on one of three kinds of evidence: each instance addressed and checked on its own; the platform's
 own list of instances, each with its deployment or configuration version; or answers — probe
 responses, delivery records — that identify the instance that gave them and, between them, name
-every one. Short of that, the claim is not made: a step that needs it waits, and a retirement
-already done is recorded as **UNVERIFIED**.
+every one. Short of that, a step that needs it waits, and a retirement already done is recorded as
+**UNVERIFIED**.
 
 1. **Make the receiver accept the current key or a next key, and test it.** Two settings, `CURRENT`
    and `NEXT`. A request passes when its key equals `CURRENT`, or when `NEXT` is non-empty and its
@@ -103,10 +105,10 @@ already done is recorded as **UNVERIFIED**.
 2. **Generate the next key into a 0600 file, and never print it.** `umask 077`, then write the
    output of a cryptographic random source to a temporary file, with no trailing newline, check its
    exact length, and only then rename it into place: a generator that failed must leave no key file
-   at all, never an empty one that a store would accept. Never echo
-   it, open it in a viewer, pass it as a command-line argument, or hand it to a tool call as a
-   parameter: each of those puts it in a terminal, a process list or a transcript. When two copies
-   must be the same, compare their hashes inside the shell and print only "same" or "different".
+   at all, never an empty one that a store would accept. Never echo it, open it in a viewer, pass
+   it as a command-line argument, or hand it to a tool call as a parameter: each of those puts it in
+   a terminal, a process list or a transcript. When two copies must be the same, compare them byte
+   for byte with tracing off, printing only same, different or read error — never a hash.
    **Complete when:** the key file exists with mode 0600 and its exact expected length, and no output
    of any command so far contains the key, its hash or its length.
 
@@ -129,10 +131,8 @@ already done is recorded as **UNVERIFIED**.
    definition, and changing it means redefining code; reading it from a store fixes both. Remove
    the literal and any fallback to it. While the sender is being changed anyway, have it send a
    unique delivery id on every request and record it, so that step 5 can match requests one to one.
-   Where the store is written with SQL, the value travels as a bound parameter or through the
-   store's own interface, never inside the statement text, and SQL is the way in only over a
-   connection shown to record no bound parameters anywhere — the server, its extensions, a proxy,
-   the client's own instrumentation ([deploy and probe](references/deploy-and-probe.md)).
+   A store written with SQL takes the key through its own interface or by hand, never through SQL
+   ([deploy and probe](references/deploy-and-probe.md)).
    **Complete when:** every sender on the map has delivered at least one request that the receiver
    logged as matching `next`, every instance of every sender is shown reading the store, and no
    sender still holds the old value anywhere.
@@ -145,33 +145,33 @@ already done is recorded as **UNVERIFIED**.
    each id is counted — as many times on one side as on the other, normally once — so that a
    repeated request cannot hide behind its original. Without ids, the count and endpoints are
    aggregate evidence, not proof — a lost delivery and an unknown request in the middle of the
-   window cancel exactly — and the record says so. If the receiver
-   logs the slot, every request in the window must have matched `next`. Then search code and
-   configuration for any other sender — repositories, CI, schedulers, database definitions,
-   provider dashboards, runbooks with example requests. State what the evidence cannot see: the log retention, any
-   paging the tools needed, and whether the logs identify the caller at all
+   window cancel exactly — and the record says so. If the receiver logs the slot, every request in
+   the window must have matched `next`. Then search code and configuration for any other sender —
+   repositories, CI, schedulers, database definitions, provider dashboards, runbooks with example
+   requests. State what the evidence cannot see: the log retention, any paging the tools needed,
+   and whether the logs identify the caller at all
    ([proving no other caller](references/proving-no-other-caller.md)).
    **Complete when:** the ids match one to one, or the counts and the first and last seconds match
    exactly and the record calls that aggregate evidence; the search terms and places are recorded
    with what they found; and the caveats are written beside the result.
 
-6. **Promote `NEXT` to `CURRENT`, and remove `NEXT`.** First keep a private copy of the old key
-   for step 8: read it from its store into a 0600 file, the same way values travel everywhere else
-   here, never printed, in the store's raw form where it has one. A command that adds a newline or
-   wraps the value in metadata writes a different key, and a probe with it is refused for the wrong
+6. **Promote `NEXT` to `CURRENT`, and remove `NEXT` only once the new `CURRENT` holds everywhere.**
+   First keep a private copy of the old key for step 8: read it from its store into a 0600 file,
+   never printed, in the store's raw form where it has one. A command that adds a newline or wraps
+   the value in metadata writes a different key, and a probe with it is refused for the wrong
    reason. So prove the copy: with the window closed and the old key still `CURRENT`, probe with it
-   exactly as step 8 will — header or signature — and see it accepted. A copy that is refused here
-   cannot show anything in step 8. Then set `CURRENT` from the next key's file, on standard input,
-   and delete `NEXT`. From this deploy on, the old key should be refused — step 8 is what shows
-   that it is.
-   **Complete when:** the receiver's settings hold the new key as `CURRENT` and no `NEXT`, and the
-   old key is in a 0600 file that the receiver accepted before the promotion, or the record says
-   why no such copy could be had.
+   exactly as step 8 will — header or signature — and see it accepted. Then set `CURRENT` from the
+   next key's file, on standard input, leaving `NEXT` in place, and redeploy as in step 7. An
+   instance the change reached logs the new key as `current`; one it missed still accepts it as
+   `next`, so no sender fails meanwhile. Delete `NEXT` only when every receiver instance logs the
+   new key as `current`, by the every-instance rule.
+   **Complete when:** every receiver instance matched the new key as `current` while `NEXT` was
+   still set, `NEXT` was deleted after that, and the old key is in a 0600 file that the receiver
+   accepted before the promotion, or the record says why no such copy could be had.
 
 7. **Redeploy, and verify that the live domain moved.** A production redeploy can leave a custom
    domain pointing at the previous build, and until it moves, the old key still works there. Read
-   the deployment id behind the live domain, compare it with the new deployment, and promote if
-   they differ.
+   the deployment id behind the live domain, and promote the new deployment if they differ.
    **Complete when:** the live domain's deployment id is the new deployment's, read after the
    redeploy.
 
@@ -200,9 +200,9 @@ already done is recorded as **UNVERIFIED**.
    with the reason.
 
 9. **Delete every local copy, and record what happened.** Remove the next and old key files, the
-   header files and any copy made for comparison, and confirm they are gone. Write the record: the dates, the
-   window, the counts, the search, the deployment ids, the probes and the caveats. No key value and
-   no hash.
+   header files and any copy made for comparison, and confirm they are gone. Write the record: the
+   dates, the window, the counts, the search, the deployment ids, the probes and the caveats. No key
+   value and no hash.
    **Complete when:** no copy of the key exists outside the secret stores, and the record is
    written.
 
@@ -227,13 +227,15 @@ new deployment and not the previous one.
 ```
 
 ```bash
-# Generate the next key where only you can read it: no trailing newline, its exact length checked,
-# and renamed into place only then. A key file left by an earlier attempt is removed first, so the
-# block ends with a fresh key and status 0, or with no key file and a failure. Nothing is printed.
+# Tracing off; refuse unless SCRATCH is your own directory, mode 700 (unset, a path is /next.key).
+# Then drop an earlier attempt's key, generate with no newline and check the length: a fresh key
+# and status 0, or no key file and a failure. Later writes and deletes spell it ${SCRATCH:?}.
 umask 077
-set -o pipefail
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.key.tmp"
-if openssl rand -hex 32 | tr -d '\n' > "$SCRATCH/next.key.tmp" \
+set +x -o pipefail
+if [ -z "$(find "${SCRATCH:?}" -maxdepth 0 -type d -user "$(id -u)" -perm 700 2>/dev/null)" ]; then
+  echo "REFUSED: SCRATCH is not a private directory of yours (mode 700); nothing was touched"; false
+elif rm -f "$SCRATCH/next.key" "$SCRATCH/next.key.tmp" \
+  && openssl rand -hex 32 | tr -d '\n' > "$SCRATCH/next.key.tmp" \
   && [ "$(wc -c < "$SCRATCH/next.key.tmp" | tr -d ' ')" -eq 64 ] \
   && mv "$SCRATCH/next.key.tmp" "$SCRATCH/next.key"; then
   ls -l "$SCRATCH/next.key"
@@ -241,18 +243,19 @@ else
   rm -f "$SCRATCH/next.key.tmp"; echo "GENERATION FAILED: no key was written"; false
 fi
 
-# Compare two copies without printing either one or its hash.
-[ "$(shasum -a 256 < "$SCRATCH/next.key")" = "$(shasum -a 256 < "$SCRATCH/next.copy")" ] && echo same || echo DIFFERENT
+# Compare two copies byte for byte: same, DIFFERENT or READ ERROR, never a hash or a key.
+cmp -s "$SCRATCH/next.key" "$SCRATCH/next.copy"
+case $? in 0) echo same ;; 1) echo DIFFERENT; false ;; *) echo "READ ERROR"; false ;; esac
 
 # Before promoting, with the window closed: keep a private copy of the old key, read from its store
 # in its raw form, and prove the copy. The old key is still CURRENT, so this probe must pass; if it
 # is refused, the copy is not the key, and the old-key probe after the promotion is UNVERIFIED.
-<platform-cli> secrets get SHARED_KEY > "$SCRATCH/old.key"
-{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "$SCRATCH/old.hdr"
+<platform-cli> secrets get SHARED_KEY > "${SCRATCH:?}/old.key"
+{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "${SCRATCH:?}/old.hdr"
 curl -s -o /dev/null -w 'old key, before promotion (must pass): %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
 
 # Probe the live domain with the new key, the old key, a wrong key and no key. Keys travel in header files.
-{ printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "$SCRATCH/probe.hdr"
+{ printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "${SCRATCH:?}/probe.hdr"
 curl -s -o /dev/null -w 'new key: %{http_code}\n' -H @"$SCRATCH/probe.hdr" -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'old key: %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong' -X POST "https://<receiver>/<probe-path>"
@@ -261,13 +264,13 @@ curl -s -o /dev/null -w 'no key: %{http_code}\n' -X POST "https://<receiver>/<pr
 # A signing key never travels: sign the fixed probe body with each key file, reading the key inside
 # the program, and send only the signature, in the receiver's own header and scheme.
 sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
-{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "$SCRATCH/sig-new.hdr"
-{ printf '<signature-header>: sha256='; sign "$SCRATCH/old.key" "$SCRATCH/probe.json"; echo; } > "$SCRATCH/sig-old.hdr"
+{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "${SCRATCH:?}/sig-new.hdr"
+{ printf '<signature-header>: sha256='; sign "$SCRATCH/old.key" "$SCRATCH/probe.json"; echo; } > "${SCRATCH:?}/sig-old.hdr"
 curl -s -o /dev/null -w 'signed, new key: %{http_code}\n' -H @"$SCRATCH/sig-new.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'signed, old key: %{http_code}\n' -H @"$SCRATCH/sig-old.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
 
 # Remove every local copy, and check that none is left.
-rm -f "$SCRATCH/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
+rm -f "${SCRATCH:?}/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
 ls -A "$SCRATCH"
 ```
 
@@ -311,12 +314,11 @@ the record says what the match cannot rule out.
 - **The key as an argument.** A command-line argument is visible in the process list and saved in
   shell history. A tool-call parameter is saved in the transcript. Values travel on standard input
   or in files.
-- **The key inside a SQL statement.** A client-side variable — `psql`'s `:'name'`, string formatting,
-  a template literal — is expanded into the statement before it is sent, so the server receives
-  and can log the literal value. Send it as a bound parameter, and only over a connection on which
-  nothing — the server, an extension, a proxy, the client's instrumentation — records parameters.
+- **The key sent through SQL.** Statement text, a client-side variable such as `psql`'s `:'name'`,
+  and a bound parameter each reach some log: the server's, an extension's, a proxy's, the
+  client's. The key goes in through the store's own interface, or by hand.
 - **A hash printed for comparison.** A hash is a stable fingerprint of the key in every place the
-  output lands. Compare inside the shell and print only the verdict.
+  output lands. Compare byte for byte inside the shell and print only the verdict.
 - **A trailing newline on one side.** A key file written with a newline, fed to one store that
   keeps it and another that trims it, gives the sender and the receiver different keys. Every
   delivery fails, and both sides look correctly configured. The same newline on the exported old
@@ -336,15 +338,12 @@ the record says what the match cannot rule out.
 - **A fallback to the old literal.** A sender that reads "the store, or else the old value" still
   holds the old value, and recovers to it when the store read fails.
 - **One instance standing for all.** A probe one backend answered, a delivery one replica sent:
-  each shows that instance only. Senders moved while one receiver backend lacks `NEXT` fail on
-  every request routed to it; a quiet sender replica on the old literal fails the morning after the
-  retirement.
-- **Retirement claimed without the old-key probe.** The settings say the old key is gone and the
-  probes for the new key pass, while one replica the redeploy did not reach still accepts the old
-  key. Only a probe with the old key itself, against every replica that can be addressed, shows it;
-  without one, the honest record is UNVERIFIED.
-- **`NEXT` left set after the promotion.** Two keys are then accepted indefinitely, and the second
-  one is the key that was meant to be retired.
+  each shows that instance only. Senders moved while one receiver backend lacks `NEXT` fail there; a
+  quiet sender replica on the old literal fails after the retirement; a replica the redeploy missed
+  still accepts the old key, and only the old-key probe shows it — without that, UNVERIFIED.
+- **`NEXT` removed too early, or never.** Removed before every instance has the new `CURRENT`, it
+  takes the overlap from the instances the promotion missed, and moved senders fail there. Left
+  set after the promotion, it keeps two keys accepted indefinitely.
 
 ## Verification
 
@@ -353,11 +352,12 @@ the record says what the match cannot rule out.
       comparison is constant-time; the slot is logged and the key is not.
 - [ ] The receiver's tests cover current, next, wrong, missing and empty keys, and were watched
       failing with the empty-value rule broken.
-- [ ] The next key was generated into a 0600 file, with no trailing newline, and no output
-      contained the key or its hash.
-- [ ] Every value reached every store on standard input or from a file, never as an argument, a
-      tool parameter or part of a SQL statement's text; where SQL was the way in, the value was a
-      bound parameter, over a connection shown to record no bound parameters anywhere.
+- [ ] For a bearer key, every layer on the request path was shown, before the first probe, not to
+      record its header.
+- [ ] The next key was generated into a 0600 file in a private `SCRATCH`, with no trailing newline,
+      and no output contained the key or its hash.
+- [ ] Every value reached every store on standard input or from a file, through the store's own
+      interface or by hand: never as an argument, a tool parameter or through SQL.
 - [ ] After each redeploy, the live domain's deployment id was read and matched the new deployment.
 - [ ] Before any sender moved, every receiver instance accepted both the current and the next key.
 - [ ] Every sender reads the key from a secret store, with no literal and no fallback left; each
@@ -370,8 +370,8 @@ the record says what the match cannot rule out.
       as aggregate evidence — with paging where the tools capped entries.
 - [ ] The search for other senders is recorded with its terms, its places and its result.
 - [ ] Log retention and the lack of caller identity, where it applies, are stated as caveats.
-- [ ] The old key's copy was accepted before the promotion; then `NEXT` was promoted to `CURRENT`
-      and removed.
+- [ ] The old key's copy was accepted before the promotion; every receiver instance matched the
+      new key as `current` while `NEXT` was still set, and only then was `NEXT` removed.
 - [ ] For every backend — each probed directly, or all covered by deployment evidence or by probes
       shown to reach each one — the new key was accepted, and the old key, a wrong key and no key
       were refused; a signing key was probed by signature and never sent; otherwise the retirement
@@ -384,5 +384,5 @@ the record says what the match cannot rule out.
   slot logging, the test cases and how to arm them.
 - [Proving no other caller](references/proving-no-other-caller.md): the window, the exact match,
   where else senders hide, and what log tooling limits do to the evidence.
-- [Deploy and probe](references/deploy-and-probe.md): moving values on standard input, the newline
-  trap, confirming the live domain moved, the three probes, and cleaning up.
+- [Deploy and probe](references/deploy-and-probe.md): moving values, never through SQL; the newline
+  trap; confirming the live domain moved; the probes and what they need; cleaning up.

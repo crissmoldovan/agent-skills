@@ -17,9 +17,22 @@ There are two kinds of match, and the record says which one it has.
   original, so it is not one to one. Add the id in step 4 of the rotation, while each sender is
   being changed anyway.
 
+  Extract each side's ids into a file with a checked command — under `pipefail`, its status read —
+  and confirm every sender on the map contributed some. Then compare, failing closed: an empty or
+  unreadable file, or a count that failed, is no evidence, never a match.
+
   ```bash
-  # One id per line on each side. Any output from diff is a mismatch, a repeat included.
-  diff <(sort receiver-ids.txt | uniq -c) <(sort sender-ids.txt | uniq -c) && echo "ids match one to one"
+  # One id per line on each side. Only "ids match one to one" is a match.
+  set -o pipefail
+  if ! { grep -q . receiver-ids.txt && grep -q . sender-ids.txt \
+         && sort receiver-ids.txt | uniq -c > receiver.counts \
+         && sort sender-ids.txt | uniq -c > sender.counts; }; then
+    echo "NO EVIDENCE: an id file is missing or empty, or counting it failed"; false
+  elif diff receiver.counts sender.counts; then
+    echo "ids match one to one"
+  else
+    echo "MISMATCH: the lines above differ, a repeat included"; false
+  fi
   ```
 
 - **By count and endpoints: aggregate evidence, not proof.** Without an id, the steps below compare

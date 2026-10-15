@@ -65,7 +65,9 @@ everything — a request carrying the next key included. A receiver left half-co
 
 Logging which slot matched is what turns the reconciliation from a count into a check. Once every
 sender has moved, every handled request should say `next`. One that says `current` is a caller still
-on the old key, found before the old key is retired rather than after.
+on the old key, found before the old key is retired rather than after. The slot also shows the
+promotion landing: with `NEXT` still set to the new key, an instance that has the new `CURRENT`
+logs it as `current`, and one the change has not reached logs it as `next`.
 
 The slot cannot see an unknown caller that already holds the next key. The delivery id can: where
 each sender puts a unique id on every request and records it, the ids the receiver logs are matched
@@ -96,6 +98,7 @@ form.
 | `CURRENT` unset, `NEXT` set | unset | k2 | k2 | refused |
 | `CURRENT` empty, `NEXT` set | empty | k2 | k2 | refused |
 | A prefix of the key | k1 | unset | k1 without its last character | refused |
+| New key while the promotion lands | k2 | k2 | k2 | `current` |
 | Old key after promotion | k2 | unset | k1 | refused |
 
 Use made-up values in tests, never a real key.

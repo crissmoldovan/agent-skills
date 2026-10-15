@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHmac } from 'node:crypto';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, createHmac } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
-import { assertCatalogueShape, fenced, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
+import { assertCatalogueShape, fenced, prerequisiteItems, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
 
 const name = 'rotate-shared-secret';
 const loaded = readSkill(name);
@@ -55,11 +55,11 @@ test('the receiver accepts current or a non-empty next, and the empty-value rule
 test('the key is never printed, never an argument, and copies are compared without printing a hash', () => {
   const second = procedureSteps(skill)[1];
   assert.match(second, /with no trailing newline/);
-  assert.match(second, /compare their hashes inside the shell and print only "same" or "different"/);
+  assert.match(second, /compare them byte for byte with tracing off, printing only same, different or read error — never a hash/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
   assert.match(bash, /^umask 077$/m);
   assert.match(bash, /openssl rand -hex 32 \| tr -d '\\n' > /);
-  assert.match(bash, /&& echo same \|\| echo DIFFERENT/);
+  assert.match(bash, /^cmp -s "\$SCRATCH\/next\.key" "\$SCRATCH\/next\.copy"$/m);
   // Every read of the key file goes into a file, never to the terminal or onto a command line.
   for (const line of bash.split('\n').filter((text) => /cat "\$SCRATCH\/(?:next|old)\.key"/.test(text))) {
     assert.match(line, /^\{ printf '[^']*'; cat "\$SCRATCH\/(?:next|old)\.key"; echo; \} > /, `the key reaches the terminal or a command line: ${line}`);
@@ -71,24 +71,24 @@ test('the key is never printed, never an argument, and copies are compared witho
 });
 
 // Review round 1: psql's :'name' variables are expanded into the statement text on the client, so the
-// server receives, and can log, the literal value. No file of the skill may recommend building SQL
-// text around the value; the way in is a bound parameter, after checking parameter logging.
-test('the key never travels inside SQL text, and parameter logging is checked first', () => {
+// server receives, and can log, the literal value. Codex round 1 [P2] and round 4 [P1] then found
+// one more recorder each time (parameter-logging settings; extensions, proxies, client capture).
+// Codex round 5 ended that line: the key does not go in through SQL at all, a bound parameter
+// included. It goes in through the store's own interface, or by hand.
+test('the key never goes in through SQL: the store\'s own interface, or by hand', () => {
   const files = [skill, receiver, read('references/proving-no-other-caller.md'), probe];
   for (const text of files) {
     assert.doesNotMatch(text, /\\set \w+ `cat/, 'a file recommends reading the key into a psql variable');
     assert.doesNotMatch(text, /and then `:'\w+'`/, 'a file recommends interpolating a psql variable');
+    assert.doesNotMatch(text, /client\.query\(|set_secret\(\$1|SET log_parameter_max_length|\*\*A parameterised call/, 'a file offers a SQL route for the key again');
   }
   const flatProbe = probe.replace(/\s+/g, ' ');
   assert.match(flatProbe, /A client-side variable is not a separate channel\. The client expands it into the statement before sending it/);
-  assert.match(flatProbe, /\*\*A parameterised call, with the value as a bound parameter\.\*\*/);
-  assert.match(probe, /client\.query\('select <store>\.set_secret\(\$1, \$2\)', \['shared_key', value\]\)/);
-  assert.match(flatProbe, /\*\*Check, and switch off, what the server logs before you send it\.\*\*/);
-  assert.match(flatProbe, /`log_parameter_max_length`, which writes bound parameters beside every logged statement and by default writes them in full/);
-  const fourth = procedureSteps(skill)[3];
-  assert.match(fourth, /the value travels as a bound parameter or through the store's own interface, never inside the statement text/);
-  assert.match(skill, /- \*\*The key inside a SQL statement\.\*\*/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /never as an argument, a tool parameter or part of a SQL statement's text/);
+  assert.match(flatProbe, /So \*\*the key does not go in through SQL at all\*\* — not in the statement text, not through a client-side variable, not as a bound parameter\./);
+  assert.match(flatProbe, /It goes in through the store's own interface: a command-line tool or API that takes the value as data, from standard input or a file, and builds no SQL from it on your side\. Where the store has no such interface, place it by hand/);
+  assert.match(procedureSteps(skill)[3], /A store written with SQL takes the key through its own interface or by hand, never through SQL/);
+  assert.match(skill, /- \*\*The key sent through SQL\.\*\*/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /through the store's own interface or by hand: never as an argument, a tool parameter or through SQL/);
 });
 
 test('senders move to a secret store and are verified delivering on the next slot', () => {
@@ -160,7 +160,7 @@ test('local copies are deleted and the record holds no key and no hash', () => {
   assert.match(last, /No key value and no hash/);
   assert.match(last, /no copy of the key exists outside the secret stores/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  assert.match(bash, /^rm -f "\$SCRATCH\/next\.key"/m);
+  assert.match(bash, /^rm -f "\$\{SCRATCH:\?\}\/next\.key"/m);
 });
 
 // Codex round 1 on #99. Four findings, each held here.
@@ -211,15 +211,6 @@ test('the receiver refuses everything when CURRENT is unset or empty, NEXT inclu
   assert.ok(receiver.includes('| `CURRENT` empty, `NEXT` set | empty | k2 | k2 | refused |'), 'no test row for CURRENT empty with NEXT set');
   const guard = receiver.indexOf("if ((current ?? '') === '') return null;");
   assert.ok(guard < receiver.indexOf("if (sameKey(key, next ?? '')) return 'next';"), 'the next key is checked before CURRENT is required');
-});
-
-// [P2] Both parameter-logging settings and statement logging, switched off before the call.
-test('statement logging and both parameter-logging settings are read and switched off before the value is sent', () => {
-  for (const setting of ["SET log_statement = 'none';", 'SET log_min_duration_statement = -1;', 'SET log_parameter_max_length = 0;', 'SET log_parameter_max_length_on_error = 0;']) {
-    assert.ok(probe.includes(setting), `the settings no longer switch off: ${setting}`);
-  }
-  assert.match(probe, /SHOW log_parameter_max_length_on_error;/);
-  assert.match(probe.replace(/\s+/g, ' '), /If any of them cannot be switched off for that session, do not send the value this way/);
 });
 
 // Blocks on #99 (severity 7): without pipefail the generator's status was tr's, so a failed openssl
@@ -303,7 +294,7 @@ test('the old key copy is accepted before the promotion, or the old-key probe pr
   assert.match(sixth, /the old key is in a 0600 file that the receiver accepted before the promotion, or the record says why no such copy could be had/);
   assert.match(procedureSteps(skill)[7], /no copy of it was accepted before the promotion/);
   const lines = exampleBash.split('\n');
-  const exported = lines.findIndex((line) => line.endsWith('> "$SCRATCH/old.key"'));
+  const exported = lines.findIndex((line) => line.endsWith('> "${SCRATCH:?}/old.key"'));
   const control = lines.findIndex((line) => line.includes("-w 'old key, before promotion (must pass): %{http_code}\\n' -H @\"$SCRATCH/old.hdr\""));
   const after = lines.findIndex((line) => line.includes("-w 'old key: %{http_code}\\n'"));
   assert.ok(exported >= 0, 'the example no longer exports the old key');
@@ -314,30 +305,30 @@ test('the old key copy is accepted before the promotion, or the old-key probe pr
   assert.match(flatProbe, /no copy of the old key could be read from its store and accepted before the promotion/);
 });
 
-// [P1] Not an enumeration of switches but a rule: nothing on the connection records the parameters.
-test('SQL is the way in only over a connection shown to record no bound parameters anywhere', () => {
-  const flatProbe = probe.replace(/\s+/g, ' ');
-  assert.match(flatProbe, /These are the server's own switches, and the server is not the only recorder/);
-  assert.match(flatProbe, /\*\*send the value over SQL only when you can show that nothing on that connection records bound parameters\.\*\*/);
-  assert.match(flatProbe, /Where you cannot show it — a layer you cannot inspect, a setting you cannot read or change — use the store's own interface, or place it by hand/);
-  assert.match(procedureSteps(skill)[3], /SQL is the way in only over a connection shown to record no bound parameters anywhere/);
-  const verification = section(skill, 'Verification').replace(/\s+/g, ' ');
-  assert.match(verification, /the value was a bound parameter, over a connection shown to record no bound parameters anywhere/);
-  assert.doesNotMatch(verification, /the server's parameter logging was read first/, 'the checklist treats the server switches as sufficient again');
-});
+// The reference's id comparison: the indented bash block in its "One to one" item, de-indented.
+function idComparison() {
+  const raw = read('references/proving-no-other-caller.md');
+  const block = raw.match(/\n {2}```bash\n([\s\S]*?)\n {2}```\n/);
+  assert.ok(block, 'the reference has no runnable id comparison');
+  return block[1].split('\n').map((text) => text.replace(/^ {2}/, '')).join('\n');
+}
+// Runs it in a fresh directory. An argument of null leaves that file out; a string is written as is.
+async function compareIds(receiverIds, senderIds, stub = '') {
+  const dir = await tempDir('rotate-ids-');
+  const write = (name, ids) => {
+    if (ids === null) return;
+    writeFileSync(join(dir, name), typeof ids === 'string' ? ids : `${ids.join('\n')}\n`);
+  };
+  write('receiver-ids.txt', receiverIds);
+  write('sender-ids.txt', senderIds);
+  const run = spawnSync('bash', ['-c', `${stub}\n${idComparison()}`], { cwd: dir, encoding: 'utf8' });
+  return { status: run.status, out: run.stdout + run.stderr, matched: run.stdout.includes('ids match one to one') };
+}
 
-// [P2] Ids are compared with their counts. The reference's own diff is run against fixtures.
+// [P2] Ids are compared with their counts. The reference's own comparison is run against fixtures.
 test('delivery ids are reconciled as multisets: a repeated id is a mismatch', async () => {
   const raw = read('references/proving-no-other-caller.md');
-  const line = raw.split('\n').map((text) => text.trim()).find((text) => text.startsWith('diff <(sort receiver-ids.txt'));
-  assert.ok(line, 'the reference has no runnable id comparison');
-  const compare = async (receiverIds, senderIds) => {
-    const dir = await tempDir('rotate-ids-');
-    writeFileSync(join(dir, 'receiver-ids.txt'), `${receiverIds.join('\n')}\n`);
-    writeFileSync(join(dir, 'sender-ids.txt'), `${senderIds.join('\n')}\n`);
-    const run = spawnSync('bash', ['-c', line], { cwd: dir, encoding: 'utf8' });
-    return { status: run.status, matched: run.stdout.includes('ids match one to one') };
-  };
+  const compare = (receiverIds, senderIds) => compareIds(receiverIds, senderIds);
   const same = await compare(['d-2', 'd-1', 'd-3'], ['d-1', 'd-2', 'd-3']);
   assert.ok(same.matched && same.status === 0, 'equal ids in another order do not match');
   for (const [why, receiverIds, senderIds] of [
@@ -353,4 +344,129 @@ test('delivery ids are reconciled as multisets: a repeated id is a mismatch', as
   assert.match(reconcile, /compared with their counts, not as sets/);
   assert.ok(raw.includes('| An id logged at the receiver more often than the senders recorded it |'), 'no table row for a repeated id');
   assert.match(procedureSteps(skill)[4], /provided each id is counted — as many times on one side as on the other, normally once/);
+});
+
+// Codex round 5 on #99 (at 4b0f441). Five findings; each fails closed. The SQL route for writing the
+// key was cut in the same round (see the SQL test above).
+
+// [P1] The promotion keeps the overlap until the new CURRENT is live on every instance.
+test('NEXT is removed only after every receiver instance matches the new key as current', () => {
+  const sixth = procedureSteps(skill)[5];
+  assert.match(sixth, /^6\. \*\*Promote `NEXT` to `CURRENT`, and remove `NEXT` only once the new `CURRENT` holds everywhere\.\*\*/);
+  assert.match(sixth, /set `CURRENT` from the next key's file, on standard input, leaving `NEXT` in place, and redeploy as in step 7/);
+  assert.match(sixth, /one it missed still accepts it as `next`, so no sender fails meanwhile\. Delete `NEXT` only when every receiver instance logs the new key as `current`, by the every-instance rule/);
+  assert.match(sixth, /every receiver instance matched the new key as `current` while `NEXT` was still set, `NEXT` was deleted after that/);
+  assert.doesNotMatch(sixth, /on standard input, and delete `NEXT`/, 'NEXT is deleted together with the promotion again');
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /every receiver instance matched the new key as `current` while `NEXT` was still set, and only then was `NEXT` removed/);
+  assert.ok(receiver.includes('| New key while the promotion lands | k2 | k2 | k2 | `current` |'), 'no receiver test row for the new key during the promotion');
+  assert.match(probe.replace(/\s+/g, ' '), /When `CURRENT` is promoted \(step 6\), `NEXT` stays set until every backend logs the new key as `current`/);
+});
+
+// [P1] A bearer key in a header is copied by any layer that records headers. One precondition,
+// shown before the first probe, or the rotation stops.
+test('a bearer key is probed only once no layer on the request path records its header', () => {
+  const seventh = prerequisiteItems(skill)[6] ?? '';
+  assert.match(seventh, /^7\. \*\*A request path that keeps no copy of a bearer key\.\*\*/);
+  assert.match(seventh, /\*\*Complete when:\*\* before the first probe, every layer on the path is shown not to record that header, or to redact it; if that cannot be shown, the rotation stops/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /For a bearer key, every layer on the request path was shown, before the first probe, not to record its header/);
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /So before the first probe, each layer on the path is shown not to record that header, or to redact it\. If that cannot be shown, the rotation stops there/);
+  assert.ok(flatProbe.indexOf('If that cannot be shown, the rotation stops there') < flatProbe.indexOf("{ printf 'x-shared-key: '"), 'the precondition comes after the first bearer probe');
+});
+
+// [P1] The id comparison fails closed: no usable input is no evidence, never a match.
+test('the id comparison fails closed on empty, missing or failed input', async () => {
+  for (const [why, receiverIds, senderIds, stub] of [
+    ['both id files are empty', '', '', ''],
+    ['both id files are missing', null, null, ''],
+    ['the id files hold only blank lines', '\n\n', '\n\n', ''],
+    ['the sender file is missing', ['d-1'], null, ''],
+    ['sort fails on both sides', ['d-1'], ['d-1'], 'sort() { return 1; }'],
+  ]) {
+    const result = await compareIds(receiverIds, senderIds, stub);
+    assert.ok(!result.matched, `${why} printed a match`);
+    assert.notEqual(result.status, 0, `${why} reported success`);
+    assert.match(result.out, /NO EVIDENCE/, `${why} was not reported as no evidence`);
+  }
+  assert.match(idComparison(), /^set -o pipefail$/m);
+  assert.match(reconcile, /an empty or unreadable file, or a count that failed, is no evidence, never a match/);
+});
+
+// [P2] SCRATCH unset, or not a private directory of yours, refuses before anything is removed; and
+// every later command that writes or deletes under it spells it ${SCRATCH:?}.
+test('generation refuses unless SCRATCH is a private directory, before the first rm', async () => {
+  const lines = exampleBash.split('\n');
+  const start = lines.indexOf('umask 077');
+  const end = lines.indexOf('', start);
+  const block = lines.slice(start, end).join('\n');
+  const stubs = 'rm() { echo "RM CALLED"; command rm "$@"; }\nopenssl() { echo "OPENSSL CALLED"; command openssl "$@"; }';
+  const attempt = async (setup) => {
+    const base = await tempDir('rotate-scratch-');
+    const { scratch, env } = setup(base);
+    const run = spawnSync('bash', ['-c', `${stubs}\n${env}\n${block}`], { encoding: 'utf8' });
+    return { status: run.status, out: run.stdout + run.stderr, scratch };
+  };
+  const STALE = 'a-key-left-by-an-earlier-attempt';
+  for (const [why, setup] of [
+    ['SCRATCH is unset', () => ({ env: 'unset SCRATCH' })],
+    ['SCRATCH is empty', () => ({ env: 'SCRATCH=' })],
+    ['SCRATCH is readable by others', (base) => {
+      const scratch = join(base, 'open');
+      mkdirSync(scratch, { mode: 0o755 }); chmodSync(scratch, 0o755);
+      writeFileSync(join(scratch, 'next.key'), STALE);
+      return { scratch, env: `SCRATCH=${JSON.stringify(scratch)}` };
+    }],
+    ['SCRATCH is a symlink to a private directory', (base) => {
+      const target = join(base, 'private');
+      mkdirSync(target, { mode: 0o700 });
+      writeFileSync(join(target, 'next.key'), STALE);
+      symlinkSync(target, join(base, 'link'));
+      return { scratch: target, env: `SCRATCH=${JSON.stringify(join(base, 'link'))}` };
+    }],
+  ]) {
+    const result = await attempt(setup);
+    assert.notEqual(result.status, 0, `generation reported success when ${why}`);
+    assert.match(result.out, /REFUSED: SCRATCH is not a private directory of yours/, `no refusal when ${why}`);
+    assert.doesNotMatch(result.out, /RM CALLED|OPENSSL CALLED/, `something ran when ${why}`);
+    if (result.scratch) assert.equal(readFileSync(join(result.scratch, 'next.key'), 'utf8'), STALE, `a file was touched when ${why}`);
+  }
+  // After the guarded block, and in the reference, nothing writes or deletes under a bare $SCRATCH.
+  const after = lines.slice(end).join('\n');
+  for (const [where, text] of [['the example after generation', after], ['deploy-and-probe', fenced(probe, 'bash').join('\n')]]) {
+    assert.doesNotMatch(text, /> "\$SCRATCH\//, `${where} writes under an unchecked $SCRATCH`);
+    assert.doesNotMatch(text, /^rm -f "\$SCRATCH\//m, `${where} deletes under an unchecked $SCRATCH`);
+  }
+});
+
+// [P2] The copy comparison has three outcomes, prints no digest, and says nothing of the key under a
+// trace. Run from the example.
+test('copies are compared byte for byte: same, DIFFERENT or READ ERROR, and a trace shows no key or digest', async () => {
+  const lines = exampleBash.split('\n');
+  const at = lines.findIndex((line) => line.startsWith('cmp -s "$SCRATCH/next.key"'));
+  assert.ok(at >= 0, 'the example has no byte comparison');
+  const compare = lines.slice(at, at + 2).join('\n');
+  assert.match(compare, /^case \$\? in /m);
+  const key = 'a-made-up-key-for-the-comparison-test';
+  const digest = createHash('sha256').update(key).digest('hex');
+  const run = async (files, trace = false) => {
+    const dir = await tempDir('rotate-cmp-');
+    for (const [name, value] of Object.entries(files)) writeFileSync(join(dir, name), value);
+    const result = spawnSync('bash', [...(trace ? ['-x'] : []), '-c', `SCRATCH=${JSON.stringify(dir)}\n${compare}`], { encoding: 'utf8' });
+    return { status: result.status, out: result.stdout + result.stderr };
+  };
+  const same = await run({ 'next.key': key, 'next.copy': key }, true);
+  assert.equal(same.status, 0, same.out);
+  assert.match(same.out, /^same$/m);
+  assert.ok(!same.out.includes(key) && !same.out.includes(digest), 'the trace shows the key or its digest');
+  for (const [why, files, verdict] of [
+    ['the copies differ', { 'next.key': key, 'next.copy': `${key}\n` }, /^DIFFERENT$/m],
+    ['the copy is missing', { 'next.key': key }, /^READ ERROR$/m],
+    ['both files are missing', {}, /^READ ERROR$/m],
+  ]) {
+    const result = await run(files);
+    assert.notEqual(result.status, 0, `success reported when ${why}`);
+    assert.match(result.out, verdict, `wrong verdict when ${why}: ${result.out}`);
+    assert.doesNotMatch(result.out, /^same$/m, `"same" printed when ${why}`);
+  }
+  assert.match(exampleBash, /^set \+x -o pipefail$/m, 'the example does not switch tracing off');
 });
