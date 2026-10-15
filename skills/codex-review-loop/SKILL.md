@@ -182,8 +182,8 @@ skill says so and proposes a split, and the person who owns the work decides.
     That round reviewed its head and nothing after it, so any commit made now is unreviewed. Take
     one of two exits:
     - **Defer and merge.** Record every finding as deferred, with where it is tracked, and merge the
-      head that round reviewed. The merge step reads those records: one line per finding in the
-      round's dispositions file, and it refuses while any finding has none.
+      head that round reviewed. The records go in the round's dispositions file, one complete line
+      per finding, which the merge checklist reads.
     - **Fix, then confirm once.** Fix the findings worth fixing, armed as in step 6, push, and run
       one confirmation round on the new head. If it returns nothing above the lowest severity, that
       head is the one that merges, and anything it reports at the lowest severity is deferred, not
@@ -203,23 +203,27 @@ skill says so and proposes a split, and the person who owns the work decides.
     **Complete when:** the split is proposed with the classes found so far, or the rounds are
     converging and the record shows it.
 
-14. **Merge only the head that was reviewed and checked.** Before merging, confirm that the pull
-    request's head is the head the last round reviewed — under step 12, the stop round's head or its
-    confirmation round's, with no commit after it; that every finding of that round has its
-    disposition recorded, or a reader recorded its review clean; that it targets the branch it
-    should, not a base that has already merged and gone; that the base branch is still at the sha
-    the round diffed against — a base that moved is a merge nobody reviewed, so review again; that
-    it is mergeable; and that every required check completed and passed on that exact commit. No
-    checks is not a pass: a pull request that conflicts with its base gets no pull-request runs at
-    all, silently. Then merge with the head pinned, so that a push in between makes the merge fail
-    instead of merging unreviewed code ([merge preconditions](references/merge-preconditions.md)).
-    Run these as a **gate**, not a report: each predicate is tested, and the merge command runs only
-    if every one holds. Printing the state and merging anyway is not a gate. Required checks must
-    come back as a zero exit, a non-empty list and every one passed. A repository that declares no
-    required checks does not pass this gate: name the checks that must pass and test each by name.
-    **Complete when:** the merge ran with `--match-head-commit` set to the reviewed head, in a step
-    of its own after the round's findings were recorded, and after the gate's predicates all held —
-    or the gate refused, and the record says which predicate failed.
+14. **Merge only the head that was reviewed and checked, by hand, after a checklist.** Merging is a
+    person's act, and this skill ships no merge script: three rounds running found a new way for a
+    scripted gate to merge what nobody reviewed. Check each line, and stop at the first that fails
+    ([merge preconditions](references/merge-preconditions.md) says why each one is there):
+    1. The pull request's head is the sha the final round reviewed (`round-<n>.head`) — under
+       step 12, the stop round's or its one confirmation round's — with no commit after it.
+    2. No earlier round that did not end the loop reviewed that same head, unless every finding it
+       graded above the lowest was rejected with evidence. A defect a round found is fixed in a new
+       head, never reviewed away by running the review again until a run comes back clean.
+    3. Every finding of the final round has a complete disposition in `round-<n>.dispositions`; a
+       review that graded none was recorded `clean:` by the person who read it, or the round failed.
+    4. The base branch's live tip (`git ls-remote origin refs/heads/<base>`) is the base the round
+       recorded (`round-<n>.base`). If it moved, review again; `baseRefOid` does not see it move.
+    5. It targets the branch it should, not a base that merged and is gone, and it is mergeable.
+    6. Every required check completed and passed on that exact commit: a zero exit, a non-empty
+       list, every one passed. No checks is not a pass, and a conflicting pull request gets none.
+
+    Then merge with the head pinned, so that a push in between fails the merge instead of merging
+    unreviewed code: `gh pr merge <n> --merge --match-head-commit <reviewed sha>`.
+    **Complete when:** every line held and the merge ran with `--match-head-commit` set to the
+    reviewed head — or a line failed, and the record says which.
 
 ## Usage Examples
 
@@ -246,13 +250,11 @@ split this PR so that the part that keeps failing gets its own branch.
 
 ```bash
 # Fail fast: a command that fails stops the recipe, so nothing after it runs on a false premise —
-# no review of a tree that was never fetched, no merge after a failed or non-terminal round.
+# no review of a tree that was never fetched, no round counted after a failed review.
 set -euo pipefail
 
-# Required up front. STEP=review runs one round and stops; STEP=merge runs the gate once every finding
-# of that round has a disposition. REVIEW_LOGS is absolute, outside this checkout and the review tree.
-: "${STEP:?set STEP to review, or to merge once every finding of the round has a disposition}"
-: "${PR:?set PR to the pull request number}"
+# One round of review. It never merges: the merge is a person's act, after step 14's checklist.
+# REVIEW_LOGS is absolute, outside this checkout and the review tree.
 : "${ROUND:?set ROUND to the number of this round}"
 : "${REVIEW_LOGS:?set REVIEW_LOGS to an absolute directory outside the repository}"
 case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute path"; exit 1;; esac
@@ -281,61 +283,20 @@ terminal_round() {  # terminal_round <n>
   [ -z "$other" ] || { echo "NOT TERMINAL: round $1 grades findings other than the lowest, P3:" $other; return 1; }
 }
 
-# Nothing merges on findings nobody read. round-<n>.dispositions starts a line with each graded finding
-# as the reviewer wrote it, then " => deferred: <reason>, tracked in <where>" or " => rejected: <evidence>",
-# each part present. A review grading nothing failed, unless a reader wrote "clean: <its verdict>" there.
-recorded_round() {  # recorded_round <n>
-  local final="$REVIEW_LOGS/round-$1.final.txt" dispositions="$REVIEW_LOGS/round-$1.dispositions" finding
-  [ -s "$dispositions" ] || { echo "NOT RECORDED: round $1 has no dispositions file"; return 1; }
-  if ! grep -Eq '^(- )?\[P[0-9]+\] ' "$final"; then
-    grep -q '^clean: [^[:space:]]' "$dispositions" && return 0
-    echo "ROUND $1 FAILED: its final review grades no finding, and no reader recorded it clean"; return 1
-  fi
-  grep -E '^(- )?\[P[0-9]+\] ' "$final" | sed 's/^- //' | while IFS= read -r finding; do
-    F="$finding => " awk 'index($0, ENVIRON["F"]) == 1 { d = substr($0, length(ENVIRON["F"]) + 1) }
-      END { exit d !~ /^(deferred: [^ ,].*, tracked in [^ ]|rejected: [^ ])/ }' "$dispositions" \
-      || { echo "NOT RECORDED: round $1 has no complete disposition for: $finding"; return 1; }
-  done
-}
-
-# The merge is a gate: every fact the review rested on is tested again, and gh pr merge runs only if
-# all hold. The base is read live: baseRefOid stays put while the branch moves (merge preconditions).
-merge_if_ready() {  # merge_if_ready <pr> <reviewed-head> <base-branch> <reviewed-base-sha>
-  local state tip ok
-  state=$(gh pr view "$1" --json headRefOid,baseRefName,mergeable \
-    --jq '[.headRefOid, .baseRefName, .mergeable] | join(" ")') || return 1
-  [ "$state" = "$2 $3 MERGEABLE" ] || { echo "REFUSE: head, base or mergeability differs: $state"; return 1; }
-  tip=$(git ls-remote origin "refs/heads/$3" | cut -f1) || return 1
-  [ -n "$4" ] && [ "$tip" = "$4" ] \
-    || { echo "REFUSE: $3 is at ${tip:-nothing}, not $4, the base the review diffed against: review again"; return 1; }
-  ok=$(gh pr checks "$1" --required --json bucket --jq 'length > 0 and all(.[]; .bucket == "pass")') \
-    || { echo "REFUSE: no required checks reported, or gh failed"; return 1; }
-  [ "$ok" = true ] || { echo "REFUSE: a required check has not passed"; return 1; }
-  gh pr merge "$1" --squash --match-head-commit "$2"
-}
-
-case "$STEP" in
-  review)
-    # A round number is never reused. Review exactly the pushed bytes, in a fresh detached worktree, never
-    # the checkout, whose ignored files `git status --porcelain` hides; it goes however the script exits.
-    if ls "$REVIEW_LOGS/round-$ROUND".* >/dev/null 2>&1; then echo "REFUSE: round $ROUND has run before; review as a new round"; exit 1; fi
-    git fetch origin
-    sha=$(git rev-parse '@{upstream}'); base=$(git rev-parse origin/main)
-    scratch=$(mktemp -d "${TMPDIR:-/tmp}/review-tree.XXXXXX"); tree="$scratch/tree"
-    trap 'git worktree remove --force "$tree" 2>/dev/null || rm -rf "$tree"; rm -rf "$scratch"; git worktree prune' EXIT
-    git worktree add --detach "$tree" "$sha"
-    [ -z "$(git -C "$tree" status --porcelain --ignored)" ] || { echo "REFUSE: the review tree is not exactly $sha"; exit 1; }
-    review_round "$ROUND" "$tree"    # a failed round stops here, before anything is pinned
-    echo "$sha" > "$REVIEW_LOGS/round-$ROUND.head"; echo "$base" > "$REVIEW_LOGS/round-$ROUND.base"
-    terminal_round "$ROUND"          # so does a round with P0-P2 findings left
-    echo "Round $ROUND is terminal: record a disposition for each finding in $REVIEW_LOGS/round-$ROUND.dispositions, then run STEP=merge" ;;
-  merge)
-    terminal_round "$ROUND"          # the round the merge rests on is terminal,
-    recorded_round "$ROUND"          # every finding in it has a disposition, or a reader recorded it clean,
-    head=$(cat "$REVIEW_LOGS/round-$ROUND.head"); base=$(cat "$REVIEW_LOGS/round-$ROUND.base")
-    merge_if_ready "$PR" "$head" main "$base" ;;   # and only then the gate, then the merge
-  *) echo "REFUSE: STEP must be review or merge"; exit 1 ;;
-esac
+# A round number is never reused. Review exactly the pushed bytes, in a fresh detached worktree, never
+# the checkout, whose ignored files `git status --porcelain` hides; it goes however the script exits.
+if ls "$REVIEW_LOGS/round-$ROUND".* >/dev/null 2>&1; then echo "REFUSE: round $ROUND has run before; review as a new round"; exit 1; fi
+git fetch origin
+sha=$(git rev-parse '@{upstream}'); base=$(git rev-parse origin/main)
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/review-tree.XXXXXX"); tree="$scratch/tree"
+trap 'git worktree remove --force "$tree" 2>/dev/null || rm -rf "$tree"; rm -rf "$scratch"; git worktree prune' EXIT
+git worktree add --detach "$tree" "$sha"
+[ -z "$(git -C "$tree" status --porcelain --ignored)" ] || { echo "REFUSE: the review tree is not exactly $sha"; exit 1; }
+review_round "$ROUND" "$tree"    # a failed round stops here, before anything is pinned
+echo "$sha" > "$REVIEW_LOGS/round-$ROUND.head"; echo "$base" > "$REVIEW_LOGS/round-$ROUND.base"
+terminal_round "$ROUND"          # so does a round with P0-P2 findings left
+echo "Round $ROUND is terminal. Record a complete disposition per finding in round-$ROUND.dispositions; a review"
+echo "that grades none failed, unless you read it and record it clean:. Then work through step 14's checklist."
 ```
 
 ## What it looks like
@@ -399,7 +360,8 @@ earlier round is stated where the reader will see it.
 - **Rounds that do not converge.** Each finds a new class of defect, each fix adds surface, and the
   next round finds the next class. The way out is a smaller pull request, not another round.
 - **Severity as a verdict.** The same defect has been graded high on one head and lower on the
-  next, and the check went green with the defect still in place. Judge the content.
+  next, and the check went green with the defect still in place. Judge the content, and fix a head
+  graded above the lowest; do not review it again until a run grades it lower.
 - **A marker the review itself can contain.** Cutting the final block out of a log at the last line
   reading `codex` breaks the moment the review quotes a file or a command output with such a line:
   the cut restarts there and the findings before it vanish, while the tail left over still looks
@@ -413,18 +375,16 @@ earlier round is stated where the reader will see it.
   pushed is merged without the review having seen it on the branch. A checkout that holds only
   ignored files looks clean to `git status --porcelain` and is not. Review a fresh worktree at the
   pushed sha, and remove it when the round ends: rounds that leave theirs pile up.
-- **Merging before the findings are read.** A recipe that merges the moment a round is terminal
-  merges lowest-grade findings nobody verified or recorded, and a garbled review with no grade in it
-  passes for a clean one. Review and merge are separate steps, with the dispositions between them.
 - **A base that moved after the review.** The head pin does not cover it, and `baseRefOid` does
   not see it: on one open pull request it named a base 17 commits behind the base branch's tip,
   and the pull request read `MERGEABLE`. Compare the branch's live tip with the round's base.
 - **The lowest grade taken from memory.** One reviewer's scale ends at P2 and another's at P3. A
   threshold copied from the wrong one stops the loop a grade early and leaves a whole grade of
   findings unfixed. Read the scale from the reviewer.
-- **A merge recipe that prints instead of gating.** Commands that show the head, the checks and
-  the mergeability, followed by a merge, merge whatever they showed. And `gh pr checks --json`
-  exits zero even when a check has failed, so only the buckets themselves can gate.
+- **A scripted merge gate.** Three rounds running found a new way for one to merge what nobody
+  reviewed: findings not yet read, a base that moved, a reused round, a head reviewed again until a
+  run came back clean. Merge by hand after the checklist, pinned with `--match-head-commit`. And
+  `gh pr checks --json` exits zero even when a check has failed: read the buckets.
 - **Merging a head nobody reviewed.** A last "trivial" fix pushed after the final round merges
   unreviewed and unchecked unless the merge is pinned to the reviewed head. The commonest version
   is the stop round's own lowest-severity findings, fixed "because they were cheap" and merged
@@ -475,17 +435,17 @@ earlier round is stated where the reader will see it.
       passed on that exact commit.
 - [ ] Every record is on the pull request, or in a commit after the fixes it names — none names
       its own commit, and none follows the last review.
-- [ ] The merge was gated, in a step of its own: every finding of the merged round had a recorded
-      disposition, or a reader recorded its review clean; head, base branch and mergeability
-      matched; the base branch's live tip was the base the round diffed against; the required
-      checks were a non-empty all-passed list from a zero-exit call; and only then did it merge.
+- [ ] The merge ran by hand after every line of step 14's checklist held: the reviewed head, not
+      reviewed before by a round that did not end the loop; a complete disposition per finding, or
+      the review recorded clean; the recorded base still the branch's tip; the intended branch,
+      mergeable; and a non-empty, all-passed list of required checks from a zero-exit call.
 - [ ] The merge used `--match-head-commit`.
 
 ## Deeper reading
 
 - [The review record](references/review-record.md): extracting the final block, the record's
-  fields, the dispositions and the file the merge step reads them from, and measuring an effect.
+  fields, the dispositions and the file the merge checklist reads them from, and measuring an effect.
 - [Arming a fix](references/arming-a-fix.md): the byte-copy mutation, why version control is the
   wrong restore, and how to confirm a restore by content.
-- [Merge preconditions](references/merge-preconditions.md): the reviewed head and base, required
-  checks on that commit, conflicting and stacked pull requests, and the pinned merge.
+- [Merge preconditions](references/merge-preconditions.md): why each line of the merge checklist is
+  there, the measured `gh` behaviours behind them, and the pinned merge.

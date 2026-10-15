@@ -126,11 +126,11 @@ in order to know how far to trust the reviewer.
 
 ## The dispositions file
 
-The merge step does not take the record's word for it; it reads the dispositions of the round it
-merges from a file beside that round's final review, `round-<n>.dispositions` in the log directory,
-written after the findings were read and verified. One line per graded finding of the final review:
-the finding's first line exactly as the reviewer wrote it, less a leading `- `, then ` => `, then
-its disposition.
+Line 3 of the merge checklist (step 14) does not take the record's word for it; it reads the
+dispositions of the round that merges from a file beside that round's final review,
+`round-<n>.dispositions` in the log directory, written after the findings were read and verified.
+One line per graded finding of the final review: the finding's first line exactly as the reviewer
+wrote it, less a leading `- `, then ` => `, then its disposition.
 
 ```text
 [P3] Log line misspells an arm label — src/report.py:41-41 => deferred: cosmetic, tracked in #212
@@ -139,7 +139,7 @@ its disposition.
 
 A finding with no line blocks the merge; so does a line with any disposition but `deferred` or
 `rejected`, because a finding fixed in the stop round makes a new head, which merges only after its
-own confirmation round. Each line is checked whole: it starts with the finding, a deferral names
+own confirmation round. Each line is read whole: it starts with the finding, a deferral names
 both its reason and `tracked in <where>`, and a rejection carries its evidence. A bare
 `deferred: cosmetic` or an empty `rejected:` blocks the merge as a missing line does. The review
 step refuses a round number that has run before and pins the round only once its review succeeded,
@@ -148,8 +148,8 @@ so neither dispositions nor a final review from an earlier run stand in for this
 A final review that grades no finding at all is not clean on its face. A clean Codex review is
 plain prose — its overall verdict, with no grade and no fixed wording (seen in a Codex session's own
 record of a clean review) — and so is a reviewer's error message, or a half-written reply. Only the
-person who read it can tell them apart, so the merge step refuses such a round as failed unless the
-file says so in a line of its own, `clean: <the reviewer's verdict, quoted>`.
+person who read it can tell them apart, so such a round counts as failed unless the file says
+so in a line of its own, `clean: <the reviewer's verdict, quoted>`.
 
 ## Measuring an effect
 

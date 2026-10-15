@@ -105,18 +105,19 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 ([project adaptation](project-adaptation.md)).
 
 `codex-review-loop` runs an independent reviewer over a pull request in rounds. Each round reviews a
-fresh worktree at the pushed sha, never the checkout, and counts only on a zero exit and a non-empty
-final review, taken from the file the reviewer writes rather than cut from its log; it reads only
-that review, checks each finding against the code before acting, fixes everything above the lowest
-grade of the reviewer's declared scale with a check watched failing under a deliberate break and
-restored from a byte copy, measures each finding's effect on published results, and keeps a review
-record per round where it cannot move the head. It stops when only lowest-grade findings remain —
-deferring them, or fixing them and running one confirmation round — splits the pull request when
-rounds keep finding new kinds of bug, and merges in a step of its own, through a gate that requires a
-recorded disposition for every finding of the round and tests head, base, the base branch's live
-tip against the base the round reviewed, mergeability and required checks before it calls the
-merge, pinned to the reviewed head. The examples use the Codex CLI; the loop is reviewer-agnostic.
-The Blocks-hosted loop stays `request-blocks-review`'s.
+fresh worktree at the pushed sha, never the checkout, under a round number never used before, and
+counts only on a zero exit and a non-empty final review, taken from the file the reviewer writes
+rather than cut from its log; it reads only that review, checks each finding against the code before
+acting, fixes everything above the lowest grade of the reviewer's declared scale with a check watched
+failing under a deliberate break and restored from a byte copy, measures each finding's effect on
+published results, and keeps a review record per round where it cannot move the head. It stops when
+only lowest-grade findings remain — deferring them, or fixing them and running one confirmation
+round — and splits the pull request when rounds keep finding new kinds of bug. The merge is a
+person's act, after a checklist: the head is the one the final round reviewed and no earlier round
+left unfixed, every finding has a complete disposition, the base has not moved since the review, and
+the required checks passed; then `gh pr merge --match-head-commit` pins the reviewed head. The
+examples use the Codex CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays
+`request-blocks-review`'s.
 
 ## Unreleased
 
