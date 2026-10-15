@@ -132,18 +132,7 @@ unmeasurable question is ceremony around a guess.
    **Complete when:** the plan is committed, and no paid call in the repository's history
    predates it.
 
-2. **FREEZE every input by hash.** Items, with their selection rule and seed; prompts; each arm's
-   request parameters; policies; rubrics; judge prompts; model identifiers with their provider
-   pins; every price table the budget guard reads; and every executable and configuration that can
-   change a request, a spend decision or a verdict — harness, budget guard, judge runner, scorer,
-   `reproduce.sh` — with the runtime's version and the dependency lock. Before freezing, read every
-   metric's definition against a handful of real items, the awkward ones included. A definition that counts "this field does not apply" as an invented answer will flip
-   a verdict, and only a real example shows that it does.
-   **Complete when:** every input the run will read, and every file of code and configuration it
-   runs, has a hash in the committed freeze, and each metric definition was checked against items
-   named in the plan.
-
-3. **Build the budget guard in code, and arm it before it guards anything.** An intention does not
+2. **Build the budget guard in code, and arm it before it guards anything.** An intention does not
    stop a retry loop at two in the morning. The guard is single-threaded by design, and its parts
    are detailed with a sketch in [the budget guard](references/budget-guard.md):
    - **One paying process, one call at a time.** The process holds an exclusive lock the kernel
@@ -156,13 +145,12 @@ unmeasurable question is ceremony around a guess.
    - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
      billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
      invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
-     stated margin over it, and the provider's maximum), for every attempt it may make. Only attempts
-     the guard reserved are bounded, so the client library's own retries are off, or capped within
-     the attempts reserved with the call settled from the provider's per-request records. A unit
-     with no cap in the request, or missing from the price table, makes the call unadmittable. A
-     call is admitted only while `spent + reserved + worst <= cap`, and while its stage — output
-     parity, the main run, judging — stays within its own pre-registered cap too. A cap checked
-     after the call is a report, not a cap.
+     stated margin over it, and the provider's maximum), for every attempt it may make; the client
+     library's own retries are off, or the guard refuses to start. A unit with no cap in the
+     request, or missing from the price table, makes the call unadmittable. A call is admitted
+     only while `spent + reserved + worst <= cap`, and while its stage — output parity, the main
+     run, judging — stays within its own pre-registered cap too. A cap checked after the call is a
+     report, not a cap.
    - **A balance floor, read before every admission, that latches.** A call is admitted only if
      the balance just read, less any settled spend it may not show yet and every reservation still
      standing, stays at or above the floor after the call's worst case. A read below that, or a read
@@ -171,8 +159,9 @@ unmeasurable question is ceremony around a guess.
      govern alone.
    - **Settle each call before the next.** The cost is the larger of the list-price and the
      provider-reported cost for every attempt, retries and failures included, summed. A settled
-     cost above its reservation latches the guard and writes STOP. The reservation row is on disk
-     before the call is sent, and the settled rows before the next admission.
+     cost above its reservation latches, writes STOP and closes the ledger: continuing takes an
+     addendum and a new ledger. The reservation row is on disk before the call is sent, and the
+     settled rows before the next admission.
    - **Restart by re-deriving every invariant from the ledger.** A new process restores the study's
      and every stage's totals from the settled rows, counts any reservation without a settlement at
      its worst case, checks every settled call against its reservation again — a run can die between
@@ -184,8 +173,20 @@ unmeasurable question is ceremony around a guess.
    latch. Kill the run between a reservation and its settlement, restart, and watch the reservation
    counted at its worst case. Write a settlement above its reservation with no latch, restart, and
    watch it latch. Start a second paying process and watch it refuse the lock.
-   **Complete when:** each part has been watched refusing, and the evidence is in the study's audit
-   log.
+   **Complete when:** each part has been watched refusing, every stub is restored before the
+   freeze, and the evidence is in the study's audit log.
+
+3. **FREEZE every input by hash.** Items, with their selection rule and seed; prompts; each arm's
+   request parameters; policies; rubrics; judge prompts; model identifiers with their provider
+   pins; every price table the budget guard reads; and every executable and configuration that can
+   change a request, a spend decision or a verdict — harness, the guard armed in step 2, judge
+   runner, scorer, `reproduce.sh` — with the runtime's version and the dependency lock. Before
+   freezing, read every metric's definition against a handful of real items, the awkward ones
+   included. A definition that counts "this field does not apply" as an invented answer will flip
+   a verdict, and only a real example shows that it does.
+   **Complete when:** every input the run will read, and every file of code and configuration it
+   runs, has a hash in the committed freeze, and each metric definition was checked against items
+   named in the plan.
 
 4. **Prove request parity and dry-run every arm, offline, and commit it before any paid call.**
    Build — without sending — the request production sends and the request each arm would send,
@@ -270,10 +271,10 @@ unmeasurable question is ceremony around a guess.
 
 10. **Make every number rebuildable offline.** `reproduce.sh` rebuilds every table and figure from
     committed data, with no network and no key. A checksum manifest lists every file it consumes,
-    including files read from other studies, and the script checks the manifest, the runtime's
-    version and the dependency lock before it computes anything. No module in the study may share a
-    name with a standard-library module or with another study's module, or the reproduction runs
-    different code depending on where it was started.
+    including files read from other studies; the script checks every frozen file and the runtime
+    against the freeze itself, then the manifest, before it computes anything. No module in the
+    study may share a name with a standard-library module or with another study's module, or the
+    reproduction runs different code depending on where it was started.
     **Complete when:** a clean checkout runs `reproduce.sh` offline to byte-identical outputs, and
     the manifest covers every file the run opened.
 
@@ -438,8 +439,7 @@ nothing says where either number can be rebuilt.
 - [ ] One paying process held an operating-system lock for the run, and calls were admitted, sent
       and settled strictly one at a time.
 - [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its
-      bound and a ceiling price, for every attempt (the library's own retries off, or capped within
-      the attempts reserved and the call settled from the provider's per-request records) — and
+      bound and a ceiling price, for every attempt, the client library's own retries off — and
       checked the study cap and the call's stage cap; a unit with no cap or no price was refused.
 - [ ] Where a balance endpoint exists, the balance was read before every admission, and a call
       that would cross the floor, a balance below it, or a failed read latched the run and wrote

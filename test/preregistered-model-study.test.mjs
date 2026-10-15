@@ -16,8 +16,8 @@ const frontmatterOf = (source) => source.slice(0, source.indexOf('\n---\n', 4));
 // is exactly what produced the verdicts this skill exists to prevent.
 const PROCEDURE_ORDER = [
   /^1\. \*\*Write the PLAN, and commit it before any paid call/,
-  /^2\. \*\*FREEZE every input by hash/,
-  /^3\. \*\*Build the budget guard in code, and arm it/,
+  /^2\. \*\*Build the budget guard in code, and arm it/,
+  /^3\. \*\*FREEZE every input by hash/,
   /^4\. \*\*Prove request parity and dry-run every arm, offline, and commit it before any paid call/,
   /^5\. \*\*Prove output parity as the first paid stage, under its own pre-registered cap/,
   /^6\. \*\*Run, with the controls/,
@@ -47,7 +47,7 @@ test('the plan, the freeze and the dry run come before any paid call, and later 
   assert.match(steps[0], /\*\*point rule\*\*[\s\S]*\*\*interval rule\*\*/, 'a bar is not both a point and an interval rule');
   assert.match(steps[0], /\*\*Invention\*\*[^.]*answering where the truth cannot be determined/);
   assert.match(steps[0], /sample size comes with its reason/);
-  assert.match(steps[1], /read every metric's definition against a handful of real items/);
+  assert.match(steps[2], /read every metric's definition against a handful of real items/);
   assert.match(steps[3], /no paid call has been made/);
   assert.match(steps[3], /may differ from it only where the plan intends/);
   assert.match(steps[6], /each one made before its calls was committed before the first call it governs/);
@@ -197,8 +197,8 @@ test('the freeze hashes each arm\'s parameters and every price table the guard r
   assert.match(freeze, /"params": \[\{ "arm": "A", "file": "params\/a\.json", "sha256": "<hash>" \}\]/);
   assert.match(freeze, /"price_tables": \[\{ "file": "prices\/<provider>\.json", "sha256": "<hash>"/);
   assert.match(freeze.replace(/\s+/g, ' '), /Every price table the guard reads is hashed/);
-  assert.match(procedureSteps(skill)[1], /each arm's request parameters/);
-  assert.match(procedureSteps(skill)[1], /every price table the budget guard reads/);
+  assert.match(procedureSteps(skill)[2], /each arm's request parameters/);
+  assert.match(procedureSteps(skill)[2], /every price table the budget guard reads/);
 });
 
 // Cut-down (#101): the guard is single-threaded. Each property it keeps is held here and armed by
@@ -213,12 +213,12 @@ const position = (text) => {
 };
 
 test('the guard is single-threaded: one process holding an OS lock, one call at a time, concurrency out of scope', () => {
-  const third = procedureSteps(skill)[2];
-  assert.match(third, /\*\*One paying process, one call at a time\.\*\*/);
-  assert.match(third, /an exclusive lock the kernel releases when it exits or dies — `flock` or its equivalent — for the whole run/);
-  assert.match(third, /The cap is hard only under this rule\./);
-  assert.match(third, /Concurrency is out of scope/);
-  assert.match(third, /refused at start-up when it equals production's key/);
+  const guardStep = procedureSteps(skill)[1];
+  assert.match(guardStep, /\*\*One paying process, one call at a time\.\*\*/);
+  assert.match(guardStep, /an exclusive lock the kernel releases when it exits or dies — `flock` or its equivalent — for the whole run/);
+  assert.match(guardStep, /The cap is hard only under this rule\./);
+  assert.match(guardStep, /Concurrency is out of scope/);
+  assert.match(guardStep, /refused at start-up when it equals production's key/);
   assert.match(budget, /## Scope: one paying process, one call at a time/);
   assert.match(budget, /The cap is hard only under that rule\./);
   assert.match(budget, /Concurrency is out of scope: calls in parallel inside the process, two paying processes, balance reads running alongside calls, locks on shared storage or across hosts, and taking over another process's lock/);
@@ -239,7 +239,7 @@ test('the cap and the stage cap are checked before every call, against its full 
   const send = position('attempts = send c');
   assert.ok(cap < reserve && stageCap < reserve && reserve < send, 'a cap is checked after the reservation, or the call is sent before it is reserved');
   assert.match(callPath, /if w is unbounded: +refuse/);
-  assert.match(procedureSteps(skill)[2], /A call is admitted only while `spent \+ reserved \+ worst <= cap`, and while its stage — output parity, the main run, judging — stays within its own pre-registered cap too/);
+  assert.match(procedureSteps(skill)[1], /A call is admitted only while `spent \+ reserved \+ worst <= cap`, and while its stage — output parity, the main run, judging — stays within its own pre-registered cap too/);
   for (const drill of ['| Cap |', '| Stage cap |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
 });
 
@@ -255,8 +255,8 @@ test('the balance is read before every admission, and the floor latches', () => 
   // Blocks on #101 (severity 8): an unknown-outcome reservation was left out of the floor test.
   assert.match(budget, /`reserved` is every reservation still standing: a call whose outcome is unknown \(part 5\), or one a crashed run left unsettled \(part 6\), may have been billed without the balance showing it/);
   assert.ok(guardDoc.includes('| Floor with an unknown call |'), 'no drill for the floor with an unknown call');
-  assert.match(procedureSteps(skill)[2], /A read below that, or a read that fails, latches the run and writes a STOP flag with the reason/);
-  assert.match(procedureSteps(skill)[2], /less any settled spend it may not show yet and every reservation still standing, stays at or above the floor/);
+  assert.match(procedureSteps(skill)[1], /A read below that, or a read that fails, latches the run and writes a STOP flag with the reason/);
+  assert.match(procedureSteps(skill)[1], /less any settled spend it may not show yet and every reservation still standing, stays at or above the floor/);
   for (const drill of ['| Floor |', '| Floor crossing |', '| Read failure |', '| No balance endpoint |']) {
     assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
   }
@@ -268,7 +268,7 @@ test('a settlement above its reservation latches, and every row is on disk befor
   const over = position('if actual > w:');
   const overLatch = callPath.indexOf('latched = true; write STOP flag with the reason', over);
   assert.ok(send < settled && settled < over && over < overLatch, 'the settlement is not written, or not checked against its reservation');
-  assert.match(procedureSteps(skill)[2], /A settled cost above its reservation latches the guard and writes STOP/);
+  assert.match(procedureSteps(skill)[1], /A settled cost above its reservation latches, writes STOP and closes the ledger: continuing takes an addendum and a new ledger/);
   assert.ok(guardDoc.includes('| Settlement above the reservation |'), 'no settlement drill');
 });
 
@@ -278,7 +278,7 @@ test('a restart restores the study and every stage from the ledger, unsettled re
   assert.match(start, /reserved, stage_reserved\[s\] = worst cases of reservations with no settlement/);
   assert.match(start, /if STOP flag exists or the ledger records a latch: refuse/);
   assert.match(budget, /Restoring the study's total but not the stage's lets a stage spend past its cap/);
-  assert.match(procedureSteps(skill)[2], /\*\*Restart by re-deriving every invariant from the ledger\.\*\*/);
+  assert.match(procedureSteps(skill)[1], /\*\*Restart by re-deriving every invariant from the ledger\.\*\*/);
   assert.ok(guardDoc.includes('| Restart |'), 'no restart drill');
 });
 
@@ -323,28 +323,36 @@ test('a restart re-derives every invariant from the ledger before it admits a ca
   assert.match(budget, /\*\*Every settled call is checked against its reservation again\.\*\* A run can die after flushing a settlement above its reservation and before writing the latch it earned, and a person's reconciliation of an unknown call can record more than its worst case/);
   assert.match(budget, /A reconciliation therefore takes effect only at the next start, which checks it like any other settlement/);
   assert.ok(guardDoc.includes('| Restart after an over-settlement |'), 'no drill for a restart after an over-settlement');
-  assert.match(procedureSteps(skill)[2], /checks every settled call against its reservation again — a run can die between a settlement and the latch it earned — and every total against its cap, latching on a breach/);
-  assert.match(procedureSteps(skill)[2], /Write a settlement above its reservation with no latch, restart, and watch it latch/);
+  assert.match(procedureSteps(skill)[1], /checks every settled call against its reservation again — a run can die between a settlement and the latch it earned — and every total against its cap, latching on a breach/);
+  assert.match(procedureSteps(skill)[1], /Write a settlement above its reservation with no latch, restart, and watch it latch/);
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /rechecked every settled call against its reservation and every total against its cap before admitting anything/);
+  // Codex round 4 on #101: the recheck finds a historical over-settlement on every start, so
+  // clearing STOP could never resume. A broken bound closes the ledger; continuing is a new one.
+  assert.match(budget, /\*\*A broken bound closes the ledger for good\.\*\* A settlement above its reservation, or a total above its cap, stays in the ledger, so every later start finds it again and refuses: clearing STOP does not resume that ledger/);
+  assert.match(budget, /Continuing the study takes a dated addendum that corrects the bound and re-freezes what it changed, and a new, empty ledger\. Its caps are what the old caps had left after everything the closed ledger settled, per stage, with that ledger's unsettled calls reconciled first/);
+  assert.match(budget, /the guard latches, writes STOP and closes the ledger \(part 6\)/);
+  assert.doesNotMatch(budget, /the study stops until the bound is corrected in an addendum/, 'an over-settlement is resumable again');
+  assert.match(guardDoc, /\| Restart after an over-settlement \|[^\n]*clearing STOP and starting again refuses again \|/);
 });
 
 // Codex round 3 on #101: a client library that retries on its own and returns only the last
-// attempt hides billed attempts from settlement, so the call settles below its real cost. Blocks on
-// the fix (severity 8): reading the provider's records afterwards repairs the accounting, not the
-// bound, so a library retry is either off or capped within the attempts reserved before the call.
-test('only attempts the guard reserved are bounded: library retries are off, or capped within max_attempts', () => {
-  assert.match(budget, /\*\*The attempts are every attempt the guard can see\.\*\*/);
-  assert.match(budget, /Turn the library's own retries off, so that every attempt is one the harness makes and the guard settles/);
-  assert.match(budget, /Where they cannot be turned off, cap them in the library's configuration and count the cap in `max_attempts`, so that the reservation covers every attempt the library can make before the call is sent; then settle the call from the provider's own per-request records for it/);
-  assert.match(budget, /Reading those records afterwards repairs the accounting, not the bound: a library that can retry past the attempts reserved can spend past the cap before anyone reads them, so the guard refuses it/);
-  assert.doesNotMatch(budget, /retries the provider's client library makes on its own, and a failed attempt/, 'a hidden library retry is counted as bounded again');
-  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
-  assert.match(start, /refuse if the client library can retry past max_attempts/);
-  for (const drill of ['| Hidden retry |', '| Library retry past the reservation |', '| Capped library retry |', '| Harness retry |']) {
-    assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
+// attempt hides billed attempts from settlement. Codex round 4: the capped-library path still
+// settled from what the library returned. One option is left, and it fails closed: retries off.
+test('the client library\'s own retries are off, and the guard refuses to start otherwise', () => {
+  assert.match(budget, /\*\*The attempts are every attempt the harness makes, and only those\.\*\*/);
+  assert.match(budget, /So the library's own retries are off, and the guard refuses to start while they are on\. A library whose retries cannot be turned off cannot be used for paid calls/);
+  for (const gone of [/cap them in the library's configuration/, /settle the call from the provider's own per-request records/, /retries the provider's client library makes on its own, and a failed attempt/]) {
+    assert.doesNotMatch(budget, gone, `a library-retry path is back: ${gone}`);
   }
-  assert.match(procedureSteps(skill)[2], /Only attempts the guard reserved are bounded, so the client library's own retries are off, or capped within the attempts reserved with the call settled from the provider's per-request records/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /for every attempt \(the library's own retries off, or capped within the attempts reserved and the call settled from the provider's per-request records\)/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse if the client library retries on its own/);
+  assert.doesNotMatch(start, /max_attempts/, 'start() admits a capped library retry again');
+  assert.match(guardDoc, /\| Hidden retry \| turn the client library's own retries on, at any limit, then start the run \| refuses at start-up \|/);
+  assert.ok(guardDoc.includes('| Harness retry |'), 'no harness retry drill');
+  for (const drill of ['| Capped library retry |', '| Library retry past the reservation |']) assert.ok(!guardDoc.includes(drill), `the ${drill.trim()} path is back`);
+  assert.match(procedureSteps(skill)[1], /for every attempt it may make; the client library's own retries are off, or the guard refuses to start/);
+  assert.doesNotMatch(skill, /per-request records/, 'SKILL.md offers the provider-record path again');
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /for every attempt, the client library's own retries off — and checked the study cap/);
 });
 
 // Codex round 3 on #101: FREEZE hashed the scorer alone, so the request harness, the budget guard
@@ -359,27 +367,40 @@ test('the freeze hashes every executable and configuration that can change a req
   assert.match(freeze, /"config": \[\{ "file": "config\/<name>", "sha256": "<hash>" \}\]/);
   assert.match(freeze, /"runtime": \{ "name": "<runtime>", "version": "<exact version>", "lock": \{ "file": "<lock file>", "sha256": "<hash>" \} \}/);
   assert.match(freeze.replace(/\s+/g, ' '), /\*\*every executable and every configuration that can change a request, a spend decision or a verdict\*\*/);
-  assert.match(procedureSteps(skill)[1], /every executable and configuration that can change a request, a spend decision or a verdict — harness, budget guard, judge runner, scorer, `reproduce\.sh` — with the runtime's version and the dependency lock/);
-  assert.match(procedureSteps(skill)[1], /every file of code and configuration it runs, has a hash in the committed freeze/);
-  assert.doesNotMatch(procedureSteps(skill)[1], /; the scorer code\./, 'step 2 freezes the scorer alone again');
+  assert.match(procedureSteps(skill)[2], /every executable and configuration that can change a request, a spend decision or a verdict — harness, the guard armed in step 2, judge runner, scorer, `reproduce\.sh` — with the runtime's version and the dependency lock/);
+  assert.match(procedureSteps(skill)[2], /every file of code and configuration it runs, has a hash in the committed freeze/);
+  assert.doesNotMatch(procedureSteps(skill)[2], /; the scorer code\./, 'step 3 freezes the scorer alone again');
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The freeze hashes every executable and configuration that can change a request, a spend decision or a verdict, with the runtime's version and the dependency lock/);
-  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
-  assert.match(start, /refuse if a frozen file differs from its hash/);
-  assert.match(budget, /### 7\. What runs is what was frozen/);
-  assert.ok(guardDoc.includes('| Freeze drift |'), 'no drill for a frozen file that changed');
+  // Codex round 4 on #101: the freeze hashed a guard step 3 had not built yet. The guard is built
+  // and armed first, its stubs restored, and only then frozen.
+  assert.match(procedureSteps(skill)[1], /^2\. \*\*Build the budget guard in code, and arm it before it guards anything\.\*\*/);
+  assert.match(procedureSteps(skill)[2], /^3\. \*\*FREEZE every input by hash\.\*\*/);
+  assert.match(procedureSteps(skill)[1], /\*\*Complete when:\*\* each part has been watched refusing, every stub is restored before the freeze/);
+  assert.match(files, /The freeze is taken after the budget guard is built and armed, so that the guard it hashes is the one that runs/);
+  assert.match(files, /An addendum that changes a frozen file updates that file's entry in FREEZE\.json in the same commit, and records the old hash/);
 });
 
-test('reproduce.sh checks the runtime and installs only from the frozen lock before it computes', () => {
+// Codex round 4 on #101: deleting the lock's manifest row passed `shasum --check`, and the lock was
+// installed unverified. Frozen files are checked against FREEZE.json itself, and each must have a row.
+test('reproduce.sh checks every frozen file and the runtime against the freeze itself before it installs or computes', () => {
   const raw = read('references/study-files.md');
   const script = fenced(raw.slice(raw.indexOf('## reproduce.sh')), 'bash')[0];
-  const manifest = script.indexOf('shasum -a 256 --check --quiet MANIFEST.sha256');
-  const runtime = script.indexOf('test "$(<runtime> --version)" = "<exact version from FREEZE.json>" || { echo "runtime is not the frozen one" >&2; exit 1; }');
-  const install = script.indexOf('<install the dependencies from the lock file only, from a vendored copy or a local cache, offline>');
-  const compute = script.indexOf('<runtime> code/score.<ext>');
-  assert.ok(manifest !== -1 && runtime !== -1 && install !== -1 && compute !== -1, 'reproduce.sh lost the manifest check, the runtime check or the locked install');
-  assert.ok(manifest < runtime && runtime < install && install < compute, 'reproduce.sh computes before it has checked its runtime and dependencies');
+  const at = (text) => {
+    const index = script.indexOf(text);
+    assert.notEqual(index, -1, `reproduce.sh no longer contains: ${text}`);
+    return index;
+  };
+  const frozen = at('<each "file" and "sha256" pair in FREEZE.json, printed as "<sha256>  <file>"> | shasum -a 256 --check --quiet');
+  const member = at('<each "file" in FREEZE.json has a row in MANIFEST.sha256, or exit 1>');
+  const runtime = at('test "$(<runtime> --version)" = "<exact version from FREEZE.json>" || { echo "runtime is not the frozen one" >&2; exit 1; }');
+  const manifest = at('shasum -a 256 --check --quiet MANIFEST.sha256');
+  const install = at('<install the dependencies from the lock file only, from a vendored copy or a local cache, offline>');
+  const compute = at('<runtime> code/score.<ext>');
+  assert.ok(frozen < member && member < runtime && runtime < manifest && manifest < install && install < compute, 'reproduce.sh installs or computes before the freeze and the manifest are checked');
+  assert.match(script.replace(/\n#\s*/g, ' ').replace(/\s+/g, ' '), /This reads the freeze, not the manifest, so a deleted manifest row stops the run here/);
   assert.match(files, /a byte-identical rebuild needs both pinned/);
-  assert.match(procedureSteps(skill)[9], /the script checks the manifest, the runtime's version and the dependency lock before it computes anything/);
+  assert.match(files, /dependencies installed only from the lock the freeze hashes/);
+  assert.match(procedureSteps(skill)[9], /the script checks every frozen file and the runtime against the freeze itself, then the manifest, before it computes anything/);
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /from a clean checkout, under the frozen runtime and dependency lock/);
 });
 
@@ -404,7 +425,7 @@ test('the checklist allows exactly what the procedure allows', () => {
   const budgetItem = prerequisiteItems(skill).find((item) => /^6\. /.test(item));
   // No balance endpoint: the compatibility line, the floor rule and the prerequisite all allow it.
   assert.match(frontmatterOf(skill), /without one the floor is recorded as unavailable/);
-  assert.match(steps[2], /With no balance endpoint, the plan says the floor is unavailable/);
+  assert.match(steps[1], /With no balance endpoint, the plan says the floor is unavailable/);
   assert.match(budgetItem, /the floor recorded as unavailable/);
   assert.match(budgetItem, /\*\*Complete when:\*\* the cap is a number someone agreed to, and the floor is one too or is recorded as unavailable/);
   assert.doesNotMatch(budgetItem, /both are numbers someone agreed to/, 'the prerequisite demands a numeric floor again');

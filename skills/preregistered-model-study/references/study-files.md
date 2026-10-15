@@ -113,8 +113,10 @@ verdict**: the harness that builds the requests, the guard that admits and settl
 runner, the scorer, `reproduce.sh`, every configuration any of them reads, and the runtime's version
 with its dependency lock. A freeze of the scorer alone leaves the request builder, the guard and the
 judge runner free to change after the dry run under a freeze that still looks complete. List the
-files by walking `code/`, `config/` and every path the code opens, not from memory. The guard checks
-every hash at start-up, and an addendum that changes a frozen file records its new hash.
+files by walking `code/`, `config/` and every path the code opens, not from memory. The freeze is
+taken after the budget guard is built and armed, so that the guard it hashes is the one that runs.
+An addendum that changes a frozen file updates that file's entry in FREEZE.json in the same commit,
+and records the old hash.
 
 Each arm's request parameters are hashed, because a sampling parameter changed after the freeze
 changes the comparison while the prompts still match. Every price table the guard reads is hashed,
@@ -158,19 +160,24 @@ the runtime or a dependency changed.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# 1. Every input is what the manifest says it is — data, code and the dependency lock. A changed or
-#    missing file stops the run here.
+# 1. Every file FREEZE.json names — code, config, prompts, price tables, the dependency lock — has the
+#    hash FREEZE.json gives it, and a row in the manifest; and the runtime is the frozen one. This
+#    reads the freeze, not the manifest, so a deleted manifest row stops the run here.
+<each "file" and "sha256" pair in FREEZE.json, printed as "<sha256>  <file>"> | shasum -a 256 --check --quiet
+<each "file" in FREEZE.json has a row in MANIFEST.sha256, or exit 1>
+test "$(<runtime> --version)" = "<exact version from FREEZE.json>" || { echo "runtime is not the frozen one" >&2; exit 1; }
+
+# 2. Every input is what the manifest says it is. A changed or missing file stops the run here.
 shasum -a 256 --check --quiet MANIFEST.sha256
 
-# 2. The runtime is the frozen one, and the dependencies come from the frozen lock, with no network.
-test "$(<runtime> --version)" = "<exact version from FREEZE.json>" || { echo "runtime is not the frozen one" >&2; exit 1; }
+# 3. The dependencies come only from the lock step 1 checked, with no network.
 <install the dependencies from the lock file only, from a vendored copy or a local cache, offline>
 
-# 3. Rebuild every table from committed data, offline. The loader opens only manifest-listed
+# 4. Rebuild every table from committed data, offline. The loader opens only manifest-listed
 #    paths, so a file the manifest forgot to list cannot be read silently.
 <runtime> code/score.<ext> --offline --manifest MANIFEST.sha256 --in data --out tables.rebuilt
 
-# 4. The rebuilt tables are byte-identical to the committed ones.
+# 5. The rebuilt tables are byte-identical to the committed ones.
 diff -r tables tables.rebuilt
 rm -rf tables.rebuilt
 echo "reproduced: every table matches"
@@ -178,12 +185,12 @@ echo "reproduced: every table matches"
 
 A clean checkout on another machine runs whatever runtime and packages it has installed, so a
 byte-identical rebuild needs both pinned: the runtime's version checked before anything runs, and the
-dependencies installed only from the lock the manifest lists — or the whole script run inside a
+dependencies installed only from the lock the freeze hashes — or the whole script run inside a
 container image named by its digest. Where the data classification keeps raw data out of the
 repository, the manifest lists the private copies by hash, and the script reads them from where the
 plan says they are kept.
 
-The manifest check in step 1 catches a changed file. It cannot catch a file that was never listed,
+The manifest check in step 2 catches a changed file. It cannot catch a file that was never listed,
 and that is the gap that bites: a file read from another study, changed there, and never noticed
 here. Close it in the loader: route every read through one function that refuses a path the
 manifest does not list. A file the study consumes is then either listed or a loud failure.

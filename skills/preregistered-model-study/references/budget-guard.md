@@ -76,17 +76,12 @@ worst(call)      = worst_attempt * max_attempts
   context limit, or a counted size plus a stated margin, not a local estimate that another
   tokeniser can exceed. `max_output_tokens` is the limit sent with the request. Where the provider
   bills reasoning or other hidden tokens outside that limit, add their limit as well.
-- **The attempts are every attempt the guard can see.** That includes retries the harness makes
-  and a failed attempt that is still billed. A client library that retries on its own and returns
-  only the last attempt hides the others: they are billed, and settlement never sees them, so the
-  call settles below its real cost and the cap counts money as unspent that is gone. Turn the
-  library's own retries off, so that every attempt is one the harness makes and the guard settles.
-  Where they cannot be turned off, cap them in the library's configuration and count the cap in
-  `max_attempts`, so that the reservation covers every attempt the library can make before the
-  call is sent; then settle the call from the provider's own per-request records for it — every
-  request the key made while the call ran — and not from what the library returned. Reading those
-  records afterwards repairs the accounting, not the bound: a library that can retry past the
-  attempts reserved can spend past the cap before anyone reads them, so the guard refuses it.
+- **The attempts are every attempt the harness makes, and only those.** That includes its own
+  retries and a failed attempt that is still billed. A client library that retries on its own and
+  returns only the last attempt hides the others: they are billed, settlement never sees them, and
+  the call settles below its real cost. So the library's own retries are off, and the guard refuses
+  to start while they are on. A library whose retries cannot be turned off cannot be used for paid
+  calls: no record read afterwards puts back a bound that was never reserved.
 - **Every stage has its own cap.** Each call belongs to a stage — output parity, the main run,
   judging — and the stage's pre-registered cap is checked in the same admission as the study's. A
   call that would still fit the study cap but exceed its stage's is refused.
@@ -102,8 +97,7 @@ for every call:       settled cost <= worst(call)
 Under this guard nothing is in flight at an admission, so `reserved` holds only reservations whose
 outcome is unknown: a call that threw before it could be settled, or one a crashed run left
 unsettled (part 6). A settled cost above its reservation means the bound was not a
-bound: the guard latches and writes STOP, and the study stops until the bound is corrected in an
-addendum.
+bound: the guard latches, writes STOP and closes the ledger (part 6).
 
 ### 4. A balance floor, read before every admission, that latches
 
@@ -181,13 +175,13 @@ invariant the running guard enforced, before it admits anything:
 A reconciliation therefore takes effect only at the next start, which checks it like any other
 settlement.
 
-### 7. What runs is what was frozen
-
-At start-up the guard checks every file the FREEZE hashes — the harness, the guard itself, the
-judge runner, the scorer, every configuration and price table, the dependency lock — against its
-hash, or against the new hash recorded by the addendum that changed it, and refuses on any
-mismatch, naming the file. A freeze that nothing checks before the calls describes what was meant to
-run, not what ran.
+**A broken bound closes the ledger for good.** A settlement above its reservation, or a total above
+its cap, stays in the ledger, so every later start finds it again and refuses: clearing STOP does
+not resume that ledger, and nothing should. Continuing the study takes a dated addendum that
+corrects the bound and re-freezes what it changed, and a new, empty ledger. Its caps are what the
+old caps had left after everything the closed ledger settled, per stage, with that ledger's
+unsettled calls reconciled first; and where there is a floor, it admits nothing until a balance read
+is as of a time after the closed ledger's last settlement.
 
 ## The admission path
 
@@ -196,8 +190,7 @@ start():
     take the OS lock on <study>/guard.lock without waiting      # held until the process exits
         or refuse: "another paying process holds this study"
     refuse if the research key equals production's              # compared by hash, never printed
-    refuse if the client library can retry past max_attempts     # its own retries off, or capped and reserved
-    refuse if a frozen file differs from its hash                # the FREEZE's, or the addendum's that changed it
+    refuse if the client library retries on its own             # every attempt is one the harness makes
     spent, stage_spent[s]       = sums of the settled rows       # restore from the ledger
     reserved, stage_reserved[s] = worst cases of reservations with no settlement   # never released here
     for every settled call in the ledger:                        # re-derive every invariant; assume none
@@ -257,12 +250,9 @@ call and no real key:
 | Settlement above the reservation | settle a call whose reported cost exceeds its reservation | latches, writes STOP, refuses the next admission |
 | Thrown call | make the send throw after the reservation row is written, catch it, and admit the next call | the thrown call's worst case still counts against the study and stage caps; nothing released it |
 | Restart | kill the process after a reservation row and before its settlement, then start another | the unsettled reservation counts at its worst case, for the study and its stage; settled totals are restored per stage |
-| Restart after an over-settlement | write a settled row above its reservation, with no latch and no STOP flag — a run that died before latching, or a reconciliation above the worst case — then start the run | latches, writes STOP and refuses before admitting anything |
-| Hidden retry | turn the client library's own retries on, with no cap, then start the run | refuses at start-up |
-| Library retry past the reservation | cap the library's retries at one more attempt than `max_attempts` counts, then start the run | refuses at start-up: the reservation does not cover the last attempt |
-| Capped library retry | cap the library's retries within `max_attempts`, and stub a transport that fails the first attempt | admitted; the call settles from the provider's per-request records, both attempts costed |
+| Restart after an over-settlement | write a settled row above its reservation, with no latch and no STOP flag — a run that died before latching, or a reconciliation above the worst case — then start the run | latches, writes STOP and refuses before admitting anything; clearing STOP and starting again refuses again |
+| Hidden retry | turn the client library's own retries on, at any limit, then start the run | refuses at start-up |
 | Harness retry | stub a transport that fails the first attempt, and let the harness retry | the ledger shows both attempts, each costed, summed into the call |
-| Freeze drift | change one byte of a frozen file — the harness, the guard, a price table — then start the run | refuses at start-up, naming the file |
 | STOP flag | create the flag by hand, then start the run | refuses until a person removes it |
 | Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
 | Unlisted unit | admit a call that can incur a unit the frozen price table does not list | refused at admission |
