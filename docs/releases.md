@@ -108,9 +108,10 @@ declares `## Bindings`, so a project can adapt it to its own learners and librar
 plan, a hash freeze of every input and of every executable, configuration and runtime that can change
 a request, a spend or a verdict, and a dry run that proves request parity with production offline,
 all before any paid call; runs output parity as the first paid stage, under its own pre-registered
-cap; puts every later change in a dated addendum committed before the calls it governs; and enforces
-the spend in code with a single-threaded guard — one paying process holding an operating-system lock,
-calls one at a time — that refuses a production key, reserves every billable unit of each call at a
+cap; puts every later change in a dated addendum committed before the calls it governs, or records
+one found after them as a dated correction; and enforces the spend in code with a single-threaded
+guard — one research account, one paying process holding an operating-system lock, calls one at a
+time — that refuses a production key or any other paid credential, reserves every billable unit of each call at a
 ceiling price against the study and stage caps, reads the balance before every admission and latches
 the floor, settles each call before the next and latches on a settlement above its reservation, and
 on restart re-derives every total and invariant from its ledger. Concurrency is out of scope, and the cap is hard only under the

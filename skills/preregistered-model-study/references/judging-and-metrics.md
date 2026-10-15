@@ -8,6 +8,9 @@ matters most, how its results are reported, and how the numbers built on it are 
 
 - **Three judges from three vendors.** An item's verdict is the 2-of-3 majority; on a graded scale,
   the median. One vendor's blind spots are not another's, and a single judge's taste is not a key.
+- **On the study's one account.** Every judge is called through the same research account as the
+  arms, and so through the guard: a judge on its own vendor key spends outside the balance the guard
+  reads. Data a judge may not receive is not in the study.
 - **One frozen rubric**, the same for every judge, hashed in the freeze.
 - **Blind to the arm.** Answers are labelled neutrally and, where a judge sees more than one, shown
   in an order shuffled per item, so that position and labels cannot lean on the verdict.

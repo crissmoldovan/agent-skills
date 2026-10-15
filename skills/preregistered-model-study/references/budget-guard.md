@@ -21,12 +21,17 @@ spend twice it, and parallel calls each reserve against a total the others have 
 
 ## The parts
 
-### 1. A dedicated research key, refused if it is production's
+### 1. One research account, refused if it is production's
 
-The study runs on its own key, with its own balance, so that a runaway study cannot spend
+Every paid call the study makes — every arm, every judge — goes through one research account: one
+key and one balance, such as a multi-vendor gateway's. That is what lets one guard hold the cap and
+the floor. A study whose providers need separate accounts is out of scope, because each account
+would need a guard of its own. The account is the study's own, so that a runaway study cannot spend
 production's money or exhaust production's rate limit. At start-up the guard reads both keys
 from their secret stores, compares their hashes in memory, prints nothing but the outcome, and
-refuses to start when they are equal.
+refuses to start when they are equal. It also refuses while the harness holds any other paid
+credential: a judge called on its own vendor key spends outside the balance the guard reads, and
+that key may be production's.
 
 If production's key is not readable where the study runs, the check cannot run. Say so, and treat
 it as a reason to run the study somewhere it can — not as a pass.
@@ -190,6 +195,7 @@ start():
     take the OS lock on <study>/guard.lock without waiting      # held until the process exits
         or refuse: "another paying process holds this study"
     refuse if the research key equals production's              # compared by hash, never printed
+    refuse if the harness holds any paid credential but the research key   # one account, one balance
     refuse if the client library retries on its own             # every attempt is one the harness makes
     spent, stage_spent[s]       = sums of the settled rows       # restore from the ledger
     reserved, stage_reserved[s] = worst cases of reservations with no settlement   # never released here
@@ -238,6 +244,7 @@ call and no real key:
 | Part | Mutation | Expected |
 |---|---|---|
 | Research key | set both key variables to the same fake value | refuses at start-up, prints no value |
+| Second credential | give one judge its own vendor key beside the research key, then start the run | refuses at start-up |
 | Lock | start a second paying process while the first holds the lock | the second refuses to start |
 | Lock released on death | kill the first process outright, then start another | the new process takes the lock at once: no stale lock, no takeover |
 | Cap | set the cap below one call's worst case | refuses the first admission |

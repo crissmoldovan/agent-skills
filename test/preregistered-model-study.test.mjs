@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { assertCatalogueShape, fenced, prerequisiteItems, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
 
 const name = 'preregistered-model-study';
@@ -43,12 +44,12 @@ test('the procedure runs its thirteen acts in order', () => {
 
 test('the plan, the freeze and the dry run come before any paid call, and later changes are addenda', () => {
   const steps = procedureSteps(skill);
-  assert.match(steps[0], /no paid call in the repository's history predates it/);
+  assert.match(steps[0], /no paid call by this study's harness predates it/);
   assert.match(steps[0], /\*\*point rule\*\*[\s\S]*\*\*interval rule\*\*/, 'a bar is not both a point and an interval rule');
   assert.match(steps[0], /\*\*Invention\*\*[^.]*answering where the truth cannot be determined/);
   assert.match(steps[0], /sample size comes with its reason/);
   assert.match(steps[2], /read every metric's definition against a handful of real items/);
-  assert.match(steps[3], /no paid call has been made/);
+  assert.match(steps[3], /this study's harness has made no paid call/);
   assert.match(steps[3], /may differ from it only where the plan intends/);
   assert.match(steps[6], /each one made before its calls was committed before the first call it governs/);
   assert.match(steps[6], /It is never backdated/);
@@ -68,7 +69,7 @@ test('no step before output parity spends anything, and output parity is capped 
   assert.match(steps[4], /within its own cap, inside the study's/);
   assert.match(steps[4], /its plan committed before its first call/);
   assert.match(steps[0], /Output parity \(step 5\) is registered here as a stage of its own, with its items, its pass rule and its own cap/);
-  assert.match(flat, /The first three are committed before any paid call\. The first paid calls are output parity's/);
+  assert.match(flat, /The first three are committed before the study's first paid call, which is output parity's/);
   assert.match(parity, /\*\*Request parity is offline, and part of the dry run\.\*\*/);
   assert.match(parity, /\*\*Output parity is paid, and a stage of its own\.\*\* It runs only after the dry run is committed/);
   assert.match(files, /Output parity \(the first paid stage\):/);
@@ -110,7 +111,7 @@ test('parity is proven first, the provider is pinned, and the controls make a di
 
 test('judges see provenance, are reported alone, and a shortcut is proven exact', () => {
   const judge = procedureSteps(skill)[7];
-  assert.match(judge, /Three judges from three vendors; an item's verdict is the 2-of-3 majority/);
+  assert.match(judge, /Three judges from three vendors, all on the one account; the verdict is the 2-of-3 majority/);
   assert.match(judge, /\*\*Tag the evidence with where it came from\.\*\*/);
   assert.match(judge, /source-only reading/);
   assert.match(judge, /A judge shown the same untagged evidence as the model cannot tell an invented fact from a sourced one/);
@@ -157,7 +158,7 @@ test('the examples are asks and runnable commands, and the specimen states its p
   assert.match(specimen, /95% interval/);
   assert.match(specimen, /each judge alone/);
   assert.match(specimen, /A\/A distribution \(<k> baseline runs, paired resampling\)/);
-  assert.match(flat, /The first three are committed before any paid call/);
+  assert.match(flat, /The first three are committed before the study's first paid call/);
 });
 
 // Review round 2: worst(call) counted tokens only; a call can also be billed per request, per image,
@@ -218,7 +219,7 @@ test('the guard is single-threaded: one process holding an OS lock, one call at 
   assert.match(guardStep, /an exclusive lock the kernel releases when it exits or dies — `flock` or its equivalent — for the whole run/);
   assert.match(guardStep, /The cap is hard only under this rule\./);
   assert.match(guardStep, /Concurrency is out of scope/);
-  assert.match(guardStep, /refused at start-up when it equals production's key/);
+  assert.match(guardStep, /refused at start-up when it equals production's — compared by hash, never printed/);
   assert.match(budget, /## Scope: one paying process, one call at a time/);
   assert.match(budget, /The cap is hard only under that rule\./);
   assert.match(budget, /Concurrency is out of scope: calls in parallel inside the process, two paying processes, balance reads running alongside calls, locks on shared storage or across hosts, and taking over another process's lock/);
@@ -411,9 +412,9 @@ test('the data is classified before anything carrying it is committed', () => {
   const classified = items.find((item) => /^\d+\. \*\*The data classified\.\*\*/.test(item));
   assert.ok(classified, 'no prerequisite classifies the data');
   assert.match(classified, /Wherever this skill says \*committed\*, it means as the class allows: in the clear, or in approved private or encrypted storage with its hash committed in its place/);
-  assert.match(classified, /\*\*Complete when:\*\* the plan names the data's class and where each artefact carrying it is kept/);
+  assert.match(classified, /\*\*Complete when:\*\* before any paid call, the plan names the data's class, that every recipient is approved for it, and where each artefact carrying it is kept/);
   assert.match(items.find((item) => /^4\. /.test(item)), /committed, as prerequisite 7 allows/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The data was classified, and every artefact carrying it is kept where its class allows/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The data was classified before any paid call, every recipient is approved for it, and every artefact carrying it is kept where its class allows/);
   assert.match(files, /the manifest lists the private copies by hash/);
 });
 
@@ -424,7 +425,7 @@ test('the checklist allows exactly what the procedure allows', () => {
   const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
   const budgetItem = prerequisiteItems(skill).find((item) => /^6\. /.test(item));
   // No balance endpoint: the compatibility line, the floor rule and the prerequisite all allow it.
-  assert.match(frontmatterOf(skill), /without one the floor is recorded as unavailable/);
+  assert.match(frontmatterOf(skill), /with no balance endpoint the floor is recorded as unavailable/);
   assert.match(steps[1], /With no balance endpoint, the plan says the floor is unavailable/);
   assert.match(budgetItem, /the floor recorded as unavailable/);
   assert.match(budgetItem, /\*\*Complete when:\*\* the cap is a number someone agreed to, and the floor is one too or is recorded as unavailable/);
@@ -440,4 +441,58 @@ test('the checklist allows exactly what the procedure allows', () => {
   assert.match(steps[7], /every item — or, under a shortcut the plan registered, every item where the arms differ — has three raw judge verdicts/);
   assert.match(checklist, /scored every item — or, under a shortcut the plan registered, every item where the arms differ, with absolute rates reported as not measured/);
   assert.doesNotMatch(checklist, /Three judges from three vendors scored every item;/, 'the checklist requires every item judged under the shortcut again');
+});
+
+// Codex round 5 on #101: three judge vendors on separate keys would spend outside the one key pair
+// and the one balance the guard checks. Every paid call goes through one research account.
+test('every paid call, arms and judges alike, goes through one research account', () => {
+  const items = prerequisiteItems(skill);
+  const account = items.find((item) => /^3\. /.test(item));
+  assert.match(account, /^3\. \*\*One research account that is not production's\.\*\* One key and one balance for every paid call, arms and judges alike/);
+  assert.match(account, /Providers that need separate accounts are out of scope: each would need its own guard/);
+  assert.match(account, /refuses to run when it equals production's key or when the harness holds any other paid credential/);
+  assert.match(frontmatterOf(skill), /Every paid call goes through one research account, not production's: one key, one balance/);
+  const guardStep = procedureSteps(skill)[1];
+  assert.match(guardStep, /\*\*One research key for every paid call\*\*, refused at start-up when it equals production's — compared by hash, never printed — or when the harness holds any other paid credential/);
+  assert.match(procedureSteps(skill)[7], /Three judges from three vendors, all on the one account/);
+  assert.match(budget, /### 1\. One research account, refused if it is production's/);
+  assert.match(budget, /Every paid call the study makes — every arm, every judge — goes through one research account: one key and one balance/);
+  assert.match(budget, /A study whose providers need separate accounts is out of scope, because each account would need a guard of its own/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse if the harness holds any paid credential but the research key/);
+  assert.ok(guardDoc.includes('| Second credential |'), 'no drill for a second credential');
+  assert.match(judging, /\*\*On the study's one account\.\*\* Every judge is called through the same research account as the arms, and so through the guard/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Every paid call went through the one research account, not production's, and the checks that refuse production's key and any other paid credential ran/);
+});
+
+// Codex round 5 on #101: the classification governed where artefacts are kept, not who receives the
+// data. The study uses only data every recipient is approved for; redaction is not a mechanism here.
+test('the study uses only data every recipient is approved to receive', () => {
+  const classified = prerequisiteItems(skill).find((item) => /^7\. \*\*The data classified\.\*\*/.test(item));
+  assert.match(classified, /The study uses only data that every recipient — each candidate provider and each judge vendor — is approved to receive; otherwise this skill does not apply, and redaction comes before the study/);
+  assert.match(classified, /\*\*Complete when:\*\* before any paid call, the plan names the data's class, that every recipient is approved for it, and where each artefact carrying it is kept/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The data was classified before any paid call, every recipient is approved for it/);
+  assert.match(files, /Data: class <class>; every recipient approved for it: <each candidate provider>, <each judge vendor>/);
+});
+
+// Codex round 5 on #101: "no paid call before the plan" cannot hold for a study of a system that
+// already runs: production's stored outputs are an input. The rule is about this study's harness.
+test('the before-any-paid-call rules are about this study\'s harness, not production', () => {
+  const steps = procedureSteps(skill);
+  assert.match(steps[0], /no paid call by this study's harness predates it \(production's stored outputs do, by design\)/);
+  assert.doesNotMatch(steps[0], /no paid call in the repository's history/, 'step 1 forbids production\'s own calls again');
+  assert.match(steps[3], /this study's harness has made no paid call/);
+  assert.doesNotMatch(steps[3], /and no paid call has been made/, 'step 4 forbids production\'s own calls again');
+  const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
+  assert.match(checklist, /Request parity was proven offline, in the dry run, before the study's first paid call/);
+});
+
+// Codex round 5 on #101: the summary, the description and the release paragraph said every addendum
+// precedes its calls; step 7 also allows a correction found after them, dated and never backdated.
+test('every summary of the addenda rule allows a dated correction found after the calls', () => {
+  assert.match(flat, /\*\*ADDENDA\*\* — every change after the first paid call, dated, with its reason: committed before the calls it governs, or, when found after them, recorded as a correction and never backdated/);
+  assert.doesNotMatch(flat, /\*\*ADDENDA\*\* — [^.]*each committed before the calls it governs\./, 'the summary requires every addendum to predate its calls again');
+  assert.match(frontmatterOf(skill), /put every later change in a dated addendum committed before the calls it governs, or record it as a dated correction if found after them;/);
+  const releases = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+  assert.match(releases, /puts every later change in a dated addendum committed before the calls it governs, or records one found after them as a dated correction/);
 });
