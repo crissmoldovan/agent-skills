@@ -66,8 +66,16 @@ ends up in a log. In order of preference:
    ```
 
    Changing them may need elevated rights. If any of them cannot be switched off for that session,
-   do not send the value this way: use the store's own interface, or place it by hand. Record the
-   settings you read before and after.
+   do not send the value this way: use the store's own interface, or place it by hand.
+
+   These are the server's own switches, and the server is not the only recorder. Anything else on
+   that connection that writes down bound parameters keeps the value just as well — for example an
+   audit or plan-logging extension on the server, a pooler or proxy in between, or a driver's debug
+   log or an APM agent's query capture in the client — and each has its own switch, or none. So the
+   rule is not "these settings are off". It is: **send the value over SQL only when you can show
+   that nothing on that connection records bound parameters.** Where you cannot show it — a layer
+   you cannot inspect, a setting you cannot read or change — use the store's own interface, or
+   place it by hand. Record what you read before and after, layer by layer.
 
 Never interpolate the value into the statement and rely on the log being off: the log is one
 reader, and the client's history, a proxy and a slow-query report are others.
@@ -103,6 +111,12 @@ curl -s "https://<receiver>/<version-path>"   # must print the commit that was j
 Probe only after the live domain is confirmed to be on the new deployment. A probe against the
 previous build proves something about the previous build.
 
+The same holds instance by instance. When `NEXT` is first set (step 3), every backend must accept
+both keys before any sender moves, not only the backend that answered: a sender moved while one
+backend still lacks `NEXT` fails on every request routed to it. The evidence is the same as for the
+retirement below — each backend probed on its own, the platform's list of instances with each
+one's version, or answers that identify the backend.
+
 ## The probes
 
 Use the harmless probe request from the prerequisites: one that authenticates and changes nothing.
@@ -136,6 +150,14 @@ reached, or a promotion that landed on part of the fleet still accepts it. So it
 wherever it can be done safely. Keep the old key's private copy from before the promotion for it,
 and probe every replica or region that can be addressed on its own.
 
+A refusal means something only if the same probe was accepted before. A secret command that adds a
+newline or prints metadata around the value writes a different key into the copy; the signature
+made from it, or the header built from it, is refused whether the old key was retired or not, and
+the refusal reads as a retirement that took. So export the raw value where the store has a mode
+for it, and prove the copy before the promotion: with the reconciliation window closed and the old
+key still `CURRENT`, probe with it exactly as you will afterwards, and see it accepted. A copy that
+was not accepted then cannot show anything now.
+
 Where the backends sit behind a load balancer and cannot be addressed one by one, a probe through
 the live domain reaches whichever backend answered, and nothing more. One probe proves nothing about
 the rest. The retirement is verified only by deployment evidence that every backend runs the new
@@ -143,9 +165,10 @@ configuration — the platform's own list of instances, each with its deployment
 version — or by probes shown to have reached every backend, through answers that identify the
 backend that gave them. Without either, it is **UNVERIFIED**.
 
-When it cannot be done safely — no copy of the old key could be read from its store, or there is no
-probe without side effects — the retirement is **UNVERIFIED**. Record exactly that, with the reason.
-Never write "the old key is refused" on the strength of the settings alone.
+When it cannot be done safely — no copy of the old key could be read from its store and accepted
+before the promotion, or there is no probe without side effects — the retirement is **UNVERIFIED**.
+Record exactly that, with the reason. Never write "the old key is refused" on the strength of the
+settings alone.
 
 Record the status codes, not the response bodies, which may echo request headers.
 

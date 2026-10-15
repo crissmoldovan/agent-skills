@@ -166,6 +166,14 @@ test('local copies are deleted and the record holds no key and no hash', () => {
 // Codex round 1 on #99. Four findings, each held here.
 const exampleBash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
 
+// The every-instance rule: the Procedure's lead paragraph, before step 1, whitespace-collapsed.
+function everyInstanceRule() {
+  const procedure = section(skill, 'Procedure');
+  const lead = procedure.slice(0, procedure.search(/\n1\. /));
+  assert.match(lead, /\*\*The every-instance rule\.\*\*/, 'the Procedure no longer opens with the every-instance rule');
+  return lead.replace(/\s+/g, ' ');
+}
+
 // [P1] A signing key never travels: the probe signs a fixed body with each key file and sends only
 // the signature. The sign() helper is run from the skill's own example, not read.
 test('a signing key is probed by signature, never sent: sign() reads the key from its file', async () => {
@@ -185,11 +193,14 @@ test('a signing key is probed by signature, never sent: sign() reads the key fro
   assert.match(eighth, /The `x-shared-key` header in the examples is for bearer keys only/);
 });
 
-// [P1] Behind a load balancer, one probe reaches one backend.
+// [P1] Behind a load balancer, one probe reaches one backend. Since Codex round 4 the kinds of
+// evidence that cover every backend live once, in the every-instance rule, and step 8 cites it.
 test('backends that cannot be addressed one by one leave the retirement UNVERIFIED without evidence for every backend', () => {
   const eighth = procedureSteps(skill)[7];
-  assert.match(eighth, /a probe through the live domain reaches one backend and says nothing of the rest: the retirement stays \*\*UNVERIFIED\*\* unless deployment evidence shows every backend on the new configuration/);
-  assert.match(eighth, /or the probes are shown to have reached every backend, by answers that identify the backend that gave them/);
+  assert.match(eighth, /The probes cover every receiver instance, by the every-instance rule\./);
+  assert.match(eighth, /a probe through the live domain reaches one backend and says nothing of the rest: the retirement stays \*\*UNVERIFIED\*\* unless every backend is covered, by the platform's list of instances or by answers that identify each backend/);
+  assert.match(everyInstanceRule(), /the platform's own list of instances, each with its deployment or configuration version; or answers — probe responses, delivery records — that identify the instance that gave them and, between them, name every one/);
+  assert.match(everyInstanceRule(), /a retirement already done is recorded as \*\*UNVERIFIED\*\*/);
   assert.match(probe.replace(/\s+/g, ' '), /One probe proves nothing about the rest/);
 });
 
@@ -212,36 +223,134 @@ test('statement logging and both parameter-logging settings are read and switche
 });
 
 // Blocks on #99 (severity 7): without pipefail the generator's status was tr's, so a failed openssl
-// left an empty key file that a store would accept. Run from the example, with a real and a failing
-// openssl.
-test('key generation is atomic and length-checked: a failed generator leaves no key file', async () => {
+// left an empty key file that a store would accept. Codex round 4 on #99 [P2]: a next.key left by an
+// earlier attempt survived a failed generator, and the block still exited 0. Run from the example,
+// the whole block to its blank line, with a real and a failing openssl, with and without a stale key.
+test('key generation is atomic and length-checked: a failed generator leaves no key file and fails', async () => {
   const lines = exampleBash.split('\n');
   const start = lines.indexOf('umask 077');
-  const end = lines.findIndex((line) => line.includes('GENERATION FAILED'));
+  const end = lines.indexOf('', start);
   assert.ok(start >= 0 && end > start, 'the example has no generation block');
-  const block = lines.slice(start, end + 1).join('\n');
-  const generate = async (stub) => {
+  const block = lines.slice(start, end).join('\n');
+  assert.match(block, /GENERATION FAILED: no key was written/);
+  const STALE = 'a-key-left-by-an-earlier-attempt';
+  const generate = async (stub, { stale = false } = {}) => {
     const dir = await tempDir('rotate-gen-');
-    const run = spawnSync('bash', ['-c', `${stub}\nSCRATCH=${JSON.stringify(dir)}\n${block}`], { encoding: 'utf8' });
     const key = join(dir, 'next.key');
-    return { out: run.stdout + run.stderr, key, made: existsSync(key), tmpLeft: existsSync(join(dir, 'next.key.tmp')) };
+    if (stale) writeFileSync(key, STALE, { mode: 0o600 });
+    const run = spawnSync('bash', ['-c', `${stub}\nSCRATCH=${JSON.stringify(dir)}\n${block}`], { encoding: 'utf8' });
+    return { status: run.status, out: run.stdout + run.stderr, key, made: existsSync(key), tmpLeft: existsSync(join(dir, 'next.key.tmp')) };
   };
-  const good = await generate('');
-  assert.ok(good.made, good.out);
-  const value = readFileSync(good.key, 'utf8');
-  assert.match(value, /^[0-9a-f]{64}$/, 'the key is not 64 hex characters with no newline');
-  assert.equal(statSync(good.key).mode & 0o777, 0o600, 'the key file is not 0600');
-  assert.ok(!good.out.includes(value), 'the key was printed');
+  for (const stale of [false, true]) {
+    const good = await generate('', { stale });
+    assert.equal(good.status, 0, `generation failed${stale ? ' over a stale key' : ''}: ${good.out}`);
+    assert.ok(good.made, good.out);
+    const value = readFileSync(good.key, 'utf8');
+    assert.match(value, /^[0-9a-f]{64}$/, 'the key is not 64 hex characters with no newline');
+    assert.equal(statSync(good.key).mode & 0o777, 0o600, 'the key file is not 0600');
+    assert.ok(!good.out.includes(value), 'the key was printed');
+  }
   for (const [why, stub] of [
     ['openssl fails', 'openssl() { return 1; }'],
     ['openssl writes too little', 'openssl() { printf "abc"; }'],
     ['openssl writes a full-length value and then fails', 'openssl() { printf "%064d" 0; return 1; }'],
   ]) {
-    const bad = await generate(stub);
-    assert.equal(bad.made, false, `a key file was left when ${why}`);
-    assert.equal(bad.tmpLeft, false, `a temporary key file was left when ${why}`);
-    assert.match(bad.out, /GENERATION FAILED: no key was written/);
+    for (const stale of [false, true]) {
+      const when = `${why}${stale ? ', over a key left by an earlier attempt' : ''}`;
+      const bad = await generate(stub, { stale });
+      assert.equal(bad.made, false, `a key file was left when ${when}`);
+      assert.equal(bad.tmpLeft, false, `a temporary key file was left when ${when}`);
+      assert.notEqual(bad.status, 0, `the block reported success when ${when}`);
+      assert.match(bad.out, /GENERATION FAILED: no key was written/);
+    }
   }
   assert.match(probe, /rm -f [^\n]*"\$SCRATCH\/sig-new\.hdr" "\$SCRATCH\/sig-old\.hdr"/, 'the reference cleanup leaves the signature header files');
 });
 
+
+// Codex round 4 on #99 (at 9885cbe). Two P1s were one principle: evidence from one instance says
+// nothing about the others, on either side. It is stated once, as the every-instance rule, and
+// steps 3, 4 and 8 apply it.
+
+// [P1] The overlap on every receiver backend before any sender moves.
+test('no sender moves until every receiver instance accepts both keys', () => {
+  assert.match(everyInstanceRule(), /every claim below about what the receiver accepts, or what a sender sends, covers every instance/);
+  assert.match(everyInstanceRule(), /each instance addressed and checked on its own/);
+  assert.match(everyInstanceRule(), /a step that needs it waits/);
+  const third = procedureSteps(skill)[2];
+  assert.match(third, /no sender moves until the overlap holds on every receiver instance, by the every-instance rule/);
+  assert.match(third, /both the current key and the next key are accepted on every receiver instance, not only on the one that answered a probe/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Before any sender moved, every receiver instance accepted both the current and the next key/);
+  assert.match(probe.replace(/\s+/g, ' '), /every backend must accept both keys before any sender moves, not only the backend that answered/);
+});
+
+// [P1] Every instance of every sender, not one delivery from one replica.
+test('a sender has moved only when every instance of it is shown reading the store', () => {
+  assert.match(everyInstanceRule(), /The receiver and each sender can run as several instances/);
+  const fourth = procedureSteps(skill)[3];
+  assert.match(fourth, /That delivery shows one instance moved; a quiet instance still on the old value fails only once the old key is retired, so every instance of the sender is shown reading the store, by the every-instance rule/);
+  assert.match(fourth, /every instance of every sender is shown reading the store, and no sender still holds the old value anywhere/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /every instance of each was shown reading the store/);
+  assert.match(skill, /- \*\*One instance standing for all\.\*\*/);
+});
+
+// [P1] A copy of the old key with a stray newline or metadata is refused for the wrong reason, and
+// the refusal reads as a retirement that took. The copy is proven by being accepted first.
+test('the old key copy is accepted before the promotion, or the old-key probe proves nothing', () => {
+  const sixth = procedureSteps(skill)[5];
+  assert.match(sixth, /in the store's raw form where it has one/);
+  assert.match(sixth, /prove the copy: with the window closed and the old key still `CURRENT`, probe with it exactly as step 8 will — header or signature — and see it accepted/);
+  assert.match(sixth, /the old key is in a 0600 file that the receiver accepted before the promotion, or the record says why no such copy could be had/);
+  assert.match(procedureSteps(skill)[7], /no copy of it was accepted before the promotion/);
+  const lines = exampleBash.split('\n');
+  const exported = lines.findIndex((line) => line.endsWith('> "$SCRATCH/old.key"'));
+  const control = lines.findIndex((line) => line.includes("-w 'old key, before promotion (must pass): %{http_code}\\n' -H @\"$SCRATCH/old.hdr\""));
+  const after = lines.findIndex((line) => line.includes("-w 'old key: %{http_code}\\n'"));
+  assert.ok(exported >= 0, 'the example no longer exports the old key');
+  assert.ok(control > exported, 'the example does not probe with the old key copy after exporting it');
+  assert.ok(after > control, 'the copy is not proven before the old-key probe');
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /A refusal means something only if the same probe was accepted before/);
+  assert.match(flatProbe, /no copy of the old key could be read from its store and accepted before the promotion/);
+});
+
+// [P1] Not an enumeration of switches but a rule: nothing on the connection records the parameters.
+test('SQL is the way in only over a connection shown to record no bound parameters anywhere', () => {
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /These are the server's own switches, and the server is not the only recorder/);
+  assert.match(flatProbe, /\*\*send the value over SQL only when you can show that nothing on that connection records bound parameters\.\*\*/);
+  assert.match(flatProbe, /Where you cannot show it — a layer you cannot inspect, a setting you cannot read or change — use the store's own interface, or place it by hand/);
+  assert.match(procedureSteps(skill)[3], /SQL is the way in only over a connection shown to record no bound parameters anywhere/);
+  const verification = section(skill, 'Verification').replace(/\s+/g, ' ');
+  assert.match(verification, /the value was a bound parameter, over a connection shown to record no bound parameters anywhere/);
+  assert.doesNotMatch(verification, /the server's parameter logging was read first/, 'the checklist treats the server switches as sufficient again');
+});
+
+// [P2] Ids are compared with their counts. The reference's own diff is run against fixtures.
+test('delivery ids are reconciled as multisets: a repeated id is a mismatch', async () => {
+  const raw = read('references/proving-no-other-caller.md');
+  const line = raw.split('\n').map((text) => text.trim()).find((text) => text.startsWith('diff <(sort receiver-ids.txt'));
+  assert.ok(line, 'the reference has no runnable id comparison');
+  const compare = async (receiverIds, senderIds) => {
+    const dir = await tempDir('rotate-ids-');
+    writeFileSync(join(dir, 'receiver-ids.txt'), `${receiverIds.join('\n')}\n`);
+    writeFileSync(join(dir, 'sender-ids.txt'), `${senderIds.join('\n')}\n`);
+    const run = spawnSync('bash', ['-c', line], { cwd: dir, encoding: 'utf8' });
+    return { status: run.status, matched: run.stdout.includes('ids match one to one') };
+  };
+  const same = await compare(['d-2', 'd-1', 'd-3'], ['d-1', 'd-2', 'd-3']);
+  assert.ok(same.matched && same.status === 0, 'equal ids in another order do not match');
+  for (const [why, receiverIds, senderIds] of [
+    ['a replayed id', ['d-1', 'd-2', 'd-2'], ['d-1', 'd-2']],
+    ['an id sent twice and received once', ['d-1', 'd-2'], ['d-1', 'd-2', 'd-2']],
+    ['an unknown id', ['d-1', 'd-9'], ['d-1']],
+    ['a lost delivery', ['d-1'], ['d-1', 'd-2']],
+  ]) {
+    const result = await compare(receiverIds, senderIds);
+    assert.ok(!result.matched && result.status !== 0, `${why} reconciled as one to one`);
+  }
+  assert.doesNotMatch(reconcile, /The sets of ids are then compared|the two sets of ids are equal/, 'the ids are compared as sets again');
+  assert.match(reconcile, /compared with their counts, not as sets/);
+  assert.ok(raw.includes('| An id logged at the receiver more often than the senders recorded it |'), 'no table row for a repeated id');
+  assert.match(procedureSteps(skill)[4], /provided each id is counted — as many times on one side as on the other, normally once/);
+});

@@ -9,11 +9,19 @@ measurement, and says what the measurement cannot see.
 There are two kinds of match, and the record says which one it has.
 
 - **One to one, by a per-request id: proof.** Each sender puts a unique delivery id on every request
-  — a header — and records it; the receiver logs it beside the slot. The sets of ids are then
-  compared: every id the receiver logged appears in a sender's records, and every id a sender
-  recorded reached the receiver. An id the senders never issued is another caller; an id that never
-  arrived is a lost delivery. Neither can hide behind the other. Add the id in step 4 of the
-  rotation, while each sender is being changed anyway.
+  — a header — and records it; the receiver logs it beside the slot. The ids are then compared
+  with their counts, not as sets: each id appears as many times at the receiver as in the senders'
+  records — normally exactly once on each side. An id the senders never issued is another caller;
+  an id that never arrived is a lost delivery; an id the receiver logged more often than it was
+  sent is a replay, or another caller reusing it. A set comparison collapses that last one into its
+  original, so it is not one to one. Add the id in step 4 of the rotation, while each sender is
+  being changed anyway.
+
+  ```bash
+  # One id per line on each side. Any output from diff is a mismatch, a repeat included.
+  diff <(sort receiver-ids.txt | uniq -c) <(sort sender-ids.txt | uniq -c) && echo "ids match one to one"
+  ```
+
 - **By count and endpoints: aggregate evidence, not proof.** Without an id, the steps below compare
   totals and the first and last second. A delivery lost in the middle of the window and an unknown
   request in the middle of the window cancel exactly: the totals agree and the endpoints do not
@@ -34,10 +42,11 @@ same store; only the ids, or the counts, can show that one.
    its delivery log, its job history, its outbound request table — with the first and last
    timestamp of each. Use the senders' records, not the receiver's: the point is two independent
    accounts of the same traffic.
-4. **Match exactly, and name the kind of match.** With ids: the two sets of ids are equal. Without:
-   the receiver's count equals the senders' total, and the receiver's first and last second equal
-   the earliest and latest of the senders' — recorded as aggregate evidence, with per-interval
-   counts where the logs allow. With slots logged, every handled request matched `next`.
+4. **Match exactly, and name the kind of match.** With ids: every id with the same count on both
+   sides. Without: the receiver's count equals the senders' total, and the receiver's first and
+   last second equal the earliest and latest of the senders' — recorded as aggregate evidence, with
+   per-interval counts where the logs allow. With slots logged, every handled request matched
+   `next`.
 
 What each mismatch means:
 
@@ -48,6 +57,7 @@ What each mismatch means:
 | Counts equal, first or last second differs | Possibly a lost delivery and an unknown caller cancelling out. Match request by request. |
 | Counts and endpoints equal, no ids | Aggregate evidence only. A cancellation in the middle of the window is not ruled out; the record says so. |
 | An id at the receiver that no sender issued | Another caller, holding a key that works. Find it before retiring anything. |
+| An id logged at the receiver more often than the senders recorded it | A replay, or another caller reusing the id. Find it before retiring anything. |
 | Any request matching `current` | A caller on the old key, whatever the counts say. |
 
 Where clock skew or latency puts one request on either side of a second boundary, match that request

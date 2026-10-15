@@ -81,6 +81,15 @@ simpler — use this skill when it is not.
 
 ## Procedure
 
+**The every-instance rule.** The receiver and each sender can run as several instances — replicas,
+regions, a rollout part-way through — and evidence from one instance says nothing about the others.
+So every claim below about what the receiver accepts, or what a sender sends, covers every instance,
+on one of three kinds of evidence: each instance addressed and checked on its own; the platform's
+own list of instances, each with its deployment or configuration version; or answers — probe
+responses, delivery records — that identify the instance that gave them and, between them, name
+every one. Short of that, the claim is not made: a step that needs it waits, and a retirement
+already done is recorded as **UNVERIFIED**.
+
 1. **Make the receiver accept the current key or a next key, and test it.** Two settings, `CURRENT`
    and `NEXT`. A request passes when its key equals `CURRENT`, or when `NEXT` is non-empty and its
    key equals `NEXT`. An empty value never matches anything: an unset `NEXT` must not let an empty
@@ -104,31 +113,39 @@ simpler — use this skill when it is not.
 3. **Set it on the receiver as `NEXT`, redeploy, and confirm the live domain moved.** Feed the file
    to the platform's secret command on standard input. Redeploy, then read the deployment id the
    live domain serves and compare it with the one the redeploy produced; promote it if they differ
-   ([deploy and probe](references/deploy-and-probe.md)). Probe with the next key.
+   ([deploy and probe](references/deploy-and-probe.md)). Probe with the next key. A sender moved
+   while one backend still lacks `NEXT` fails on every request routed there, so no sender moves
+   until the overlap holds on every receiver instance, by the every-instance rule.
    **Complete when:** the live domain serves the new deployment, and both the current key and the
-   next key are accepted there.
+   next key are accepted on every receiver instance, not only on the one that answered a probe.
 
 4. **Move every sender to read the key from a secret store, then verify its delivery.** One sender
    at a time: put the next key into its store from the file, change the sender to read it from the
    store instead of wherever it held the old one, deploy, and watch a real delivery arrive and log
-   the `next` slot at the receiver. A key written as a literal in a definition — a trigger, a job, a
-   configuration file — is readable by anyone who can read that definition, and changing it means
-   redefining code; reading it from a store fixes both. Remove the literal and any fallback to it.
-   While the sender is being changed anyway, have it send a unique delivery id on every request and
-   record it, so that step 5 can match requests one to one.
+   the `next` slot at the receiver. That delivery shows one instance moved; a quiet instance still
+   on the old value fails only once the old key is retired, so every instance of the sender is
+   shown reading the store, by the every-instance rule. A key written as a literal in a
+   definition — a trigger, a job, a configuration file — is readable by anyone who can read that
+   definition, and changing it means redefining code; reading it from a store fixes both. Remove
+   the literal and any fallback to it. While the sender is being changed anyway, have it send a
+   unique delivery id on every request and record it, so that step 5 can match requests one to one.
    Where the store is written with SQL, the value travels as a bound parameter or through the
-   store's own interface, never inside the statement text, and the server's statement and parameter
-   logging are checked first ([deploy and probe](references/deploy-and-probe.md)).
+   store's own interface, never inside the statement text, and SQL is the way in only over a
+   connection shown to record no bound parameters anywhere — the server, its extensions, a proxy,
+   the client's own instrumentation ([deploy and probe](references/deploy-and-probe.md)).
    **Complete when:** every sender on the map has delivered at least one request that the receiver
-   logged as matching `next`, and no sender still holds the old value anywhere.
+   logged as matching `next`, every instance of every sender is shown reading the store, and no
+   sender still holds the old value anywhere.
 
 5. **Prove no other caller exists before retiring the old key.** Pick a fixed window that starts
    after the last sender moved and is longer than the slowest sender's cycle. Count the receiver's
    handled requests in the window and the senders' own delivery records for the same window. They
    must match exactly: the same count, and the same first and last second. Where the senders send a
-   delivery id and the receiver logs it, match the ids one to one instead: that is proof. Without
-   ids, the count and endpoints are aggregate evidence, not proof — a lost delivery and an unknown
-   request in the middle of the window cancel exactly — and the record says so. If the receiver
+   delivery id and the receiver logs it, match the ids one to one instead: that is proof, provided
+   each id is counted — as many times on one side as on the other, normally once — so that a
+   repeated request cannot hide behind its original. Without ids, the count and endpoints are
+   aggregate evidence, not proof — a lost delivery and an unknown request in the middle of the
+   window cancel exactly — and the record says so. If the receiver
    logs the slot, every request in the window must have matched `next`. Then search code and
    configuration for any other sender — repositories, CI, schedulers, database definitions,
    provider dashboards, runbooks with example requests. State what the evidence cannot see: the log retention, any
@@ -140,10 +157,16 @@ simpler — use this skill when it is not.
 
 6. **Promote `NEXT` to `CURRENT`, and remove `NEXT`.** First keep a private copy of the old key
    for step 8: read it from its store into a 0600 file, the same way values travel everywhere else
-   here, never printed. Then set `CURRENT` from the next key's file, on standard input, and delete
-   `NEXT`. From this deploy on, the old key should be refused — step 8 is what shows that it is.
+   here, never printed, in the store's raw form where it has one. A command that adds a newline or
+   wraps the value in metadata writes a different key, and a probe with it is refused for the wrong
+   reason. So prove the copy: with the window closed and the old key still `CURRENT`, probe with it
+   exactly as step 8 will — header or signature — and see it accepted. A copy that is refused here
+   cannot show anything in step 8. Then set `CURRENT` from the next key's file, on standard input,
+   and delete `NEXT`. From this deploy on, the old key should be refused — step 8 is what shows
+   that it is.
    **Complete when:** the receiver's settings hold the new key as `CURRENT` and no `NEXT`, and the
-   old key is in a 0600 file for the probe, or the record says why no copy could be read.
+   old key is in a 0600 file that the receiver accepted before the promotion, or the record says
+   why no such copy could be had.
 
 7. **Redeploy, and verify that the live domain moved.** A production redeploy can leave a custom
    domain pointing at the previous build, and until it moves, the old key still works there. Read
@@ -163,19 +186,18 @@ simpler — use this skill when it is not.
 
    The old-key probe is not optional. A stale replica, a region or instance the redeploy has not
    reached, or a promotion that landed on part of the fleet still accepts the old key, and nothing
-   else shows it. Where replicas or regions can be addressed one by one, probe each of them. Where
-   they sit behind a load balancer and cannot, a probe through the live domain reaches one backend
-   and says nothing of the rest: the retirement stays **UNVERIFIED** unless deployment evidence
-   shows every backend on the new configuration — the platform's own list of instances, each with
-   its deployment or configuration version — or the probes are shown to have reached every backend,
-   by answers that identify the backend that gave them. Where the old key cannot be probed safely
-   at all — no copy could be read from its store, or no probe is free of side effects — the
-   retirement is **UNVERIFIED** too, with the reason. The record never says the old key is refused
-   on less than that.
+   else shows it. The probes cover every receiver instance, by the every-instance rule. Where
+   replicas or regions can be addressed one by one, probe each of them. Where they sit behind a load
+   balancer and cannot, a probe through the live domain reaches one backend and says nothing of the
+   rest: the retirement stays **UNVERIFIED** unless every backend is covered, by the platform's list
+   of instances or by answers that identify each backend. Where the old key cannot be probed safely
+   at all — no copy of it was accepted before the promotion, or no probe is free of side effects —
+   the retirement is **UNVERIFIED** too, with the reason. The record never says the old key is
+   refused on less than that.
    **Complete when:** the record shows the new key accepted and the old key, the wrong key and the
    missing key refused, each with its status code, for every backend — each probed directly, or all
-   covered by deployment evidence or by probes shown to reach each one — or the retirement recorded
-   as UNVERIFIED with the reason.
+   covered by the every-instance rule's other evidence — or the retirement recorded as UNVERIFIED
+   with the reason.
 
 9. **Delete every local copy, and record what happened.** Remove the next and old key files, the
    header files and any copy made for comparison, and confirm they are gone. Write the record: the dates, the
@@ -206,24 +228,31 @@ new deployment and not the previous one.
 
 ```bash
 # Generate the next key where only you can read it: no trailing newline, its exact length checked,
-# and renamed into place only then, so a failed generator leaves no key file. Nothing is printed.
+# and renamed into place only then. A key file left by an earlier attempt is removed first, so the
+# block ends with a fresh key and status 0, or with no key file and a failure. Nothing is printed.
 umask 077
 set -o pipefail
-openssl rand -hex 32 | tr -d '\n' > "$SCRATCH/next.key.tmp" \
+rm -f "$SCRATCH/next.key" "$SCRATCH/next.key.tmp"
+if openssl rand -hex 32 | tr -d '\n' > "$SCRATCH/next.key.tmp" \
   && [ "$(wc -c < "$SCRATCH/next.key.tmp" | tr -d ' ')" -eq 64 ] \
-  && mv "$SCRATCH/next.key.tmp" "$SCRATCH/next.key" \
-  || { rm -f "$SCRATCH/next.key.tmp"; echo "GENERATION FAILED: no key was written"; }
-ls -l "$SCRATCH/next.key"
+  && mv "$SCRATCH/next.key.tmp" "$SCRATCH/next.key"; then
+  ls -l "$SCRATCH/next.key"
+else
+  rm -f "$SCRATCH/next.key.tmp"; echo "GENERATION FAILED: no key was written"; false
+fi
 
 # Compare two copies without printing either one or its hash.
 [ "$(shasum -a 256 < "$SCRATCH/next.key")" = "$(shasum -a 256 < "$SCRATCH/next.copy")" ] && echo same || echo DIFFERENT
 
-# Before promoting: keep a private copy of the old key for the old-key probe, read from its store.
+# Before promoting, with the window closed: keep a private copy of the old key, read from its store
+# in its raw form, and prove the copy. The old key is still CURRENT, so this probe must pass; if it
+# is refused, the copy is not the key, and the old-key probe after the promotion is UNVERIFIED.
 <platform-cli> secrets get SHARED_KEY > "$SCRATCH/old.key"
+{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "$SCRATCH/old.hdr"
+curl -s -o /dev/null -w 'old key, before promotion (must pass): %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
 
 # Probe the live domain with the new key, the old key, a wrong key and no key. Keys travel in header files.
 { printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "$SCRATCH/probe.hdr"
-{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "$SCRATCH/old.hdr"
 curl -s -o /dev/null -w 'new key: %{http_code}\n' -H @"$SCRATCH/probe.hdr" -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'old key: %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
 curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong' -X POST "https://<receiver>/<probe-path>"
@@ -258,7 +287,7 @@ Sender A, delivery records:                <a>   first 00:00:07   last 23:59:41
 Sender B, delivery records:                <b>   first 02:15:00   last 23:45:00
 Senders together: <a> + <b> = <n> — an exact match, with the same first and last second
 Delivery ids: <n> logged at the receiver, <n> recorded by the senders, matched one to one;
-  none unknown, none missing
+  none unknown, none missing, none repeated
 
 Search for other senders: "<header name>", "<setting name>", "<receiver path>" across the
   repositories, CI secrets, the scheduler, database function and trigger definitions, and the
@@ -284,13 +313,14 @@ the record says what the match cannot rule out.
   or in files.
 - **The key inside a SQL statement.** A client-side variable — `psql`'s `:'name'`, string formatting,
   a template literal — is expanded into the statement before it is sent, so the server receives
-  and can log the literal value. Send it as a bound parameter, and check first whether the server
-  logs parameters too.
+  and can log the literal value. Send it as a bound parameter, and only over a connection on which
+  nothing — the server, an extension, a proxy, the client's instrumentation — records parameters.
 - **A hash printed for comparison.** A hash is a stable fingerprint of the key in every place the
   output lands. Compare inside the shell and print only the verdict.
 - **A trailing newline on one side.** A key file written with a newline, fed to one store that
   keeps it and another that trims it, gives the sender and the receiver different keys. Every
-  delivery fails, and both sides look correctly configured.
+  delivery fails, and both sides look correctly configured. The same newline on the exported old
+  key makes the old-key probe fail for the wrong reason, which reads as a retirement that took.
 - **A redeploy that did not move the domain.** The deploy succeeds, the probes pass, and they pass
   against the previous build, which still accepts the old key. Read the deployment behind the live
   domain every time.
@@ -305,6 +335,10 @@ the record says what the match cannot rule out.
   the cap when there are more. A count equal to the cap is a reason to page, not a result.
 - **A fallback to the old literal.** A sender that reads "the store, or else the old value" still
   holds the old value, and recovers to it when the store read fails.
+- **One instance standing for all.** A probe one backend answered, a delivery one replica sent:
+  each shows that instance only. Senders moved while one receiver backend lacks `NEXT` fail on
+  every request routed to it; a quiet sender replica on the old literal fails the morning after the
+  retirement.
 - **Retirement claimed without the old-key probe.** The settings say the old key is gone and the
   probes for the new key pass, while one replica the redeploy did not reach still accepts the old
   key. Only a probe with the old key itself, against every replica that can be addressed, shows it;
@@ -323,18 +357,21 @@ the record says what the match cannot rule out.
       contained the key or its hash.
 - [ ] Every value reached every store on standard input or from a file, never as an argument, a
       tool parameter or part of a SQL statement's text; where SQL was the way in, the value was a
-      bound parameter and the server's parameter logging was read first.
+      bound parameter, over a connection shown to record no bound parameters anywhere.
 - [ ] After each redeploy, the live domain's deployment id was read and matched the new deployment.
-- [ ] Every sender reads the key from a secret store, with no literal and no fallback left, and
-      each delivered a request the receiver logged as matching `next`.
+- [ ] Before any sender moved, every receiver instance accepted both the current and the next key.
+- [ ] Every sender reads the key from a secret store, with no literal and no fallback left; each
+      delivered a request the receiver logged as matching `next`, and every instance of each was
+      shown reading the store.
 - [ ] The reconciliation window started after the last sender moved and was longer than the slowest
       sender's cycle.
 - [ ] Receiver requests and sender delivery records matched exactly: one to one by delivery id,
-      or else in count and in first and last second, recorded as aggregate evidence — with paging
-      where the tools capped entries.
+      each id as many times on each side, or else in count and in first and last second, recorded
+      as aggregate evidence — with paging where the tools capped entries.
 - [ ] The search for other senders is recorded with its terms, its places and its result.
 - [ ] Log retention and the lack of caller identity, where it applies, are stated as caveats.
-- [ ] `NEXT` was promoted to `CURRENT` and then removed.
+- [ ] The old key's copy was accepted before the promotion; then `NEXT` was promoted to `CURRENT`
+      and removed.
 - [ ] For every backend — each probed directly, or all covered by deployment evidence or by probes
       shown to reach each one — the new key was accepted, and the old key, a wrong key and no key
       were refused; a signing key was probed by signature and never sent; otherwise the retirement
