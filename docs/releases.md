@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `rotate-shared-secret`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -104,10 +104,61 @@ template. It explains and changes nothing; an evidence-backed answer a developer
 declares `## Bindings`, so a project can adapt it to its own learners and library
 ([project adaptation](project-adaptation.md)).
 
+`rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
+current or a non-empty next key, a next key generated into a private file and never printed, senders
+moved to a secret store and verified delivering, a fixed-window reconciliation of the receiver's
+handled requests against the senders' own delivery records before the old key is retired — one to
+one by delivery id where there is one, and otherwise recorded as aggregate evidence — a check that
+the live domain serves the new build, and probes with the new key, the old key, a wrong key and no
+key, the old-key probe mandatory wherever it can be done safely and the retirement recorded as
+UNVERIFIED where it cannot. Placing a single credential stays `secure-credential-setup`'s.
+
 ## Unreleased
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### A shared secret rotates without downtime, and its retirement is proven or marked unverified
+
+**What.** A new skill, `rotate-shared-secret`, rotates a key that services share — a webhook signing
+key, a service-to-service bearer key — with an overlap, so nothing fails while the senders move. The
+receiver accepts the current key or a next key, and an empty value never matches. The next key is
+generated into a 0600 file, in a scratch directory checked to be private, and never printed; copies
+are compared byte for byte, with only same, different or a read error printed. A bearer key is
+probed only once no layer on the request path is shown to record its header, or the rotation stops.
+Every sender moves to a secret store, and the key goes into each store through the store's own
+interface or by hand, never through SQL. Evidence covers every instance on both sides: no sender
+moves until every receiver instance accepts both keys, a sender has moved only when every instance
+of it reads the store, and `NEXT` is removed only after every receiver instance matches the new key
+as `CURRENT`. Before the old key is retired, the receiver's handled requests in a fixed window are
+reconciled against the senders' own delivery records: one to one by delivery id, each id counted on
+both sides, where the senders send one, and otherwise by count and first and last second, recorded
+as aggregate evidence; an empty or failed id extraction is no evidence, never a match. After every
+redeploy the live domain is checked against the new deployment, and probes show the new key accepted
+and the old key, a wrong key and no key refused. The old-key probe is mandatory wherever it can be
+done safely, with a copy of the old key that was accepted before the promotion; where it cannot, the
+retirement is recorded as UNVERIFIED. A signing key is probed by signature and never sent, and
+backends behind a load balancer count as verified only with deployment evidence or probes covering
+every one of them.
+
+**Why.** It generalises one team's rotation of a key that had sat as a literal where it should not,
+with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. It never prints a
+key or its hash, and retires the old key only on the reconciliation's evidence and the old-key probe.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`.
+
+**Who should update.**
+
+- **Anyone who owns a key two services share:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill rotate-shared-secret
+  ```
+
+- **Everyone else:** nothing changes.
 
 ## Release checklist
 

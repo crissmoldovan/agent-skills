@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, and `coding-teacher` — thirty-two in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `rotate-shared-secret` — thirty-three in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -62,7 +62,10 @@ long work and `agent-lifecycle` the visibility of child agents; and `coding-teac
 how a project's technologies and architecture work, in plain language, to someone from another field —
 the comparison drawn from their own work, the depth ladder, and the illustrated lesson page — while
 changing nothing, as `investigate-codebase` owns the evidence-backed answer a developer acts on and
-`layer-repository-docs` the documentation a repository keeps. A new skill must state which of these it does not duplicate.
+`layer-repository-docs` the documentation a repository keeps; and `rotate-shared-secret` owns rotating a key services share without downtime — the dual-key
+receiver, the never-printed next key, senders moved to a secret store, the reconciliation that
+proves no other caller before the old key is retired, and the check that the live domain moved —
+while `secure-credential-setup` owns placing a single credential. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 
