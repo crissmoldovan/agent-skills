@@ -71,17 +71,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.29.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.29.0');
-  assert.equal(rootLock.version, '0.29.0');
-  assert.equal(rootLock.packages[''].version, '0.29.0');
+test('v0.30.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.30.0');
+  assert.equal(rootLock.version, '0.30.0');
+  assert.equal(rootLock.packages[''].version, '0.30.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 33);
+  assert.equal(skillNames.length, 34);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships thirty-three skills/i);
-  assert.match(composition, /catalog ships thirty-three skills/i);
+  assert.match(architecture, /now ships thirty-four skills/i);
+  assert.match(composition, /catalog ships thirty-four skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -98,8 +98,8 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /thirty-three public, portable Agent Skills/i);
-  assert.match(readme, /^Thirty-three skills\. Each one below/m);
+  assert.match(readme, /thirty-four public, portable Agent Skills/i);
+  assert.match(readme, /^Thirty-four skills\. Each one below/m);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -116,7 +116,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project', 'mine-session-transcripts', 'resume-after-limit', 'coding-teacher', 'codex-review-loop']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'onboard-project', 'mine-session-transcripts', 'resume-after-limit', 'coding-teacher', 'rotate-shared-secret', 'codex-review-loop']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -1279,7 +1279,7 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
 test("no skill's example ask tells the reader to use a different skill", () => {
   const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
   const names = entries.map(([, name]) => name);
-  assert.equal(names.length, 33, 'every skill has a catalog entry');
+  assert.equal(names.length, 34, 'every skill has a catalog entry');
   for (const [, name, entry] of entries) {
     const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
     for (const ask of asks) {
@@ -1303,7 +1303,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
   const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  assert.equal(names.length, 33, 'the sweep must cover the whole pack');
+  assert.equal(names.length, 34, 'the sweep must cover the whole pack');
   for (const name of names) {
     const source = await read(`skills/${name}/SKILL.md`);
     assert.match(
@@ -1327,7 +1327,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
 // A severity number is a judgement; this is not. The list makes a claim about itself, so the
 // claim is what is tested.
 test('the flat skill list is in the catalog order it claims, and covers the pack', async () => {
-  const sentinel = readme.match(/^The thirty-three, in the order they appear above:$/m);
+  const sentinel = readme.match(/^The thirty-four, in the order they appear above:$/m);
   assert.ok(sentinel, 'the flat list no longer announces itself as catalog-ordered');
 
   const after = readme.slice(readme.indexOf(sentinel[0]) + sentinel[0].length);

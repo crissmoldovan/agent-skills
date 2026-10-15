@@ -32,7 +32,7 @@ test('the site carries every skill in the pack, and invents none', () => {
     skillNames,
     'the manifest and the skills directory must name the same skills',
   );
-  assert.equal(manifest.skills.length, 33);
+  assert.equal(manifest.skills.length, 34);
 });
 
 test("each entry states the description a runtime matches, copied from the skill's own frontmatter", async () => {
@@ -116,7 +116,7 @@ test('a skill whose examples are not prompts is shown without invented ones', as
   assert.ok(journal.commands.length >= 1, 'so its commands are what the card shows');
 
   const withAsks = manifest.skills.filter((skill) => skill.examples.length);
-  assert.equal(withAsks.length, 32, 'every other skill publishes prompts, and the site shows them');
+  assert.equal(withAsks.length, 33, 'every other skill publishes prompts, and the site shows them');
 });
 
 test('every document the site links is written into the output', async () => {
@@ -140,7 +140,7 @@ test('the page needs no install and no build step, and shows its text with no ne
     'with no network the page must still show the text',
   );
   assert.ok(!/<\/script/i.test(JSON.stringify(manifest)), 'no manifest value may close the script');
-  assert.equal(result.skills, 33);
+  assert.equal(result.skills, 34);
 });
 
 test('the shell needs no build step of its own: no bundler, no framework, no npm dependency', () => {
