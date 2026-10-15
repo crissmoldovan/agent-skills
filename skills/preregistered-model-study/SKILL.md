@@ -45,11 +45,11 @@ because it existed before the thing it constrains.
 - **REPRODUCTION** — a `reproduce.sh` that rebuilds every number offline from committed data, and
   a checksum manifest covering every input it reads.
 
-The first three are committed before the study's first paid call, which is output parity's: a
-stage of its own, with the items, pass rule and cap the plan gave it. A commit is what makes
-"decided before" checkable: a plan edited after the results arrived and committed once at the end
-cannot be told apart from a plan written to fit them, and a reader is right to assume the worse
-case.
+The first three are committed and pushed to the study's pull request before the study's first paid
+call, which is output parity's: a stage of its own, with the items, pass rule and cap the plan gave
+it. The remote's push record is what makes "decided before" checkable, not the commit's own date,
+which an amend or a rebase rewrites: a plan pushed only after the results arrived cannot be told
+apart from a plan written to fit them, and a reader is right to assume the worse case.
 
 ### What this skill does not own
 
@@ -97,8 +97,10 @@ unmeasurable question is ceremony around a guess.
 3. **One research account that is not production's.** One key and one balance for every paid
    call, arms and judges alike — a multi-vendor gateway, for example — that reports each call's
    cost. Providers that need separate accounts are out of scope: each would need its own guard.
-   **Complete when:** the key is in a secret store, and a check exists that refuses to run when
-   it equals production's key or when the harness holds any other paid credential.
+   **Complete when:** the key is in a secret store, and a check refuses to run unless the account
+   is shown not to be production's — by the provider's non-secret account identity, or else the
+   separately provisioned billing account the plan records — or while the harness holds any other
+   paid credential.
 4. **A study directory under version control.** Everything the study writes lands there and is
    committed, as prerequisite 7 allows: plan, freeze, addenda, raw responses, scores, report.
    **Complete when:** the directory exists on a branch, and the plan is in the study's first
@@ -133,8 +135,8 @@ unmeasurable question is ceremony around a guess.
    that size will give. Output parity (step 5) is registered here as a stage of its own, with its
    items, its pass rule and its own cap inside the study's. Templates are in
    [study files](references/study-files.md).
-   **Complete when:** the plan is committed, and no paid call by this study's harness predates
-   it (production's stored outputs do, by design).
+   **Complete when:** the plan is pushed to the study's pull request, and no paid call by this
+   study's harness predates the push (production's stored outputs do, by design).
 
 2. **Build the budget guard in code, and arm it before it guards anything.** An intention does not
    stop a retry loop at two in the morning. The guard is single-threaded by design, and its parts
@@ -144,8 +146,9 @@ unmeasurable question is ceremony around a guess.
      sends and settles calls strictly one at a time. The cap is hard only under this rule.
      Concurrency is out of scope: parallel calls, a second process, locks on shared storage and
      lock takeover each void it.
-   - **One research key for every paid call**, refused at start-up when it equals production's —
-     compared by hash, never printed — or when the harness holds any other paid credential.
+   - **One research key for every paid call**, refused at start-up unless its account is shown not
+     to be production's — never by unequal keys alone — or while the harness holds any other paid
+     credential.
    - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
      billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
      invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
@@ -253,6 +256,7 @@ unmeasurable question is ceremony around a guess.
      invented fact from a sourced one; it grades the invention as correct, fluently.
    - **Report each judge alone** beside the majority, so a verdict that rests on one judge's taste,
      or on a judge favouring its own vendor, is visible.
+   - **One panel verdict per normalised (item, answer)**, reused by every arm that gave that answer.
    - **Judge only where the arms differ**, if cost forces it — and before relying on it, prove on
      a fixture that the shortcut gives exactly the verdicts that judging everything gives.
 
@@ -408,15 +412,10 @@ nothing says where either number can be rebuilt.
 - **One A/A pair taken as the noise floor.** Two runs are one draw of how far the control differs
   from itself. Treated as a hard floor, it vetoes real differences on a lucky draw and passes
   noise on an unlucky one.
-- **A floor that unlatches.** Balance reads lag. A process that re-admits on a read showing
-  recovery spends past the floor on stale data; the latch holds for the life of the process.
 - **A manifest that missed a file.** A file read from another study changed underneath, and the
   reproduction still passed because the manifest never listed it.
 - **A module that shadows another.** A study module named like a standard-library module, or like
   another study's module, makes the reproduction depend on the directory it was started from.
-- **Restoring a mutation from version control.** It discards the uncommitted fix in the same file
-  along with the mutation, silently, and the suite passes afterwards because the fix's own checks
-  went with it.
 - **The silent repair.** A number corrected in place with no record spends the trust every other
   number depends on.
 - **A percentage with no predicate.** The same rate over "all items", "items with an answer" and
@@ -426,8 +425,8 @@ nothing says where either number can be rebuilt.
 ## Verification
 
 - [ ] The question is written as a decision, naming who makes it.
-- [ ] PLAN, FREEZE and DRY RUN were each committed before the first paid call, and the history
-      shows it.
+- [ ] PLAN, FREEZE and DRY RUN were each pushed to the study's pull request before its first paid
+      call, and the remote's push record shows it.
 - [ ] Every bar has a point rule and an interval rule, and invention has a bar of its own.
 - [ ] Every metric definition was read against named real items before it was frozen.
 - [ ] The data was classified before any paid call, every recipient is approved for it, and every
@@ -435,7 +434,7 @@ nothing says where either number can be rebuilt.
 - [ ] The freeze hashes every executable and configuration that can change a request, a spend
       decision or a verdict, with the runtime's version and the dependency lock.
 - [ ] Every paid call went through the one research account, not production's, and the checks that
-      refuse production's key and any other paid credential ran.
+      refuse production's account and any other paid credential ran.
 - [ ] One paying process held an operating-system lock for the run, and calls were admitted, sent
       and settled strictly one at a time.
 - [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its

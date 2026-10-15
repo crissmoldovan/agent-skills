@@ -27,14 +27,20 @@ Every paid call the study makes — every arm, every judge — goes through one 
 key and one balance, such as a multi-vendor gateway's. That is what lets one guard hold the cap and
 the floor. A study whose providers need separate accounts is out of scope, because each account
 would need a guard of its own. The account is the study's own, so that a runaway study cannot spend
-production's money or exhaust production's rate limit. At start-up the guard reads both keys
-from their secret stores, compares their hashes in memory, prints nothing but the outcome, and
-refuses to start when they are equal. It also refuses while the harness holds any other paid
-credential: a judge called on its own vendor key spends outside the balance the guard reads, and
-that key may be production's.
+production's money or exhaust production's rate limit.
 
-If production's key is not readable where the study runs, the check cannot run. Say so, and treat
-it as a reason to run the study somewhere it can — not as a pass.
+Unequal keys do not show that. A provider can issue many keys under one billing organisation or
+project, and every one of them spends that account's balance and rate limit. So at start-up the
+guard compares **accounts**: the provider's non-secret account or project identity behind the
+research key, read from the provider, against production's. Where the provider exposes no such
+identity, the plan records the separately provisioned billing account the research key belongs to.
+With neither, the guard refuses to start. It also compares the two keys' hashes in memory, refusing
+when they are equal, and prints nothing but the outcomes. And it refuses while the harness holds any
+other paid credential: a judge called on its own vendor key spends outside the balance the guard
+reads, and that key may be production's.
+
+If production's identity or key is not readable where the study runs, the check cannot run. Say so,
+and treat it as a reason to run the study somewhere it can — not as a pass.
 
 ### 2. One paying process, holding a lock the kernel releases
 
@@ -194,6 +200,7 @@ is as of a time after the closed ledger's last settlement.
 start():
     take the OS lock on <study>/guard.lock without waiting      # held until the process exits
         or refuse: "another paying process holds this study"
+    refuse unless the research account is shown not to be production's   # provider's account identity, or the plan's billing account
     refuse if the research key equals production's              # compared by hash, never printed
     refuse if the harness holds any paid credential but the research key   # one account, one balance
     refuse if the client library retries on its own             # every attempt is one the harness makes
@@ -244,6 +251,8 @@ call and no real key:
 | Part | Mutation | Expected |
 |---|---|---|
 | Research key | set both key variables to the same fake value | refuses at start-up, prints no value |
+| Same account, another key | give the research key a second key under production's account or project | refuses at start-up: the account identities match |
+| No identity, no record | stub a provider that exposes no account identity, with no billing account in the plan | refuses at start-up |
 | Second credential | give one judge its own vendor key beside the research key, then start the run | refuses at start-up |
 | Lock | start a second paying process while the first holds the lock | the second refuses to start |
 | Lock released on death | kill the first process outright, then start another | the new process takes the lock at once: no stale lock, no takeover |

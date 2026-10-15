@@ -67,7 +67,8 @@ Judges:     J1 <vendor>, J2 <vendor>, J3 <vendor>; verdict = 2 of 3. J<k> shares
             arm <arm>. Each judge is also reported alone.
 Data:       class <class>; every recipient approved for it: <each candidate provider>, <each
             judge vendor>; artefacts kept <in the clear / where>.
-Shortcut:   judge every item / judge only where arms differ (exactness test: <fixture>)
+Shortcut:   judge every item / judge only where arms differ (exactness test: <fixture>); in
+            both, one panel verdict per normalised (item, answer), reused across arms
 Output parity (the first paid stage):
             control only, on <n> items drawn by <rule>; pass rule: <agreement with production's
             stored answers, and how it is measured>; stage cap <amount>, inside the study cap.
@@ -77,7 +78,9 @@ Budget:     study cap <amount>; stage caps: output parity <amount>, main run <am
             no balance endpoint); ceiling price per model = the largest of list, list + <margin>%,
             and the provider's maximum, for every billable unit (tokens, per-request fees, images,
             audio, hosted search, tool invocations), each capped in the request; one research
-            account (one key, one balance) for every paid call, arms and judges alike; one paying
+            account (one key, one balance) for every paid call, arms and judges alike, shown not
+            to be production's by <the provider's non-secret account identity / the separately
+            provisioned billing account>; one paying
             process holding an operating-system lock, calls one at a time.
 Stop rule:  stop and write an addendum if <condition>.
 Not covered: <item types, providers, volumes this study will not speak to>

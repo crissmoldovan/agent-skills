@@ -70,6 +70,12 @@ Judging only the items where the arms' answers differ therefore gives the **diff
 arms exactly — and gives no absolute rate at all. Report it that way: a difference, with absolute
 rates marked not measured, unless the agreeing items are judged too.
 
+**One verdict per answer, in both paths.** The panel evaluates each normalised (item, answer) once,
+and every arm that gave that answer reuses the verdict — when every item is judged, and under the
+shortcut alike. A model judge asked twice about the same answer can disagree with itself; judged
+once per arm, identical answers would get different verdicts, and the judge's own noise would read
+as a difference between arms.
+
 The shortcut is exact only under conditions that are easy to break:
 
 - "the same answer" must mean equal under the scorer's own comparison, field by field where the

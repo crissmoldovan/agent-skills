@@ -44,7 +44,7 @@ test('the procedure runs its thirteen acts in order', () => {
 
 test('the plan, the freeze and the dry run come before any paid call, and later changes are addenda', () => {
   const steps = procedureSteps(skill);
-  assert.match(steps[0], /no paid call by this study's harness predates it/);
+  assert.match(steps[0], /no paid call by this study's harness predates the push/);
   assert.match(steps[0], /\*\*point rule\*\*[\s\S]*\*\*interval rule\*\*/, 'a bar is not both a point and an interval rule');
   assert.match(steps[0], /\*\*Invention\*\*[^.]*answering where the truth cannot be determined/);
   assert.match(steps[0], /sample size comes with its reason/);
@@ -69,7 +69,7 @@ test('no step before output parity spends anything, and output parity is capped 
   assert.match(steps[4], /within its own cap, inside the study's/);
   assert.match(steps[4], /its plan committed before its first call/);
   assert.match(steps[0], /Output parity \(step 5\) is registered here as a stage of its own, with its items, its pass rule and its own cap/);
-  assert.match(flat, /The first three are committed before the study's first paid call, which is output parity's/);
+  assert.match(flat, /The first three are committed and pushed to the study's pull request before the study's first paid call, which is output parity's/);
   assert.match(parity, /\*\*Request parity is offline, and part of the dry run\.\*\*/);
   assert.match(parity, /\*\*Output parity is paid, and a stage of its own\.\*\* It runs only after the dry run is committed/);
   assert.match(files, /Output parity \(the first paid stage\):/);
@@ -158,7 +158,7 @@ test('the examples are asks and runnable commands, and the specimen states its p
   assert.match(specimen, /95% interval/);
   assert.match(specimen, /each judge alone/);
   assert.match(specimen, /A\/A distribution \(<k> baseline runs, paired resampling\)/);
-  assert.match(flat, /The first three are committed before the study's first paid call/);
+  assert.match(flat, /The first three are committed and pushed to the study's pull request before the study's first paid call/);
 });
 
 // Review round 2: worst(call) counted tokens only; a call can also be billed per request, per image,
@@ -219,7 +219,7 @@ test('the guard is single-threaded: one process holding an OS lock, one call at 
   assert.match(guardStep, /an exclusive lock the kernel releases when it exits or dies — `flock` or its equivalent — for the whole run/);
   assert.match(guardStep, /The cap is hard only under this rule\./);
   assert.match(guardStep, /Concurrency is out of scope/);
-  assert.match(guardStep, /refused at start-up when it equals production's — compared by hash, never printed/);
+  assert.match(guardStep, /refused at start-up unless its account is shown not to be production's — never by unequal keys alone/);
   assert.match(budget, /## Scope: one paying process, one call at a time/);
   assert.match(budget, /The cap is hard only under that rule\./);
   assert.match(budget, /Concurrency is out of scope: calls in parallel inside the process, two paying processes, balance reads running alongside calls, locks on shared storage or across hosts, and taking over another process's lock/);
@@ -450,10 +450,10 @@ test('every paid call, arms and judges alike, goes through one research account'
   const account = items.find((item) => /^3\. /.test(item));
   assert.match(account, /^3\. \*\*One research account that is not production's\.\*\* One key and one balance for every paid call, arms and judges alike/);
   assert.match(account, /Providers that need separate accounts are out of scope: each would need its own guard/);
-  assert.match(account, /refuses to run when it equals production's key or when the harness holds any other paid credential/);
+  assert.match(account, /a check refuses to run unless the account is shown not to be production's/);
   assert.match(frontmatterOf(skill), /Every paid call goes through one research account, not production's: one key, one balance/);
   const guardStep = procedureSteps(skill)[1];
-  assert.match(guardStep, /\*\*One research key for every paid call\*\*, refused at start-up when it equals production's — compared by hash, never printed — or when the harness holds any other paid credential/);
+  assert.match(guardStep, /\*\*One research key for every paid call\*\*, refused at start-up unless its account is shown not to be production's — never by unequal keys alone — or while the harness holds any other paid credential/);
   assert.match(procedureSteps(skill)[7], /Three judges from three vendors, all on the one account/);
   assert.match(budget, /### 1\. One research account, refused if it is production's/);
   assert.match(budget, /Every paid call the study makes — every arm, every judge — goes through one research account: one key and one balance/);
@@ -462,7 +462,7 @@ test('every paid call, arms and judges alike, goes through one research account'
   assert.match(start, /refuse if the harness holds any paid credential but the research key/);
   assert.ok(guardDoc.includes('| Second credential |'), 'no drill for a second credential');
   assert.match(judging, /\*\*On the study's one account\.\*\* Every judge is called through the same research account as the arms, and so through the guard/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Every paid call went through the one research account, not production's, and the checks that refuse production's key and any other paid credential ran/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Every paid call went through the one research account, not production's, and the checks that refuse production's account and any other paid credential ran/);
 });
 
 // Codex round 5 on #101: the classification governed where artefacts are kept, not who receives the
@@ -479,7 +479,7 @@ test('the study uses only data every recipient is approved to receive', () => {
 // already runs: production's stored outputs are an input. The rule is about this study's harness.
 test('the before-any-paid-call rules are about this study\'s harness, not production', () => {
   const steps = procedureSteps(skill);
-  assert.match(steps[0], /no paid call by this study's harness predates it \(production's stored outputs do, by design\)/);
+  assert.match(steps[0], /no paid call by this study's harness predates the push \(production's stored outputs do, by design\)/);
   assert.doesNotMatch(steps[0], /no paid call in the repository's history/, 'step 1 forbids production\'s own calls again');
   assert.match(steps[3], /this study's harness has made no paid call/);
   assert.doesNotMatch(steps[3], /and no paid call has been made/, 'step 4 forbids production\'s own calls again');
@@ -495,4 +495,36 @@ test('every summary of the addenda rule allows a dated correction found after th
   assert.match(frontmatterOf(skill), /put every later change in a dated addendum committed before the calls it governs, or record it as a dated correction if found after them;/);
   const releases = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
   assert.match(releases, /puts every later change in a dated addendum committed before the calls it governs, or records one found after them as a dated correction/);
+});
+
+// Round 6 on #101: a local commit can be amended or backdated, so "committed before" was not
+// independently checkable. The PLAN, FREEZE and DRY RUN are pushed; the remote's push record is the anchor.
+test('the plan, the freeze and the dry run are anchored by the push, not by the commit date', () => {
+  assert.match(flat, /The remote's push record is what makes "decided before" checkable, not the commit's own date, which an amend or a rebase rewrites/);
+  assert.doesNotMatch(flat, /A commit is what makes "decided before" checkable/, 'a local commit is the anchor again');
+  assert.match(procedureSteps(skill)[0], /\*\*Complete when:\*\* the plan is pushed to the study's pull request, and no paid call by this study's harness predates the push/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /PLAN, FREEZE and DRY RUN were each pushed to the study's pull request before its first paid call, and the remote's push record shows it/);
+});
+
+// Round 6 on #101: unequal keys under one billing organisation still spend production's balance.
+// The guard compares accounts, and refuses when it cannot.
+test('the guard compares accounts, not keys, and refuses when it cannot tell them apart', () => {
+  assert.match(budget, /Unequal keys do not show that\. A provider can issue many keys under one billing organisation or project/);
+  assert.match(budget, /the guard compares \*\*accounts\*\*: the provider's non-secret account or project identity behind the research key, read from the provider, against production's/);
+  assert.match(budget, /Where the provider exposes no such identity, the plan records the separately provisioned billing account the research key belongs to\. With neither, the guard refuses to start/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse unless the research account is shown not to be production's/);
+  for (const drill of ['| Same account, another key |', '| No identity, no record |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
+  const account = prerequisiteItems(skill).find((item) => /^3\. /.test(item));
+  assert.match(account, /by the provider's non-secret account identity, or else the separately provisioned billing account the plan records/);
+  assert.match(procedureSteps(skill)[1], /never by unequal keys alone/);
+  assert.match(files, /shown not to be production's by <the provider's non-secret account identity \/ the separately provisioned billing account>/);
+});
+
+// Round 6 on #101: a nondeterministic judge could score identical answers differently in separate
+// calls, so agreeing items moved the difference between arms. One verdict per normalised answer.
+test('the panel gives one verdict per normalised (item, answer), reused by every arm, in both paths', () => {
+  assert.match(judging, /\*\*One verdict per answer, in both paths\.\*\* The panel evaluates each normalised \(item, answer\) once, and every arm that gave that answer reuses the verdict — when every item is judged, and under the shortcut alike/);
+  assert.match(procedureSteps(skill)[7], /\*\*One panel verdict per normalised \(item, answer\)\*\*, reused by every arm that gave that answer/);
+  assert.match(files, /in both, one panel verdict per normalised \(item, answer\), reused across arms/);
 });
