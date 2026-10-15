@@ -175,6 +175,44 @@ step, package, gate or adapter changes. It does not declare `## Bindings`.
 
 - **Everyone else:** nothing changes.
 
+### An independent review loop that ends on a reviewed head
+
+**What.** A new skill, `codex-review-loop`, runs an independent AI reviewer over a pull request in
+rounds — `codex review --base origin/main` in its examples, any reviewer that reviews a diff against
+a base and grades its findings in practice. Each round reviews a fresh worktree checked out at the
+pushed sha, never the checkout, and removes it when the round ends. A round counts only when the
+reviewer exited zero and wrote a non-empty final review — taken from the file `codex exec review -o`
+writes, never cut from the log; anything else is a failed round, run again. Every finding is checked
+against the code before anyone acts on it. Every finding above the lowest grade of the reviewer's
+declared scale (P0 to P2, for the Codex CLI's P0 to P3) is fixed with a check watched failing under
+a deliberate break and restored from a byte copy. Each finding's effect on published numbers is
+measured, and a review record per round goes where it cannot move the reviewed head. The loop stops
+on a round with only lowest-grade findings, by deferring them or by fixing them and running one
+confirmation round, and splits the pull request when rounds keep finding new kinds of bug. The merge
+is a person's act, after a checklist: the head is the one the final round reviewed and no earlier
+round left unfixed, every finding has a complete disposition, the base has not moved since the
+review, the required checks passed, and any change to the reviewer's own instruction files was read
+by a person; then the merge runs pinned with `--match-head-commit`.
+
+**Why.** It generalises a review loop one team ran for many rounds on its own pull requests,
+including the mistakes that loop made, with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. It never merges on
+its own: a person runs the checklist and the merge, pinned to a head that was itself reviewed.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`.
+
+**Who should update.**
+
+- **Anyone who reviews pull requests with an AI reviewer before merging:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill codex-review-loop
+  ```
+
+- **Everyone else:** nothing changes.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.
