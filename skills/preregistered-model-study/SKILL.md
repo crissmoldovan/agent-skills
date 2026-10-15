@@ -157,11 +157,12 @@ unmeasurable question is ceremony around a guess.
      billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
      invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
      stated margin over it, and the provider's maximum), for every attempt it may make. Only attempts
-     the guard can see are bounded, so the client library's own retries are off, or the call is
-     settled from the provider's per-request records. A unit with no cap in the request, or missing
-     from the price table, makes the call unadmittable. A call is admitted only while `spent + reserved + worst <= cap`, and while its stage — output parity, the
-     main run, judging — stays within its own pre-registered cap too. A cap checked after the call
-     is a report, not a cap.
+     the guard reserved are bounded, so the client library's own retries are off, or capped within
+     the attempts reserved with the call settled from the provider's per-request records. A unit
+     with no cap in the request, or missing from the price table, makes the call unadmittable. A
+     call is admitted only while `spent + reserved + worst <= cap`, and while its stage — output
+     parity, the main run, judging — stays within its own pre-registered cap too. A cap checked
+     after the call is a report, not a cap.
    - **A balance floor, read before every admission, that latches.** A call is admitted only if
      the balance just read, less any settled spend it may not show yet and every reservation still
      standing, stays at or above the floor after the call's worst case. A read below that, or a read
@@ -437,9 +438,9 @@ nothing says where either number can be rebuilt.
 - [ ] One paying process held an operating-system lock for the run, and calls were admitted, sent
       and settled strictly one at a time.
 - [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its
-      bound and a ceiling price, for every attempt it could see (the library's own retries off, or
-      the call settled from the provider's per-request records) — and checked the study cap and the
-      call's stage cap; a unit with no cap or no price was refused.
+      bound and a ceiling price, for every attempt (the library's own retries off, or capped within
+      the attempts reserved and the call settled from the provider's per-request records) — and
+      checked the study cap and the call's stage cap; a unit with no cap or no price was refused.
 - [ ] Where a balance endpoint exists, the balance was read before every admission, and a call
       that would cross the floor, a balance below it, or a failed read latched the run and wrote
       STOP; where none exists, the plan records the floor as unavailable.

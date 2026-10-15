@@ -329,17 +329,22 @@ test('a restart re-derives every invariant from the ledger before it admits a ca
 });
 
 // Codex round 3 on #101: a client library that retries on its own and returns only the last
-// attempt hides billed attempts from settlement, so the call settles below its real cost.
-test('only attempts the guard can see are bounded: library retries are off, or the call settles from the provider\'s records', () => {
+// attempt hides billed attempts from settlement, so the call settles below its real cost. Blocks on
+// the fix (severity 8): reading the provider's records afterwards repairs the accounting, not the
+// bound, so a library retry is either off or capped within the attempts reserved before the call.
+test('only attempts the guard reserved are bounded: library retries are off, or capped within max_attempts', () => {
   assert.match(budget, /\*\*The attempts are every attempt the guard can see\.\*\*/);
   assert.match(budget, /Turn the library's own retries off, so that every attempt is one the harness makes and the guard settles/);
-  assert.match(budget, /settle the call from the provider's own per-request records for it/);
+  assert.match(budget, /Where they cannot be turned off, cap them in the library's configuration and count the cap in `max_attempts`, so that the reservation covers every attempt the library can make before the call is sent; then settle the call from the provider's own per-request records for it/);
+  assert.match(budget, /Reading those records afterwards repairs the accounting, not the bound: a library that can retry past the attempts reserved can spend past the cap before anyone reads them, so the guard refuses it/);
   assert.doesNotMatch(budget, /retries the provider's client library makes on its own, and a failed attempt/, 'a hidden library retry is counted as bounded again');
   const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
-  assert.match(start, /refuse if the client library retries on its own/);
-  for (const drill of ['| Hidden retry |', '| Harness retry |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
-  assert.match(procedureSteps(skill)[2], /Only attempts the guard can see are bounded, so the client library's own retries are off, or the call is settled from the provider's per-request records/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /for every attempt it could see \(the library's own retries off, or the call settled from the provider's per-request records\)/);
+  assert.match(start, /refuse if the client library can retry past max_attempts/);
+  for (const drill of ['| Hidden retry |', '| Library retry past the reservation |', '| Capped library retry |', '| Harness retry |']) {
+    assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
+  }
+  assert.match(procedureSteps(skill)[2], /Only attempts the guard reserved are bounded, so the client library's own retries are off, or capped within the attempts reserved with the call settled from the provider's per-request records/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /for every attempt \(the library's own retries off, or capped within the attempts reserved and the call settled from the provider's per-request records\)/);
 });
 
 // Codex round 3 on #101: FREEZE hashed the scorer alone, so the request harness, the budget guard
