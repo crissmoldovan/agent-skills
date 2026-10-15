@@ -34,7 +34,9 @@ because it existed before the thing it constrains.
 - **PLAN** — the question as a decision, the arms, the metrics with their predicates, the bars
   (each with a point rule and an interval rule), the sample size and why, and the invention bar.
 - **FREEZE** — a hash of every input the study consumes: items, prompts, each arm's parameters,
-  policies, rubrics, model and provider pins, the price tables the guard reads, scorer code.
+  policies, rubrics, model and provider pins, the price tables the guard reads; and of every
+  executable and configuration that can change a request, a spend decision or a verdict, with the
+  runtime's version and the dependency lock.
 - **DRY RUN** — built offline, with nothing sent: the control's request beside production's for the
   same items, proving request parity, and every arm's request beside it, with every difference
   listed and each one intended.
@@ -97,14 +99,21 @@ unmeasurable question is ceremony around a guess.
    **Complete when:** the key is in a secret store, and a check exists that refuses to run when
    it equals production's key.
 4. **A study directory under version control.** Everything the study writes lands there and is
-   committed: plan, freeze, addenda, raw responses, scores, report.
+   committed, as prerequisite 7 allows: plan, freeze, addenda, raw responses, scores, report.
    **Complete when:** the directory exists on a branch, and the plan is in the study's first
    commit.
 5. **Three judges from three vendors.** The plan says which judge, if any, shares a vendor with
    which arm, because every judge is also reported alone.
    **Complete when:** each judge is reachable, and each is named in the plan with its vendor.
-6. **A budget, agreed in numbers.** A study cap, and a floor on the key's remaining balance.
-   **Complete when:** both are numbers someone agreed to, written in the plan.
+6. **A budget, agreed in numbers.** A study cap, and a floor on the key's remaining balance — or,
+   where the provider has no balance endpoint, the floor recorded as unavailable.
+   **Complete when:** the cap is a number someone agreed to, and the floor is one too or is recorded
+   as unavailable, both in the plan.
+7. **The data classified.** Production requests, items and responses can carry customer data,
+   credentials or sensitive tool output, and a committed file is readable by everyone with access
+   to the repository. Wherever this skill says *committed*, it means as the class allows: in the
+   clear, or in approved private or encrypted storage with its hash committed in its place.
+   **Complete when:** the plan names the data's class and where each artefact carrying it is kept.
 
 ## Procedure
 
@@ -125,11 +134,14 @@ unmeasurable question is ceremony around a guess.
 
 2. **FREEZE every input by hash.** Items, with their selection rule and seed; prompts; each arm's
    request parameters; policies; rubrics; judge prompts; model identifiers with their provider
-   pins; every price table the budget guard reads; the scorer code. Before freezing, read every
+   pins; every price table the budget guard reads; and every executable and configuration that can
+   change a request, a spend decision or a verdict — harness, budget guard, judge runner, scorer,
+   `reproduce.sh` — with the runtime's version and the dependency lock. Before freezing, read every
    metric's definition against a handful of real items, the awkward ones included. A definition that counts "this field does not apply" as an invented answer will flip
    a verdict, and only a real example shows that it does.
-   **Complete when:** every input the run will read has a hash in the committed freeze, and each
-   metric definition was checked against items named in the plan.
+   **Complete when:** every input the run will read, and every file of code and configuration it
+   runs, has a hash in the committed freeze, and each metric definition was checked against items
+   named in the plan.
 
 3. **Build the budget guard in code, and arm it before it guards anything.** An intention does not
    stop a retry loop at two in the morning. The guard is single-threaded by design, and its parts
@@ -144,28 +156,33 @@ unmeasurable question is ceremony around a guess.
    - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
      billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
      invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
-     stated margin over it, and the provider's maximum), for every attempt it may make. A unit with
-     no cap in the request, or missing from the price table, makes the call unadmittable. A call is
-     admitted only while `spent + reserved + worst <= cap`, and while its stage — output parity, the
+     stated margin over it, and the provider's maximum), for every attempt it may make. Only attempts
+     the guard can see are bounded, so the client library's own retries are off, or the call is
+     settled from the provider's per-request records. A unit with no cap in the request, or missing
+     from the price table, makes the call unadmittable. A call is admitted only while `spent + reserved + worst <= cap`, and while its stage — output parity, the
      main run, judging — stays within its own pre-registered cap too. A cap checked after the call
      is a report, not a cap.
    - **A balance floor, read before every admission, that latches.** A call is admitted only if
-     the balance just read, less any settled spend it may not show yet, stays at or above the floor
-     after the call's worst case. A read below that, or a read that fails, latches the run and
-     writes a STOP flag with the reason; a later, healthier read does not lift it. With no balance
-     endpoint, the plan says the floor is unavailable and the caps govern alone.
+     the balance just read, less any settled spend it may not show yet and every reservation still
+     standing, stays at or above the floor after the call's worst case. A read below that, or a read
+     that fails, latches the run and writes a STOP flag with the reason; a later, healthier read does
+     not lift it. With no balance endpoint, the plan says the floor is unavailable and the caps
+     govern alone.
    - **Settle each call before the next.** The cost is the larger of the list-price and the
      provider-reported cost for every attempt, retries and failures included, summed. A settled
      cost above its reservation latches the guard and writes STOP. The reservation row is on disk
      before the call is sent, and the settled rows before the next admission.
-   - **Restart from the ledger.** A new process restores the study's and every stage's totals from
-     the settled rows, counts any reservation without a settlement at its worst case, and refuses
-     while a STOP flag or a recorded latch stands.
+   - **Restart by re-deriving every invariant from the ledger.** A new process restores the study's
+     and every stage's totals from the settled rows, counts any reservation without a settlement at
+     its worst case, checks every settled call against its reservation again — a run can die between
+     a settlement and the latch it earned — and every total against its cap, latching on a breach,
+     and refuses while a STOP flag or a recorded latch stands.
 
    Then arm it. Set the cap below one call's worst case and watch it refuse. Stub the balance below
    the floor and watch it latch and write STOP. Settle a call above its reservation and watch it
    latch. Kill the run between a reservation and its settlement, restart, and watch the reservation
-   counted at its worst case. Start a second paying process and watch it refuse the lock.
+   counted at its worst case. Write a settlement above its reservation with no latch, restart, and
+   watch it latch. Start a second paying process and watch it refuse the lock.
    **Complete when:** each part has been watched refusing, and the evidence is in the study's audit
    log.
 
@@ -217,8 +234,9 @@ unmeasurable question is ceremony around a guess.
    commit it was written on. A file cannot name the commit that adds it, so the audit records the
    addendum's own commit, and the first call it governs, once both exist. A change discovered after
    its calls ran is recorded as a correction to those calls. It is never backdated.
-   **Complete when:** every change since the first paid call has an addendum, and each
-   addendum's commit precedes the first call it governs.
+   **Complete when:** every change since the first paid call has an addendum; each one made before
+   its calls was committed before the first call it governs, and each found after them is marked
+   as a correction to them, never backdated.
 
 8. **Judge with three vendors, and let the judges see provenance**
    ([judging and metrics](references/judging-and-metrics.md)).
@@ -232,8 +250,9 @@ unmeasurable question is ceremony around a guess.
    - **Judge only where the arms differ**, if cost forces it — and before relying on it, prove on
      a fixture that the shortcut gives exactly the verdicts that judging everything gives.
 
-   **Complete when:** every scored item has three raw judge verdicts, the majority and each judge
-   alone are reported, and any shortcut has a passing exactness test.
+   **Complete when:** every item — or, under a shortcut the plan registered, every item where the
+   arms differ — has three raw judge verdicts, the majority and each judge alone are reported, and
+   any shortcut has a passing exactness test.
 
 9. **Score against the bars as registered, and report more than the bars.**
    - Invention is reported against its own bar: not folded into accuracy, not left to a footnote.
@@ -250,10 +269,10 @@ unmeasurable question is ceremony around a guess.
 
 10. **Make every number rebuildable offline.** `reproduce.sh` rebuilds every table and figure from
     committed data, with no network and no key. A checksum manifest lists every file it consumes,
-    including files read from other studies, and the script checks the manifest before it
-    computes anything. No module in the study may share a name with a standard-library module or
-    with another study's module, or the reproduction runs different code depending on where it
-    was started.
+    including files read from other studies, and the script checks the manifest, the runtime's
+    version and the dependency lock before it computes anything. No module in the study may share a
+    name with a standard-library module or with another study's module, or the reproduction runs
+    different code depending on where it was started.
     **Complete when:** a clean checkout runs `reproduce.sh` offline to byte-identical outputs, and
     the manifest covers every file the run opened.
 
@@ -411,18 +430,24 @@ nothing says where either number can be rebuilt.
       shows it.
 - [ ] Every bar has a point rule and an interval rule, and invention has a bar of its own.
 - [ ] Every metric definition was read against named real items before it was frozen.
+- [ ] The data was classified, and every artefact carrying it is kept where its class allows.
+- [ ] The freeze hashes every executable and configuration that can change a request, a spend
+      decision or a verdict, with the runtime's version and the dependency lock.
 - [ ] The research key is not production's, and the check that refuses production's key ran.
 - [ ] One paying process held an operating-system lock for the run, and calls were admitted, sent
       and settled strictly one at a time.
 - [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its
-      bound and a ceiling price, for every attempt — and checked the study cap and the call's stage
-      cap; a unit with no cap or no price was refused.
-- [ ] The balance was read before every admission; a call that would cross the floor, a balance
-      below it, or a failed read latched the run and wrote STOP.
+      bound and a ceiling price, for every attempt it could see (the library's own retries off, or
+      the call settled from the provider's per-request records) — and checked the study cap and the
+      call's stage cap; a unit with no cap or no price was refused.
+- [ ] Where a balance endpoint exists, the balance was read before every admission, and a call
+      that would cross the floor, a balance below it, or a failed read latched the run and wrote
+      STOP; where none exists, the plan records the floor as unavailable.
 - [ ] Each call was settled, at the larger of list and reported cost per attempt, before the next
       admission; a settlement above its reservation latched the guard.
 - [ ] A restart restored the study's and every stage's totals from the ledger, with unsettled
-      reservations at their worst case. Each part was watched refusing.
+      reservations at their worst case, and rechecked every settled call against its reservation
+      and every total against its cap before admitting anything. Each part was watched refusing.
 - [ ] Request parity was proven offline, in the dry run, before any paid call: the control's
       request equals production's, with the provider pinned in every arm's request.
 - [ ] Every dry-run difference from production's request is intended.
@@ -432,15 +457,18 @@ nothing says where either number can be rebuilt.
       its interval; no single A/A pair was used as a floor or a veto; a layout-only control ran
       where layout or caching could change; arms were interleaved per item; every arm had the same
       inputs.
-- [ ] Every change after the first paid call has a dated addendum committed before the calls it
-      governs.
-- [ ] Three judges from three vendors scored every item; the majority and each judge alone are
-      reported; judges saw provenance tags and a source-only reading.
+- [ ] Every change after the first paid call has a dated addendum: one made before its calls was
+      committed before them; one found after them is marked as a correction, never backdated.
+- [ ] Three judges from three vendors scored every item — or, under a shortcut the plan
+      registered, every item where the arms differ, with absolute rates reported as not measured;
+      the majority and each judge alone are reported; judges saw provenance tags and a source-only
+      reading.
 - [ ] Any judge-where-arms-differ shortcut has a passing exactness test on a fixture.
 - [ ] Denominators match across arms, and every percentage carries its predicate.
 - [ ] The report gives quality, harm and cost beside the bars, and does not call a passing arm
       better on the strength of the bar alone.
-- [ ] `reproduce.sh` rebuilds every number offline, byte-identically, from a clean checkout.
+- [ ] `reproduce.sh` rebuilds every number offline, byte-identically, from a clean checkout, under
+      the frozen runtime and dependency lock.
 - [ ] The manifest covers every consumed input, files from other studies included.
 - [ ] Each gate was armed by a named mutation, watched failing, and restored from a byte copy.
 - [ ] No study module shadows a standard-library module or another study's module.

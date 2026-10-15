@@ -76,8 +76,14 @@ worst(call)      = worst_attempt * max_attempts
   context limit, or a counted size plus a stated margin, not a local estimate that another
   tokeniser can exceed. `max_output_tokens` is the limit sent with the request. Where the provider
   bills reasoning or other hidden tokens outside that limit, add their limit as well.
-- **The attempts are every attempt.** That includes retries the harness makes, retries the
-  provider's client library makes on its own, and a failed attempt that is still billed.
+- **The attempts are every attempt the guard can see.** That includes retries the harness makes
+  and a failed attempt that is still billed. A client library that retries on its own and returns
+  only the last attempt hides the others: they are billed, and settlement never sees them, so the
+  call settles below its real cost and the cap counts money as unspent that is gone. Turn the
+  library's own retries off, so that every attempt is one the harness makes and the guard settles.
+  Where they cannot be turned off, settle the call from the provider's own per-request records for
+  it — every request the key made while the call ran — and not from what the library returned. A
+  retry the guard cannot see is a retry it cannot bound.
 - **Every stage has its own cap.** Each call belongs to a stage — output parity, the main run,
   judging — and the stage's pre-registered cap is checked in the same admission as the study's. A
   call that would still fit the study cap but exceed its stage's is refused.
@@ -133,8 +139,9 @@ cost(call)    = sum of cost(attempt) over every attempt the call made
 `list_cost` uses every billable unit the provider reported — tokens, requests, images, audio,
 searches, tool invocations — and the frozen price table. When the provider reports no cost for an
 attempt, use the list cost; when it reports no usage for a failed attempt, charge that attempt its
-`worst_attempt`. The ledger keeps one row per attempt, so the spend can be re-added from the raw
-rows and the total checked.
+`worst_attempt`. The ledger keeps one row per attempt the provider billed — which is why the client
+library's own retries are off (part 3) — so the spend can be re-added from the raw rows and the
+total checked.
 
 The reservation row is appended and flushed **before** the call is sent, and counted in memory, and
 the settled rows **after** it and before the next admission. The ledger on disk is then always at
@@ -147,18 +154,37 @@ the ledger, and the guard never releases it. A person reconciles it against the 
 record and writes the outcome into the ledger. A harness that catches the error and admits the next
 call therefore still has the unknown call's worst case standing against both caps.
 
-### 6. A restart restores everything from the ledger
+### 6. A restart re-derives every invariant from the ledger
 
-A run that stopped — a crash, a kill, a reboot — is resumed by a new process that rebuilds its
-totals from the ledger before it admits anything:
+A run that stopped — a crash, a kill, a reboot — is resumed by a new process. The ledger is the only
+record that survives it, so the new process rebuilds its totals from the ledger and re-derives every
+invariant the running guard enforced, before it admits anything:
 
 - `spent` and each `stage_spent[s]` are the sums of the settled rows, per stage as well as for the
   study. Restoring the study's total but not the stage's lets a stage spend past its cap.
 - A reservation with no settlement is a call that may have been billed when the run stopped. It
   counts at its worst case in `reserved` and in its stage's `stage_reserved[s]`, and is never
   released by the guard: a person reconciles it against the provider's own record and writes the
-  outcome into the ledger.
+  outcome into the ledger, while no paying process runs.
+- **Every settled call is checked against its reservation again.** A run can die after flushing a
+  settlement above its reservation and before writing the latch it earned, and a person's
+  reconciliation of an unknown call can record more than its worst case. Either way the bound
+  failed and only the ledger shows it. A settled call above its reservation, or with no
+  reservation, latches and writes STOP before anything is admitted.
+- **The totals are checked against the caps again**, the study's and every stage's, and a breach
+  latches the same way.
 - A STOP flag, or a latch recorded in the ledger, refuses the restart until a person clears it.
+
+A reconciliation therefore takes effect only at the next start, which checks it like any other
+settlement.
+
+### 7. What runs is what was frozen
+
+At start-up the guard checks every file the FREEZE hashes — the harness, the guard itself, the
+judge runner, the scorer, every configuration and price table, the dependency lock — against its
+hash, or against the new hash recorded by the addendum that changed it, and refuses on any
+mismatch, naming the file. A freeze that nothing checks before the calls describes what was meant to
+run, not what ran.
 
 ## The admission path
 
@@ -167,8 +193,15 @@ start():
     take the OS lock on <study>/guard.lock without waiting      # held until the process exits
         or refuse: "another paying process holds this study"
     refuse if the research key equals production's              # compared by hash, never printed
+    refuse if the client library retries on its own             # an attempt the guard cannot see is unbounded
+    refuse if a frozen file differs from its hash                # the FREEZE's, or the addendum's that changed it
     spent, stage_spent[s]       = sums of the settled rows       # restore from the ledger
     reserved, stage_reserved[s] = worst cases of reservations with no settlement   # never released here
+    for every settled call in the ledger:                        # re-derive every invariant; assume none
+        if its settled cost > its reservation, or it has no reservation:
+            latched = true; write STOP flag with the reason
+    if spent + reserved > cap, or stage_spent[s] + stage_reserved[s] > stage_cap[s] for any s:
+        latched = true; write STOP flag with the reason
     if STOP flag exists or the ledger records a latch: refuse
 
 call(c):                                                         # one at a time: nothing else is in flight
@@ -221,6 +254,10 @@ call and no real key:
 | Settlement above the reservation | settle a call whose reported cost exceeds its reservation | latches, writes STOP, refuses the next admission |
 | Thrown call | make the send throw after the reservation row is written, catch it, and admit the next call | the thrown call's worst case still counts against the study and stage caps; nothing released it |
 | Restart | kill the process after a reservation row and before its settlement, then start another | the unsettled reservation counts at its worst case, for the study and its stage; settled totals are restored per stage |
+| Restart after an over-settlement | write a settled row above its reservation, with no latch and no STOP flag — a run that died before latching, or a reconciliation above the worst case — then start the run | latches, writes STOP and refuses before admitting anything |
+| Hidden retry | turn the client library's own retries on, then start the run | refuses at start-up |
+| Harness retry | stub a transport that fails the first attempt, and let the harness retry | the ledger shows both attempts, each costed, summed into the call |
+| Freeze drift | change one byte of a frozen file — the harness, the guard, a price table — then start the run | refuses at start-up, naming the file |
 | STOP flag | create the flag by hand, then start the run | refuses until a person removes it |
 | Unbounded unit | admit a call whose hosted-search or tool invocations are not capped in the request | refused at admission: the unit has no bound |
 | Unlisted unit | admit a call that can incur a unit the frozen price table does not list | refused at admission |

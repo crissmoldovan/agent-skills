@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertCatalogueShape, fenced, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
+import { assertCatalogueShape, fenced, prerequisiteItems, procedureSteps, readSkill, section } from './helpers/skill-contract.mjs';
 
 const name = 'preregistered-model-study';
 const loaded = readSkill(name);
@@ -10,6 +10,7 @@ const budget = read('references/budget-guard.md').replace(/\s+/g, ' ');
 const parity = read('references/parity-and-controls.md').replace(/\s+/g, ' ');
 const judging = read('references/judging-and-metrics.md').replace(/\s+/g, ' ');
 const files = read('references/study-files.md').replace(/\s+/g, ' ');
+const frontmatterOf = (source) => source.slice(0, source.indexOf('\n---\n', 4));
 
 // The order is the contract: a plan written after the calls, or parity proven after measuring,
 // is exactly what produced the verdicts this skill exists to prevent.
@@ -49,7 +50,7 @@ test('the plan, the freeze and the dry run come before any paid call, and later 
   assert.match(steps[1], /read every metric's definition against a handful of real items/);
   assert.match(steps[3], /no paid call has been made/);
   assert.match(steps[3], /may differ from it only where the plan intends/);
-  assert.match(steps[6], /each addendum's commit precedes the first call it governs/);
+  assert.match(steps[6], /each one made before its calls was committed before the first call it governs/);
   assert.match(steps[6], /It is never backdated/);
   assert.match(steps[6], /A file cannot name the commit that adds it/);
 });
@@ -255,6 +256,7 @@ test('the balance is read before every admission, and the floor latches', () => 
   assert.match(budget, /`reserved` is every reservation still standing: a call whose outcome is unknown \(part 5\), or one a crashed run left unsettled \(part 6\), may have been billed without the balance showing it/);
   assert.ok(guardDoc.includes('| Floor with an unknown call |'), 'no drill for the floor with an unknown call');
   assert.match(procedureSteps(skill)[2], /A read below that, or a read that fails, latches the run and writes a STOP flag with the reason/);
+  assert.match(procedureSteps(skill)[2], /less any settled spend it may not show yet and every reservation still standing, stays at or above the floor/);
   for (const drill of ['| Floor |', '| Floor crossing |', '| Read failure |', '| No balance endpoint |']) {
     assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
   }
@@ -276,7 +278,7 @@ test('a restart restores the study and every stage from the ledger, unsettled re
   assert.match(start, /reserved, stage_reserved\[s\] = worst cases of reservations with no settlement/);
   assert.match(start, /if STOP flag exists or the ledger records a latch: refuse/);
   assert.match(budget, /Restoring the study's total but not the stage's lets a stage spend past its cap/);
-  assert.match(procedureSteps(skill)[2], /\*\*Restart from the ledger\.\*\*/);
+  assert.match(procedureSteps(skill)[2], /\*\*Restart by re-deriving every invariant from the ledger\.\*\*/);
   assert.ok(guardDoc.includes('| Restart |'), 'no restart drill');
 });
 
@@ -296,4 +298,120 @@ test('a call that throws keeps its worst case reserved; nothing releases it but 
   assert.ok(reraise < settled && settled < released, 'the reservation is released before the call is settled');
   assert.match(budget, /Its reservation stays counted at its worst case, in memory and through an unknown-outcome row in the ledger, and the guard never releases it/);
   assert.ok(guardDoc.includes('| Thrown call |'), 'no drill for a thrown call');
+});
+
+// Codex round 3 on #101: start() restored the totals and trusted them. A run that died after
+// flushing a settlement above its reservation, and before writing the latch it earned, resumed
+// unlatched; so did a reconciliation above the worst case. Start-up re-derives every invariant.
+test('a restart re-derives every invariant from the ledger before it admits a call', () => {
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  const at = (text) => {
+    const index = start.indexOf(text);
+    assert.notEqual(index, -1, `start() no longer contains: ${text}`);
+    return index;
+  };
+  const restored = at('spent, stage_spent[s]       = sums of the settled rows');
+  const perCall = at('for every settled call in the ledger:');
+  const overSettled = at('if its settled cost > its reservation, or it has no reservation:');
+  const overLatch = start.indexOf('latched = true; write STOP flag with the reason', overSettled);
+  const caps = at('if spent + reserved > cap, or stage_spent[s] + stage_reserved[s] > stage_cap[s] for any s:');
+  const capLatch = start.indexOf('latched = true; write STOP flag with the reason', caps);
+  const refuse = at('if STOP flag exists or the ledger records a latch: refuse');
+  assert.ok(restored < perCall && perCall < overSettled && overSettled < overLatch && overLatch < caps, 'the settlements are not rechecked against their reservations after the totals are restored');
+  assert.ok(caps < capLatch && capLatch < refuse, 'a breach found at start-up does not latch before the refusal check');
+  assert.match(budget, /### 6\. A restart re-derives every invariant from the ledger/);
+  assert.match(budget, /\*\*Every settled call is checked against its reservation again\.\*\* A run can die after flushing a settlement above its reservation and before writing the latch it earned, and a person's reconciliation of an unknown call can record more than its worst case/);
+  assert.match(budget, /A reconciliation therefore takes effect only at the next start, which checks it like any other settlement/);
+  assert.ok(guardDoc.includes('| Restart after an over-settlement |'), 'no drill for a restart after an over-settlement');
+  assert.match(procedureSteps(skill)[2], /checks every settled call against its reservation again — a run can die between a settlement and the latch it earned — and every total against its cap, latching on a breach/);
+  assert.match(procedureSteps(skill)[2], /Write a settlement above its reservation with no latch, restart, and watch it latch/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /rechecked every settled call against its reservation and every total against its cap before admitting anything/);
+});
+
+// Codex round 3 on #101: a client library that retries on its own and returns only the last
+// attempt hides billed attempts from settlement, so the call settles below its real cost.
+test('only attempts the guard can see are bounded: library retries are off, or the call settles from the provider\'s records', () => {
+  assert.match(budget, /\*\*The attempts are every attempt the guard can see\.\*\*/);
+  assert.match(budget, /Turn the library's own retries off, so that every attempt is one the harness makes and the guard settles/);
+  assert.match(budget, /settle the call from the provider's own per-request records for it/);
+  assert.doesNotMatch(budget, /retries the provider's client library makes on its own, and a failed attempt/, 'a hidden library retry is counted as bounded again');
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse if the client library retries on its own/);
+  for (const drill of ['| Hidden retry |', '| Harness retry |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
+  assert.match(procedureSteps(skill)[2], /Only attempts the guard can see are bounded, so the client library's own retries are off, or the call is settled from the provider's per-request records/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /for every attempt it could see \(the library's own retries off, or the call settled from the provider's per-request records\)/);
+});
+
+// Codex round 3 on #101: FREEZE hashed the scorer alone, so the request harness, the budget guard
+// and the judge runner could change after the dry run under a complete-looking freeze; and nothing
+// pinned the runtime or the dependencies reproduce.sh runs under.
+test('the freeze hashes every executable and configuration that can change a request, a spend or a verdict, and the runtime', () => {
+  const raw = read('references/study-files.md');
+  const freeze = raw.slice(raw.indexOf('## FREEZE'), raw.indexOf('## ADDENDUM'));
+  for (const file of ['code/harness.<ext>', 'code/guard.<ext>', 'code/judge.<ext>', 'code/score.<ext>', 'reproduce.sh']) {
+    assert.ok(freeze.includes(`{ "file": "${file}", "sha256": "<hash>" }`), `the freeze no longer hashes ${file}`);
+  }
+  assert.match(freeze, /"config": \[\{ "file": "config\/<name>", "sha256": "<hash>" \}\]/);
+  assert.match(freeze, /"runtime": \{ "name": "<runtime>", "version": "<exact version>", "lock": \{ "file": "<lock file>", "sha256": "<hash>" \} \}/);
+  assert.match(freeze.replace(/\s+/g, ' '), /\*\*every executable and every configuration that can change a request, a spend decision or a verdict\*\*/);
+  assert.match(procedureSteps(skill)[1], /every executable and configuration that can change a request, a spend decision or a verdict — harness, budget guard, judge runner, scorer, `reproduce\.sh` — with the runtime's version and the dependency lock/);
+  assert.match(procedureSteps(skill)[1], /every file of code and configuration it runs, has a hash in the committed freeze/);
+  assert.doesNotMatch(procedureSteps(skill)[1], /; the scorer code\./, 'step 2 freezes the scorer alone again');
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The freeze hashes every executable and configuration that can change a request, a spend decision or a verdict, with the runtime's version and the dependency lock/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse if a frozen file differs from its hash/);
+  assert.match(budget, /### 7\. What runs is what was frozen/);
+  assert.ok(guardDoc.includes('| Freeze drift |'), 'no drill for a frozen file that changed');
+});
+
+test('reproduce.sh checks the runtime and installs only from the frozen lock before it computes', () => {
+  const raw = read('references/study-files.md');
+  const script = fenced(raw.slice(raw.indexOf('## reproduce.sh')), 'bash')[0];
+  const manifest = script.indexOf('shasum -a 256 --check --quiet MANIFEST.sha256');
+  const runtime = script.indexOf('test "$(<runtime> --version)" = "<exact version from FREEZE.json>" || { echo "runtime is not the frozen one" >&2; exit 1; }');
+  const install = script.indexOf('<install the dependencies from the lock file only, from a vendored copy or a local cache, offline>');
+  const compute = script.indexOf('<runtime> code/score.<ext>');
+  assert.ok(manifest !== -1 && runtime !== -1 && install !== -1 && compute !== -1, 'reproduce.sh lost the manifest check, the runtime check or the locked install');
+  assert.ok(manifest < runtime && runtime < install && install < compute, 'reproduce.sh computes before it has checked its runtime and dependencies');
+  assert.match(files, /a byte-identical rebuild needs both pinned/);
+  assert.match(procedureSteps(skill)[9], /the script checks the manifest, the runtime's version and the dependency lock before it computes anything/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /from a clean checkout, under the frozen runtime and dependency lock/);
+});
+
+// Codex round 3 on #101: production requests and responses were to be committed in the clear,
+// with nothing asking first what they carry.
+test('the data is classified before anything carrying it is committed', () => {
+  const items = prerequisiteItems(skill);
+  const classified = items.find((item) => /^\d+\. \*\*The data classified\.\*\*/.test(item));
+  assert.ok(classified, 'no prerequisite classifies the data');
+  assert.match(classified, /Wherever this skill says \*committed\*, it means as the class allows: in the clear, or in approved private or encrypted storage with its hash committed in its place/);
+  assert.match(classified, /\*\*Complete when:\*\* the plan names the data's class and where each artefact carrying it is kept/);
+  assert.match(items.find((item) => /^4\. /.test(item)), /committed, as prerequisite 7 allows/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The data was classified, and every artefact carrying it is kept where its class allows/);
+  assert.match(files, /the manifest lists the private copies by hash/);
+});
+
+// Codex round 3 on #101: three checklist lines demanded more than the procedure allows, so a
+// study following the procedure could never pass its own verification. Each pair is held here.
+test('the checklist allows exactly what the procedure allows', () => {
+  const steps = procedureSteps(skill);
+  const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
+  const budgetItem = prerequisiteItems(skill).find((item) => /^6\. /.test(item));
+  // No balance endpoint: the compatibility line, the floor rule and the prerequisite all allow it.
+  assert.match(frontmatterOf(skill), /without one the floor is recorded as unavailable/);
+  assert.match(steps[2], /With no balance endpoint, the plan says the floor is unavailable/);
+  assert.match(budgetItem, /the floor recorded as unavailable/);
+  assert.match(budgetItem, /\*\*Complete when:\*\* the cap is a number someone agreed to, and the floor is one too or is recorded as unavailable/);
+  assert.doesNotMatch(budgetItem, /both are numbers someone agreed to/, 'the prerequisite demands a numeric floor again');
+  assert.match(checklist, /where none exists, the plan records the floor as unavailable/);
+  // A change found after its calls ran is a correction, never backdated.
+  assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated\./);
+  assert.match(steps[6], /each found after them is marked as a correction to them, never backdated/);
+  assert.match(checklist, /one made before its calls was committed before them; one found after them is marked as a correction, never backdated/);
+  assert.doesNotMatch(checklist, /has a dated addendum committed before the calls it governs\./, 'the checklist requires every addendum to predate its calls again');
+  // The judging shortcut: only the items where the arms differ are judged.
+  assert.match(steps[7], /\*\*Judge only where the arms differ\*\*/);
+  assert.match(steps[7], /every item — or, under a shortcut the plan registered, every item where the arms differ — has three raw judge verdicts/);
+  assert.match(checklist, /scored every item — or, under a shortcut the plan registered, every item where the arms differ, with absolute rates reported as not measured/);
+  assert.doesNotMatch(checklist, /Three judges from three vendors scored every item;/, 'the checklist requires every item judged under the shortcut again');
 });

@@ -15,7 +15,9 @@ committed. The names are suggestions; the contents and the order are not.
   parity/                 output parity, the first paid stage: the control's answers against
                           production's stored ones, under the stage's own cap
   addenda/<date>-<slug>.md   one per change after the first paid call
-  code/                   harness, budget guard, judge runner, scorer
+  code/                   harness, budget guard, judge runner, scorer — every file hashed in FREEZE
+  config/                 every configuration the code reads — hashed in FREEZE
+  <lock file>             the dependency lock — hashed in FREEZE, with the runtime's version
   data/raw/<arm>/         every response, stored as returned, with its cost per attempt
   data/judges/<judge>/    every judge verdict, stored as returned
   tables/                 every table in the report, as CSV
@@ -92,12 +94,28 @@ One entry per input, hashed, with enough identity that a reader can find the sam
   "models": [{ "arm": "A", "model": "<model id>", "provider": "<pinned provider>" }],
   "params": [{ "arm": "A", "file": "params/a.json", "sha256": "<hash>" }],
   "price_tables": [{ "file": "prices/<provider>.json", "sha256": "<hash>", "covers": "every billable unit of every model the study calls" }],
-  "code": [{ "file": "code/score.<ext>", "sha256": "<hash>" }],
+  "code": [
+    { "file": "code/harness.<ext>", "sha256": "<hash>" },
+    { "file": "code/guard.<ext>", "sha256": "<hash>" },
+    { "file": "code/judge.<ext>", "sha256": "<hash>" },
+    { "file": "code/score.<ext>", "sha256": "<hash>" },
+    { "file": "reproduce.sh", "sha256": "<hash>" }
+  ],
+  "config": [{ "file": "config/<name>", "sha256": "<hash>" }],
+  "runtime": { "name": "<runtime>", "version": "<exact version>", "lock": { "file": "<lock file>", "sha256": "<hash>" } },
   "metric_definitions_checked_against": ["<item id>", "<item id>", "<item id>"]
 }
 ```
 
-The freeze covers everything the harness and the guard read, not only what the arms are judged on.
+The freeze covers everything the harness and the guard read, not only what the arms are judged on,
+and **every executable and every configuration that can change a request, a spend decision or a
+verdict**: the harness that builds the requests, the guard that admits and settles them, the judge
+runner, the scorer, `reproduce.sh`, every configuration any of them reads, and the runtime's version
+with its dependency lock. A freeze of the scorer alone leaves the request builder, the guard and the
+judge runner free to change after the dry run under a freeze that still looks complete. List the
+files by walking `code/`, `config/` and every path the code opens, not from memory. The guard checks
+every hash at start-up, and an addendum that changes a frozen file records its new hash.
+
 Each arm's request parameters are hashed, because a sampling parameter changed after the freeze
 changes the comparison while the prompts still match. Every price table the guard reads is hashed,
 because a price changed after the freeze changes every reservation and every settlement, and the
@@ -132,26 +150,38 @@ correction, and it is stated as one.
 
 ## reproduce.sh
 
-It runs offline, with no key, from a clean checkout, and refuses to compute anything if an input
-changed.
+It runs offline, with no key, from a clean checkout, and refuses to compute anything if an input,
+the runtime or a dependency changed.
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# 1. Every input is what the manifest says it is. A changed or missing file stops the run here.
+# 1. Every input is what the manifest says it is — data, code and the dependency lock. A changed or
+#    missing file stops the run here.
 shasum -a 256 --check --quiet MANIFEST.sha256
 
-# 2. Rebuild every table from committed data, offline. The loader opens only manifest-listed
+# 2. The runtime is the frozen one, and the dependencies come from the frozen lock, with no network.
+test "$(<runtime> --version)" = "<exact version from FREEZE.json>" || { echo "runtime is not the frozen one" >&2; exit 1; }
+<install the dependencies from the lock file only, from a vendored copy or a local cache, offline>
+
+# 3. Rebuild every table from committed data, offline. The loader opens only manifest-listed
 #    paths, so a file the manifest forgot to list cannot be read silently.
 <runtime> code/score.<ext> --offline --manifest MANIFEST.sha256 --in data --out tables.rebuilt
 
-# 3. The rebuilt tables are byte-identical to the committed ones.
+# 4. The rebuilt tables are byte-identical to the committed ones.
 diff -r tables tables.rebuilt
 rm -rf tables.rebuilt
 echo "reproduced: every table matches"
 ```
+
+A clean checkout on another machine runs whatever runtime and packages it has installed, so a
+byte-identical rebuild needs both pinned: the runtime's version checked before anything runs, and the
+dependencies installed only from the lock the manifest lists — or the whole script run inside a
+container image named by its digest. Where the data classification keeps raw data out of the
+repository, the manifest lists the private copies by hash, and the script reads them from where the
+plan says they are kept.
 
 The manifest check in step 1 catches a changed file. It cannot catch a file that was never listed,
 and that is the gap that bites: a file read from another study, changed there, and never noticed
