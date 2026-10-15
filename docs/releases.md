@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, and `preregistered-model-study`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, and `preregistered-model-study`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -104,14 +104,38 @@ template. It explains and changes nothing; an evidence-backed answer a developer
 declares `## Bindings`, so a project can adapt it to its own learners and library
 ([project adaptation](project-adaptation.md)).
 
+`rotate-shared-secret` rotates a key that services share without downtime: a receiver that accepts the
+current or a non-empty next key, a next key generated into a private file and never printed, senders
+moved to a secret store and verified delivering, a fixed-window reconciliation of the receiver's
+handled requests against the senders' own delivery records before the old key is retired — one to
+one by delivery id where there is one, and otherwise recorded as aggregate evidence — a check that
+the live domain serves the new build, and probes with the new key, the old key, a wrong key and no
+key, the old-key probe mandatory wherever it can be done safely and the retirement recorded as
+UNVERIFIED where it cannot. Placing a single credential stays `secure-credential-setup`'s.
+
+`codex-review-loop` runs an independent reviewer over a pull request in rounds. Each round reviews a
+fresh worktree at the pushed sha, never the checkout, under a round number never used before, and
+counts only on a zero exit and a non-empty final review, taken from the file the reviewer writes
+rather than cut from its log; it reads only that review, checks each finding against the code before
+acting, fixes everything above the lowest grade of the reviewer's declared scale with a check watched
+failing under a deliberate break and restored from a byte copy, measures each finding's effect on
+published results, and keeps a review record per round where it cannot move the head. It stops when
+only lowest-grade findings remain — deferring them, or fixing them and running one confirmation
+round — and splits the pull request when rounds keep finding new kinds of bug. The merge is a
+person's act, after a checklist: the head is the one the final round reviewed and no earlier round
+left unfixed, every finding has a complete disposition, the base has not moved since the review, and
+the required checks passed; then `gh pr merge --match-head-commit` pins the reviewed head. The
+examples use the Codex CLI; the loop is reviewer-agnostic. The Blocks-hosted loop stays
+`request-blocks-review`'s.
+
 `preregistered-model-study` runs a model or prompt comparison whose verdict can be trusted. It commits a
 plan, a hash freeze of every input and of every executable, configuration and runtime that can change
 a request, a spend or a verdict, and a dry run that proves request parity with production offline,
-all before any paid call; runs output parity as the first paid stage, under its own pre-registered
+all pushed before the study's first paid call; runs output parity as the first paid stage, under its own pre-registered
 cap; puts every later change in a dated addendum committed before the calls it governs, or records
 one found after them as a dated correction; and enforces the spend in code with a single-threaded
 guard — one research account, one paying process holding an operating-system lock, calls one at a
-time — that refuses a production key or any other paid credential, reserves every billable unit of each call at a
+time — that refuses production's account or any other paid credential, reserves every billable unit of each call at a
 ceiling price against the study and stage caps, reads the balance before every admission and latches
 the floor, settles each call before the next and latches on a settlement above its reservation, and
 on restart re-derives every total and invariant from its ledger. Concurrency is out of scope, and the cap is hard only under the
@@ -124,6 +148,140 @@ rebuild every number offline. Which model runs everyday work stays `model-routin
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### A shared secret rotates without downtime, and its retirement is proven or marked unverified
+
+**What.** A new skill, `rotate-shared-secret`, rotates a key that services share — a webhook signing
+key, a service-to-service bearer key — with an overlap, so nothing fails while the senders move. The
+receiver accepts the current key or a next key, and an empty value never matches. The next key is
+generated into a 0600 file, in a scratch directory checked to be private, and never printed; copies
+are compared byte for byte, with only same, different or a read error printed. A bearer key is
+probed only once no layer on the request path is shown to record its header, or the rotation stops.
+Every sender moves to a secret store, and the key goes into each store through the store's own
+interface or by hand, never through SQL. Evidence covers every instance on both sides: no sender
+moves until every receiver instance accepts both keys, a sender has moved only when every instance
+of it reads the store, and `NEXT` is removed only after every receiver instance matches the new key
+as `CURRENT`. Before the old key is retired, the receiver's handled requests in a fixed window are
+reconciled against the senders' own delivery records: one to one by delivery id, each id counted on
+both sides, where the senders send one, and otherwise by count and first and last second, recorded
+as aggregate evidence; an empty or failed id extraction is no evidence, never a match. After every
+redeploy the live domain is checked against the new deployment, and probes show the new key accepted
+and the old key, a wrong key and no key refused. The old-key probe is mandatory wherever it can be
+done safely, with a copy of the old key that was accepted before the promotion; where it cannot, the
+retirement is recorded as UNVERIFIED. A signing key is probed by signature and never sent, and
+backends behind a load balancer count as verified only with deployment evidence or probes covering
+every one of them.
+
+**Why.** It generalises one team's rotation of a key that had sat as a literal where it should not,
+with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. It never prints a
+key or its hash, and retires the old key only on the reconciliation's evidence and the old-key probe.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`.
+
+**Who should update.**
+
+- **Anyone who owns a key two services share:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill rotate-shared-secret
+  ```
+
+- **Everyone else:** nothing changes.
+
+### An independent review loop that ends on a reviewed head
+
+**What.** A new skill, `codex-review-loop`, runs an independent AI reviewer over a pull request in
+rounds — `codex review --base origin/main` in its examples, any reviewer that reviews a diff against
+a base and grades its findings in practice. Each round reviews a fresh worktree checked out at the
+pushed sha, never the checkout, and removes it when the round ends. A round counts only when the
+reviewer exited zero and wrote a non-empty final review — taken from the file `codex exec review -o`
+writes, never cut from the log; anything else is a failed round, run again. Every finding is checked
+against the code before anyone acts on it. Every finding above the lowest grade of the reviewer's
+declared scale (P0 to P2, for the Codex CLI's P0 to P3) is fixed with a check watched failing under
+a deliberate break and restored from a byte copy. Each finding's effect on published numbers is
+measured, and a review record per round goes where it cannot move the reviewed head. The loop stops
+on a round with only lowest-grade findings, by deferring them or by fixing them and running one
+confirmation round, and splits the pull request when rounds keep finding new kinds of bug. The merge
+is a person's act, after a checklist: the head is the one the final round reviewed and no earlier
+round left unfixed, every finding has a complete disposition, the base has not moved since the
+review, the required checks passed, and any change to the reviewer's own instruction files was read
+by a person; then the merge runs pinned with `--match-head-commit`.
+
+**Why.** It generalises a review loop one team ran for many rounds on its own pull requests,
+including the mistakes that loop made, with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. It never merges on
+its own: a person runs the checklist and the merge, pinned to a head that was itself reviewed.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`.
+
+**Who should update.**
+
+- **Anyone who reviews pull requests with an AI reviewer before merging:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill codex-review-loop
+  ```
+
+- **Everyone else:** nothing changes.
+
+### A model comparison whose verdict a reader can check
+
+**What.** A new skill, `preregistered-model-study`, runs a model or prompt comparison so that its
+verdict can be checked by someone who was not there. Before the study's first paid call it commits,
+and pushes to the study's pull request, a PLAN — the question as a decision, the arms, metrics with
+their predicates, bars with a point rule and an interval rule, invention as a bar of its own, the
+sample size and why — a FREEZE, taken once the spend guard is built and armed, that hashes every
+input and every executable, configuration and runtime that can change a request, a spend or a
+verdict, and a dry run, built offline, that proves request parity with production and shows each arm
+differs from it only where intended. The data is classified first: the study uses only data that
+every recipient, each candidate provider and each judge vendor, is approved to receive, and every
+artefact that carries it is kept where its class allows. Output parity is the first paid stage, with
+its own pre-registered pass rule and cap, and every later change is a dated addendum committed
+before the calls it governs, or, when found after them, a dated correction, never backdated. The
+spend is guarded in code by a single-threaded guard — one research account for every paid call, one
+paying process holding an operating-system lock, calls one at a time — that refuses production's
+account (compared by the provider's account identity, or the billing account the plan records), any
+other paid credential and a client library that retries on its own; reserves every billable unit of
+each call — tokens, per-request fees, images, audio, hosted search, tool invocations — at a ceiling
+price, for every attempt, against the study's cap and the call's stage cap; reads the balance before
+every admission and latches the floor, failing closed when a read fails, or records the floor as
+unavailable where the provider has none; settles each call before the next at the larger of list and
+reported cost per attempt, latching on a settlement above its reservation and closing that ledger;
+and on restart re-derives every total and invariant from its ledger. Concurrency is out of scope.
+The control's disagreement with itself is estimated as an A/A distribution with its interval, never
+read off one pair of runs. Three judges from three vendors, on the same account, give one verdict
+per normalised answer, reused by every arm that gave it; they see provenance-tagged evidence and a
+source-only reading, and each is reported alone. Quality, harm and cost are reported beside the
+bars, because passing a bar is not being better. A `reproduce.sh`, which checks every frozen file
+against the freeze itself before the manifest and runs under the frozen runtime and dependency lock,
+and a checksum manifest rebuild every number offline, and every gate is armed by mutation.
+
+**Why.** It generalises a series of model comparisons on one team whose first verdicts did not
+survive scrutiny, with every name and identifier taken out.
+
+**Impact.** It is instructions; it installs nothing and runs nothing on its own. A study spends
+money only through a guard the skill describes and the user builds, and refuses to start on a
+production account.
+
+**Compatibility.** **Minor. No migration.** One skill is added; no existing skill, slot, hard line,
+step, package, gate or adapter changes. It does not declare `## Bindings`. It names
+`codex-review-loop` as the owner of each study pull request's review round, so it lands after that
+skill.
+
+**Who should update.**
+
+- **Anyone who compares models or prompts before changing what production runs:** install it.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill preregistered-model-study
+  ```
+
+- **Everyone else:** nothing changes.
 
 ## Release checklist
 

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kind": "general",
+  "useWhen": "a pull request is ready for an independent review round before it merges"
+}
