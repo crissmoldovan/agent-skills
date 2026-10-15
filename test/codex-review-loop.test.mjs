@@ -269,11 +269,11 @@ const REVIEWS = {
   prose: ['The change is correct and the tests cover it.'],
   garbled: ['Error: stream disconnected before completion'],
 };
-function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false } = {}) {
+function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false, logsInCheckout = false } = {}) {
   const base = removeOnExit(mkdtempSync(join(tmpdir(), 'review-e2e-')));
   const origin = join(base, 'origin.git');
   const work = join(base, 'work');
-  const logs = join(base, 'logs');
+  const logs = logsInCheckout ? join(work, 'review-logs') : join(base, 'logs');
   const tmp = join(base, 'tmp');
   mkdirSync(tmp);
   const git = (...args) => execFileSync('git', ['-c', 'user.email=reviewer@example.com', '-c', 'user.name=reviewer', ...args], { cwd: work, stdio: 'pipe', encoding: 'utf8' }).trim();
@@ -301,15 +301,15 @@ function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch 
     ${reviews}
     crash) printf 'partial\\n' > "$out"; return 1;;
   esac; }
-gh() { case "$1 $2" in "pr view") echo "$(cat "$REVIEW_LOGS/round-$ROUND.head") main MERGEABLE";; "pr checks") echo true;; "pr merge") echo "MERGED $*";; esac; }`;
+gh() { case "$1 $2" in "pr view") echo "$(git ls-remote origin refs/heads/feature | cut -f1) main MERGEABLE";; "pr checks") echo true;; "pr merge") echo "MERGED $*";; esac; }`;
   const script = join(base, 'run.sh');
   writeFileSync(script, `${stubs}\n${exampleBash}\n`);
   const cwdFile = join(logs, 'codex-cwd');
   return {
-    sha, baseSha, git, tmp: realpathSync(tmp),
-    step(STEP, mode = 'p3') {
+    sha, baseSha, git, work, logs, tmp: realpathSync(tmp),
+    step(STEP, mode = 'p3', ROUND = '1') {
       rmSync(cwdFile, { force: true });
-      const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, PR: '7', ROUND: '1', TMPDIR: tmp, CODEX_MODE: mode, STEP } });
+      const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, PR: '7', ROUND, TMPDIR: tmp, CODEX_MODE: mode, STEP } });
       return {
         status: run.status, out: run.stdout + run.stderr,
         reviewedIn: existsSync(cwdFile) ? readFileSync(cwdFile, 'utf8').trim() : null,
@@ -364,20 +364,25 @@ test('the example fails fast, and merges only a terminal round whose findings ar
 test('a lowest-grade round never merges until every one of its findings has a disposition', () => {
   const repo = exampleRepo();
   const second = '[P3] Another small thing — file.txt:1-1';
-  repo.record([`${FINDING} => deferred: left from an earlier run, tracked in #1`, `${second} => deferred: also stale, tracked in #2`]);
   assert.equal(repo.step('review', 'p3x2').status, 0);
-  const stale = repo.step('merge', 'p3x2');
-  assert.match(stale.out, /NOT RECORDED: round 1 has no dispositions file/, 'dispositions from before the round stood in for it');
+  assert.match(repo.step('merge', 'p3x2').out, /NOT RECORDED: round 1 has no dispositions file/);
+  const ok = `${second} => rejected: handled in the caller, file.txt:1`;
   for (const [why, lines, missing] of [
     ['one finding has no line', [`${FINDING} => deferred: cosmetic, tracked in #1`], second],
     ['a finding is marked fixed in the stop round', [`${FINDING} => deferred: cosmetic, tracked in #1`, `${second} => fixed in abc123`], second],
-    ['a line names the finding loosely', ['[P3] A small thing => rejected: it is fine', `${second} => rejected: handled in the caller`], FINDING],
+    ['a line names the finding loosely', ['[P3] A small thing => rejected: it is fine', ok], FINDING],
+    // Codex round 5 on #100 [P2]: a prefix match let a deferral with no tracker, or a rejection with
+    // no evidence, through. Each form is checked whole, from the start of its line.
+    ['a deferral names no tracker', [`${FINDING} => deferred: cosmetic`, ok], FINDING],
+    ['a deferral gives no reason', [`${FINDING} => deferred: , tracked in #1`, ok], FINDING],
+    ['a rejection carries no evidence', [`${FINDING} => rejected: `, ok], FINDING],
+    ['the finding is not where its line starts', [`see ${FINDING} => deferred: cosmetic, tracked in #1`, ok], FINDING],
   ]) {
     repo.record(lines);
     const run = repo.step('merge', 'p3x2');
     assert.notEqual(run.status, 0, `it merged when ${why}`);
     assert.doesNotMatch(run.out, /MERGED/, `gh pr merge ran when ${why}`);
-    assert.ok(run.out.includes(`NOT RECORDED: round 1 has no disposition for: ${missing}`), `it did not name the unrecorded finding when ${why}:\n${run.out}`);
+    assert.ok(run.out.includes(`NOT RECORDED: round 1 has no complete disposition for: ${missing}`), `it did not name the unrecorded finding when ${why}:\n${run.out}`);
   }
   repo.record([`${FINDING} => deferred: cosmetic, tracked in #1`, `${second} => rejected: handled in the caller, file.txt:1`]);
   const merged = repo.step('merge', 'p3x2');
@@ -385,6 +390,45 @@ test('a lowest-grade round never merges until every one of its findings has a di
   assert.match(merged.out, /MERGED/);
   assert.match(procedureSteps(skill)[11], /The merge step reads those records: one line per finding in the round's dispositions file, and it refuses while any finding has none/);
   assert.match(read('references/review-record.md'), /^## The dispositions file$/m);
+});
+
+// Codex round 5 on #100 [P1]: a reused round number repinned the round to a new head before a setup
+// failure, so the merge step read the earlier review and its dispositions against a head nobody reviewed.
+test('a round number is never reused, and nothing is pinned until the review succeeded', () => {
+  const repo = exampleRepo();
+  assert.equal(repo.step('review').status, 0);
+  repo.record([`${FINDING} => deferred: cosmetic, tracked in #1`]);
+  const before = ['head', 'final.txt', 'dispositions'].map((file) => readFileSync(join(repo.logs, `round-1.${file}`), 'utf8'));
+  writeFileSync(join(repo.work, 'file.txt'), 'z, never reviewed\n');
+  repo.git('commit', '-qam', 'after the review');
+  repo.git('push', '-q');
+  const unreviewed = repo.git('rev-parse', 'HEAD');
+  writeFileSync(join(repo.work, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\nprintf "TOKEN=generated\\n" > generated.env\n', { mode: 0o755 });
+  const again = repo.step('review');
+  assert.notEqual(again.status, 0, 'a round number ran twice');
+  assert.match(again.out, /REFUSE: round 1 has run before; review as a new round/);
+  assert.deepEqual(['head', 'final.txt', 'dispositions'].map((file) => readFileSync(join(repo.logs, `round-1.${file}`), 'utf8')), before, 'a refused rerun changed the round it refused');
+  const merge = repo.step('merge');
+  assert.doesNotMatch(merge.out, /MERGED/, `the earlier round's review merged ${unreviewed}, a head it never saw`);
+  assert.match(merge.out, /REFUSE: head, base or mergeability differs/);
+
+  // A new round whose setup fails before the review pins nothing, so no merge step can rest on it.
+  const failed = repo.step('review', 'p3', '2');
+  assert.match(failed.out, /REFUSE: the review tree is not exactly/);
+  assert.deepEqual(readdirSync(repo.logs).filter((file) => file.startsWith('round-2.')), [], 'a round that never reviewed left a pin or a file');
+  assert.match(procedureSteps(skill)[1], /no round number reused, so nothing from an earlier round stands in for this one/);
+});
+
+// Codex round 5 on #100 [P2]: the review runs in a temporary worktree, so a REVIEW_LOGS inside the
+// caller's own checkout passed the containment test and the logs landed in the repository.
+test('the log directory may not lie in the checkout the recipe runs from', () => {
+  const repo = exampleRepo({ logsInCheckout: true });
+  const run = repo.step('review');
+  assert.notEqual(run.status, 0, 'a REVIEW_LOGS inside the checkout was accepted');
+  assert.match(run.out, /ROUND 1 REFUSED: REVIEW_LOGS is inside the reviewed tree or this checkout/);
+  assert.equal(run.reviewedIn, null, 'the reviewer ran with its logs inside the checkout');
+  assert.equal(repo.git('status', '--porcelain', '--untracked-files=all'), '', 'the refused round wrote into the checkout');
+  assert.match(procedureSteps(skill)[1], /The log directory is an absolute path, checked to lie outside the reviewed tree and the checkout/);
 });
 
 // Codex round 4 on #100 [P1]: a non-empty review with no grade in it passed as a clean round. A clean

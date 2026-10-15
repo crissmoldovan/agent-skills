@@ -94,13 +94,14 @@ skill says so and proposes a split, and the person who owns the work decides.
 2. **Start the reviewer in the background, writing to a file.** A review can take many minutes, and
    output read live from a terminal arrives interleaved and half-finished. For example:
    `codex exec review --base origin/main -o "$REVIEW_LOGS/round-<n>.final.txt" > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`,
-   with the log directory outside the repository and the final-review file removed before the
-   round starts, so a file from an earlier round can never stand in for this one. The log
-   directory is an absolute path, checked to lie outside the reviewed tree: the reviewer runs
-   inside that tree, so a relative path would land the final review in the very tree under review. Wait for the process to exit before reading anything, and keep its exit
-   status: a reviewer that exited non-zero did not finish a review.
+   with the final-review file removed first and no round number reused, so nothing from an earlier
+   round stands in for this one. The log directory is an absolute path, checked to lie outside the
+   reviewed tree and the checkout: a relative path would land the final review in the tree under
+   review, and a log in the checkout gets committed and quoted by a later round. Wait for the
+   process to exit before reading anything, and keep its exit status: a reviewer that exited
+   non-zero did not finish a review.
    **Complete when:** the reviewer exited zero, and its full output is in the round's log file — or
-   the round is recorded as failed and run again.
+   the round is recorded as failed and run again as a new round.
 
 3. **Read only the final review.** A reviewer's log holds drafts, tool output and earlier messages
    before its final review, and it can quote old review files it found in the repository, so the
@@ -249,21 +250,20 @@ split this PR so that the part that keeps failing gets its own branch.
 set -euo pipefail
 
 # Required up front. STEP=review runs one round and stops; STEP=merge runs the gate once every finding
-# of that round has a disposition. REVIEW_LOGS is absolute and outside every tree under review.
+# of that round has a disposition. REVIEW_LOGS is absolute, outside this checkout and the review tree.
 : "${STEP:?set STEP to review, or to merge once every finding of the round has a disposition}"
 : "${PR:?set PR to the pull request number}"
 : "${ROUND:?set ROUND to the number of this round}"
 : "${REVIEW_LOGS:?set REVIEW_LOGS to an absolute directory outside the repository}"
 case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute path"; exit 1;; esac
-mkdir -p "$REVIEW_LOGS"
 
 # A round counts only if the reviewer exited zero AND wrote a non-empty final review, which the exec
 # form writes, and only that, to the file -o names: no log marker can cut it. A failed round leaves none.
 review_round() {  # review_round <n> <tree>
-  local tree_abs logs_abs log final
+  local tree_abs top logs_abs log final
   case "$REVIEW_LOGS" in /*) ;; *) echo "ROUND $1 REFUSED: REVIEW_LOGS must be an absolute path"; return 1;; esac
-  tree_abs=$(cd "$2" && pwd -P) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
-  case "$logs_abs/" in "$tree_abs"/*) echo "ROUND $1 REFUSED: REVIEW_LOGS is inside the reviewed tree"; return 1;; esac
+  tree_abs=$(cd "$2" && pwd -P) && top=$(git rev-parse --show-toplevel) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
+  case "$logs_abs/" in "$tree_abs"/*|"$top"/*) echo "ROUND $1 REFUSED: REVIEW_LOGS is inside the reviewed tree or this checkout"; return 1;; esac
   log="$logs_abs/round-$1.log"; final="$logs_abs/round-$1.final.txt"
   rm -f "$final" "$logs_abs/round-$1.dispositions"  # nothing from an earlier run stands in for this one
   (cd "$2" && codex exec review --base origin/main -o "$final") > "$log" 2>&1 &
@@ -272,9 +272,8 @@ review_round() {  # review_round <n> <tree>
     || { rm -f "$final"; echo "ROUND $1 FAILED: no final review was written; not a clean round"; return 1; }
 }
 
-# A round is terminal only if every grade in its final review is the lowest of the declared scale —
-# for the Codex CLI, P3. A grade above it, or one outside the scale (a P4, a P9), is not terminal:
-# fix and run the next round, or stop and establish the scale again. Never merge.
+# A round is terminal only if every grade in its final review is the lowest of the declared scale, for
+# the Codex CLI P3. Any other grade, above it or outside the scale (a P4), is not: never merge on it.
 terminal_round() {  # terminal_round <n>
   local final="$REVIEW_LOGS/round-$1.final.txt" other
   [ -s "$final" ] || { echo "NOT TERMINAL: round $1 has no final review"; return 1; }
@@ -282,9 +281,9 @@ terminal_round() {  # terminal_round <n>
   [ -z "$other" ] || { echo "NOT TERMINAL: round $1 grades findings other than the lowest, P3:" $other; return 1; }
 }
 
-# Nothing merges on findings nobody read. round-<n>.dispositions holds a line per graded finding: the
-# finding as the reviewer wrote it, " => deferred: <reason>, tracked in <where>" or " => rejected:
-# <evidence>". A review grading nothing failed, unless a reader wrote "clean: <its verdict>" there.
+# Nothing merges on findings nobody read. round-<n>.dispositions starts a line with each graded finding
+# as the reviewer wrote it, then " => deferred: <reason>, tracked in <where>" or " => rejected: <evidence>",
+# each part present. A review grading nothing failed, unless a reader wrote "clean: <its verdict>" there.
 recorded_round() {  # recorded_round <n>
   local final="$REVIEW_LOGS/round-$1.final.txt" dispositions="$REVIEW_LOGS/round-$1.dispositions" finding
   [ -s "$dispositions" ] || { echo "NOT RECORDED: round $1 has no dispositions file"; return 1; }
@@ -293,8 +292,9 @@ recorded_round() {  # recorded_round <n>
     echo "ROUND $1 FAILED: its final review grades no finding, and no reader recorded it clean"; return 1
   fi
   grep -E '^(- )?\[P[0-9]+\] ' "$final" | sed 's/^- //' | while IFS= read -r finding; do
-    grep -Fq -e "$finding => deferred: " -e "$finding => rejected: " "$dispositions" \
-      || { echo "NOT RECORDED: round $1 has no disposition for: $finding"; return 1; }
+    F="$finding => " awk 'index($0, ENVIRON["F"]) == 1 { d = substr($0, length(ENVIRON["F"]) + 1) }
+      END { exit d !~ /^(deferred: [^ ,].*, tracked in [^ ]|rejected: [^ ])/ }' "$dispositions" \
+      || { echo "NOT RECORDED: round $1 has no complete disposition for: $finding"; return 1; }
   done
 }
 
@@ -316,17 +316,17 @@ merge_if_ready() {  # merge_if_ready <pr> <reviewed-head> <base-branch> <reviewe
 
 case "$STEP" in
   review)
-    # Pin the head and the base, and review exactly those bytes: always a fresh detached worktree at
-    # the pushed sha, never the checkout, whose ignored files `git status --porcelain` does not list
-    # and the reviewer reads. Made only here, it goes with its directory however the script exits.
+    # A round number is never reused. Review exactly the pushed bytes, in a fresh detached worktree, never
+    # the checkout, whose ignored files `git status --porcelain` hides; it goes however the script exits.
+    if ls "$REVIEW_LOGS/round-$ROUND".* >/dev/null 2>&1; then echo "REFUSE: round $ROUND has run before; review as a new round"; exit 1; fi
     git fetch origin
     sha=$(git rev-parse '@{upstream}'); base=$(git rev-parse origin/main)
-    echo "$sha" > "$REVIEW_LOGS/round-$ROUND.head"; echo "$base" > "$REVIEW_LOGS/round-$ROUND.base"
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/review-tree.XXXXXX"); tree="$scratch/tree"
     trap 'git worktree remove --force "$tree" 2>/dev/null || rm -rf "$tree"; rm -rf "$scratch"; git worktree prune' EXIT
     git worktree add --detach "$tree" "$sha"
     [ -z "$(git -C "$tree" status --porcelain --ignored)" ] || { echo "REFUSE: the review tree is not exactly $sha"; exit 1; }
-    review_round "$ROUND" "$tree"    # a failed round stops here
+    review_round "$ROUND" "$tree"    # a failed round stops here, before anything is pinned
+    echo "$sha" > "$REVIEW_LOGS/round-$ROUND.head"; echo "$base" > "$REVIEW_LOGS/round-$ROUND.base"
     terminal_round "$ROUND"          # so does a round with P0-P2 findings left
     echo "Round $ROUND is terminal: record a disposition for each finding in $REVIEW_LOGS/round-$ROUND.dispositions, then run STEP=merge" ;;
   merge)

@@ -68,7 +68,9 @@ grep -q '[^[:space:]]' "$final" 2>/dev/null || echo "ROUND FAILED: no final revi
 The skill's `review_round` does all of this, refuses a log directory inside the tree under review,
 and removes the final review of a round that failed, so no later step can read one.
 
-A failed round is recorded as failed, with the reason, and run again. It never stops the loop.
+A failed round is recorded as failed, with the reason, and run again as a new round. It never stops
+the loop. A round number is never reused: the review step refuses one that has run before, so a final
+review or dispositions left by an earlier run can never be read against a later head.
 
 ## Another reviewer
 
@@ -137,8 +139,11 @@ its disposition.
 
 A finding with no line blocks the merge; so does a line with any disposition but `deferred` or
 `rejected`, because a finding fixed in the stop round makes a new head, which merges only after its
-own confirmation round. The review step removes the file when a round starts, so dispositions
-written for an earlier run never stand in for this one.
+own confirmation round. Each line is checked whole: it starts with the finding, a deferral names
+both its reason and `tracked in <where>`, and a rejection carries its evidence. A bare
+`deferred: cosmetic` or an empty `rejected:` blocks the merge as a missing line does. The review
+step refuses a round number that has run before and pins the round only once its review succeeded,
+so neither dispositions nor a final review from an earlier run stand in for this one.
 
 A final review that grades no finding at all is not clean on its face. A clean Codex review is
 plain prose — its overall verdict, with no grade and no fixed wording (seen in a Codex session's own
