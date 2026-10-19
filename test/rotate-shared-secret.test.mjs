@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
@@ -555,8 +555,9 @@ const NEXT_KEY = 'a-next-key-made-up-for-the-test';
 const OLD_KEY = 'an-old-key-made-up-for-the-test';
 // Runs the example's probe helpers and then `calls`, from a shell whose umask is 022, with curl
 // stubbed to record each request it is asked to send: its label, the header file's text and mode,
-// the body, and its arguments. `kind` undefined leaves KIND unset; `stubs` is shell run first.
-async function runProbes({ kind, calls, stale = false, stubs = '', keys = { 'next.key': NEXT_KEY, 'old.key': OLD_KEY } }) {
+// the body, and its arguments. `kind` undefined leaves KIND unset; `stubs` is shell run first;
+// `prepare(scratch, dir)` leaves files behind first, as an earlier attempt would have.
+async function runProbes({ kind, calls, stale = false, stubs = '', keys = { 'next.key': NEXT_KEY, 'old.key': OLD_KEY }, prepare = () => {} }) {
   const dir = await tempDir('rotate-probe-');
   const scratch = join(dir, 'scratch');
   const log = join(dir, 'log');
@@ -567,6 +568,7 @@ async function runProbes({ kind, calls, stale = false, stubs = '', keys = { 'nex
     writeFileSync(join(scratch, 'probe.hdr'), 'a stale header file');
     chmodSync(join(scratch, 'probe.hdr'), 0o644);
   }
+  prepare(scratch, dir);
   const curl = [
     'curl() {',
     '  local w h d; SENT=$(( ${SENT:-0} + 1 )); printf "%s\\n" "$@" > "$LOG/$SENT.argv"',
@@ -653,6 +655,38 @@ test('every block that writes a key sets umask 077 itself: from a new shell, eac
     const run = await runProbes({ kind, calls: [`probe 'new key' "$SCRATCH/next.key"`], stale: true });
     assert.deepEqual(run.sent.map((request) => request.mode), ['-rw-------'], `${kind}: the header file was not 0600 when curl read it: ${run.out}`);
   }
+  // Codex round 2 on #103 [P2]: wrong.key was written by a redirect into a path that might exist, so
+  // a stale 0644 file kept its mode and a stale symlink was written through. The class: every write
+  // under SCRATCH in the example is preceded, in its own section, by an rm -f of that same file.
+  for (const text of exampleBash.split(/\n\n+/)) {
+    for (const match of text.matchAll(/> "\$(?:\{SCRATCH:\?\}|SCRATCH)\/([\w.]+)"/g)) {
+      const before = text.slice(0, match.index);
+      assert.match(before, new RegExp(`rm -f [^\\n]*/${match[1].replace(/\./g, '\\.')}"`), `${match[1]} is written without first removing whatever is at that path`);
+    }
+  }
+  // Run: a stale 0644 wrong.key, and stale symlinks at wrong.key, probe.hdr and probe.json pointing
+  // out of SCRATCH. Each is replaced by a new 0600 file, and nothing is written through a link.
+  const OUTSIDE = 'a file outside SCRATCH that must not change';
+  for (const [why, prepare] of [
+    ['a stale 0644 wrong.key', (scratch) => { writeFileSync(join(scratch, 'wrong.key'), 'stale'); chmodSync(join(scratch, 'wrong.key'), 0o644); }],
+    ['stale symlinks at wrong.key, probe.hdr and probe.json', (scratch, dir) => {
+      for (const name of ['wrong.key', 'probe.hdr', 'probe.json']) {
+        writeFileSync(join(dir, `outside-${name}`), OUTSIDE, { mode: 0o644 });
+        symlinkSync(join(dir, `outside-${name}`), join(scratch, name));
+      }
+    }],
+  ]) {
+    const run = await runProbes({ kind: 'bearer', calls: [`probe 'wrong key' "$SCRATCH/wrong.key"`], prepare });
+    const wrongKey = join(run.scratch, 'wrong.key');
+    assert.ok(lstatSync(wrongKey).isFile(), `${why}: wrong.key is still a symlink`);
+    assert.equal(statSync(wrongKey).mode & 0o777, 0o600, `${why}: wrong.key is not 0600`);
+    assert.match(readFileSync(wrongKey, 'utf8'), /^0{64}$/, `${why}: wrong.key is not the wrong key`);
+    assert.deepEqual(run.sent.map((request) => [request.mode, request.header]), [['-rw-------', `x-shared-key: ${'0'.repeat(64)}\n`]], `${why}: ${run.out}`);
+    for (const name of ['wrong.key', 'probe.hdr', 'probe.json']) {
+      const outside = join(run.scratch, '..', `outside-${name}`);
+      if (existsSync(outside)) assert.equal(readFileSync(outside, 'utf8'), OUTSIDE, `${why}: ${name} was written through a symlink`);
+    }
+  }
   assert.match(procedureSteps(skill)[3], /under a `umask 077` set again, since a new shell has lost step 2's/);
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /every file holding a key was created 0600, under a `umask 077` set in the same shell/);
   assert.match(skill, /- \*\*A key file written in a new shell\.\*\*/);
@@ -696,25 +730,36 @@ test('a signing key is probed in every case, in order, each over a fresh body, a
   assert.deepEqual(bearer.sent.map((request) => request.header), ORDER.map(([, file]) => (file ? `x-shared-key: ${keyOf[file]}\n` : '')));
   for (const request of bearer.sent) assert.ok(!request.argv.includes(NEXT_KEY) && !request.argv.includes(OLD_KEY), 'a bearer key reached a command line');
 
-  // Nothing is sent without a kind, a body or a signature; the probes that can be built still go.
-  for (const [why, options, expected] of [
+  // Nothing is sent without a kind, a body, a signature or a usable key file; the probes that can be
+  // built still go. The last field says the refusal must name the key file.
+  for (const [why, options, expected, byKeyFile = false] of [
     ['KIND is unset', { kind: undefined }, []],
     ['KIND is neither bearer nor signing', { kind: 'hmac' }, []],
     ['no nonce can be made', { kind: 'signing', stubs: 'openssl() { return 1; }' }, []],
     ['the nonce comes out short', { kind: 'signing', stubs: 'openssl() { printf abc; }' }, []],
     ['the signer fails', { kind: 'signing', stubs: 'node() { return 1; }' }, ['no key']],
-    ['the old key copy is missing, signing', { kind: 'signing', keys: { 'next.key': NEXT_KEY } }, ['new key', 'wrong key', 'no key']],
-    ['the old key copy is missing, bearer', { kind: 'bearer', keys: { 'next.key': NEXT_KEY } }, ['new key', 'wrong key', 'no key']],
+    ['the old key copy is missing, signing', { kind: 'signing', keys: { 'next.key': NEXT_KEY } }, ['new key', 'wrong key', 'no key'], true],
+    ['the old key copy is missing, bearer', { kind: 'bearer', keys: { 'next.key': NEXT_KEY } }, ['new key', 'wrong key', 'no key'], true],
+    // Codex round 2 on #103 [P2]: an empty key file passed cat and the signer, so it sent a blank
+    // header or a signature made with no key. The key file must be a non-empty regular file.
+    ['the old key copy is empty, signing', { kind: 'signing', keys: { 'next.key': NEXT_KEY, 'old.key': '' } }, ['new key', 'wrong key', 'no key'], true],
+    ['the old key copy is empty, bearer', { kind: 'bearer', keys: { 'next.key': NEXT_KEY, 'old.key': '' } }, ['new key', 'wrong key', 'no key'], true],
+    ['the old key copy is a symlink', { kind: 'bearer', keys: { 'next.key': NEXT_KEY }, prepare: (scratch, dir) => { writeFileSync(join(dir, 'elsewhere'), OLD_KEY); symlinkSync(join(dir, 'elsewhere'), join(scratch, 'old.key')); } }, ['new key', 'wrong key', 'no key'], true],
+    ['the old key copy is a directory', { kind: 'signing', keys: { 'next.key': NEXT_KEY }, prepare: (scratch) => { mkdirSync(join(scratch, 'old.key')); writeFileSync(join(scratch, 'old.key', 'x'), 'x'); } }, ['new key', 'wrong key', 'no key'], true],
   ]) {
     const result = await runProbes({ calls, ...options });
     assert.deepEqual(result.sent.map((request) => request.label), expected, `${why}: these were sent`);
     assert.equal((result.out.match(/NOTHING SENT/g) ?? []).length, calls.length - expected.length, `${why}: ${result.out}`);
+    if (byKeyFile) {
+      assert.equal((result.out.match(/: NOTHING SENT: the key file is missing, empty or not a regular file/g) ?? []).length, calls.length - expected.length, `${why}: refused for another reason: ${result.out}`);
+    }
   }
 
   const eighth = procedureSteps(skill)[7];
   assert.match(eighth, /Sign a fresh probe body with each key file/);
   assert.match(eighth, /a receiver that refuses replays refuses a body it has seen whatever key signed it, and that refusal reads as a retirement that took/);
-  assert.match(eighth, /The example's `probe` sends either kind, by `KIND`, and sends nothing when it cannot build the request/);
+  assert.match(eighth, /The example's `probe` sends either kind, by `KIND`, and sends nothing when it cannot build the request — a key file that is missing, empty or not a regular file included: an empty key makes a blank header or a signature with no key, refused for the wrong reason/);
+  assert.match(probe.replace(/\s+/g, ' '), /a probe sends nothing when its key file is missing, empty or not a regular file, or its body or signature failed/);
   assert.doesNotMatch(eighth, /the probe's fixed body/, 'the signed probes share one body again');
   assert.match(probe.replace(/\s+/g, ' '), /Every probe gets a fresh body: a new timestamp and a new nonce/);
   assert.match(skill, /- \*\*A signed probe sent twice\.\*\*/);

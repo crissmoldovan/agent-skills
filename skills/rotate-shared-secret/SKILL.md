@@ -192,7 +192,9 @@ every one. Short of that, a step that needs it waits, and a retirement already d
      `x-shared-key` header in the examples is for bearer keys only.
 
    The example's `probe` sends either kind, by `KIND`, and sends nothing when it cannot build the
-   request. Define it again in a new shell, which also sets `umask 077` again.
+   request — a key file that is missing, empty or not a regular file included: an empty key makes a
+   blank header or a signature with no key, refused for the wrong reason. Define it again in a new
+   shell, which also sets `umask 077` again.
 
    The old-key probe is not optional. A stale replica, a region or instance the redeploy has not
    reached, or a promotion that landed on part of the fleet still accepts the old key, and nothing
@@ -273,13 +275,17 @@ fi
 # bearer key travels in a header file; a signing key never travels, and only its signature is sent,
 # in the receiver's own header and scheme. Every probe gets a fresh body, a new timestamp and nonce
 # (adapt body to your receiver, keeping both wherever its scheme signs them), so a receiver that
-# refuses replays refuses a key, never a repeat. A probe that cannot build its request sends nothing.
+# refuses replays refuses a key, never a repeat. A probe sends nothing when its key file is missing,
+# empty or not a regular file, or its request cannot be built. Every write starts from no file.
 umask 077
-printf '%064d' 0 > "${SCRATCH:?}/wrong.key"   # a wrong key of the right length
+rm -f "${SCRATCH:?}/wrong.key"; printf '%064d' 0 > "${SCRATCH:?}/wrong.key"   # a wrong key of the right length
 sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
-body() { local n; n=$(openssl rand -hex 16) && [ "${#n}" -eq 32 ] && printf '{"probe":true,"timestamp":%s,"nonce":"%s"}' "$(date +%s)" "$n" > "${SCRATCH:?}/probe.json"; }
+body() { local n; rm -f "${SCRATCH:?}/probe.json"; n=$(openssl rand -hex 16) && [ "${#n}" -eq 32 ] && printf '{"probe":true,"timestamp":%s,"nonce":"%s"}' "$(date +%s)" "$n" > "${SCRATCH:?}/probe.json"; }
 probe() {  # probe <label> <key file, or none>
   rm -f "${SCRATCH:?}/probe.hdr" "$SCRATCH/probe.json"
+  if [ "$2" != none ] && ! { [ -f "$2" ] && [ ! -L "$2" ] && [ -s "$2" ]; }; then
+    echo "$1: NOTHING SENT: the key file is missing, empty or not a regular file"; return 1
+  fi
   case "$KIND:$2" in
     bearer:none | signing:none) body && : > "${SCRATCH:?}/probe.hdr" ;;
     bearer:*) body && { printf 'x-shared-key: '; cat "$2" && echo; } > "${SCRATCH:?}/probe.hdr" ;;

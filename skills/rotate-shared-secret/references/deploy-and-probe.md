@@ -103,9 +103,10 @@ receiver's scheme signs them. A receiver that refuses replays refuses a body it 
 whatever key signed it. Never send the old key's probe after the promotion with the body that was
 accepted before it: the receiver refuses it as a replay even while the old key is still valid, and
 that refusal reads as a retirement that took. Each probe, the old key's after the promotion
-included, gets its own timestamp and nonce. For the same reason a probe whose body, key file or
-signature failed sends nothing: an empty signature, or a header with no key in it, is refused for
-the wrong reason too.
+included, gets its own timestamp and nonce. For the same reason a probe sends nothing when its key
+file is missing, empty or not a regular file, or its body or signature failed: an empty signature,
+a signature made with an empty key, or a header with no key in it is refused for the wrong reason
+too.
 
 The skill's example defines `probe`, which does all of this for either kind of key, chosen by
 `KIND` (`bearer` or `signing`, with no default). Define it again in every new shell: a new shell
