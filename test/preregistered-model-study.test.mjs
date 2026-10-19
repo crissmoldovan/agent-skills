@@ -485,12 +485,12 @@ test('the checklist allows exactly what the procedure allows', () => {
   // A change found after its calls ran is a correction, never backdated.
   assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated, and what it invalidates counts toward no verdict until redone\./);
   assert.match(steps[6], /each found after them is marked as a correction to them, never backdated/);
-  assert.match(checklist, /one made before its calls was pushed before them, its offline gates re-run with it and output parity after it where a request changed; one found after them is marked as a correction, never backdated/);
+  assert.match(checklist, /one made before its calls was pushed before them, its offline gates re-run and pushed with it and, where a request changed, its output parity pushed before any later call; one found after them is marked as a correction, never backdated/);
   assert.doesNotMatch(checklist, /has a dated addendum committed before the calls it governs\./, 'the checklist requires every addendum to predate its calls again');
   // The judging shortcut: only the items where the arms differ are judged.
   assert.match(steps[7], /\*\*Judge only where the arms differ\*\*/);
-  assert.match(steps[7], /every item — or, under a shortcut the plan registered, every item where the arms differ — has three raw judge verdicts/);
-  assert.match(checklist, /scored every item — or, under a shortcut the plan registered, every item where the arms differ, with absolute rates reported as not measured/);
+  assert.match(steps[7], /for each item-wise additive metric the plan named for the shortcut, every item where the arms differ has three raw judge verdicts/);
+  assert.match(checklist, /scored every item where the arms differ for each item-wise additive metric the plan named for the shortcut, its absolute rate reported as not measured/);
   assert.doesNotMatch(checklist, /Three judges from three vendors scored every item;/, 'the checklist requires every item judged under the shortcut again');
 });
 
@@ -626,8 +626,8 @@ test('an addendum that changes a frozen file re-runs every gate that read it bef
   const seventh = procedureSteps(skill)[6];
   assert.match(seventh, /An addendum that changes a frozen file re-runs every gate that read the old bytes/);
   assert.match(seventh, /what it invalidates counts toward no verdict until redone/);
-  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it/);
-  assert.match(checklist, /pushed before them, its offline gates re-run with it/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run and pushed with it/);
+  assert.match(checklist, /pushed before them, its offline gates re-run and pushed with it/);
   assert.match(released('0.30.0'), /with every offline gate that read a file it changes run again and pushed with it/);
 });
 
@@ -669,7 +669,7 @@ test('the judging shortcut covers item-wise additive metrics only, never inventi
   assert.match(judging, /comes from the source-only reading, so invention is never scored under the shortcut/);
   assert.match(judging, /require every difference between arms, on every metric the shortcut is used for, to be identical/);
   assert.match(procedureSteps(skill)[7], /\*\*Judge only where the arms differ\*\*, if cost forces it, and only on item-wise additive metrics — never invention, whose denominator the judges decide/);
-  assert.match(checklist, /A shortcut covers only item-wise additive metrics, never invention, and has a passing exactness test on a fixture/);
+  assert.match(checklist, /for each item-wise additive metric the plan named for the shortcut, its absolute rate reported as not measured, and every item for every other metric, invention always among them; .* A shortcut has a passing exactness test on a fixture/);
   assert.match(files, /judge only where arms differ, for item-wise additive metrics only/);
   assert.match(released('0.30.0'), /a shortcut that judges only where the arms differ covers item-wise additive metrics alone, never invention/);
 });
@@ -709,8 +709,8 @@ test('an addendum re-runs its offline gates before any call, then output parity 
   assert.match(budget, /or an addendum's output parity, whose cap that addendum registers/);
   const seventh = procedureSteps(skill)[6];
   assert.match(seventh, /re-runs every gate that read the old bytes: the offline ones before any call it governs, pushed with it; then, if a request changed, output parity as its first paid stage, under a cap and pass rule it registers, pushed before any later call/);
-  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it and output parity after it where a request changed/);
-  assert.match(checklist, /its offline gates re-run with it and output parity after it where a request changed/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run and pushed with it and, where a request changed, its output parity pushed before any later call/);
+  assert.match(checklist, /its offline gates re-run and pushed with it and, where a request changed, its output parity pushed before any later call/);
   assert.match(released('0.30.0'), /with every offline gate that read a file it changes run again and pushed with it, then, where it changes a request, output parity run again as its first paid stage under a cap and pass rule it registers/);
 });
 
@@ -748,6 +748,59 @@ test('the audit times the first call after each preregistration file, and record
   const timed = audit.slice(audit.indexOf('- the commit that added the PLAN'), audit.indexOf('- the commit and push that added the manifest'));
   assert.ok(timed.length > 0, 'the audit no longer separates the preregistration files from the manifest');
   assert.doesNotMatch(timed, /manifest/, 'the manifest is timed against a later paid call again');
+});
+
+// Codex final round on #104 (at e206cc9). Each completion check below could be met while the rule it
+// closes was broken. The rules were right; the checks now ask for what they say. `completion(step)` is
+// the step's Complete-when clause, and `checklistItem(start)` the one checklist line opening so.
+const completion = (step) => step.slice(step.indexOf('**Complete when:**'));
+const checklistItem = (start) => {
+  const items = checklist.split(/- \[ \] /).filter((item) => item.startsWith(start));
+  assert.equal(items.length, 1, `expected one checklist line opening "${start}", found ${items.length}`);
+  return items[0];
+};
+
+// [P1] SKILL.md:254-257: a correction found after its calls ran was complete once it was labelled a
+// correction, though the rule says what it invalidates counts toward no verdict until redone.
+test('a correction is complete only when everything it invalidated was redone or excluded before any bar\'s verdict', () => {
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /what it invalidates counts toward no verdict until redone/);
+  const addendum = checklistItem('Every change after the first paid call has a dated addendum');
+  for (const [where, text] of [['step 7\'s completion', completion(seventh)], ['the checklist', addendum]]) {
+    const correction = text.slice(text.indexOf('found after them is marked as a correction'));
+    assert.ok(correction.length > 0, `${where} no longer speaks of a correction`);
+    assert.match(correction, /never backdated, and every call, judge verdict and score it invalidated was redone or excluded before any bar's verdict/, `${where} completes a correction on its label alone`);
+  }
+  assert.match(files, /none of it counts toward a verdict unless it is produced again under the new bytes, once their gates pass/);
+});
+
+// [P1] SKILL.md:249-251: the rule pushes an addendum's output-parity result before any later call,
+// but both completion checks asked only that output parity ran after the addendum.
+test('both completion checks require an addendum\'s output parity pushed before any later call', () => {
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /output parity as its first paid stage, under a cap and pass rule it registers, pushed before any later call/);
+  const addendum = checklistItem('Every change after the first paid call has a dated addendum');
+  for (const [where, text] of [['step 7\'s completion', completion(seventh)], ['the checklist', addendum]]) {
+    assert.match(text, /where a request changed, its output parity pushed before any later call/, `${where} lets output parity's result wait past later calls`);
+    assert.doesNotMatch(text, /output parity after it/, `${where} asks only that output parity ran after the addendum again`);
+  }
+});
+
+// [P2] SKILL.md:269-275: the judging completion was global, so a study that registered the shortcut
+// for one additive metric could judge only the differing items for every metric, leaving invention
+// without its denominator. It is per metric: the shortcut's items only for the additive metrics the
+// plan named for it, every item for everything else, invention always among them.
+test('judging is complete per metric: every item for invention and every metric not named for the shortcut', () => {
+  const eighth = procedureSteps(skill)[7];
+  const judgingLine = checklistItem('Three judges from three vendors');
+  assert.match(completion(eighth), /for each item-wise additive metric the plan named for the shortcut, every item where the arms differ has three raw judge verdicts, and for every other metric, invention always among them, every item does/);
+  assert.match(judgingLine, /scored every item where the arms differ for each item-wise additive metric the plan named for the shortcut, its absolute rate reported as not measured, and every item for every other metric, invention always among them/);
+  for (const [where, text] of [["step 8's completion", completion(eighth)], ['the checklist', judgingLine]]) {
+    assert.doesNotMatch(text, /under a shortcut the plan registered, every item where the arms differ/, `${where} lets one registered shortcut cover every metric again`);
+  }
+  // The plan names the metrics the shortcut covers, which is what "named for the shortcut" reads.
+  assert.match(files, /judge only where arms differ, for item-wise additive metrics only \(<which>; exactness test: <fixture>\)/);
+  assert.match(judging, /\*\*Every other metric is judged on every item\.\*\*/);
 });
 
 // Codex round 2 on #106 (at b0d5c5a), two P2s on how this file chose its release prose. It read all of

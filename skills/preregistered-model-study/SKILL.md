@@ -3,7 +3,7 @@ name: preregistered-model-study
 description: "Run a model or prompt comparison whose verdict can be trusted: before any paid call, commit the plan, a freeze of every input by hash, and a dry run proving each arm differs from production only where intended; put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them; cap the spend in code; prove the harness reproduces production before measuring; judge with three vendors who can see where each piece of evidence came from; and ship a reproduce script and checksum manifest that rebuild every number offline. Symptoms: compare these models, is the cheaper model good enough, bake-off, A/B this prompt, run an eval before we switch, can we trust this benchmark, the study overspent, the judge rewarded an answer that made things up. Which model runs everyday work is model-routing's; the review round on each study pull request is codex-review-loop's."
 license: MIT
 compatibility: "Any harness that can run scripts and commit to a repository. Every paid call goes through one research account, not production's: one key, one balance, reporting each call's cost and the key's account; on a shared account or with no balance endpoint the floor is recorded as unavailable. Judging needs three vendors' models on that account. Output is a committed study directory: plan, freeze, addenda, raw responses, scores, report, a reproduce script and a checksum manifest."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -252,9 +252,10 @@ unmeasurable question is ceremony around a guess.
    its calls ran is recorded as a correction to those calls. It is never backdated, and what it
    invalidates counts toward no verdict until redone.
    **Complete when:** every change since the first paid call has an addendum; each one made before
-   its calls was pushed before the first call it governs, its offline gates re-run with it and output
-   parity after it where a request changed; each found after them is marked as a correction to them,
-   never backdated.
+   its calls was pushed before the first call it governs, its offline gates re-run and pushed with
+   it and, where a request changed, its output parity pushed before any later call; each found after
+   them is marked as a correction to them, never backdated, and every call, judge verdict and score
+   it invalidated was redone or excluded before any bar's verdict.
 
 8. **Judge with three vendors, and let the judges see provenance**
    ([judging and metrics](references/judging-and-metrics.md)).
@@ -270,9 +271,10 @@ unmeasurable question is ceremony around a guess.
      metrics — never invention, whose denominator the judges decide; before relying on it, prove on
      a fixture that the shortcut gives exactly the verdicts that judging everything gives.
 
-   **Complete when:** every item — or, under a shortcut the plan registered, every item where the
-   arms differ — has three raw judge verdicts, the majority and each judge alone are reported, and
-   any shortcut has a passing exactness test.
+   **Complete when:** for each item-wise additive metric the plan named for the shortcut, every
+   item where the arms differ has three raw judge verdicts, and for every other metric, invention
+   always among them, every item does; the majority and each judge alone are reported; and any
+   shortcut has a passing exactness test.
 
 9. **Score against the bars as registered, and report more than the bars.**
    - Invention is reported against its own bar: not folded into accuracy, not left to a footnote.
@@ -405,8 +407,6 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
 - **The "same" model from a different provider.** Providers serving one model name can answer
   differently, and a router that picks by request layout can move an arm to another provider
   when only its layout changed.
-- **Unequal inputs.** One arm missing an input for some items loses those items for a reason the
-  study is not about, and the loss is reported as the model's.
 - **A reservation that is not a bound.** A cap checked after the call reports money already spent;
   a reservation at list price, or counting tokens only, is exceeded by the first call billed above
   list or that also searched the web, and the cap with it. Reserve every billable unit at a ceiling
@@ -422,8 +422,6 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
 - **A reproduction that read more than its manifest.** A file read from another study changed
   underneath, unlisted; a module named like a standard-library one, or another study's, ran
   different code depending on the directory the reproduction was started from.
-- **The silent repair.** A number corrected in place with no record spends the trust every other
-  number depends on.
 
 ## Verification
 
@@ -462,13 +460,15 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
       interval; no single A/A pair was used as a floor or a veto; a layout-only control ran where
       layout or caching could change; arms were interleaved per item; every arm had the same inputs.
 - [ ] Every change after the first paid call has a dated addendum: one made before its calls was
-      pushed before them, its offline gates re-run with it and output parity after it where a
-      request changed; one found after them is marked as a correction, never backdated.
-- [ ] Three judges from three vendors scored every item — or, under a shortcut the plan
-      registered, every item where the arms differ, with absolute rates reported as not measured;
-      the majority and each judge alone are reported; judges saw provenance tags and a source-only
-      reading. A shortcut covers only item-wise additive metrics, never invention, and has a passing
-      exactness test on a fixture.
+      pushed before them, its offline gates re-run and pushed with it and, where a request changed,
+      its output parity pushed before any later call; one found after them is marked as a
+      correction, never backdated, and every call, judge verdict and score it invalidated was
+      redone or excluded before any bar's verdict.
+- [ ] Three judges from three vendors scored every item where the arms differ for each item-wise
+      additive metric the plan named for the shortcut, its absolute rate reported as not measured,
+      and every item for every other metric, invention always among them; the majority and each
+      judge alone are reported; judges saw provenance tags and a source-only reading. A shortcut
+      has a passing exactness test on a fixture.
 - [ ] Denominators match across arms, and every percentage carries its predicate.
 - [ ] The report gives quality, harm and cost beside the bars, and does not call a passing arm
       better on the strength of the bar alone.
