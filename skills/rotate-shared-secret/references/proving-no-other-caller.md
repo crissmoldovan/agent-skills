@@ -19,15 +19,24 @@ There are two kinds of match, and the record says which one it has.
 
   Extract each side's ids into a file with a checked command — under `pipefail`, its status read —
   and confirm every sender on the map contributed some. Then compare, failing closed: an empty or
-  unreadable file, or a count that failed, is no evidence, never a match.
+  unreadable file, or a count that failed, is no evidence, never a match. So is any row that is not
+  an id — blank, holding whitespace, or a placeholder such as `null`, `-` or `\N` that an
+  extraction prints for a missing header. Two extractions that failed the same way agree with each
+  other, and that agreement is not a match.
 
   ```bash
-  # One id per line on each side. Only "ids match one to one" is a match.
+  # One id per line on each side. Only "ids match one to one" is a match. Add your log tool's own
+  # placeholder for a missing value to the list; grep exits 1 only when it read both files and found
+  # no blank, whitespace or placeholder row.
   set -o pipefail
-  if ! { grep -q . receiver-ids.txt && grep -q . sender-ids.txt \
-         && sort receiver-ids.txt | uniq -c > receiver.counts \
-         && sort sender-ids.txt | uniq -c > sender.counts; }; then
-    echo "NO EVIDENCE: an id file is missing or empty, or counting it failed"; false
+  if ! { grep -q . receiver-ids.txt && grep -q . sender-ids.txt; }; then
+    echo "NO EVIDENCE: an id file is missing or empty"; false
+  elif grep -Eiq -- '^$|[[:space:]]|^(null|nil|none|undefined|nan|-|\\N|\(null\)|"")$' \
+         receiver-ids.txt sender-ids.txt; [ $? -ne 1 ]; then
+    echo "NO EVIDENCE: a row is blank, holds whitespace or is a placeholder such as null"; false
+  elif ! { sort receiver-ids.txt | uniq -c > receiver.counts \
+           && sort sender-ids.txt | uniq -c > sender.counts; }; then
+    echo "NO EVIDENCE: counting the ids failed"; false
   elif diff receiver.counts sender.counts; then
     echo "ids match one to one"
   else
@@ -71,6 +80,7 @@ What each mismatch means:
 | Counts and endpoints equal, no ids | Aggregate evidence only. A cancellation in the middle of the window is not ruled out; the record says so. |
 | An id at the receiver that no sender issued | Another caller, holding a key that works. Find it before retiring anything. |
 | An id logged at the receiver more often than the senders recorded it | A replay, or another caller reusing the id. Find it before retiring anything. |
+| A blank row, or a placeholder such as `null` or `-`, among the ids | A request that carried no id, or an extraction that missed it. No evidence until it is explained. |
 | Any request matching `current` | A caller on the old key, whatever the counts say. |
 
 Where clock skew or latency puts one request on either side of a second boundary, match that request

@@ -94,43 +94,51 @@ the first probe, each layer on the path is shown not to record that header, or t
 that cannot be shown, the rotation stops there. A signing key, which never travels, does not need
 this.
 
-Read the key from a header file so that it is not on the command line:
+A bearer key is read from a header file, so that it is not on the command line. For a **signing
+key**, nothing travels: the key never leaves its file. Each probe signs its body with the key file
+inside a program, and only the signature is sent, in the receiver's own header and scheme.
+
+Every probe gets a fresh body: a new timestamp and a new nonce, in the body or wherever the
+receiver's scheme signs them. A receiver that refuses replays refuses a body it has already seen,
+whatever key signed it. Never send the old key's probe after the promotion with the body that was
+accepted before it: the receiver refuses it as a replay even while the old key is still valid, and
+that refusal reads as a retirement that took. Each probe, the old key's after the promotion
+included, gets its own timestamp and nonce. For the same reason a probe sends nothing when its key
+file is missing, empty or not a regular file, or its body or signature failed: an empty signature,
+a signature made with an empty key, or a header with no key in it is refused for the wrong reason
+too.
+
+The skill's example defines `probe`, which does all of this for either kind of key, chosen by
+`KIND` (`bearer` or `signing`, with no default). Define it again in every new shell: a new shell
+has lost it, and with it the `umask 077` that creates each header file 0600. In order — the first
+before any sender drops the old key (step 4), the rest after the promotion (step 8):
 
 ```bash
-{ printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "${SCRATCH:?}/probe.hdr"
-{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "${SCRATCH:?}/old.hdr"
-curl -s -o /dev/null -w 'new key: %{http_code}\n'   -H @"$SCRATCH/probe.hdr"       -X POST "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'old key: %{http_code}\n'   -H @"$SCRATCH/old.hdr"         -X POST "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong'      -X POST "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'no key: %{http_code}\n'                                  -X POST "https://<receiver>/<probe-path>"
+probe 'old key, before the senders move (must pass)' "$SCRATCH/old.key"
+probe 'new key' "$SCRATCH/next.key"
+probe 'old key' "$SCRATCH/old.key"
+probe 'wrong key' "$SCRATCH/wrong.key"
+probe 'no key' none
 ```
-
-For a **signing key**, nothing above travels: the key never leaves its file. Sign the fixed probe
-body with each key file inside a program, and send only the signature, in the receiver's own header
-and scheme — many also sign a timestamp, which the probe must include the same way:
-
-```bash
-sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
-{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "${SCRATCH:?}/sig-new.hdr"
-curl -s -o /dev/null -w 'signed, new key: %{http_code}\n' -H @"$SCRATCH/sig-new.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
-```
-
-Do the same with the old key and a wrong key, and send the body once with no signature.
 
 Expected: the new key gets the probe's success code; the old key, the wrong key and no key get the
 receiver's refusal code. The old-key probe is the only direct evidence that the retirement took:
 the settings can say the old key is gone while a stale replica, a region the redeploy has not
 reached, or a promotion that landed on part of the fleet still accepts it. So it is mandatory
-wherever it can be done safely. Keep the old key's private copy from before the promotion for it,
-and probe every replica or region that can be addressed on its own.
+wherever it can be done safely. It uses the old key's private copy, saved and proven before any
+sender dropped it; probe every replica or region that can be addressed on its own.
 
-A refusal means something only if the same probe was accepted before. A secret command that adds a
+A refusal means something only if a probe built the same way — the same copy of the key, the same
+header or signature scheme, over a fresh body — was accepted before. A secret command that adds a
 newline or prints metadata around the value writes a different key into the copy; the signature
 made from it, or the header built from it, is refused whether the old key was retired or not, and
 the refusal reads as a retirement that took. So export the raw value where the store has a mode
-for it, and prove the copy before the promotion: with the reconciliation window closed and the old
-key still `CURRENT`, probe with it exactly as you will afterwards, and see it accepted. A copy that
-was not accepted then cannot show anything now.
+for it, and prove the copy before any sender drops the old key (step 4): while the old key is still
+`CURRENT` and before the reconciliation window opens, probe with it as you will afterwards — the
+same header or signature scheme, over a fresh body — and see it accepted. Save it then, not at the promotion: a store that cannot be read back — many
+platforms keep secrets write-only — leaves the senders' copies as the only readable ones, and
+moving the senders removes them. Save it under a `umask 077` set in the same shell, since a new
+shell has lost step 2's. A copy that was not accepted then cannot show anything now.
 
 Where the backends sit behind a load balancer and cannot be addressed one by one, a probe through
 the live domain reaches whichever backend answered, and nothing more. One probe proves nothing about
@@ -139,8 +147,8 @@ configuration — the platform's own list of instances, each with its deployment
 version — or by probes shown to have reached every backend, through answers that identify the
 backend that gave them. Without either, it is **UNVERIFIED**.
 
-When it cannot be done safely — no copy of the old key could be read from its store and accepted
-before the promotion, or there is no probe without side effects — the retirement is **UNVERIFIED**.
+When it cannot be done safely — no copy of the old key could be saved and accepted before the
+senders dropped it, or there is no probe without side effects — the retirement is **UNVERIFIED**.
 Record exactly that, with the reason. Never write "the old key is refused" on the strength of the
 settings alone.
 
@@ -149,7 +157,7 @@ Record the status codes, not the response bodies, which may echo request headers
 ## Cleaning up
 
 ```bash
-rm -f "${SCRATCH:?}/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
+rm -f "${SCRATCH:?}/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/wrong.key" "$SCRATCH/probe.hdr" "$SCRATCH/probe.json"
 ls -A "$SCRATCH"
 ```
 

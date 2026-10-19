@@ -154,8 +154,9 @@ bumped, the branch is merged, and a tag carries these notes.
 **What.** A new skill, `rotate-shared-secret`, rotates a key that services share — a webhook signing
 key, a service-to-service bearer key — with an overlap, so nothing fails while the senders move. The
 receiver accepts the current key or a next key, and an empty value never matches. The next key is
-generated into a 0600 file, in a scratch directory checked to be private, and never printed; copies
-are compared byte for byte, with only same, different or a read error printed. A bearer key is
+generated into a 0600 file, in a scratch directory checked to be private, and never printed; every
+block that writes a key sets `umask 077` itself, so a step run later in a new shell still writes
+0600; copies are compared byte for byte, with only same, different or a read error printed. A bearer key is
 probed only once no layer on the request path is shown to record its header, or the rotation stops.
 Every sender moves to a secret store, and the key goes into each store through the store's own
 interface or by hand, never through SQL. Evidence covers every instance on both sides: no sender
@@ -164,13 +165,16 @@ of it reads the store, and `NEXT` is removed only after every receiver instance 
 as `CURRENT`. Before the old key is retired, the receiver's handled requests in a fixed window are
 reconciled against the senders' own delivery records: one to one by delivery id, each id counted on
 both sides, where the senders send one, and otherwise by count and first and last second, recorded
-as aggregate evidence; an empty or failed id extraction is no evidence, never a match. After every
-redeploy the live domain is checked against the new deployment, and probes show the new key accepted
-and the old key, a wrong key and no key refused. The old-key probe is mandatory wherever it can be
-done safely, with a copy of the old key that was accepted before the promotion; where it cannot, the
-retirement is recorded as UNVERIFIED. A signing key is probed by signature and never sent, and
-backends behind a load balancer count as verified only with deployment evidence or probes covering
-every one of them.
+as aggregate evidence; an empty or failed id extraction, or a row that is blank or a placeholder
+such as `null`, is no evidence, never a match. After every redeploy the live domain is checked
+against the new deployment, and probes show the new key accepted and the old key, a wrong key and
+no key refused. The old-key probe is mandatory wherever it can be done safely, with a copy of the
+old key saved and accepted before any sender drops it, since a store that cannot be read back may
+leave the senders' copies as the only readable ones; where it cannot, the retirement is recorded as
+UNVERIFIED. A signing key is probed by signature and never sent, in all four cases and over a fresh
+body each time, so a receiver that refuses replays refuses the key and not a repeat; a probe that
+cannot be built sends nothing. Backends behind a load balancer count as verified only with
+deployment evidence or probes covering every one of them.
 
 **Why.** It generalises one team's rotation of a key that had sat as a literal where it should not,
 with every name and identifier taken out.
