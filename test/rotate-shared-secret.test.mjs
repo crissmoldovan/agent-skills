@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './helpers/temp-dir.mjs';
@@ -790,4 +790,94 @@ test('no instruction reuses a probe body: every probe, the old key\'s after the 
   assert.match(flatProbe, /Each probe, the old key's after the promotion included, gets its own timestamp and nonce/);
   assert.match(flatProbe, /probe with it as you will afterwards — the same header or signature scheme, over a fresh body — and see it accepted/);
   assert.match(procedureSteps(skill)[3], /probe with it as step 8 will — the same header or signature scheme, over a fresh body — and see it accepted/);
+});
+
+// Codex round 3 on #103 (at 9247a7b) [P2], SKILL.md:268: with a directory at $SCRATCH/old.key, or a
+// link to one, `mv` moved the saved copy INTO it and reported success; the probe then refused the
+// path, and the cleanup's `rm -f` left the nested secret behind, outside SCRATCH through a link.
+// The save block now refuses a directory or a link at old.key before it reads the store. The class:
+// no example block moves a key into a directory; the generation block's `rm -f` already refuses one.
+test('no key is ever moved into a directory: a directory or a link at old.key is refused before the store is read', async () => {
+  const save = exampleSection(/secrets get SHARED_KEY/).replace('<platform-cli>', 'platform_cli');
+  const cli = `platform_cli() { echo "STORE READ" >&2; printf '%s' ${JSON.stringify(OLD_KEY)}; }`;
+  const runSave = async (prepare) => {
+    const base = await tempDir('rotate-olddir-');
+    const scratch = join(base, 'scratch');
+    const outside = join(base, 'outside');
+    mkdirSync(scratch, { mode: 0o700 });
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'kept'), 'a file outside SCRATCH that must not change');
+    prepare(scratch, outside);
+    const run = spawnSync('bash', ['-c', `umask 022\n${cli}\nSCRATCH=${JSON.stringify(scratch)}\n${save}`], { encoding: 'utf8' });
+    return { status: run.status, out: run.stdout + run.stderr, scratch, outside };
+  };
+  for (const [why, prepare, inside] of [
+    ['old.key is a directory', (scratch) => mkdirSync(join(scratch, 'old.key')), (scratch) => join(scratch, 'old.key')],
+    ['old.key is a link to a directory outside SCRATCH', (scratch, outside) => symlinkSync(outside, join(scratch, 'old.key')), (scratch, outside) => outside],
+  ]) {
+    const result = await runSave(prepare);
+    assert.notEqual(result.status, 0, `${why}: the save reported success`);
+    assert.match(result.out, /OLD KEY NOT SAVED: old\.key is a directory or a link/, `${why}: ${result.out}`);
+    assert.doesNotMatch(result.out, /STORE READ/, `${why}: the store was read before the refusal`);
+    const nested = readdirSync(inside(result.scratch, result.outside)).filter((entry) => entry !== 'kept');
+    assert.deepEqual(nested, [], `${why}: a copy of the key was moved inside the directory`);
+    assert.equal(existsSync(join(result.scratch, 'old.key.tmp')), false, `${why}: a temporary file was left`);
+  }
+  // A link to a file is refused too, and nothing is written through it.
+  const linked = await runSave((scratch, outside) => symlinkSync(join(outside, 'kept'), join(scratch, 'old.key')));
+  assert.notEqual(linked.status, 0, 'a link at old.key was accepted');
+  assert.equal(readFileSync(join(linked.outside, 'kept'), 'utf8'), 'a file outside SCRATCH that must not change');
+  // Silence control: with nothing at old.key, the store is read and a 0600 regular file is saved.
+  const clean = await runSave(() => {});
+  assert.equal(clean.status, 0, clean.out);
+  assert.ok(lstatSync(join(clean.scratch, 'old.key')).isFile(), 'old.key is not a regular file');
+  assert.equal(readFileSync(join(clean.scratch, 'old.key'), 'utf8'), OLD_KEY);
+
+  // The generation block: a directory at next.key fails it, and a link to one is replaced by a file.
+  const lines = exampleBash.split('\n');
+  const start = lines.indexOf('umask 077');
+  const generation = lines.slice(start, lines.indexOf('', start)).join('\n');
+  const generate = async (prepare) => {
+    const base = await tempDir('rotate-gendir-');
+    const scratch = join(base, 'scratch');
+    const outside = join(base, 'outside');
+    mkdirSync(scratch, { mode: 0o700 });
+    mkdirSync(outside);
+    prepare(scratch, outside);
+    const run = spawnSync('bash', ['-c', `SCRATCH=${JSON.stringify(scratch)}\n${generation}`], { encoding: 'utf8' });
+    return { status: run.status, out: run.stdout + run.stderr, scratch, outside };
+  };
+  const intoDirectory = await generate((scratch) => mkdirSync(join(scratch, 'next.key')));
+  assert.notEqual(intoDirectory.status, 0, 'generation over a directory at next.key reported success');
+  assert.match(intoDirectory.out, /GENERATION FAILED: no key was written/);
+  assert.deepEqual(readdirSync(join(intoDirectory.scratch, 'next.key')), [], 'a key was moved inside the directory at next.key');
+  const throughLink = await generate((scratch, outside) => symlinkSync(outside, join(scratch, 'next.key')));
+  assert.equal(throughLink.status, 0, throughLink.out);
+  assert.deepEqual(readdirSync(throughLink.outside), [], 'a key was moved through a link into a directory outside SCRATCH');
+  assert.ok(lstatSync(join(throughLink.scratch, 'next.key')).isFile(), 'next.key is not a regular file');
+  assert.match(probe.replace(/\s+/g, ' '), /refuse an `old\.key` that is a directory or a link: `mv` would put the copy inside it/);
+  assert.match(skill, /a directory where the file belongs is refused, since\s+`mv` would put the key inside it/);
+});
+
+// Codex round 3 on #103 (at 9247a7b) [P2], SKILL.md:283: `date +%s` failing inside printf's
+// arguments was swallowed, so body() succeeded and curl sent `"timestamp":,`, malformed JSON that the
+// receiver refuses for the wrong reason. The timestamp is now a checked assignment, and a number.
+test('a probe whose timestamp cannot be made sends nothing, never a body with no timestamp', async () => {
+  const calls = exampleBash.split('\n').filter((line) => line.startsWith("probe '"));
+  for (const [why, kind, stubs] of [
+    ['the clock fails', 'signing', 'date() { return 1; }'],
+    ['the clock fails, bearer', 'bearer', 'date() { return 1; }'],
+    ['the clock prints nothing', 'signing', 'date() { :; }'],
+    ['the clock prints no number', 'bearer', 'date() { echo soon; }'],
+  ]) {
+    const result = await runProbes({ kind, calls, stubs });
+    assert.deepEqual(result.sent.map((request) => request.body), [], `${why}: these bodies were sent`);
+    assert.equal((result.out.match(/: NOTHING SENT: KIND is unset, or the body, the key or the signature failed/g) ?? []).length, calls.length, `${why}: ${result.out}`);
+  }
+  // Silence control: with a working clock every probe goes, each body JSON with a numeric timestamp.
+  const control = await runProbes({ kind: 'signing', calls });
+  assert.equal(control.sent.length, calls.length, control.out);
+  for (const request of control.sent) assert.ok(Number.isInteger(JSON.parse(request.body).timestamp), `${request.label}: no numeric timestamp`);
+  assert.match(exampleBash, /t=\$\(date \+%s\) && \[ "\$t" -gt 0 \] 2>\/dev\/null && printf/);
+  assert.match(probe.replace(/\s+/g, ' '), /a clock that failed sends nothing, never a body with no timestamp in it/);
 });
