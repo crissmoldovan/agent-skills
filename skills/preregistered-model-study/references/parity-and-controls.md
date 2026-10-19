@@ -40,6 +40,11 @@ production yet, or the control run is faulty, and every arm compared against it 
 fault: the study stops there, with an addendum. The A/A distribution measured later in the run says
 whether the pass rule's tolerance was reasonable; if it was too loose, say so in an addendum.
 
+An addendum that changes anything that builds a request runs output parity again, in the same
+order: the addendum and its re-run dry run are pushed first, then output parity runs as the
+addendum's first paid stage, under the pass rule and cap the addendum registers, and its result is
+pushed before any later call. A fail stops the study here too.
+
 A control that fails parity is not a slightly worse control. It is a different system, and the
 study would be measuring the distance between two systems neither of which is the one being decided
 about.
@@ -55,6 +60,11 @@ choosing to.
 
 - Pin one provider per arm, in the request itself, and turn off fallbacks for the study. The pin is
   part of the request, so request parity checks it offline.
+- **Production routing that cannot be pinned is out of scope.** Where production's own request
+  leaves the provider to a router, or lets a fallback move it, the control cannot both equal
+  production's request and carry a pin, and production's stored answers came from providers nobody
+  recorded. This skill does not reproduce the routing to stand in for a pin: such a study is out of
+  scope until production's request pins its provider.
 - Record, per call, the provider that actually served it, from the response's own metadata, from
   the first paid call — output parity's — onwards.
 - After the run, check every call against its arm's pin. A pin that was not honoured is a finding,

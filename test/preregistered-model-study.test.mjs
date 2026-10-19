@@ -12,6 +12,8 @@ const parity = read('references/parity-and-controls.md').replace(/\s+/g, ' ');
 const judging = read('references/judging-and-metrics.md').replace(/\s+/g, ' ');
 const files = read('references/study-files.md').replace(/\s+/g, ' ');
 const frontmatterOf = (source) => source.slice(0, source.indexOf('\n---\n', 4));
+const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
+const releases = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
 
 // The order is the contract: a plan written after the calls, or parity proven after measuring,
 // is exactly what produced the verdicts this skill exists to prevent.
@@ -22,7 +24,7 @@ const PROCEDURE_ORDER = [
   /^4\. \*\*Prove request parity and dry-run every arm, offline, and commit it before any paid call/,
   /^5\. \*\*Prove output parity as the first paid stage, under its own pre-registered cap/,
   /^6\. \*\*Run, with the controls/,
-  /^7\. \*\*Put every change after the first paid call in a dated ADDENDUM, committed before the calls it governs/,
+  /^7\. \*\*Put every change after the first paid call in a dated ADDENDUM, pushed before the calls it governs/,
   /^8\. \*\*Judge with three vendors, and let the judges see provenance/,
   /^9\. \*\*Score against the bars as registered, and report more than the bars/,
   /^10\. \*\*Make every number rebuildable offline/,
@@ -51,7 +53,7 @@ test('the plan, the freeze and the dry run come before any paid call, and later 
   assert.match(steps[2], /read every metric's definition against a handful of real items/);
   assert.match(steps[3], /this study's harness has made no paid call/);
   assert.match(steps[3], /may differ from it only where the plan intends/);
-  assert.match(steps[6], /each one made before its calls was committed before the first call it governs/);
+  assert.match(steps[6], /each one made before its calls was pushed before the first call it governs/);
   assert.match(steps[6], /It is never backdated/);
   assert.match(steps[6], /A file cannot name the commit that adds it/);
 });
@@ -219,7 +221,7 @@ test('the guard is single-threaded: one process holding an OS lock, one call at 
   assert.match(guardStep, /an exclusive lock the kernel releases when it exits or dies — `flock` or its equivalent — for the whole run/);
   assert.match(guardStep, /The cap is hard only under this rule\./);
   assert.match(guardStep, /Concurrency is out of scope/);
-  assert.match(guardStep, /refused at start-up unless its account is shown not to be production's — never by unequal keys alone/);
+  assert.match(guardStep, /refused at start-up unless the account the provider names for it is not production's — never by unequal keys alone/);
   assert.match(budget, /## Scope: one paying process, one call at a time/);
   assert.match(budget, /The cap is hard only under that rule\./);
   assert.match(budget, /Concurrency is out of scope: calls in parallel inside the process, two paying processes, balance reads running alongside calls, locks on shared storage or across hosts, and taking over another process's lock/);
@@ -245,7 +247,7 @@ test('the cap and the stage cap are checked before every call, against its full 
 });
 
 test('the balance is read before every admission, and the floor latches', () => {
-  const read = position('balance = read balance');
+  const read = position('balance = read the account\'s balance');
   const test = position('if the read failed or balance - unseen_spend - reserved - w < floor:');
   const latch = position('latched = true; write STOP flag with the reason;  refuse');
   const reserve = position('ledger.append(reserved row: c, s, w); flush');
@@ -257,7 +259,7 @@ test('the balance is read before every admission, and the floor latches', () => 
   assert.match(budget, /`reserved` is every reservation still standing: a call whose outcome is unknown \(part 5\), or one a crashed run left unsettled \(part 6\), may have been billed without the balance showing it/);
   assert.ok(guardDoc.includes('| Floor with an unknown call |'), 'no drill for the floor with an unknown call');
   assert.match(procedureSteps(skill)[1], /A read below that, or a read that fails, latches the run and writes a STOP flag with the reason/);
-  assert.match(procedureSteps(skill)[1], /less any settled spend it may not show yet and every reservation still standing, stays at or above the floor/);
+  assert.match(procedureSteps(skill)[1], /less everything the study has settled, which no balance is assumed to show yet, and every reservation still standing, stays at or above the floor/);
   for (const drill of ['| Floor |', '| Floor crossing |', '| Read failure |', '| No balance endpoint |']) {
     assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
   }
@@ -425,16 +427,16 @@ test('the checklist allows exactly what the procedure allows', () => {
   const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
   const budgetItem = prerequisiteItems(skill).find((item) => /^6\. /.test(item));
   // No balance endpoint: the compatibility line, the floor rule and the prerequisite all allow it.
-  assert.match(frontmatterOf(skill), /with no balance endpoint the floor is recorded as unavailable/);
-  assert.match(steps[1], /With no balance endpoint, the plan says the floor is unavailable/);
+  assert.match(frontmatterOf(skill), /on a shared account or with no balance endpoint the floor is recorded as unavailable/);
+  assert.match(steps[1], /On a shared account, or with no balance endpoint, the plan says the floor is unavailable/);
   assert.match(budgetItem, /the floor recorded as unavailable/);
   assert.match(budgetItem, /\*\*Complete when:\*\* the cap is a number someone agreed to, and the floor is one too or is recorded as unavailable/);
   assert.doesNotMatch(budgetItem, /both are numbers someone agreed to/, 'the prerequisite demands a numeric floor again');
-  assert.match(checklist, /where none exists, the plan records the floor as unavailable/);
+  assert.match(checklist, /elsewhere the plan records the floor as unavailable and the caps govern alone/);
   // A change found after its calls ran is a correction, never backdated.
-  assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated\./);
+  assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated, and what it invalidates counts toward no verdict until redone\./);
   assert.match(steps[6], /each found after them is marked as a correction to them, never backdated/);
-  assert.match(checklist, /one made before its calls was committed before them; one found after them is marked as a correction, never backdated/);
+  assert.match(checklist, /one made before its calls was pushed before them, its offline gates re-run with it and output parity after it where a request changed; one found after them is marked as a correction, never backdated/);
   assert.doesNotMatch(checklist, /has a dated addendum committed before the calls it governs\./, 'the checklist requires every addendum to predate its calls again');
   // The judging shortcut: only the items where the arms differ are judged.
   assert.match(steps[7], /\*\*Judge only where the arms differ\*\*/);
@@ -449,11 +451,11 @@ test('every paid call, arms and judges alike, goes through one research account'
   const items = prerequisiteItems(skill);
   const account = items.find((item) => /^3\. /.test(item));
   assert.match(account, /^3\. \*\*One research account that is not production's\.\*\* One key and one balance for every paid call, arms and judges alike/);
-  assert.match(account, /Providers that need separate accounts are out of scope: each would need its own guard/);
-  assert.match(account, /a check refuses to run unless the account is shown not to be production's/);
+  assert.match(account, /Providers that need separate accounts, or cannot name that account, are out of scope/);
+  assert.match(account, /a check refuses to run unless the account the provider names for the key is not production's/);
   assert.match(frontmatterOf(skill), /Every paid call goes through one research account, not production's: one key, one balance/);
   const guardStep = procedureSteps(skill)[1];
-  assert.match(guardStep, /\*\*One research key for every paid call\*\*, refused at start-up unless its account is shown not to be production's — never by unequal keys alone — or while the harness holds any other paid credential/);
+  assert.match(guardStep, /\*\*One research key for every paid call\*\*, refused at start-up unless the account the provider names for it is not production's — never by unequal keys alone, nor by the plan's say-so — or while the harness holds any other paid credential/);
   assert.match(procedureSteps(skill)[7], /Three judges from three vendors, all on the one account/);
   assert.match(budget, /### 1\. One research account, refused if it is production's/);
   assert.match(budget, /Every paid call the study makes — every arm, every judge — goes through one research account: one key and one balance/);
@@ -462,7 +464,7 @@ test('every paid call, arms and judges alike, goes through one research account'
   assert.match(start, /refuse if the harness holds any paid credential but the research key/);
   assert.ok(guardDoc.includes('| Second credential |'), 'no drill for a second credential');
   assert.match(judging, /\*\*On the study's one account\.\*\* Every judge is called through the same research account as the arms, and so through the guard/);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Every paid call went through the one research account, not production's, and the checks that refuse production's account and any other paid credential ran/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /Every paid call went through the one research account, not production's, and the checks that refuse production's account, by the account the provider names for each key, and any other paid credential ran/);
 });
 
 // Codex round 5 on #101: the classification governed where artefacts are kept, not who receives the
@@ -490,11 +492,11 @@ test('the before-any-paid-call rules are about this study\'s harness, not produc
 // Codex round 5 on #101: the summary, the description and the release paragraph said every addendum
 // precedes its calls; step 7 also allows a correction found after them, dated and never backdated.
 test('every summary of the addenda rule allows a dated correction found after the calls', () => {
-  assert.match(flat, /\*\*ADDENDA\*\* — every change after the first paid call, dated, with its reason: committed before the calls it governs, or, when found after them, recorded as a correction and never backdated/);
+  assert.match(flat, /\*\*ADDENDA\*\* — every change after the first paid call, dated, with its reason: pushed before the calls it governs, or, when found after them, recorded as a correction and never backdated/);
   assert.doesNotMatch(flat, /\*\*ADDENDA\*\* — [^.]*each committed before the calls it governs\./, 'the summary requires every addendum to predate its calls again');
-  assert.match(frontmatterOf(skill), /put every later change in a dated addendum committed before the calls it governs, or record it as a dated correction if found after them;/);
+  assert.match(frontmatterOf(skill), /put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them;/);
   const releases = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
-  assert.match(releases, /puts every later change in a dated addendum committed before the calls it governs, or records one found after them as a dated correction/);
+  assert.match(releases, /puts every later change in a dated addendum pushed before the calls it governs, or records one found after them as a dated correction/);
 });
 
 // Round 6 on #101: a local commit can be amended or backdated, so "committed before" was not
@@ -507,18 +509,13 @@ test('the plan, the freeze and the dry run are anchored by the push, not by the 
 });
 
 // Round 6 on #101: unequal keys under one billing organisation still spend production's balance.
-// The guard compares accounts, and refuses when it cannot.
+// The guard compares accounts, and refuses when it cannot. (Round 7 removed the plan-record option.)
 test('the guard compares accounts, not keys, and refuses when it cannot tell them apart', () => {
   assert.match(budget, /Unequal keys do not show that\. A provider can issue many keys under one billing organisation or project/);
-  assert.match(budget, /the guard compares \*\*accounts\*\*: the provider's non-secret account or project identity behind the research key, read from the provider, against production's/);
-  assert.match(budget, /Where the provider exposes no such identity, the plan records the separately provisioned billing account the research key belongs to\. With neither, the guard refuses to start/);
   const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
-  assert.match(start, /refuse unless the research account is shown not to be production's/);
-  for (const drill of ['| Same account, another key |', '| No identity, no record |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
-  const account = prerequisiteItems(skill).find((item) => /^3\. /.test(item));
-  assert.match(account, /by the provider's non-secret account identity, or else the separately provisioned billing account the plan records/);
+  assert.match(start, /refuse unless the provider names the research key's account, and it is not production's/);
+  for (const drill of ['| Same account, another key |', '| No account binding |']) assert.ok(guardDoc.includes(drill), `no ${drill.trim()} drill`);
   assert.match(procedureSteps(skill)[1], /never by unequal keys alone/);
-  assert.match(files, /shown not to be production's by <the provider's non-secret account identity \/ the separately provisioned billing account>/);
 });
 
 // Round 6 on #101: a nondeterministic judge could score identical answers differently in separate
@@ -527,4 +524,179 @@ test('the panel gives one verdict per normalised (item, answer), reused by every
   assert.match(judging, /\*\*One verdict per answer, in both paths\.\*\* The panel evaluates each normalised \(item, answer\) once, and every arm that gave that answer reuses the verdict — when every item is judged, and under the shortcut alike/);
   assert.match(procedureSteps(skill)[7], /\*\*One panel verdict per normalised \(item, answer\)\*\*, reused by every arm that gave that answer/);
   assert.match(files, /in both, one panel verdict per normalised \(item, answer\), reused across arms/);
+});
+
+// Round 7 on #101 (P1): where the provider exposes no account identity, a billing account recorded in
+// the plan does not prove which account the key bills. Only the provider binds a key to its account;
+// a provider that cannot is out of scope. A key's own limit is not the account's balance either.
+test('only the provider binds the research key to its account; a record in the plan is not a binding', () => {
+  assert.match(budget, /the guard compares \*\*accounts\*\*: the non-secret account or project identity the provider names for the research key, against the one it names for production's\. Only the provider can bind a key to the account it bills/);
+  assert.match(budget, /A billing account written in the plan records which account someone meant the key to bill, not which one the provider bills, so it is not a binding\. A provider that cannot name the account behind a key is out of scope, and the guard refuses to start/);
+  assert.match(budget, /a key's own spend limit was not the account's spendable balance, because credits are account-wide and shared with every other key on it/);
+  assert.match(budget, /\*\*The account's balance, never a key's limit\.\*\* [^*]*A provider that reports only a per-key limit has no balance endpoint for this guard/);
+  assert.match(callPath, /balance = read the account's balance/);
+  assert.match(guardDoc, /\| No account binding \| stub a provider that names no account for the research key, and write a billing account into the plan \| refuses at start-up: a recorded account is not a binding \|/);
+  const account = prerequisiteItems(skill).find((item) => /^3\. /.test(item));
+  assert.match(account, /reports each call's cost and names the account a key bills\. Providers that need separate accounts, or cannot name that account, are out of scope: a billing account written in the plan binds no key to it/);
+  assert.match(procedureSteps(skill)[1], /never by unequal keys alone, nor by the plan's say-so/);
+  assert.match(frontmatterOf(skill), /reporting each call's cost and the key's account;/);
+  assert.match(prerequisiteItems(skill).find((item) => /^6\. /.test(item)), /a floor on the account's remaining balance/);
+  assert.match(files, /shown not to be production's by the account identity the provider names for each key;/);
+  for (const [where, text] of [['SKILL.md', flat], ['budget-guard.md', budget], ['study-files.md', files]]) {
+    assert.doesNotMatch(text, /separately provisioned billing account|the plan's billing account|the key's remaining balance/, `${where} accepts a billing account from the plan, or a key's balance, again`);
+  }
+  assert.match(releases, /compared by the account the provider names for each key; a provider that cannot name it is out of scope, since a billing account written in the plan binds no key/);
+});
+
+// Round 7 on #101 (P1): a lagging balance endpoint with no complete-through watermark cannot say
+// which settled spend it already shows. The guard trusts no timestamp: every settled cost comes off.
+test('the floor assumes the balance shows none of the study\'s spend, and trusts no timestamp on it', () => {
+  assert.match(budget, /no time stamped on the balance says which it includes, so the guard assumes it shows none of them: `unseen_spend` is every cost the study has settled, in this ledger and in any ledger it closed \(part 6\)/);
+  assert.doesNotMatch(budget, /as-of time|as of a time|watermark|settled since the balance/, 'the floor trusts a timestamp on the balance again');
+  assert.match(budget, /where there is a floor, `unseen_spend` goes on counting everything the closed ledger settled/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /unseen_spend += spent \+ all that any ledger this study closed settled/);
+  const settled = position('ledger.append(settled rows: s, one per attempt); flush');
+  const counted = position('unseen_spend += actual');
+  assert.ok(settled < counted, 'a settled cost is not added to the spend the balance is assumed not to show');
+  assert.match(guardDoc, /\| Lagging balance \| settle a call, then stub a balance that does not show it, and admit a call that fits only if that settled cost is forgotten \| latches and refuses: every settled cost comes off the balance \|/);
+  assert.match(procedureSteps(skill)[1], /less everything the study has settled, which no balance is assumed to show yet, and every reservation still standing/);
+  assert.match(checklist, /the account's balance was read before every admission, less everything the study settled/);
+  assert.match(releases, /takes off everything the study has settled as possibly not shown yet/);
+});
+
+// Round 7 on #101 (P1): an addendum that changes the guard, the request builder, parameters, rubric,
+// judge or scorer left every earlier gate attached to the old bytes. Each gate that read the file runs again.
+test('an addendum that changes a frozen file re-runs every gate that read it before its first governed call', () => {
+  assert.match(files, /\*\*An addendum that changes a frozen file re-runs every gate that read it\.\*\* Each gate passed against the old bytes and says nothing about the new ones\./);
+  for (const gate of ["the guard's drills, for the guard or a price table", 'the dry run, for anything that builds a request', "the metric-definition check and the shortcut's exactness test, for the rubric, the judge runner or the scorer", 'the mutation drills, for the scorer or `reproduce.sh`']) {
+    assert.ok(files.includes(gate), `an addendum no longer re-runs: ${gate}`);
+  }
+  assert.match(files, /A gate that fails, or cannot run again, stops the study, as the plan's own output parity does/);
+  assert.match(files, /A correction found after its calls ran makes what the old bytes produced for them — calls, verdicts, scores — invalid: none of it counts toward a verdict unless it is produced again under the new bytes, once their gates pass/);
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /An addendum that changes a frozen file re-runs every gate that read the old bytes/);
+  assert.match(seventh, /what it invalidates counts toward no verdict until redone/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it/);
+  assert.match(checklist, /pushed before them, its offline gates re-run with it/);
+  assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it/);
+});
+
+// Round 7 on #101 (P1): a mid-study addendum was accepted as a local commit, whose date an amend or a
+// rebase rewrites. It is pushed before its first governed call, the same anchor as the plan.
+test('an addendum is pushed before its first governed call, the same anchor as the plan', () => {
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /It is pushed to the study's pull request before the first call it governs — the plan's anchor, not a local commit/);
+  assert.match(seventh, /the audit records the addendum's commit, its push and the first call it governs/);
+  assert.doesNotMatch(seventh, /committed before the (?:first )?calls? it governs/, 'a local commit anchors an addendum again');
+  const raw = read('references/study-files.md');
+  assert.match(raw, /Governs calls: <batch or range> +To be pushed before them/);
+  assert.match(files, /An addendum is pushed to the study's pull request before the first call it governs: the same anchor as the plan, because a local commit's date is rewritten by an amend or a rebase/);
+  assert.match(files, /the remote's record of the push that carried it, and the time of the first call it governs are recorded in the audit/);
+  assert.match(files, /each addendum, the push that carried it, and the time of the first paid call after each/);
+  assert.match(checklist, /one made before its calls was pushed before them/);
+  assert.match(section(skill, 'Usage Examples'), /and push it before the next batch runs/);
+  for (const [where, text] of [['SKILL.md', flat], ['study-files.md', files], ['releases.md', releases]]) {
+    assert.doesNotMatch(text, /addend(?:um|a)[^.]{0,40} committed before the calls it governs|To be committed before them/i, `${where} anchors an addendum on a local commit again`);
+  }
+  assert.match(releases, /every later change is a dated addendum pushed before the calls it governs, the same anchor as the plan/);
+});
+
+// Round 7 on #101 (P2): production routing that cannot be pinned — a router, or a provider fallback —
+// makes a pinned control unequal to production's request. Out of scope, not reproduced.
+test('production routing that cannot be pinned is out of scope', () => {
+  assert.match(procedureSteps(skill)[3], /Where production's own request leaves its provider to a router or a fallback, the control cannot equal it and be pinned: such a study is out of scope/);
+  assert.match(parity, /\*\*Production routing that cannot be pinned is out of scope\.\*\* Where production's own request leaves the provider to a router, or lets a fallback move it, the control cannot both equal production's request and carry a pin/);
+  assert.match(parity, /This skill does not reproduce the routing to stand in for a pin: such a study is out of scope until production's request pins its provider/);
+  assert.match(checklist, /with the provider pinned in every arm's request and in production's own/);
+  assert.match(releases, /production routing that cannot be pinned is out of scope/);
+});
+
+// Round 7 on #101 (P2): judging only where the arms differ is exact only for item-wise additive
+// metrics. Everything else, invention included, is judged on every item.
+test('the judging shortcut covers item-wise additive metrics only, never invention', () => {
+  assert.match(judging, /on an \*\*item-wise additive\*\* metric: a sum of per-item scores, each a function of that item and that answer alone, over a denominator that is the same for every arm and fixed before any judging\. For such a metric, judging only the items where the arms' answers differ/);
+  assert.match(judging, /\*\*Every other metric is judged on every item\.\*\* A median, a precision, an F1/);
+  assert.match(judging, /comes from the source-only reading, so invention is never scored under the shortcut/);
+  assert.match(judging, /require every difference between arms, on every metric the shortcut is used for, to be identical/);
+  assert.match(procedureSteps(skill)[7], /\*\*Judge only where the arms differ\*\*, if cost forces it, and only on item-wise additive metrics — never invention, whose denominator the judges decide/);
+  assert.match(checklist, /A shortcut covers only item-wise additive metrics, never invention, and has a passing exactness test on a fixture/);
+  assert.match(files, /judge only where arms differ, for item-wise additive metrics only/);
+  assert.match(releases, /a shortcut that judges only where the arms differ covers item-wise additive metrics alone, never invention/);
+});
+
+// Round 7 on #101 (P2): a manifest cannot hold its own checksum. It lists every other file, and the
+// pushed commit that adds it anchors its own bytes.
+test('the manifest does not list itself; the pushed commit that adds it anchors it', () => {
+  const raw = read('references/study-files.md');
+  assert.match(raw, /MANIFEST\.sha256 +a checksum for every other file reproduce\.sh reads; never for itself/);
+  assert.match(files, /The manifest does not list itself: a file cannot hold its own checksum, because writing it in changes the file\. It is anchored the way the plan is, by the commit that adds it and the push that carries it/);
+  assert.match(files, /the commit and push that added the manifest/);
+  const tenth = procedureSteps(skill)[9];
+  assert.match(tenth, /A checksum manifest lists every file it consumes, including files read from other studies, but itself, which its pushed commit anchors/);
+  assert.match(tenth, /the manifest covers every other file the run opened/);
+  assert.match(flat, /a checksum manifest covering every other file it reads/);
+  assert.match(checklist, /The manifest covers every other consumed input/);
+  assert.match(releases, /a checksum manifest, which lists every other file and is anchored by its pushed commit/);
+});
+
+// Codex round 1 on #104 (P1): the gate re-run rule pushed output parity's results WITH the addendum,
+// but output parity is a paid call that addendum governs, so the rule was circular. The offline gates
+// run first and are pushed with it; then output parity runs as the addendum's first paid stage.
+test('an addendum re-runs its offline gates before any call, then output parity as its first paid stage', () => {
+  const raw = read('references/study-files.md');
+  const rule = raw.slice(raw.indexOf('**An addendum that changes a frozen file re-runs every gate that read it.**'), raw.indexOf("Each arm's request parameters are hashed")).replace(/\s+/g, ' ');
+  const offline = rule.indexOf('**The offline gates first, pushed with the addendum.**');
+  const paid = rule.indexOf("**Then output parity, as the addendum's first paid stage.**");
+  assert.ok(offline !== -1 && paid !== -1 && offline < paid, 'the offline gates no longer come before output parity');
+  const pushedWith = rule.slice(offline, paid);
+  assert.doesNotMatch(pushedWith, /output parity/, 'output parity, a paid call, is pushed with the addendum again');
+  assert.match(pushedWith, /Before any call the addendum governs, every offline gate that read the changed file runs again against the new bytes, and its results are pushed with the addendum/);
+  assert.match(rule, /Output parity is a paid call the addendum governs, so it cannot be pushed with it\. Where the addendum changes anything that builds a request, output parity runs again after that push, as the addendum's first paid stage, under the pass rule and the cap of its own that the addendum registers; and its result is pushed before any later call of the study/);
+  assert.match(rule, /A gate that fails, or cannot run again, stops the study, as the plan's own output parity does/);
+  assert.match(raw, /Gates re-run: +<each offline gate that read a changed file, with its result, pushed with this file>/);
+  assert.match(raw, /Output parity: <first paid stage: items, pass rule, cap — or "none: no request changes">/);
+  assert.match(parity, /the addendum and its re-run dry run are pushed first, then output parity runs as the addendum's first paid stage, under the pass rule and cap the addendum registers, and its result is pushed before any later call\. A fail stops the study here too/);
+  assert.match(budget, /or an addendum's output parity, whose cap that addendum registers/);
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /re-runs every gate that read the old bytes: the offline ones before any call it governs, pushed with it; then, if a request changed, output parity as its first paid stage, under a cap and pass rule it registers, pushed before any later call/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it and output parity after it where a request changed/);
+  assert.match(checklist, /its offline gates re-run with it and output parity after it where a request changed/);
+  assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it, then, where it changes a request, output parity run again as its first paid stage under a cap and pass rule it registers/);
+});
+
+// Codex round 2 on #104 (P1): subtracting the study's own settled spend is no lower bound on a shared
+// account, whose lagging balance can miss another key's charges or ones from before the study. The
+// floor counts only on an account that is the study's alone; anywhere else it is unavailable.
+test('the floor counts only on an account that is the study\'s alone; elsewhere it is unavailable and the caps govern', () => {
+  assert.match(budget, /The floor holds only on an account that is the study's alone\./);
+  assert.match(budget, /\*\*Only an account that is the study's alone\.\*\* A balance read can lag, and on a shared account the charges it is missing need not be the study's: another key's, or ones from before the study\. No ledger of the study's can subtract those/);
+  assert.match(budget, /a balance read stale at 120 against a true 100, with a floor of 90, admits a call of 15 and leaves 85/);
+  assert.match(budget, /The floor therefore counts only where the research key is the only key the provider lists on the account and the account carries no charge from before the study/);
+  assert.match(budget, /A time stamped on the balance does not rescue a shared account, because another key can spend after it\. Anywhere else the floor is unavailable, and the guard refuses to start on a plan that claims one/);
+  assert.match(budget, /Where the provider exposes no balance, or the account is not the study's alone, record in the plan that the floor is unavailable\. The study and stage caps then govern alone/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse if the plan has a floor and the account is not the study's alone/);
+  assert.match(guardDoc, /\| Floor on a shared account \| plan a floor on an account that lists a second key, or carries a charge from before the study \| refuses at start-up: the floor is unavailable there \|/);
+  assert.match(procedureSteps(skill)[1], /\*\*A balance floor, read before every admission, that latches\*\*, only on an account that is the study's alone: the research key its only key, no charge from before the study/);
+  assert.match(procedureSteps(skill)[1], /On a shared account, or with no balance endpoint, the plan says the floor is unavailable and the hard caps govern alone/);
+  assert.match(prerequisiteItems(skill).find((item) => /^6\. /.test(item)), /or, with no balance endpoint or on an account not the study's alone, the floor recorded as unavailable/);
+  assert.match(checklist, /On an account that is the study's alone, with a balance endpoint, the account's balance was read before every admission/);
+  assert.match(frontmatterOf(skill), /on a shared account or with no balance endpoint the floor is recorded as unavailable/);
+  assert.match(files, /balance floor <amount>, read before every admission, on an account that is the study's alone \(or "unavailable": no balance endpoint, or a shared account\)/);
+  assert.match(releases, /keeps a balance floor only on an account that is the study's alone/);
+  assert.match(releases, /on a shared account, or where the provider has no balance, it records the floor as unavailable and the hard caps govern alone/);
+});
+
+// Codex round 2 on #104 (P2): the manifest is written after the calls, so "the first paid call after"
+// it does not normally exist. The audit records its commit and push only; call times belong to the
+// preregistration files, which precede the calls.
+test('the audit times the first call after each preregistration file, and records the manifest by commit and push only', () => {
+  const raw = read('references/study-files.md');
+  const audit = raw.slice(raw.indexOf('The audit is written for the next person to doubt the result.')).replace(/\s+/g, ' ');
+  assert.match(audit, /- the commit that added the PLAN, the FREEZE, the dry run and each addendum, the push that carried it, and the time of the first paid call after each/);
+  assert.match(audit, /- the commit and push that added the manifest, with "no later call" in place of a call time: it is written after the calls, so first-call times belong to the files above, which precede them/);
+  const timed = audit.slice(audit.indexOf('- the commit that added the PLAN'), audit.indexOf('- the commit and push that added the manifest'));
+  assert.ok(timed.length > 0, 'the audit no longer separates the preregistration files from the manifest');
+  assert.doesNotMatch(timed, /manifest/, 'the manifest is timed against a later paid call again');
 });
