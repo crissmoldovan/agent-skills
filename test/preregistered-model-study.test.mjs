@@ -772,6 +772,7 @@ test('a correction is complete only when everything it invalidated was redone or
     assert.match(correction, /never backdated, and every call, judge verdict and score it invalidated was redone or excluded before any bar's verdict/, `${where} completes a correction on its label alone`);
   }
   assert.match(files, /none of it counts toward a verdict unless it is produced again under the new bytes, once their gates pass/);
+  assert.match(released('0.30.1'), /A correction found after its calls ran is complete only when every call, judge verdict and score it invalidated was redone or excluded before any bar's verdict/);
 });
 
 // [P1] SKILL.md:249-251: the rule pushes an addendum's output-parity result before any later call,
@@ -784,6 +785,7 @@ test('both completion checks require an addendum\'s output parity pushed before 
     assert.match(text, /where a request changed, its output parity pushed before any later call/, `${where} lets output parity's result wait past later calls`);
     assert.doesNotMatch(text, /output parity after it/, `${where} asks only that output parity ran after the addendum again`);
   }
+  assert.match(released('0.30.1'), /its output parity counts only once its result is pushed before any later call, in step 7's completion and in the checklist alike/);
 });
 
 // [P2] SKILL.md:269-275: the judging completion was global, so a study that registered the shortcut
@@ -801,6 +803,7 @@ test('judging is complete per metric: every item for invention and every metric 
   // The plan names the metrics the shortcut covers, which is what "named for the shortcut" reads.
   assert.match(files, /judge only where arms differ, for item-wise additive metrics only \(<which>; exactness test: <fixture>\)/);
   assert.match(judging, /\*\*Every other metric is judged on every item\.\*\*/);
+  assert.match(released('0.30.1'), /judging is complete per metric: every item for invention and for every metric the plan did not name for the shortcut, and only the items where the arms differ for each item-wise additive metric it named/);
 });
 
 // Codex round 2 on #106 (at b0d5c5a), two P2s on how this file chose its release prose. It read all of
