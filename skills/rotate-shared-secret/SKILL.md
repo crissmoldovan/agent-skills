@@ -121,21 +121,29 @@ every one. Short of that, a step that needs it waits, and a retirement already d
    **Complete when:** the live domain serves the new deployment, and both the current key and the
    next key are accepted on every receiver instance, not only on the one that answered a probe.
 
-4. **Move every sender to read the key from a secret store, then verify its delivery.** One sender
-   at a time: put the next key into its store from the file, change the sender to read it from the
-   store instead of wherever it held the old one, deploy, and watch a real delivery arrive and log
-   the `next` slot at the receiver. That delivery shows one instance moved; a quiet instance still
-   on the old value fails only once the old key is retired, so every instance of the sender is
-   shown reading the store, by the every-instance rule. A key written as a literal in a
-   definition — a trigger, a job, a configuration file — is readable by anyone who can read that
-   definition, and changing it means redefining code; reading it from a store fixes both. Remove
-   the literal and any fallback to it. While the sender is being changed anyway, have it send a
-   unique delivery id on every request and record it, so that step 5 can match requests one to one.
-   A store written with SQL takes the key through its own interface or by hand, never through SQL
-   ([deploy and probe](references/deploy-and-probe.md)).
-   **Complete when:** every sender on the map has delivered at least one request that the receiver
-   logged as matching `next`, every instance of every sender is shown reading the store, and no
-   sender still holds the old value anywhere.
+4. **Move every sender to read the key from a secret store, then verify its delivery.** First, keep
+   a private copy of the old key for step 8, before any sender drops it: a receiver store that
+   cannot be read back leaves the senders' copies as the only readable ones, and this step removes
+   them. Save it into a 0600 file from a copy that can still be read, never printed, in the store's
+   raw form where it has one, under a `umask 077` set again, since a new shell has lost step 2's. A
+   command that adds a newline or wraps the value in metadata writes a different key, and a probe
+   with it is refused for the wrong reason. So prove the copy: while the old key is still `CURRENT`,
+   before step 5's window opens, probe with it exactly as step 8 will — header or signature — and
+   see it accepted. Then, one sender at a time: put the next key into its store from the file,
+   change the sender to read it from the store instead of wherever it held the old one, deploy, and
+   watch a real delivery arrive and log the `next` slot at the receiver. That delivery shows one
+   instance moved; a quiet instance still on the old value fails only once the old key is retired,
+   so every instance of the sender is shown reading the store, by the every-instance rule. A key
+   written as a literal in a definition — a trigger, a job, a configuration file — is readable by
+   anyone who can read that definition, and changing it means redefining code; reading it from a
+   store fixes both. Remove the literal and any fallback to it. While the sender is being changed
+   anyway, have it send a unique delivery id on every request and record it, so that step 5 can
+   match requests one to one. A store written with SQL takes the key through its own interface or
+   by hand, never through SQL ([deploy and probe](references/deploy-and-probe.md)).
+   **Complete when:** the old key is in a 0600 file that the receiver accepted before any sender
+   dropped it, or the record says why no such copy could be had; every sender on the map has
+   delivered at least one request that the receiver logged as matching `next`; every instance of
+   every sender is shown reading the store, and no sender still holds the old value anywhere.
 
 5. **Prove no other caller exists before retiring the old key.** Pick a fixed window that starts
    after the last sender moved and is longer than the slowest sender's cycle. Count the receiver's
@@ -157,18 +165,14 @@ every one. Short of that, a step that needs it waits, and a retirement already d
    with what they found; and the caveats are written beside the result.
 
 6. **Promote `NEXT` to `CURRENT`, and remove `NEXT` only once the new `CURRENT` holds everywhere.**
-   First keep a private copy of the old key for step 8: read it from its store into a 0600 file,
-   never printed, in the store's raw form where it has one. A command that adds a newline or wraps
-   the value in metadata writes a different key, and a probe with it is refused for the wrong
-   reason. So prove the copy: with the window closed and the old key still `CURRENT`, probe with it
-   exactly as step 8 will — header or signature — and see it accepted. Then set `CURRENT` from the
-   next key's file, on standard input, leaving `NEXT` in place, and redeploy as in step 7. An
-   instance the change reached logs the new key as `current`; one it missed still accepts it as
-   `next`, so no sender fails meanwhile. Delete `NEXT` only when every receiver instance logs the
-   new key as `current`, by the every-instance rule.
+   With the old key's copy kept from step 4, set `CURRENT` from the next key's file, on standard
+   input, leaving `NEXT` in place, and redeploy as in step 7. An instance the change reached logs
+   the new key as `current`; one it missed still accepts it as `next`, so no sender fails
+   meanwhile. Delete `NEXT` only when every receiver instance logs the new key as `current`, by the
+   every-instance rule.
    **Complete when:** every receiver instance matched the new key as `current` while `NEXT` was
-   still set, `NEXT` was deleted after that, and the old key is in a 0600 file that the receiver
-   accepted before the promotion, or the record says why no such copy could be had.
+   still set, `NEXT` was deleted after that, and the old key's copy from step 4 is still in its
+   0600 file, or the record says why there is none.
 
 7. **Redeploy, and verify that the live domain moved.** A production redeploy can leave a custom
    domain pointing at the previous build, and until it moves, the old key still works there. Read
@@ -180,10 +184,15 @@ every one. Short of that, a step that needs it waits, and a retirement already d
    Send the harmless probe four times. How a key is presented depends on the receiver:
    - **A bearer key** travels in a header, read from a header file rather than written on the
      command line.
-   - **A signing key never travels.** Sign the probe's fixed body with each key file — the new
-     key, the old key, a wrong key — reading the key inside the program, and send only the
-     signature, in the receiver's own header and scheme. The fourth probe sends no signature. The
+   - **A signing key never travels.** Sign a fresh probe body with each key file — the new key,
+     the old key, a wrong key — reading the key inside the program, and send only the signature,
+     in the receiver's own header and scheme. Fresh means a new timestamp and nonce every time: a
+     receiver that refuses replays refuses a body it has seen whatever key signed it, and that
+     refusal reads as a retirement that took. The fourth probe sends no signature. The
      `x-shared-key` header in the examples is for bearer keys only.
+
+   The example's `probe` sends either kind, by `KIND`, and sends nothing when it cannot build the
+   request. Define it again in a new shell, which also sets `umask 077` again.
 
    The old-key probe is not optional. A stale replica, a region or instance the redeploy has not
    reached, or a promotion that landed on part of the fleet still accepts the old key, and nothing
@@ -200,10 +209,10 @@ every one. Short of that, a step that needs it waits, and a retirement already d
    covered by the every-instance rule's other evidence — or the retirement recorded as UNVERIFIED
    with the reason.
 
-9. **Delete every local copy, and record what happened.** Remove the next and old key files, the
-   header files and any copy made for comparison, and confirm they are gone. Write the record: the
-   dates, the window, the counts, the search, the deployment ids, the probes and the caveats. No key
-   value and no hash.
+9. **Delete every local copy, and record what happened.** Remove the next, old and wrong key files,
+   the probe's header and body files and any copy made for comparison, and confirm they are gone.
+   Write the record: the dates, the window, the counts, the search, the deployment ids, the probes
+   and the caveats. No key value and no hash.
    **Complete when:** no copy of the key exists outside the secret stores, and the record is
    written.
 
@@ -248,30 +257,51 @@ fi
 cmp -s "$SCRATCH/next.key" "$SCRATCH/next.copy"
 case $? in 0) echo same ;; 1) echo DIFFERENT; false ;; *) echo "READ ERROR"; false ;; esac
 
-# Before promoting, with the window closed: keep a private copy of the old key, read from its store
-# in its raw form, and prove the copy. The old key is still CURRENT, so this probe must pass; if it
-# is refused, the copy is not the key, and the old-key probe after the promotion is UNVERIFIED.
-<platform-cli> secrets get SHARED_KEY > "${SCRATCH:?}/old.key"
-{ printf 'x-shared-key: '; cat "$SCRATCH/old.key"; echo; } > "${SCRATCH:?}/old.hdr"
-curl -s -o /dev/null -w 'old key, before promotion (must pass): %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
+# Step 4, before any sender drops the old key: a store that cannot be read back leaves the senders'
+# copies as the only readable ones. A new shell has lost step 2's umask, so set it again. Save the
+# old key raw, never printed: a new 0600 copy, or a failure that keeps any copy saved earlier.
+umask 077
+rm -f "${SCRATCH:?}/old.key.tmp"
+if <platform-cli> secrets get SHARED_KEY > "${SCRATCH:?}/old.key.tmp" && [ -s "$SCRATCH/old.key.tmp" ] \
+  && mv "${SCRATCH:?}/old.key.tmp" "$SCRATCH/old.key"; then
+  ls -l "$SCRATCH/old.key"
+else
+  rm -f "${SCRATCH:?}/old.key.tmp"; echo "OLD KEY NOT SAVED: no new copy was written"; false
+fi
 
-# Probe the live domain with the new key, the old key, a wrong key and no key. Keys travel in header files.
-{ printf 'x-shared-key: '; cat "$SCRATCH/next.key"; echo; } > "${SCRATCH:?}/probe.hdr"
-curl -s -o /dev/null -w 'new key: %{http_code}\n' -H @"$SCRATCH/probe.hdr" -X POST "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'old key: %{http_code}\n' -H @"$SCRATCH/old.hdr" -X POST "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'wrong key: %{http_code}\n' -H 'x-shared-key: wrong' -X POST "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'no key: %{http_code}\n' -X POST "https://<receiver>/<probe-path>"
-
-# A signing key never travels: sign the fixed probe body with each key file, reading the key inside
-# the program, and send only the signature, in the receiver's own header and scheme.
+# The probes: define them again in every new shell. KIND is bearer or signing, with no default. A
+# bearer key travels in a header file; a signing key never travels, and only its signature is sent,
+# in the receiver's own header and scheme. Every probe gets a fresh body, a new timestamp and nonce
+# (adapt body to your receiver, keeping both wherever its scheme signs them), so a receiver that
+# refuses replays refuses a key, never a repeat. A probe that cannot build its request sends nothing.
+umask 077
+printf '%064d' 0 > "${SCRATCH:?}/wrong.key"   # a wrong key of the right length
 sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
-{ printf '<signature-header>: sha256='; sign "$SCRATCH/next.key" "$SCRATCH/probe.json"; echo; } > "${SCRATCH:?}/sig-new.hdr"
-{ printf '<signature-header>: sha256='; sign "$SCRATCH/old.key" "$SCRATCH/probe.json"; echo; } > "${SCRATCH:?}/sig-old.hdr"
-curl -s -o /dev/null -w 'signed, new key: %{http_code}\n' -H @"$SCRATCH/sig-new.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
-curl -s -o /dev/null -w 'signed, old key: %{http_code}\n' -H @"$SCRATCH/sig-old.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
+body() { local n; n=$(openssl rand -hex 16) && [ "${#n}" -eq 32 ] && printf '{"probe":true,"timestamp":%s,"nonce":"%s"}' "$(date +%s)" "$n" > "${SCRATCH:?}/probe.json"; }
+probe() {  # probe <label> <key file, or none>
+  rm -f "${SCRATCH:?}/probe.hdr" "$SCRATCH/probe.json"
+  case "$KIND:$2" in
+    bearer:none | signing:none) body && : > "${SCRATCH:?}/probe.hdr" ;;
+    bearer:*) body && { printf 'x-shared-key: '; cat "$2" && echo; } > "${SCRATCH:?}/probe.hdr" ;;
+    signing:*) body && { printf '<signature-header>: sha256='; sign "$2" "$SCRATCH/probe.json" && echo; } > "${SCRATCH:?}/probe.hdr" ;;
+    *) false ;;
+  esac || { echo "$1: NOTHING SENT: KIND is unset, or the body, the key or the signature failed"; return 1; }
+  curl -s -o /dev/null -w "$1: %{http_code}\n" -H @"$SCRATCH/probe.hdr" --data-binary @"$SCRATCH/probe.json" "https://<receiver>/<probe-path>"
+}
+
+# Step 4, the old key still CURRENT and step 5's window not yet open: prove the copy. It must pass;
+# refused, the copy is not the key, and step 8's old-key probe is UNVERIFIED.
+probe 'old key, before the senders move (must pass)' "$SCRATCH/old.key"
+
+# Step 8, the live domain on the promoted build: the new key passes; the old key, a wrong key and
+# no key are refused.
+probe 'new key' "$SCRATCH/next.key"
+probe 'old key' "$SCRATCH/old.key"
+probe 'wrong key' "$SCRATCH/wrong.key"
+probe 'no key' none
 
 # Remove every local copy, and check that none is left.
-rm -f "${SCRATCH:?}/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/probe.hdr" "$SCRATCH/old.hdr" "$SCRATCH/sig-new.hdr" "$SCRATCH/sig-old.hdr"
+rm -f "${SCRATCH:?}/next.key" "$SCRATCH/next.copy" "$SCRATCH/old.key" "$SCRATCH/wrong.key" "$SCRATCH/probe.hdr" "$SCRATCH/probe.json"
 ls -A "$SCRATCH"
 ```
 
@@ -324,6 +354,15 @@ the record says what the match cannot rule out.
   keeps it and another that trims it, gives the sender and the receiver different keys. Every
   delivery fails, and both sides look correctly configured. The same newline on the exported old
   key makes the old-key probe fail for the wrong reason, which reads as a retirement that took.
+- **A key file written in a new shell.** `umask 077` lasts as long as the shell that set it, and a
+  redirect into an existing file keeps that file's mode. A step run days later in a new terminal
+  writes the old key's copy and the header files 0644. Every block that writes a key sets the
+  umask itself and starts from no file.
+- **The old key's last readable copy removed.** With a store that cannot be read back, the
+  senders' copies are the only readable ones, and moving the senders removes them. Save and prove
+  the old key before the first sender moves, or the old-key probe has nothing to send.
+- **A signed probe sent twice.** A receiver that refuses replays refuses a body it has seen,
+  whatever key signed it. Every signed probe gets a new timestamp and nonce.
 - **A redeploy that did not move the domain.** The deploy succeeds, the probes pass, and they pass
   against the previous build, which still accepts the old key. Read the deployment behind the live
   domain every time.
@@ -356,7 +395,8 @@ the record says what the match cannot rule out.
 - [ ] For a bearer key, every layer on the request path was shown, before the first probe, not to
       record its header.
 - [ ] The next key was generated into a 0600 file in a private `SCRATCH`, with no trailing newline,
-      and no output contained the key or its hash.
+      and no output contained the key or its hash; every file holding a key was created 0600, under
+      a `umask 077` set in the same shell.
 - [ ] Every value reached every store on standard input or from a file, through the store's own
       interface or by hand: never as an argument, a tool parameter or through SQL.
 - [ ] After each redeploy, the live domain's deployment id was read and matched the new deployment.
@@ -371,12 +411,13 @@ the record says what the match cannot rule out.
       as aggregate evidence — with paging where the tools capped entries.
 - [ ] The search for other senders is recorded with its terms, its places and its result.
 - [ ] Log retention and the lack of caller identity, where it applies, are stated as caveats.
-- [ ] The old key's copy was accepted before the promotion; every receiver instance matched the
-      new key as `current` while `NEXT` was still set, and only then was `NEXT` removed.
+- [ ] The old key's copy was saved and accepted before any sender dropped the old key; every
+      receiver instance matched the new key as `current` while `NEXT` was still set, and only then
+      was `NEXT` removed.
 - [ ] For every backend — each probed directly, or all covered by deployment evidence or by probes
       shown to reach each one — the new key was accepted, and the old key, a wrong key and no key
-      were refused; a signing key was probed by signature and never sent; otherwise the retirement
-      is recorded as UNVERIFIED, with the reason.
+      were refused; a signing key was probed by signature and never sent, each probe with a fresh
+      body; otherwise the retirement is recorded as UNVERIFIED, with the reason.
 - [ ] Every local copy of the key was deleted, and the record holds no key value and no hash.
 
 ## Deeper reading

@@ -60,11 +60,14 @@ test('the key is never printed, never an argument, and copies are compared witho
   assert.match(bash, /^umask 077$/m);
   assert.match(bash, /openssl rand -hex 32 \| tr -d '\\n' > /);
   assert.match(bash, /^cmp -s "\$SCRATCH\/next\.key" "\$SCRATCH\/next\.copy"$/m);
-  // Every read of the key file goes into a file, never to the terminal or onto a command line.
-  for (const line of bash.split('\n').filter((text) => /cat "\$SCRATCH\/(?:next|old)\.key"/.test(text))) {
-    assert.match(line, /^\{ printf '[^']*'; cat "\$SCRATCH\/(?:next|old)\.key"; echo; \} > /, `the key reaches the terminal or a command line: ${line}`);
+  // Every read of a key file goes into a header file under ${SCRATCH:?}, never to the terminal or
+  // onto a command line. Since the follow-ups to #99 the one read is inside probe().
+  const keyReads = bash.split('\n').filter((text) => /\bcat "/.test(text));
+  assert.ok(keyReads.length > 0, 'the example reads no key file into a header file');
+  for (const line of keyReads) {
+    assert.match(line, /\{ printf '[^']*'; cat "[^"]+" && echo; \} > "\$\{SCRATCH:\?\}\//, `the key reaches the terminal or a command line: ${line}`);
   }
-  assert.doesNotMatch(bash, /\$\(cat [^)]*(?:next|old)\.key\)/, 'a key is substituted onto a command line');
+  assert.doesNotMatch(bash, /\$\(cat /, 'a key is substituted onto a command line');
   assert.doesNotMatch(bash, /shasum[^|\n]*next\.key\s*$/m, 'a hash of the key is printed');
   assert.match(probe, /Moving the value: standard input or a file, never an argument/);
   assert.match(probe, /## The newline trap/);
@@ -128,7 +131,7 @@ test('every redeploy is checked against the live domain, and the probes cover th
   assert.match(steps[6], /A production redeploy can leave a custom domain pointing at the previous build/);
   assert.match(steps[6], /the live domain's deployment id is the new deployment's, read after the redeploy/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  for (const label of ['new key', 'old key', 'wrong key', 'no key']) assert.ok(bash.includes(`-w '${label}: %{http_code}\\n'`), `no ${label} probe`);
+  for (const label of ['new key', 'old key', 'wrong key', 'no key']) assert.ok(bash.split('\n').some((line) => line.startsWith(`probe '${label}' `)), `no ${label} probe`);
   assert.match(bash, /-H @"\$SCRATCH\/probe\.hdr"/, 'the probe key is not read from a header file');
   assert.match(probe, /Probe only after the live domain is confirmed to be on the new deployment/);
 });
@@ -142,13 +145,14 @@ test('the old key is probed wherever it safely can be, and otherwise the retirem
   assert.match(steps[7], /probe each of them/);
   assert.match(steps[7], /the retirement is \*\*UNVERIFIED\*\* too, with the reason\. The record never says the old key is refused on less than that/);
   assert.match(steps[7], /the new key accepted and the old key, the wrong key and the missing key refused, each with its status code, for every backend/);
-  assert.match(steps[5], /keep a private copy of the old key for step 8/);
+  // Since the follow-ups to #99 the copy is kept in step 4, before any sender drops the old key.
+  assert.match(steps[3], /keep a private copy of the old key for step 8/);
   assert.doesNotMatch(steps[5], /From this deploy on, the old key is refused\./, 'step 6 claims the refusal that only step 8 can show');
   assert.doesNotMatch(skill, /if you still hold it/i, 'the old-key probe is optional again');
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  assert.match(bash, /-w 'old key: %\{http_code\}\\n' -H @"\$SCRATCH\/old\.hdr"/);
-  assert.match(bash, /^rm -f [^\n]*"\$SCRATCH\/old\.key"[^\n]*"\$SCRATCH\/old\.hdr"/m);
-  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /the new key was accepted, and the old key, a wrong key and no key were refused; a signing key was probed by signature and never sent; otherwise the retirement is recorded as UNVERIFIED/);
+  assert.match(bash, /^probe 'old key' "\$SCRATCH\/old\.key"$/m);
+  assert.match(bash, /^rm -f [^\n]*"\$SCRATCH\/old\.key"[^\n]*"\$SCRATCH\/wrong\.key"[^\n]*"\$SCRATCH\/probe\.hdr"/m);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /the new key was accepted, and the old key, a wrong key and no key were refused; a signing key was probed by signature and never sent, each probe with a fresh body; otherwise the retirement is recorded as UNVERIFIED/);
   const flatProbe = probe.replace(/\s+/g, ' ');
   assert.match(flatProbe, /So it is mandatory wherever it can be done safely/);
   assert.match(flatProbe, /the retirement is \*\*UNVERIFIED\*\*/);
@@ -187,7 +191,7 @@ test('a signing key is probed by signature, never sent: sign() reads the key fro
   assert.equal(run.status, 0, run.stderr);
   assert.equal(run.stdout, createHmac('sha256', key).update('{"probe":true}').digest('hex'));
   assert.doesNotMatch(line, /\$\(cat|-hmac|-macopt/, 'the key reaches a command line');
-  assert.match(exampleBash, /-H @"\$SCRATCH\/sig-old\.hdr" --data-binary @"\$SCRATCH\/probe\.json"/);
+  assert.match(exampleBash, /-H @"\$SCRATCH\/probe\.hdr" --data-binary @"\$SCRATCH\/probe\.json"/);
   const eighth = procedureSteps(skill)[7];
   assert.match(eighth, /\*\*A signing key never travels\.\*\*/);
   assert.match(eighth, /The `x-shared-key` header in the examples is for bearer keys only/);
@@ -255,7 +259,10 @@ test('key generation is atomic and length-checked: a failed generator leaves no 
       assert.match(bad.out, /GENERATION FAILED: no key was written/);
     }
   }
-  assert.match(probe, /rm -f [^\n]*"\$SCRATCH\/sig-new\.hdr" "\$SCRATCH\/sig-old\.hdr"/, 'the reference cleanup leaves the signature header files');
+  // The reference's cleanup removes the same files as the skill's, the probe files included.
+  const cleanup = (text) => text.split('\n').find((line) => line.startsWith('rm -f "${SCRATCH:?}/next.key"'));
+  assert.match(cleanup(fenced(probe, 'bash').join('\n')) ?? '', /"\$SCRATCH\/wrong\.key" "\$SCRATCH\/probe\.hdr" "\$SCRATCH\/probe\.json"$/, 'the reference cleanup leaves the wrong key or the probe files');
+  assert.equal(cleanup(fenced(probe, 'bash').join('\n')), cleanup(exampleBash), 'the reference and the skill clean up different files');
 });
 
 
@@ -286,23 +293,24 @@ test('a sender has moved only when every instance of it is shown reading the sto
 });
 
 // [P1] A copy of the old key with a stray newline or metadata is refused for the wrong reason, and
-// the refusal reads as a retirement that took. The copy is proven by being accepted first.
-test('the old key copy is accepted before the promotion, or the old-key probe proves nothing', () => {
-  const sixth = procedureSteps(skill)[5];
-  assert.match(sixth, /in the store's raw form where it has one/);
-  assert.match(sixth, /prove the copy: with the window closed and the old key still `CURRENT`, probe with it exactly as step 8 will — header or signature — and see it accepted/);
-  assert.match(sixth, /the old key is in a 0600 file that the receiver accepted before the promotion, or the record says why no such copy could be had/);
+// the refusal reads as a retirement that took. The copy is proven by being accepted first. Since the
+// follow-ups to #99 that happens in step 4, before any sender drops the old key (see below).
+test('the old key copy is accepted before the senders move, or the old-key probe proves nothing', () => {
+  const fourth = procedureSteps(skill)[3];
+  assert.match(fourth, /in the store's raw form where it has one/);
+  assert.match(fourth, /So prove the copy: while the old key is still `CURRENT`, before step 5's window opens, probe with it exactly as step 8 will — header or signature — and see it accepted/);
+  assert.match(fourth, /the old key is in a 0600 file that the receiver accepted before any sender dropped it, or the record says why no such copy could be had/);
   assert.match(procedureSteps(skill)[7], /no copy of it was accepted before the promotion/);
   const lines = exampleBash.split('\n');
-  const exported = lines.findIndex((line) => line.endsWith('> "${SCRATCH:?}/old.key"'));
-  const control = lines.findIndex((line) => line.includes("-w 'old key, before promotion (must pass): %{http_code}\\n' -H @\"$SCRATCH/old.hdr\""));
-  const after = lines.findIndex((line) => line.includes("-w 'old key: %{http_code}\\n'"));
+  const exported = lines.findIndex((line) => line.includes('secrets get SHARED_KEY > "${SCRATCH:?}/old.key.tmp"'));
+  const control = lines.indexOf(`probe 'old key, before the senders move (must pass)' "$SCRATCH/old.key"`);
+  const after = lines.indexOf(`probe 'old key' "$SCRATCH/old.key"`);
   assert.ok(exported >= 0, 'the example no longer exports the old key');
   assert.ok(control > exported, 'the example does not probe with the old key copy after exporting it');
   assert.ok(after > control, 'the copy is not proven before the old-key probe');
   const flatProbe = probe.replace(/\s+/g, ' ');
   assert.match(flatProbe, /A refusal means something only if the same probe was accepted before/);
-  assert.match(flatProbe, /no copy of the old key could be read from its store and accepted before the promotion/);
+  assert.match(flatProbe, /no copy of the old key could be saved and accepted before the senders dropped it/);
 });
 
 // The reference's id comparison: the indented bash block in its "One to one" item, de-indented.
@@ -371,7 +379,8 @@ test('a bearer key is probed only once no layer on the request path records its 
   assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /For a bearer key, every layer on the request path was shown, before the first probe, not to record its header/);
   const flatProbe = probe.replace(/\s+/g, ' ');
   assert.match(flatProbe, /So before the first probe, each layer on the path is shown not to record that header, or to redact it\. If that cannot be shown, the rotation stops there/);
-  assert.ok(flatProbe.indexOf('If that cannot be shown, the rotation stops there') < flatProbe.indexOf("{ printf 'x-shared-key: '"), 'the precondition comes after the first bearer probe');
+  const firstProbe = flatProbe.indexOf("probe '");
+  assert.ok(firstProbe > 0 && flatProbe.indexOf('If that cannot be shown, the rotation stops there') < firstProbe, 'the precondition comes after the first bearer probe');
 });
 
 // [P1] The id comparison fails closed: no usable input is no evidence, never a match.
@@ -474,6 +483,13 @@ test('copies are compared byte for byte: same, DIFFERENT or READ ERROR, and a tr
 // Follow-ups to #99, from Codex's final round at fde8f7d: one P1 and three P2s. Each is fixed by
 // class and fails closed, and each test below runs the skill's own shell where there is shell to run.
 
+// The example's blank-line-separated section holding a line that matches `pattern`; exactly one.
+function exampleSection(pattern) {
+  const found = exampleBash.split(/\n\n+/).filter((text) => text.split('\n').some((line) => pattern.test(line)));
+  assert.equal(found.length, 1, `expected one example section matching ${pattern}, found ${found.length}`);
+  return found[0];
+}
+
 // [P1] A blank, whitespace-only or placeholder row passed the non-empty check, so two extractions
 // that failed the same way (every row `null`, say) printed a match. Any such row is no evidence.
 test('the id comparison refuses blank, whitespace and placeholder rows: no evidence, never a match', async () => {
@@ -505,4 +521,201 @@ test('the id comparison refuses blank, whitespace and placeholder rows: no evide
   assert.match(reconcile, /So is any row that is not an id — blank, holding whitespace, or a placeholder such as `null`, `-` or `\\N`/);
   assert.match(procedureSteps(skill)[4], /every row is an id: a blank row or a placeholder such as `null` is no evidence/);
   assert.ok(read('references/proving-no-other-caller.md').includes('| A blank row, or a placeholder such as `null` or `-`, among the ids |'), 'no table row for a placeholder id');
+});
+
+// [P2] With a receiver store that cannot be read back, step 4 removed the senders' copies, the only
+// readable ones, before step 6 saved the old key. It is now saved and proven before any sender drops it.
+test('the old key is saved and proven before any sender drops it, not at the promotion', () => {
+  const fourth = procedureSteps(skill)[3];
+  assert.match(fourth, /First, keep a private copy of the old key for step 8, before any sender drops it: a receiver store that cannot be read back leaves the senders' copies as the only readable ones, and this step removes them/);
+  const saved = fourth.indexOf('keep a private copy of the old key');
+  const moved = fourth.indexOf('Then, one sender at a time');
+  const removed = fourth.indexOf('Remove the literal and any fallback to it');
+  assert.ok(saved >= 0 && moved > saved && removed > moved, 'step 4 saves the old key after a sender may have dropped it');
+  const sixth = procedureSteps(skill)[5];
+  assert.match(sixth, /With the old key's copy kept from step 4, set `CURRENT`/);
+  assert.doesNotMatch(sixth, /read it from its store|keep a private copy/, 'step 6 reads the old key again, after the senders dropped it');
+  assert.match(sixth, /the old key's copy from step 4 is still in its 0600 file, or the record says why there is none/);
+  // The example saves it in a section marked step 4, and proves it there, before step 8's probes.
+  const save = exampleSection(/secrets get SHARED_KEY/);
+  assert.match(save, /^# Step 4, before any sender drops the old key/);
+  const proof = exampleSection(/^probe 'old key, before the senders move \(must pass\)'/);
+  assert.match(proof, /^# Step 4, the old key still CURRENT and step 5's window not yet open/);
+  const after = exampleSection(/^probe 'new key'/);
+  assert.ok(exampleBash.indexOf(save) < exampleBash.indexOf(proof) && exampleBash.indexOf(proof) < exampleBash.indexOf(after), 'the example saves or proves the old key after step 8');
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /prove the copy before any sender drops the old key \(step 4\)/);
+  assert.match(flatProbe, /a store that cannot be read back — many platforms keep secrets write-only — leaves the senders' copies as the only readable ones, and moving the senders removes them/);
+  assert.doesNotMatch(flatProbe, /prove the copy before the promotion/, 'the reference saves the old key at the promotion again');
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /The old key's copy was saved and accepted before any sender dropped the old key/);
+  assert.match(skill, /- \*\*The old key's last readable copy removed\.\*\*/);
+});
+
+const NEXT_KEY = 'a-next-key-made-up-for-the-test';
+const OLD_KEY = 'an-old-key-made-up-for-the-test';
+// Runs the example's probe helpers and then `calls`, from a shell whose umask is 022, with curl
+// stubbed to record each request it is asked to send: its label, the header file's text and mode,
+// the body, and its arguments. `kind` undefined leaves KIND unset; `stubs` is shell run first.
+async function runProbes({ kind, calls, stale = false, stubs = '', keys = { 'next.key': NEXT_KEY, 'old.key': OLD_KEY } }) {
+  const dir = await tempDir('rotate-probe-');
+  const scratch = join(dir, 'scratch');
+  const log = join(dir, 'log');
+  mkdirSync(scratch, { mode: 0o700 });
+  mkdirSync(log);
+  for (const [name, value] of Object.entries(keys)) writeFileSync(join(scratch, name), value, { mode: 0o600 });
+  if (stale) {
+    writeFileSync(join(scratch, 'probe.hdr'), 'a stale header file');
+    chmodSync(join(scratch, 'probe.hdr'), 0o644);
+  }
+  const curl = [
+    'curl() {',
+    '  local w h d; SENT=$(( ${SENT:-0} + 1 )); printf "%s\\n" "$@" > "$LOG/$SENT.argv"',
+    '  while [ $# -gt 0 ]; do case "$1" in -w) w=$2; shift 2 ;; -H) h=${2#@}; shift 2 ;; --data-binary) d=${2#@}; shift 2 ;; *) shift ;; esac; done',
+    '  printf "%s" "${w%%: %*}" > "$LOG/$SENT.label"; cp "$h" "$LOG/$SENT.hdr"; ls -l "$h" | cut -c1-10 > "$LOG/$SENT.mode"; cp "$d" "$LOG/$SENT.body"',
+    '  echo "${w%%: %*}: 200"',
+    '}',
+  ].join('\n');
+  const helpers = exampleSection(/^probe\(\) \{/);
+  const script = ['umask 022', curl, stubs, `SCRATCH=${JSON.stringify(scratch)}`, `LOG=${JSON.stringify(log)}`, kind === undefined ? 'unset KIND' : `KIND=${kind}`, helpers, ...calls].join('\n');
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const sent = [];
+  for (let n = 1; existsSync(join(log, `${n}.argv`)); n += 1) {
+    const at = (ext) => readFileSync(join(log, `${n}.${ext}`), 'utf8');
+    sent.push({ label: at('label'), header: at('hdr'), mode: at('mode').trim(), body: at('body'), argv: at('argv') });
+  }
+  return { status: result.status, out: result.stdout + result.stderr, sent, scratch };
+}
+
+// [P2] umask 077 lasts only as long as the shell that set it, so the old key's copy, saved later in
+// a new shell, was written 0644. Every block that writes a key sets the umask itself and starts from
+// no file; each is run here from a shell whose umask is 022, over stale 0644 files.
+test('every block that writes a key sets umask 077 itself: from a new shell, each key file is 0600', async () => {
+  // The class: in every example section and reference block that writes under SCRATCH, umask 077
+  // comes before the first write.
+  const blocks = [
+    ...exampleBash.split(/\n\n+/),
+    ...['references/deploy-and-probe.md', 'references/proving-no-other-caller.md', 'references/dual-key-receiver.md'].flatMap((file) => fenced(read(file), 'bash')),
+  ];
+  let writers = 0;
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const write = lines.findIndex((line) => /> "\$\{?SCRATCH/.test(line));
+    if (write < 0) continue;
+    writers += 1;
+    const umask = lines.indexOf('umask 077');
+    assert.ok(umask >= 0 && umask < write, `a block writes under SCRATCH before setting umask 077:\n${block}`);
+  }
+  assert.ok(writers >= 3, `expected the generation, old-key and probe blocks to write under SCRATCH, found ${writers}`);
+
+  // The old key's copy: a new 0600 file over a stale 0644 one, or a failure that keeps a good copy.
+  const save = exampleSection(/secrets get SHARED_KEY/).replace('<platform-cli>', 'platform_cli');
+  const saveIn = async ({ cli, before = {} }) => {
+    const scratch = await tempDir('rotate-old-');
+    for (const [name, [value, mode]] of Object.entries(before)) {
+      writeFileSync(join(scratch, name), value);
+      chmodSync(join(scratch, name), mode);
+    }
+    const run = spawnSync('bash', ['-c', `umask 022\n${cli}\nSCRATCH=${JSON.stringify(scratch)}\n${save}`], { encoding: 'utf8' });
+    const key = join(scratch, 'old.key');
+    const made = existsSync(key);
+    return { status: run.status, out: run.stdout + run.stderr, made, value: made ? readFileSync(key, 'utf8') : null, mode: made ? statSync(key).mode & 0o777 : null, tmpLeft: existsSync(join(scratch, 'old.key.tmp')) };
+  };
+  const reads = `platform_cli() { printf '%s' ${JSON.stringify(OLD_KEY)}; }`;
+  for (const [why, before] of [
+    ['there is no copy yet', {}],
+    ['a stale 0644 copy is there', { 'old.key': ['a-stale-copy', 0o644] }],
+    ['a stale 0644 temporary file is there', { 'old.key.tmp': ['a-stale-temporary-file', 0o644] }],
+  ]) {
+    const result = await saveIn({ cli: reads, before });
+    assert.equal(result.status, 0, `${why}: ${result.out}`);
+    assert.equal(result.value, OLD_KEY, `${why}: the copy is not the store's value`);
+    assert.equal(result.mode, 0o600, `${why}: old.key is not 0600 when saved from a shell whose umask is 022`);
+    assert.ok(!result.out.includes(OLD_KEY), `${why}: the old key was printed`);
+    assert.equal(result.tmpLeft, false, `${why}: a temporary file was left`);
+  }
+  for (const [why, cli] of [
+    ['the store read fails', 'platform_cli() { return 1; }'],
+    ['the store read prints nothing', 'platform_cli() { :; }'],
+    ['the store read writes part and then fails', "platform_cli() { printf 'part'; return 1; }"],
+  ]) {
+    const fresh = await saveIn({ cli });
+    assert.equal(fresh.made, false, `${why}: an old.key was left`);
+    assert.notEqual(fresh.status, 0, `${why}: the block reported success`);
+    assert.match(fresh.out, /OLD KEY NOT SAVED/);
+    assert.equal(fresh.tmpLeft, false, `${why}: a temporary file was left`);
+    const kept = await saveIn({ cli, before: { 'old.key': [OLD_KEY, 0o600] } });
+    assert.equal(kept.value, OLD_KEY, `${why}: a copy saved earlier was lost`);
+    assert.notEqual(kept.status, 0, `${why}: the block reported success over a copy saved earlier`);
+  }
+
+  // The probes' header file: 0600 from a shell whose umask is 022, over a stale 0644 one.
+  for (const kind of ['bearer', 'signing']) {
+    const run = await runProbes({ kind, calls: [`probe 'new key' "$SCRATCH/next.key"`], stale: true });
+    assert.deepEqual(run.sent.map((request) => request.mode), ['-rw-------'], `${kind}: the header file was not 0600 when curl read it: ${run.out}`);
+  }
+  assert.match(procedureSteps(skill)[3], /under a `umask 077` set again, since a new shell has lost step 2's/);
+  assert.match(section(skill, 'Verification').replace(/\s+/g, ' '), /every file holding a key was created 0600, under a `umask 077` set in the same shell/);
+  assert.match(skill, /- \*\*A key file written in a new shell\.\*\*/);
+});
+
+// [P2] The signing example ran only the two probes after the promotion. All five run here, in the
+// example's own order, each signed over a fresh body; and a probe that cannot be built sends nothing.
+test('a signing key is probed in every case, in order, each over a fresh body, and a probe that cannot be built sends nothing', async () => {
+  const calls = exampleBash.split('\n').filter((line) => line.startsWith("probe '"));
+  const ORDER = [
+    ['old key, before the senders move (must pass)', 'old.key'],
+    ['new key', 'next.key'],
+    ['old key', 'old.key'],
+    ['wrong key', 'wrong.key'],
+    ['no key', null],
+  ];
+  assert.deepEqual(calls, ORDER.map(([label, file]) => `probe '${label}' ${file ? `"$SCRATCH/${file}"` : 'none'}`), 'the example probes other cases, or in another order');
+  assert.deepEqual(fenced(probe, 'bash').join('\n').split('\n').filter((line) => line.startsWith("probe '")), calls, 'the reference probes in another order than the skill');
+
+  const signed = await runProbes({ kind: 'signing', calls });
+  assert.equal(signed.status, 0, signed.out);
+  assert.deepEqual(signed.sent.map((request) => request.label), ORDER.map(([label]) => label));
+  const wrong = readFileSync(join(signed.scratch, 'wrong.key'), 'utf8');
+  assert.match(wrong, /^0{64}$/, 'the wrong key is not 64 zeros');
+  const keyOf = { 'next.key': NEXT_KEY, 'old.key': OLD_KEY, 'wrong.key': wrong };
+  signed.sent.forEach((request, index) => {
+    const file = ORDER[index][1];
+    const expected = file ? `<signature-header>: sha256=${createHmac('sha256', keyOf[file]).update(request.body).digest('hex')}\n` : '';
+    assert.equal(request.header, expected, `${request.label}: the header is not the key file's signature over this body`);
+    const body = JSON.parse(request.body);
+    assert.equal(typeof body.timestamp, 'number', `${request.label}: no timestamp`);
+    assert.match(body.nonce, /^[0-9a-f]{32}$/, `${request.label}: no nonce`);
+    for (const key of [NEXT_KEY, OLD_KEY]) {
+      assert.ok(!request.header.includes(key) && !request.body.includes(key) && !request.argv.includes(key), `${request.label}: a signing key travelled`);
+    }
+  });
+  assert.equal(new Set(signed.sent.map((request) => request.body)).size, signed.sent.length, 'two probes sent the same body, which a receiver refusing replays refuses whatever key signed it');
+
+  // The same calls with a bearer key: each key in the header file, and no header for the last.
+  const bearer = await runProbes({ kind: 'bearer', calls });
+  assert.deepEqual(bearer.sent.map((request) => request.header), ORDER.map(([, file]) => (file ? `x-shared-key: ${keyOf[file]}\n` : '')));
+  for (const request of bearer.sent) assert.ok(!request.argv.includes(NEXT_KEY) && !request.argv.includes(OLD_KEY), 'a bearer key reached a command line');
+
+  // Nothing is sent without a kind, a body or a signature; the probes that can be built still go.
+  for (const [why, options, expected] of [
+    ['KIND is unset', { kind: undefined }, []],
+    ['KIND is neither bearer nor signing', { kind: 'hmac' }, []],
+    ['no nonce can be made', { kind: 'signing', stubs: 'openssl() { return 1; }' }, []],
+    ['the nonce comes out short', { kind: 'signing', stubs: 'openssl() { printf abc; }' }, []],
+    ['the signer fails', { kind: 'signing', stubs: 'node() { return 1; }' }, ['no key']],
+    ['the old key copy is missing, signing', { kind: 'signing', keys: { 'next.key': NEXT_KEY } }, ['new key', 'wrong key', 'no key']],
+    ['the old key copy is missing, bearer', { kind: 'bearer', keys: { 'next.key': NEXT_KEY } }, ['new key', 'wrong key', 'no key']],
+  ]) {
+    const result = await runProbes({ calls, ...options });
+    assert.deepEqual(result.sent.map((request) => request.label), expected, `${why}: these were sent`);
+    assert.equal((result.out.match(/NOTHING SENT/g) ?? []).length, calls.length - expected.length, `${why}: ${result.out}`);
+  }
+
+  const eighth = procedureSteps(skill)[7];
+  assert.match(eighth, /Sign a fresh probe body with each key file/);
+  assert.match(eighth, /a receiver that refuses replays refuses a body it has seen whatever key signed it, and that refusal reads as a retirement that took/);
+  assert.match(eighth, /The example's `probe` sends either kind, by `KIND`, and sends nothing when it cannot build the request/);
+  assert.doesNotMatch(eighth, /the probe's fixed body/, 'the signed probes share one body again');
+  assert.match(probe.replace(/\s+/g, ' '), /Every probe gets a fresh body: a new timestamp and a new nonce/);
+  assert.match(skill, /- \*\*A signed probe sent twice\.\*\*/);
 });
