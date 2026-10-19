@@ -13,7 +13,17 @@ const judging = read('references/judging-and-metrics.md').replace(/\s+/g, ' ');
 const files = read('references/study-files.md').replace(/\s+/g, ' ');
 const frontmatterOf = (source) => source.slice(0, source.indexOf('\n---\n', 4));
 const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
-const releases = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+// The skill's release prose is staged under `## Unreleased` in docs/releases.md until its release,
+// then moved word for word into CHANGELOG.md. Read docs/releases.md as before; only when Unreleased
+// carries no entry for this skill, add the NEWEST changelog section that names it, never older ones,
+// so a future staged entry is the one checked and history cannot satisfy its assertions.
+const releasesDoc = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8');
+const unreleased = (releasesDoc.split(/\n## Unreleased\n/)[1] ?? '').split(/\n## /)[0];
+const latestChangelogEntry = () => {
+  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  return changelog.split(/\n(?=## \d)/).find((section) => /^## \d/.test(section) && section.includes('`preregistered-model-study`')) ?? '';
+};
+const releases = (unreleased.includes('`preregistered-model-study`') ? releasesDoc : `${releasesDoc}\n${latestChangelogEntry()}`).replace(/\s+/g, ' ');
 
 // The order is the contract: a plan written after the calls, or parity proven after measuring,
 // is exactly what produced the verdicts this skill exists to prevent.
@@ -495,7 +505,7 @@ test('every summary of the addenda rule allows a dated correction found after th
   assert.match(flat, /\*\*ADDENDA\*\* — every change after the first paid call, dated, with its reason: pushed before the calls it governs, or, when found after them, recorded as a correction and never backdated/);
   assert.doesNotMatch(flat, /\*\*ADDENDA\*\* — [^.]*each committed before the calls it governs\./, 'the summary requires every addendum to predate its calls again');
   assert.match(frontmatterOf(skill), /put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them;/);
-  const releases = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+  // `releases` is the module-level read: docs/releases.md and CHANGELOG.md
   assert.match(releases, /puts every later change in a dated addendum pushed before the calls it governs, or records one found after them as a dated correction/);
 });
 
