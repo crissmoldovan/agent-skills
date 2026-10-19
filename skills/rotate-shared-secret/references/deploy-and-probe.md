@@ -100,10 +100,12 @@ inside a program, and only the signature is sent, in the receiver's own header a
 
 Every probe gets a fresh body: a new timestamp and a new nonce, in the body or wherever the
 receiver's scheme signs them. A receiver that refuses replays refuses a body it has already seen,
-whatever key signed it. Send the old key's probe after the promotion with the body that was
-accepted before it, and the refusal is the replay check's — which reads as a retirement that took.
-For the same reason a probe whose body, key file or signature failed sends nothing: an empty
-signature, or a header with no key in it, is refused for the wrong reason too.
+whatever key signed it. Never send the old key's probe after the promotion with the body that was
+accepted before it: the receiver refuses it as a replay even while the old key is still valid, and
+that refusal reads as a retirement that took. Each probe, the old key's after the promotion
+included, gets its own timestamp and nonce. For the same reason a probe whose body, key file or
+signature failed sends nothing: an empty signature, or a header with no key in it, is refused for
+the wrong reason too.
 
 The skill's example defines `probe`, which does all of this for either kind of key, chosen by
 `KIND` (`bearer` or `signing`, with no default). Define it again in every new shell: a new shell
@@ -125,13 +127,14 @@ reached, or a promotion that landed on part of the fleet still accepts it. So it
 wherever it can be done safely. It uses the old key's private copy, saved and proven before any
 sender dropped it; probe every replica or region that can be addressed on its own.
 
-A refusal means something only if the same probe was accepted before. A secret command that adds a
+A refusal means something only if a probe built the same way — the same copy of the key, the same
+header or signature scheme, over a fresh body — was accepted before. A secret command that adds a
 newline or prints metadata around the value writes a different key into the copy; the signature
 made from it, or the header built from it, is refused whether the old key was retired or not, and
 the refusal reads as a retirement that took. So export the raw value where the store has a mode
 for it, and prove the copy before any sender drops the old key (step 4): while the old key is still
-`CURRENT` and before the reconciliation window opens, probe with it exactly as you will afterwards,
-and see it accepted. Save it then, not at the promotion: a store that cannot be read back — many
+`CURRENT` and before the reconciliation window opens, probe with it as you will afterwards — the
+same header or signature scheme, over a fresh body — and see it accepted. Save it then, not at the promotion: a store that cannot be read back — many
 platforms keep secrets write-only — leaves the senders' copies as the only readable ones, and
 moving the senders removes them. Save it under a `umask 077` set in the same shell, since a new
 shell has lost step 2's. A copy that was not accepted then cannot show anything now.

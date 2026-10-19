@@ -298,7 +298,7 @@ test('a sender has moved only when every instance of it is shown reading the sto
 test('the old key copy is accepted before the senders move, or the old-key probe proves nothing', () => {
   const fourth = procedureSteps(skill)[3];
   assert.match(fourth, /in the store's raw form where it has one/);
-  assert.match(fourth, /So prove the copy: while the old key is still `CURRENT`, before step 5's window opens, probe with it exactly as step 8 will — header or signature — and see it accepted/);
+  assert.match(fourth, /So prove the copy: while the old key is still `CURRENT`, before step 5's window opens, probe with it as step 8 will — the same header or signature scheme, over a fresh body — and see it accepted/);
   assert.match(fourth, /the old key is in a 0600 file that the receiver accepted before any sender dropped it, or the record says why no such copy could be had/);
   assert.match(procedureSteps(skill)[7], /no copy of it was accepted before the promotion/);
   const lines = exampleBash.split('\n');
@@ -309,7 +309,7 @@ test('the old key copy is accepted before the senders move, or the old-key probe
   assert.ok(control > exported, 'the example does not probe with the old key copy after exporting it');
   assert.ok(after > control, 'the copy is not proven before the old-key probe');
   const flatProbe = probe.replace(/\s+/g, ' ');
-  assert.match(flatProbe, /A refusal means something only if the same probe was accepted before/);
+  assert.match(flatProbe, /A refusal means something only if a probe built the same way — the same copy of the key, the same header or signature scheme, over a fresh body — was accepted before/);
   assert.match(flatProbe, /no copy of the old key could be saved and accepted before the senders dropped it/);
 });
 
@@ -718,4 +718,31 @@ test('a signing key is probed in every case, in order, each over a fresh body, a
   assert.doesNotMatch(eighth, /the probe's fixed body/, 'the signed probes share one body again');
   assert.match(probe.replace(/\s+/g, ' '), /Every probe gets a fresh body: a new timestamp and a new nonce/);
   assert.match(skill, /- \*\*A signed probe sent twice\.\*\*/);
+});
+
+// Codex round 1 on #103 (at b3ceb6e) [P2]: the reference still told the operator to send the old
+// key's probe after the promotion with the body accepted before it. A receiver that refuses replays
+// refuses that body even while the old key is valid, and the refusal reads as a retirement that
+// took. Held by class: in every file of the skill, a sentence that speaks of a probe body being
+// accepted before, the same body, reuse or sending again either forbids it or asks for a fresh body,
+// and the instructions to prove the copy ask for a fresh body rather than the same probe "exactly".
+test('no instruction reuses a probe body: every probe, the old key\'s after the promotion included, gets a fresh one', () => {
+  const files = {
+    'SKILL.md': skill,
+    ...Object.fromEntries(['references/deploy-and-probe.md', 'references/proving-no-other-caller.md', 'references/dual-key-receiver.md'].map((file) => [file, read(file)])),
+  };
+  for (const [file, text] of Object.entries(files)) {
+    const flat = text.replace(/\s+/g, ' ');
+    for (const sentence of flat.split(/(?<=[.!?])\s+/)) {
+      if (/\bbody\b/i.test(sentence) && /accepted before|same body|\breus|\bagain\b/i.test(sentence)) {
+        assert.match(sentence, /\bnever\b|\bfresh body\b/i, `${file} reads as reusing a probe body: ${sentence}`);
+      }
+    }
+    assert.doesNotMatch(flat, /probe with it exactly as|the same probe was accepted before/, `${file} asks for the same probe again, which a replay check refuses`);
+  }
+  const flatProbe = probe.replace(/\s+/g, ' ');
+  assert.match(flatProbe, /Never send the old key's probe after the promotion with the body that was accepted before it: the receiver refuses it as a replay even while the old key is still valid/);
+  assert.match(flatProbe, /Each probe, the old key's after the promotion included, gets its own timestamp and nonce/);
+  assert.match(flatProbe, /probe with it as you will afterwards — the same header or signature scheme, over a fresh body — and see it accepted/);
+  assert.match(procedureSteps(skill)[3], /probe with it as step 8 will — the same header or signature scheme, over a fresh body — and see it accepted/);
 });

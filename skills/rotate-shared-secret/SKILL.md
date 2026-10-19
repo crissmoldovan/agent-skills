@@ -128,8 +128,8 @@ every one. Short of that, a step that needs it waits, and a retirement already d
    raw form where it has one, under a `umask 077` set again, since a new shell has lost step 2's. A
    command that adds a newline or wraps the value in metadata writes a different key, and a probe
    with it is refused for the wrong reason. So prove the copy: while the old key is still `CURRENT`,
-   before step 5's window opens, probe with it exactly as step 8 will — header or signature — and
-   see it accepted. Then, one sender at a time: put the next key into its store from the file,
+   before step 5's window opens, probe with it as step 8 will — the same header or signature
+   scheme, over a fresh body — and see it accepted. Then, one sender at a time: put the next key into its store from the file,
    change the sender to read it from the store instead of wherever it held the old one, deploy, and
    watch a real delivery arrive and log the `next` slot at the receiver. That delivery shows one
    instance moved; a quiet instance still on the old value fails only once the old key is retired,
