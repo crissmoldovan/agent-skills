@@ -30,14 +30,17 @@ would need a guard of its own. The account is the study's own, so that a runaway
 production's money or exhaust production's rate limit.
 
 Unequal keys do not show that. A provider can issue many keys under one billing organisation or
-project, and every one of them spends that account's balance and rate limit. So at start-up the
-guard compares **accounts**: the provider's non-secret account or project identity behind the
-research key, read from the provider, against production's. Where the provider exposes no such
-identity, the plan records the separately provisioned billing account the research key belongs to.
-With neither, the guard refuses to start. It also compares the two keys' hashes in memory, refusing
-when they are equal, and prints nothing but the outcomes. And it refuses while the harness holds any
-other paid credential: a judge called on its own vendor key spends outside the balance the guard
-reads, and that key may be production's.
+project, and every one of them spends that account's balance and rate limit. A key is a view onto
+its account: one study found that a key's own spend limit was not the account's spendable balance,
+because credits are account-wide and shared with every other key on it. So at start-up the guard
+compares **accounts**: the non-secret account or project identity the provider names for the
+research key, against the one it names for production's. Only the provider can bind a key to the
+account it bills. A billing account written in the plan records which account someone meant the key
+to bill, not which one the provider bills, so it is not a binding. A provider that cannot name the
+account behind a key is out of scope, and the guard refuses to start. It also compares the two keys'
+hashes in memory, refusing when they are equal, and prints nothing but the outcomes. And it refuses
+while the harness holds any other paid credential: a judge called on its own vendor key spends
+outside the balance the guard reads, and that key may be production's.
 
 If production's identity or key is not readable where the study runs, the check cannot run. Say so,
 and treat it as a reason to run the study somewhere it can — not as a pass.
@@ -112,14 +115,20 @@ bound: the guard latches, writes STOP and closes the ledger (part 6).
 
 ### 4. A balance floor, read before every admission, that latches
 
-Where the provider exposes the key's remaining balance, the guard reads it **before every
-admission** — nothing else is in flight at that moment, so the read describes the state the call
-will start from.
+Where the provider exposes the research account's remaining balance, the guard reads it **before
+every admission** — nothing else is in flight at that moment, so the read describes the state the
+call will start from.
 
+- **The account's balance, never a key's limit.** A key's remaining spend limit can read healthy
+  while the account it draws on is nearly empty, because other keys spend the same credits (part 1).
+  A provider that reports only a per-key limit has no balance endpoint for this guard.
 - **A call that would cross the floor is not admitted.** The admission needs
-  `balance - unseen_spend - reserved - worst(call) >= floor`. `unseen_spend` is spend already
-  settled that the balance may not show yet — for a provider whose balance lags, everything settled
-  since the balance's own as-of time. `reserved` is every reservation still standing: a call whose
+  `balance - unseen_spend - reserved - worst(call) >= floor`. A balance can lag the calls billed to
+  it, and a time stamped on it does not say which charges it includes, so the guard assumes it shows
+  none of the study's spend: `unseen_spend` is every cost the study has settled, in this ledger and
+  in any ledger it closed (part 6). Against a balance that is current, that counts the spend twice
+  and halves the room between the starting balance and the floor, which fails closed; set the floor
+  and the caps with it in mind. `reserved` is every reservation still standing: a call whose
   outcome is unknown (part 5), or one a crashed run left unsettled (part 6), may have been billed
   without the balance showing it, so its worst case comes off the balance too. A balance already
   below the floor fails the same test.
@@ -153,7 +162,9 @@ total checked.
 
 The reservation row is appended and flushed **before** the call is sent, and counted in memory, and
 the settled rows **after** it and before the next admission. The ledger on disk is then always at
-most one call behind the truth, and that one call is recorded as reserved.
+most one call behind the truth, and that one call is recorded as reserved. A guard that kept its
+reservation only in memory has been found to under-count after a crash: the restart (part 6) has
+only the disk to read.
 
 A call that throws — a network error, a timeout, a client library that gives up — may still have
 been billed, and nothing says how much. It is not settled, because there is no cost to settle it
@@ -191,8 +202,8 @@ its cap, stays in the ledger, so every later start finds it again and refuses: c
 not resume that ledger, and nothing should. Continuing the study takes a dated addendum that
 corrects the bound and re-freezes what it changed, and a new, empty ledger. Its caps are what the
 old caps had left after everything the closed ledger settled, per stage, with that ledger's
-unsettled calls reconciled first; and where there is a floor, it admits nothing until a balance read
-is as of a time after the closed ledger's last settlement.
+unsettled calls reconciled first; and where there is a floor, `unseen_spend` goes on counting
+everything the closed ledger settled.
 
 ## The admission path
 
@@ -200,11 +211,12 @@ is as of a time after the closed ledger's last settlement.
 start():
     take the OS lock on <study>/guard.lock without waiting      # held until the process exits
         or refuse: "another paying process holds this study"
-    refuse unless the research account is shown not to be production's   # provider's account identity, or the plan's billing account
+    refuse unless the provider names the research key's account, and it is not production's   # a plan's record is no binding
     refuse if the research key equals production's              # compared by hash, never printed
     refuse if the harness holds any paid credential but the research key   # one account, one balance
     refuse if the client library retries on its own             # every attempt is one the harness makes
     spent, stage_spent[s]       = sums of the settled rows       # restore from the ledger
+    unseen_spend                = spent + all that any ledger this study closed settled   # no balance is assumed to show it
     reserved, stage_reserved[s] = worst cases of reservations with no settlement   # never released here
     for every settled call in the ledger:                        # re-derive every invariant; assume none
         if its settled cost > its reservation, or it has no reservation:
@@ -221,7 +233,7 @@ call(c):                                                         # one at a time
     if spent + reserved + w > cap:                            refuse        # the study's cap
     if stage_spent[s] + stage_reserved[s] + w > stage_cap[s]: refuse        # the stage's own cap
     if floor_available:
-        balance = read balance                                   # before this admission, every time
+        balance = read the account's balance                     # before this admission, every time; never a key's limit
         if the read failed or balance - unseen_spend - reserved - w < floor:
             latched = true; write STOP flag with the reason;  refuse
     ledger.append(reserved row: c, s, w); flush                  # on disk before the call is sent
@@ -234,7 +246,7 @@ call(c):                                                         # one at a time
     actual = sum(max(list_cost(a), reported_cost(a)) for a in attempts)
     ledger.append(settled rows: s, one per attempt); flush       # on disk before the next admission
     reserved -= w; stage_reserved[s] -= w
-    spent += actual; stage_spent[s] += actual
+    spent += actual; stage_spent[s] += actual; unseen_spend += actual
     if actual > w:                                               # the bound was not a bound
         latched = true; write STOP flag with the reason
 ```
@@ -252,7 +264,7 @@ call and no real key:
 |---|---|---|
 | Research key | set both key variables to the same fake value | refuses at start-up, prints no value |
 | Same account, another key | give the research key a second key under production's account or project | refuses at start-up: the account identities match |
-| No identity, no record | stub a provider that exposes no account identity, with no billing account in the plan | refuses at start-up |
+| No account binding | stub a provider that names no account for the research key, and write a billing account into the plan | refuses at start-up: a recorded account is not a binding |
 | Second credential | give one judge its own vendor key beside the research key, then start the run | refuses at start-up |
 | Lock | start a second paying process while the first holds the lock | the second refuses to start |
 | Lock released on death | kill the first process outright, then start another | the new process takes the lock at once: no stale lock, no takeover |
@@ -261,6 +273,7 @@ call and no real key:
 | Floor | stub the balance read to return less than the floor | latches, writes STOP with the reason, refuses this and every later admission |
 | Floor with an unknown call | let a call throw after its reservation, then stub a lagging balance that does not show it, and admit a call that fits only if the thrown call is forgotten | latches and refuses: the thrown call's worst case comes off the balance |
 | Floor crossing | stub a balance just above the floor, then admit a call whose worst case would cross it | latches and refuses, though the call fits the study cap |
+| Lagging balance | settle a call, then stub a balance that does not show it, and admit a call that fits only if that settled cost is forgotten | latches and refuses: every settled cost comes off the balance |
 | Read failure | stub the balance read to fail | latches and refuses: an unreadable balance is a breach |
 | No balance endpoint | run with the floor marked unavailable; admit a call that fits the caps | admitted on the caps alone |
 | Settlement above the reservation | settle a call whose reported cost exceeds its reservation | latches, writes STOP, refuses the next admission |

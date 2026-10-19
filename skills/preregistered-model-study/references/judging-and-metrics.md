@@ -65,10 +65,18 @@ judge that shares a vendor with an arm, its verdicts on that arm against its ver
 ## Keying only where the arms differ
 
 Judging every answer of every arm is the expensive part. Where two arms give the same answer to an
-item, they get the same verdict, so the item cannot contribute to the difference between them.
-Judging only the items where the arms' answers differ therefore gives the **difference** between
-arms exactly — and gives no absolute rate at all. Report it that way: a difference, with absolute
-rates marked not measured, unless the agreeing items are judged too.
+item, they get the same verdict, so the item cannot contribute to the difference between them — on
+an **item-wise additive** metric: a sum of per-item scores, each a function of that item and that
+answer alone, over a denominator that is the same for every arm and fixed before any judging. For
+such a metric, judging only the items where the arms' answers differ therefore gives the
+**difference** between arms exactly — and gives no absolute rate at all. Report it that way: a
+difference, with absolute rates marked not measured, unless the agreeing items are judged too.
+
+**Every other metric is judged on every item.** A median, a precision, an F1 — anything computed
+from an arm's whole set of answers — is not a sum over items, and an agreeing item can still move
+it. A rate whose denominator the judges decide is not over a fixed denominator. Invention is one of
+those: its denominator, the items whose source leaves the field undeterminable, comes from the
+source-only reading, so invention is never scored under the shortcut.
 
 **One verdict per answer, in both paths.** The panel evaluates each normalised (item, answer) once,
 and every arm that gave that answer reuses the verdict — when every item is judged, and under the
@@ -87,8 +95,8 @@ The shortcut is exact only under conditions that are easy to break:
 Before relying on it, test it on a fixture. Use a deterministic stand-in judge — a function of the
 item and the answer — so that the test checks the shortcut's own logic and not the judges' noise.
 Score the fixture with every answer judged, then with the shortcut, and require every difference
-between arms to be identical. Then break the shortcut — key on the arm label, or compare answers
-before normalising them — and watch the test fail.
+between arms, on every metric the shortcut is used for, to be identical. Then break the shortcut —
+key on the arm label, or compare answers before normalising them — and watch the test fail.
 
 ## Metrics
 

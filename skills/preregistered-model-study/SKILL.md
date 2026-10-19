@@ -1,8 +1,8 @@
 ---
 name: preregistered-model-study
-description: "Run a model or prompt comparison whose verdict can be trusted: before any paid call, commit the plan, a freeze of every input by hash, and a dry run proving each arm differs from production only where intended; put every later change in a dated addendum committed before the calls it governs, or record it as a dated correction if found after them; cap the spend in code; prove the harness reproduces production before measuring; judge with three vendors who can see where each piece of evidence came from; and ship a reproduce script and checksum manifest that rebuild every number offline. Symptoms: compare these models, is the cheaper model good enough, bake-off, A/B this prompt, run an eval before we switch, can we trust this benchmark, the study overspent, the judge rewarded an answer that made things up. Which model runs everyday work is model-routing's; the review round on each study pull request is codex-review-loop's."
+description: "Run a model or prompt comparison whose verdict can be trusted: before any paid call, commit the plan, a freeze of every input by hash, and a dry run proving each arm differs from production only where intended; put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them; cap the spend in code; prove the harness reproduces production before measuring; judge with three vendors who can see where each piece of evidence came from; and ship a reproduce script and checksum manifest that rebuild every number offline. Symptoms: compare these models, is the cheaper model good enough, bake-off, A/B this prompt, run an eval before we switch, can we trust this benchmark, the study overspent, the judge rewarded an answer that made things up. Which model runs everyday work is model-routing's; the review round on each study pull request is codex-review-loop's."
 license: MIT
-compatibility: "Any harness that can run scripts and commit to a repository. Every paid call goes through one research account, not production's: one key, one balance, such as a multi-vendor gateway, reporting each call's cost; with no balance endpoint the floor is recorded as unavailable. Judging needs three vendors' models on that account. Output is a committed study directory: plan, freeze, addenda, raw responses, scores, report, a reproduce script and a checksum manifest."
+compatibility: "Any harness that can run scripts and commit to a repository. Every paid call goes through one research account, not production's: one key, one balance, such as a multi-vendor gateway, reporting each call's cost and the key's account; with no balance endpoint the floor is recorded as unavailable. Judging needs three vendors' models on that account. Output is a committed study directory: plan, freeze, addenda, raw responses, scores, report, a reproduce script and a checksum manifest."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
@@ -40,10 +40,10 @@ because it existed before the thing it constrains.
 - **DRY RUN** — built offline, with nothing sent: the control's request beside production's for the
   same items, proving request parity, and every arm's request beside it, with every difference
   listed and each one intended.
-- **ADDENDA** — every change after the first paid call, dated, with its reason: committed before
-  the calls it governs, or, when found after them, recorded as a correction and never backdated.
+- **ADDENDA** — every change after the first paid call, dated, with its reason: pushed before the
+  calls it governs, or, when found after them, recorded as a correction and never backdated.
 - **REPRODUCTION** — a `reproduce.sh` that rebuilds every number offline from committed data, and
-  a checksum manifest covering every input it reads.
+  a checksum manifest covering every other file it reads.
 
 The first three are committed and pushed to the study's pull request before the study's first paid
 call, which is output parity's: a stage of its own, with the items, pass rule and cap the plan gave
@@ -96,11 +96,11 @@ unmeasurable question is ceremony around a guess.
    byte, from that code — or you know you cannot, and finding out why is the study's first task.
 3. **One research account that is not production's.** One key and one balance for every paid
    call, arms and judges alike — a multi-vendor gateway, for example — that reports each call's
-   cost. Providers that need separate accounts are out of scope: each would need its own guard.
+   cost and names the account a key bills. Providers that need separate accounts, or cannot name
+   that account, are out of scope: a billing account written in the plan binds no key to it.
    **Complete when:** the key is in a secret store, and a check refuses to run unless the account
-   is shown not to be production's — by the provider's non-secret account identity, or else the
-   separately provisioned billing account the plan records — or while the harness holds any other
-   paid credential.
+   the provider names for the key is not production's, or while the harness holds any other paid
+   credential.
 4. **A study directory under version control.** Everything the study writes lands there and is
    committed, as prerequisite 7 allows: plan, freeze, addenda, raw responses, scores, report.
    **Complete when:** the directory exists on a branch, and the plan is in the study's first
@@ -108,8 +108,8 @@ unmeasurable question is ceremony around a guess.
 5. **Three judges from three vendors.** The plan says which judge, if any, shares a vendor with
    which arm, because every judge is also reported alone.
    **Complete when:** each judge is reachable, and each is named in the plan with its vendor.
-6. **A budget, agreed in numbers.** A study cap, and a floor on the key's remaining balance — or,
-   where the provider has no balance endpoint, the floor recorded as unavailable.
+6. **A budget, agreed in numbers.** A study cap, and a floor on the account's remaining balance —
+   or, where the provider has no balance endpoint, the floor recorded as unavailable.
    **Complete when:** the cap is a number someone agreed to, and the floor is one too or is recorded
    as unavailable, both in the plan.
 7. **The data classified.** Production requests, items and responses can carry customer data,
@@ -146,9 +146,9 @@ unmeasurable question is ceremony around a guess.
      sends and settles calls strictly one at a time. The cap is hard only under this rule.
      Concurrency is out of scope: parallel calls, a second process, locks on shared storage and
      lock takeover each void it.
-   - **One research key for every paid call**, refused at start-up unless its account is shown not
-     to be production's — never by unequal keys alone — or while the harness holds any other paid
-     credential.
+   - **One research key for every paid call**, refused at start-up unless the account the provider
+     names for it is not production's — never by unequal keys alone, nor by the plan's say-so — or
+     while the harness holds any other paid credential.
    - **A hard study cap**, enforced by reserving before each call an upper bound on what it can be
      billed: every billable unit — tokens, per-request fees, images, audio, hosted search and tool
      invocations — at its maximum quantity and a ceiling price (the largest of the list price, a
@@ -159,11 +159,11 @@ unmeasurable question is ceremony around a guess.
      run, judging — stays within its own pre-registered cap too. A cap checked after the call is a
      report, not a cap.
    - **A balance floor, read before every admission, that latches.** A call is admitted only if
-     the balance just read, less any settled spend it may not show yet and every reservation still
-     standing, stays at or above the floor after the call's worst case. A read below that, or a read
-     that fails, latches the run and writes a STOP flag with the reason; a later, healthier read does
-     not lift it. With no balance endpoint, the plan says the floor is unavailable and the caps
-     govern alone.
+     the account's balance just read — never a key's own limit — less everything the study has
+     settled, which no balance is assumed to show yet, and every reservation still standing, stays
+     at or above the floor after the call's worst case. A read below that, or a read that fails,
+     latches the run and writes a STOP flag with the reason; a later, healthier read does not lift
+     it. With no balance endpoint, the plan says the floor is unavailable and the caps govern alone.
    - **Settle each call before the next.** The cost is the larger of the list-price and the
      provider-reported cost for every attempt, retries and failures included, summed. A settled
      cost above its reservation latches, writes STOP and closes the ledger: continuing takes an
@@ -204,7 +204,8 @@ unmeasurable question is ceremony around a guess.
    reordered message, a dropped schema field, a changed temperature. Pin the serving provider in
    every arm's request: different providers of the "same" model can answer differently, and a
    router may pick the provider by the request's layout, so a layout change can silently change who
-   serves the call.
+   serves the call. Where production's own request leaves its provider to a router or a fallback,
+   the control cannot equal it and be pinned: such a study is out of scope.
    **Complete when:** the request-parity diff and every arm's diff are committed, every line of
    difference is intended, and this study's harness has made no paid call.
 
@@ -237,15 +238,18 @@ unmeasurable question is ceremony around a guess.
    items, interleaved; the A/A distribution is estimated with its interval and its method; and
    every response is stored raw with its cost.
 
-7. **Put every change after the first paid call in a dated ADDENDUM, committed before the calls it
+7. **Put every change after the first paid call in a dated ADDENDUM, pushed before the calls it
    governs.** A scorer bug fixed, an item dropped because its source vanished, an arm added, a bar
    clarified: each gets the date, what changed, why, which calls and numbers it affects, and the
-   commit it was written on. A file cannot name the commit that adds it, so the audit records the
-   addendum's own commit, and the first call it governs, once both exist. A change discovered after
-   its calls ran is recorded as a correction to those calls. It is never backdated.
+   commit it was written on. It is pushed to the study's pull request before the first call it
+   governs — the plan's anchor, not a local commit. A file cannot name the commit that adds it, so
+   the audit records the addendum's commit, its push and the first call it governs. An addendum that
+   changes a frozen file re-runs every gate that read the old bytes, before that call, and pushes the
+   results with it. A change discovered after its calls ran is recorded as a correction to those
+   calls. It is never backdated, and what it invalidates counts toward no verdict until redone.
    **Complete when:** every change since the first paid call has an addendum; each one made before
-   its calls was committed before the first call it governs, and each found after them is marked
-   as a correction to them, never backdated.
+   its calls was pushed before the first call it governs, with every gate on a file it changed
+   re-run, and each found after them is marked as a correction to them, never backdated.
 
 8. **Judge with three vendors, and let the judges see provenance**
    ([judging and metrics](references/judging-and-metrics.md)).
@@ -257,7 +261,8 @@ unmeasurable question is ceremony around a guess.
    - **Report each judge alone** beside the majority, so a verdict that rests on one judge's taste,
      or on a judge favouring its own vendor, is visible.
    - **One panel verdict per normalised (item, answer)**, reused by every arm that gave that answer.
-   - **Judge only where the arms differ**, if cost forces it — and before relying on it, prove on
+   - **Judge only where the arms differ**, if cost forces it, and only on item-wise additive
+     metrics — never invention, whose denominator the judges decide; before relying on it, prove on
      a fixture that the shortcut gives exactly the verdicts that judging everything gives.
 
    **Complete when:** every item — or, under a shortcut the plan registered, every item where the
@@ -279,12 +284,13 @@ unmeasurable question is ceremony around a guess.
 
 10. **Make every number rebuildable offline.** `reproduce.sh` rebuilds every table and figure from
     committed data, with no network and no key. A checksum manifest lists every file it consumes,
-    including files read from other studies; the script checks every frozen file and the runtime
-    against the freeze itself, then the manifest, before it computes anything. No module in the
-    study may share a name with a standard-library module or with another study's module, or the
-    reproduction runs different code depending on where it was started.
+    including files read from other studies, but itself, which its pushed commit anchors; the script
+    checks every frozen file and the runtime against the freeze itself, then the manifest, before it
+    computes anything. No module in the study may share a name with a standard-library module or
+    with another study's module, or the reproduction runs different code depending on where it was
+    started.
     **Complete when:** a clean checkout runs `reproduce.sh` offline to byte-identical outputs, and
-    the manifest covers every file the run opened.
+    the manifest covers every other file the run opened.
 
 11. **Arm every gate by mutation, and watch each one fail.** Tamper with one row of raw data;
     remove one manifest line; mutate one scorer rule. Run the reproduction after each and watch it
@@ -329,7 +335,7 @@ request from production and from the control arm, diffed, with the serving provi
 
 ```text
 We changed the scorer after the first batch of calls. Write the addendum — what changed, why, which
-calls it governs, which published numbers move — and commit it before the next batch runs.
+calls it governs, which published numbers move — and push it before the next batch runs.
 ```
 
 ```bash
@@ -429,23 +435,25 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
 - [ ] The freeze hashes every executable and configuration that can change a request, a spend
       decision or a verdict, with the runtime's version and the dependency lock.
 - [ ] Every paid call went through the one research account, not production's, and the checks that
-      refuse production's account and any other paid credential ran.
+      refuse production's account, by the account the provider names for each key, and any other
+      paid credential ran.
 - [ ] One paying process held an operating-system lock for the run, and calls were admitted, sent
       and settled strictly one at a time.
 - [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its
       bound and a ceiling price, for every attempt, the client library's own retries off — and
       checked the study cap and the call's stage cap; a unit with no cap or no price was refused.
-- [ ] Where a balance endpoint exists, the balance was read before every admission, and a call
-      that would cross the floor, a balance below it, or a failed read latched the run and wrote
-      STOP; where none exists, the plan records the floor as unavailable.
+- [ ] Where a balance endpoint exists, the account's balance was read before every admission,
+      less everything the study settled, and a call that would cross the floor, a balance below it,
+      or a failed read latched the run and wrote STOP; where none exists, the plan records the floor
+      as unavailable.
 - [ ] Each call was settled, at the larger of list and reported cost per attempt, before the next
       admission; a settlement above its reservation latched the guard.
 - [ ] A restart restored the study's and every stage's totals from the ledger, with unsettled
       reservations at their worst case, and rechecked every settled call against its reservation
       and every total against its cap before admitting anything. Each part was watched refusing.
 - [ ] Request parity was proven offline, in the dry run, before the study's first paid call: the
-      control's request equals production's, with the provider pinned in every arm's request.
-- [ ] Every dry-run difference from production's request is intended.
+      control's request equals production's, with the provider pinned in every arm's request and in
+      production's own; every dry-run difference from production's request is intended.
 - [ ] Output parity ran as the first paid stage, under a cap and pass rule committed before its
       first call, and every call was served by the pinned provider.
 - [ ] The A/A distribution was estimated from repeated baseline runs or paired resampling, with
@@ -453,18 +461,19 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
       where layout or caching could change; arms were interleaved per item; every arm had the same
       inputs.
 - [ ] Every change after the first paid call has a dated addendum: one made before its calls was
-      committed before them; one found after them is marked as a correction, never backdated.
+      pushed before them, with every gate on a file it changed re-run; one found after them is
+      marked as a correction, never backdated.
 - [ ] Three judges from three vendors scored every item — or, under a shortcut the plan
       registered, every item where the arms differ, with absolute rates reported as not measured;
       the majority and each judge alone are reported; judges saw provenance tags and a source-only
-      reading.
-- [ ] Any judge-where-arms-differ shortcut has a passing exactness test on a fixture.
+      reading. A shortcut covers only item-wise additive metrics, never invention, and has a passing
+      exactness test on a fixture.
 - [ ] Denominators match across arms, and every percentage carries its predicate.
 - [ ] The report gives quality, harm and cost beside the bars, and does not call a passing arm
       better on the strength of the bar alone.
 - [ ] `reproduce.sh` rebuilds every number offline, byte-identically, from a clean checkout, under
       the frozen runtime and dependency lock.
-- [ ] The manifest covers every consumed input, files from other studies included.
+- [ ] The manifest covers every other consumed input, files from other studies included.
 - [ ] Each gate was armed by a named mutation, watched failing, and restored from a byte copy.
 - [ ] No study module shadows a standard-library module or another study's module.
 - [ ] Every study PR has a review record, and every number that changed after publication carries

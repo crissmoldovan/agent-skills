@@ -26,7 +26,7 @@ committed. The names are suggestions; the contents and the order are not.
   methodology.md          how the study was run, in prose
   report.md               the verdict, written for the decision
   reproduce.sh            rebuilds every table offline
-  MANIFEST.sha256         a checksum for every file reproduce.sh reads
+  MANIFEST.sha256         a checksum for every other file reproduce.sh reads; never for itself
 ```
 
 Keep the study's code in its own directory and give its modules names no other study and no
@@ -67,8 +67,9 @@ Judges:     J1 <vendor>, J2 <vendor>, J3 <vendor>; verdict = 2 of 3. J<k> shares
             arm <arm>. Each judge is also reported alone.
 Data:       class <class>; every recipient approved for it: <each candidate provider>, <each
             judge vendor>; artefacts kept <in the clear / where>.
-Shortcut:   judge every item / judge only where arms differ (exactness test: <fixture>); in
-            both, one panel verdict per normalised (item, answer), reused across arms
+Shortcut:   judge every item / judge only where arms differ, for item-wise additive metrics only
+            (<which>; exactness test: <fixture>); in both, one panel verdict per normalised
+            (item, answer), reused across arms
 Output parity (the first paid stage):
             control only, on <n> items drawn by <rule>; pass rule: <agreement with production's
             stored answers, and how it is measured>; stage cap <amount>, inside the study cap.
@@ -79,9 +80,8 @@ Budget:     study cap <amount>; stage caps: output parity <amount>, main run <am
             and the provider's maximum, for every billable unit (tokens, per-request fees, images,
             audio, hosted search, tool invocations), each capped in the request; one research
             account (one key, one balance) for every paid call, arms and judges alike, shown not
-            to be production's by <the provider's non-secret account identity / the separately
-            provisioned billing account>; one paying
-            process holding an operating-system lock, calls one at a time.
+            to be production's by the account identity the provider names for each key; one
+            paying process holding an operating-system lock, calls one at a time.
 Stop rule:  stop and write an addendum if <condition>.
 Not covered: <item types, providers, volumes this study will not speak to>
 ```
@@ -124,6 +124,17 @@ taken after the budget guard is built and armed, so that the guard it hashes is 
 An addendum that changes a frozen file updates that file's entry in FREEZE.json in the same commit,
 and records the old hash.
 
+**An addendum that changes a frozen file re-runs every gate that read it.** Each gate passed
+against the old bytes and says nothing about the new ones. So before the first call the addendum
+governs, every gate that read the changed file runs again against the new bytes, and its results are
+pushed with the addendum: the guard's drills, for the guard or a price table; the dry run and output
+parity, for anything that builds a request; the metric-definition check and the shortcut's exactness
+test, for the rubric, the judge runner or the scorer; the mutation drills, for the scorer or
+`reproduce.sh`. A gate that cannot run again stops the study, as a failed one would. A correction
+found after its calls ran makes what the old bytes produced for them — calls, verdicts, scores —
+invalid: none of it counts toward a verdict unless it is produced again under the new bytes, once
+their gates pass.
+
 Each arm's request parameters are hashed, because a sampling parameter changed after the freeze
 changes the comparison while the prompts still match. Every price table the guard reads is hashed,
 because a price changed after the freeze changes every reservation and every settlement, and the
@@ -142,7 +153,7 @@ timeline in the next commit, or the pull request's description.
 
 ```text
 # ADDENDUM <n> — <date> — <slug>
-Written on: <sha of the parent commit>   Governs calls: <batch or range>   To be committed before them
+Written on: <sha of the parent commit>   Governs calls: <batch or range>   To be pushed before them
 
 What changed:  <one paragraph>
 Why:           <what was found, and how>
@@ -150,10 +161,12 @@ Effect:        <which numbers move, measured: before -> after, or "none, measure
 Alternatives:  <what else was considered>
 ```
 
-The addendum's own commit, and the time of the first call it governs, are recorded in the audit
-once both exist, so that "committed before the calls it governs" can be checked from two records
-rather than asserted by one. A change found after its calls ran is recorded the same way, marked
-"Committed after the calls it governs", with the calls it should have governed. That is a
+An addendum is pushed to the study's pull request before the first call it governs: the same anchor
+as the plan, because a local commit's date is rewritten by an amend or a rebase. Its own commit, the
+remote's record of the push that carried it, and the time of the first call it governs are recorded
+in the audit once they exist, so that "pushed before the calls it governs" can be checked from two
+records rather than asserted by one. A change found after its calls ran is recorded the same way,
+marked "Pushed after the calls it governs", with the calls it should have governed. That is a
 correction, and it is stated as one.
 
 ## reproduce.sh
@@ -196,6 +209,11 @@ container image named by its digest. Where the data classification keeps raw dat
 repository, the manifest lists the private copies by hash, and the script reads them from where the
 plan says they are kept.
 
+The manifest does not list itself: a file cannot hold its own checksum, because writing it in
+changes the file. It is anchored the way the plan is, by the commit that adds it and the push that
+carries it; `reproduce.sh` runs from a clean checkout of that pushed commit, whose hash fixes every
+byte of the manifest.
+
 The manifest check in step 2 catches a changed file. It cannot catch a file that was never listed,
 and that is the gap that bites: a file read from another study, changed there, and never noticed
 here. Close it in the loader: route every read through one function that refuses a path the
@@ -210,9 +228,9 @@ arm appears in every chart, the control included.
 The audit is written for the next person to doubt the result. It carries:
 
 - a stage-by-stage timeline, with the commit each stage ran from;
-- the commit that added the PLAN, the FREEZE, the dry run and each addendum, and the time of the
-  first paid call after each — recorded once those commits exist, since none of those files can
-  name its own;
+- the commit that added the PLAN, the FREEZE, the dry run, the manifest and each addendum, the push
+  that carried it, and the time of the first paid call after each — recorded once those commits
+  exist, since none of those files can name its own;
 - the spend per stage, from the guard's ledger, against that stage's cap and the study's;
 - every failure — a refused call, a malformed response, a timeout — and how it was scored;
 - every correction, with the outputs before and after, and the addendum or review record that

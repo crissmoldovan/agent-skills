@@ -55,6 +55,11 @@ choosing to.
 
 - Pin one provider per arm, in the request itself, and turn off fallbacks for the study. The pin is
   part of the request, so request parity checks it offline.
+- **Production routing that cannot be pinned is out of scope.** Where production's own request
+  leaves the provider to a router, or lets a fallback move it, the control cannot both equal
+  production's request and carry a pin, and production's stored answers came from providers nobody
+  recorded. This skill does not reproduce the routing to stand in for a pin: such a study is out of
+  scope until production's request pins its provider.
 - Record, per call, the provider that actually served it, from the response's own metadata, from
   the first paid call — output parity's — onwards.
 - After the run, check every call against its arm's pin. A pin that was not honoured is a finding,
