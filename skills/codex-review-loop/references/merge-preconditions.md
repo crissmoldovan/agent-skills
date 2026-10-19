@@ -117,15 +117,48 @@ head says nothing about this one.
 
 ## 7. Nothing in the diff told the reviewer what to say
 
-A reviewer reads project instruction files from the tree it runs in — for Codex, `AGENTS.md`; a Codex
-session's own record of a review opens with `AGENTS.md instructions for <the directory it ran in>`.
-The round runs in a worktree at the pull request's head, so a pull request that adds or edits such a
-file hands the reviewer instructions nobody has reviewed: one line can tell it to grade everything
-P3. A round over such a diff is not independent until a person has read those changes and recorded
-that in the round's record.
+A reviewer reads instructions and configuration from the tree it runs in, and the round runs it in a
+worktree at the pull request's head. A pull request that adds or edits such a file hands the reviewer
+instructions nobody has reviewed: one line can tell it to grade everything P3. Filtering the diff for
+the files that matter does not converge. Every filter tried here missed another way in: a configured
+fallback name, a symbolic link whose target changed, a setting that names another file, a name with a
+space in it. So the channel is cut instead.
+
+**Run the reviewer so that it takes nothing from the tree.** For Codex, read from its source at
+`openai/codex@fbb2f9d`:
+
+- Its project instruction files — `AGENTS.override.md`, `AGENTS.md` and each
+  `project_doc_fallback_filenames` name (`codex-rs/core/src/agents_md.rs:272-296`) — are read only
+  while `project_doc_max_bytes` is above zero; at zero, none is (`agents_md.rs:68-72`, `:133-135`). A
+  `-c` flag is a session layer, which outranks a project's (`codex-rs/config/src/config_layer_source.rs:46-47`),
+  so nothing in the tree can raise it again. The user's own instructions, in `$CODEX_HOME`, still apply.
+- A `.codex/` directory between the project root and where it runs is a configuration layer of its
+  own (`codex-rs/config/src/loader/mod.rs:1705-1725`). It can set `model_instructions_file`
+  (`codex-rs/config/src/config_toml.rs:275`), which is not among the keys Codex strips from a project
+  layer (`loader/mod.rs:89-102`), and no flag turns the layer off.
+- A `.agents/skills/` directory there is read as a root of skills
+  (`codex-rs/ext/skills/src/host_roots.rs:24-25`, `:137-185`).
+
+So the recipe runs `codex exec review -c project_doc_max_bytes=0` from the root of the tree, which is
+also its project root (its `.git` is the default marker), and `review_round` refuses a tree that holds
+`.codex` or `.agents` there, before the reviewer starts. A round run that way took no instructions
+from the tree, and this line holds with nothing more to read. Check these facts again against the
+Codex you run when its version changes.
+
+**When the reviewer cannot be told to ignore the tree** — another reviewer, a tree the round refused,
+a Codex that no longer works this way — a person reads every change the diff makes to a file any
+reviewer could take as instructions or configuration, every symbolic link it adds, changes or
+removes, and every configuration file the reviewer reads, and records that in the round's record. No
+list of names decides what is read: every file the diff touches is listed, and the person judges each.
 
 ```bash
-git diff --name-only <recorded base>...<reviewed sha> | grep -E '(^|/)AGENTS(\.override)?\.md
+git diff --name-status --no-renames <recorded base>...<reviewed sha>   # every file the diff touches
+git diff --raw --no-renames <recorded base>...<reviewed sha> | grep -E '^:(120000 [0-7]{6}|[0-7]{6} 120000) '   # every symbolic link
+```
+
+## The merge
+
+When every line has held, merge with the head pinned:
 
 ```bash
 gh pr merge <pr> --merge --match-head-commit <reviewed sha>

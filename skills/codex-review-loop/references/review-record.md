@@ -23,7 +23,7 @@ repository, which it may quote at length. The review is its final message, and i
 from a boundary nothing in the log can fake.
 
 **Where the reviewer writes its final message to a file, use that file.** The Codex CLI's exec form
-does — `codex exec review --base origin/main -o <file>` writes the final message, and only that,
+does — `codex exec review --base <base sha> -o <file>` writes the final message, and only that,
 to the file, while the log goes to standard output as usual. Observed: on a scratch repository whose
 change contained a line reading exactly `codex`, the log held that marker line and the `-o` file
 held the review alone, finding included. Remove the file before the round starts, so a file from an
@@ -60,13 +60,19 @@ before reading a single finding:
 case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute path"; exit 1;; esac
 final="$REVIEW_LOGS/round-3.final.txt"
 rm -f "$final"
-codex exec review --base origin/main -o "$final" > "$REVIEW_LOGS/round-3.log" 2>&1 &
+base=$(git rev-parse origin/main)   # recorded once; the reviewer gets this sha, never the name to resolve
+codex exec review -c project_doc_max_bytes=0 --base "$base" -o "$final" > "$REVIEW_LOGS/round-3.log" 2>&1 &
 wait $! || echo "ROUND FAILED: the reviewer exited non-zero"
 grep -q '[^[:space:]]' "$final" 2>/dev/null || echo "ROUND FAILED: no final review was written"
 ```
 
-The skill's `review_round` does all of this, refuses a log directory inside the tree under review,
-and removes the final review of a round that failed, so no later step can read one.
+The skill's `review_round` does all of this, refuses a log directory inside the tree under review
+or any worktree of the checkout, refuses a base that is not a sha, refuses a tree holding `.codex`
+or `.agents`, and removes the final review of a round that failed, so no later step can read one.
+Codex resolves `--base` with
+`git rev-parse --verify` when the review starts, and for a branch with an upstream that is ahead it
+takes the upstream instead (read from its source). A sha resolves to itself and has no upstream, so
+the diff is taken from the merge base of the head and the commit the round recorded.
 
 A failed round is recorded as failed, with the reason, and run again as a new round. It never stops
 the loop. A round number is never reused: the review step reserves it atomically and refuses one
