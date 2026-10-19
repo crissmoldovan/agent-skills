@@ -211,11 +211,11 @@ on a round with only lowest-grade findings, by deferring them or by fixing them 
 confirmation round, and splits the pull request when rounds keep finding new kinds of bug. The merge
 is a person's act, after a checklist: the head is the one the final round reviewed and no earlier
 round left unfixed, every finding has a complete disposition, the base has not moved since the
-review, the required checks passed, and any change to a file the reviewer takes instructions from was
-read by a person — the names its active configuration loads (for Codex, `AGENTS.override.md`,
-`AGENTS.md` and every `project_doc_fallback_filenames` entry) and its configuration in the tree, or,
-where that list cannot be established, every instruction-like file the diff touches; then the merge
-runs pinned with `--match-head-commit`.
+review, the required checks passed, and the pull request did not configure its own review: the
+reviewer ran with the tree's instructions off — for Codex, `-c project_doc_max_bytes=0`, with a tree
+holding `.codex/` or `.agents/` refused — or a person read every change the diff makes to
+instruction files, symbolic links and reviewer configuration; then the merge runs pinned with
+`--match-head-commit`.
 
 **Why.** It generalises a review loop one team ran for many rounds on its own pull requests,
 including the mistakes that loop made, with every name and identifier taken out.

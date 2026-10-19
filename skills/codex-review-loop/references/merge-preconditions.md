@@ -117,57 +117,44 @@ head says nothing about this one.
 
 ## 7. Nothing in the diff told the reviewer what to say
 
-A reviewer reads project instruction files from the tree it runs in, and its configuration decides
-which names count. Codex, read from its source: in each directory from the project root down to
-where it runs, the first that exists of `AGENTS.override.md`, `AGENTS.md` and each name in
-`project_doc_fallback_filenames`. A configuration with `project_doc_fallback_filenames = ["CLAUDE.md"]`
-takes instructions from `CLAUDE.md` wherever no `AGENTS.md` sits beside it. That configuration comes
-in layers — the user's `config.toml`, the profile in use, a `-c` override on the command, managed
-settings, and a project's own `.codex/config.toml`, which a pull request can add. A Codex session's
-own record of a review opens with `AGENTS.md instructions for <the directory it ran in>` whichever
-file supplied them, so it shows that instructions were loaded, not which file they came from.
+A reviewer reads instructions and configuration from the tree it runs in, and the round runs it in a
+worktree at the pull request's head. A pull request that adds or edits such a file hands the reviewer
+instructions nobody has reviewed: one line can tell it to grade everything P3. Filtering the diff for
+the files that matter does not converge. Every filter tried here missed another way in: a configured
+fallback name, a symbolic link whose target changed, a setting that names another file, a name with a
+space in it. So the channel is cut instead.
 
-The round runs in a worktree at the pull request's head, so a pull request that adds or edits any of
-those files hands the reviewer instructions nobody has reviewed: one line can tell it to grade
-everything P3. A round over such a diff is not independent until a person has read those changes
-and recorded that in the round's record.
+**Run the reviewer so that it takes nothing from the tree.** For Codex, read from its source at
+`openai/codex@fbb2f9d`:
 
-Build the list from the reviewer, not from this page: every name its active configuration loads,
-from every layer that applies to the run — or, for a reviewer whose session record names each
-instruction file it loaded, that list. The reviewer's configuration in the tree, for Codex anything
-under `.codex/`, is on the list whatever it says, because it can change the list; and where a file
-on the list is a symbolic link, its target is on it too. When the list cannot be established — a
-layer you cannot read, an override you did not see, a reviewer that does not say — fail closed:
-every instruction-like file the diff touches counts, and a person reads each one. Record which list
-the round used.
+- Its project instruction files — `AGENTS.override.md`, `AGENTS.md` and each
+  `project_doc_fallback_filenames` name (`codex-rs/core/src/agents_md.rs:272-296`) — are read only
+  while `project_doc_max_bytes` is above zero; at zero, none is (`agents_md.rs:68-72`, `:133-135`). A
+  `-c` flag is a session layer, which outranks a project's (`codex-rs/config/src/config_layer_source.rs:46-47`),
+  so nothing in the tree can raise it again. The user's own instructions, in `$CODEX_HOME`, still apply.
+- A `.codex/` directory between the project root and where it runs is a configuration layer of its
+  own (`codex-rs/config/src/loader/mod.rs:1705-1725`). It can set `model_instructions_file`
+  (`codex-rs/config/src/config_toml.rs:275`), which is not among the keys Codex strips from a project
+  layer (`loader/mod.rs:89-102`), and no flag turns the layer off.
+- A `.agents/skills/` directory there is read as a root of skills
+  (`codex-rs/ext/skills/src/host_roots.rs:24-25`, `:137-185`).
+
+So the recipe runs `codex exec review -c project_doc_max_bytes=0` from the root of the tree, which is
+also its project root (its `.git` is the default marker), and `review_round` refuses a tree that holds
+`.codex` or `.agents` there, before the reviewer starts. A round run that way took no instructions
+from the tree, and this line holds with nothing more to read. Check these facts again against the
+Codex you run when its version changes.
+
+**When the reviewer cannot be told to ignore the tree** — another reviewer, a tree the round refused,
+a Codex that no longer works this way — a person reads every change the diff makes to a file any
+reviewer could take as instructions or configuration, every symbolic link it adds, changes or
+removes, and every configuration file the reviewer reads, and records that in the round's record. No
+list of names decides what is read: every file the diff touches is listed, and the person judges each.
 
 ```bash
-# instruction_files <recorded base> <reviewed sha> [name...]: the files the pull request changed that
-# can carry the reviewer's instructions. Pass every name its active configuration loads, for Codex
-# AGENTS.override.md, AGENTS.md and each project_doc_fallback_filenames entry. With no name it fails
-# closed, onto every instruction-like file. .codex/ and any path git had to quote are listed either way.
-instruction_files() {
-  local changed
-  changed=$(git -c core.quotePath=false diff --name-only --no-renames "$1...$2") || { echo "CANNOT TELL: the diff could not be listed"; return 1; }
-  printf '%s\n' "$changed" | NAMES="${*:3}" awk '
-    { path = tolower("/" $0); file = path; sub(/.*\//, "", file)
-      hit = path ~ /\/\.codex\// || substr($0, 1, 1) == "\""
-      n = split(tolower(ENVIRON["NAMES"]), name, " ")
-      for (i = 1; i <= n; i++) if (file == name[i]) hit = 1
-      if (n == 0 && path ~ /\/(agents|claude)[^\/]*\.md$|\/\.(cursorrules|clinerules|windsurfrules)$|\/\.github\/copilot-instructions\.md$|\/\.(agents|claude|cursor|windsurf)\/|\/\.github\/instructions\//) hit = 1
-      if (hit) print }'
-}
-instruction_files <recorded base> <reviewed sha> AGENTS.override.md AGENTS.md CLAUDE.md   # this run's names
+git diff --name-status --no-renames <recorded base>...<reviewed sha>   # every file the diff touches
+git diff --raw --no-renames <recorded base>...<reviewed sha> | grep -E '^:(120000 [0-7]{6}|[0-7]{6} 120000) '   # every symbolic link
 ```
-
-Every path it prints is read by a person before the merge, and the record says so. It prints nothing
-only when the diff touches none of them; `CANNOT TELL` is not that, and stops the merge like a hit.
-Names are compared without regard to case, as a case-insensitive file system would find them, and
-with no name given it lists the instruction files of some common agents: `AGENTS*.md`, `CLAUDE*.md`,
-`.cursorrules`, `.clinerules`, `.windsurfrules`, `.github/copilot-instructions.md`, and anything
-under `.agents/`, `.claude/`, `.cursor/`, `.windsurf/` or `.github/instructions/`. That list is a
-floor, not a definition: any other file in the diff written for an agent to read — another tool's
-instructions or configuration — is read by a person as well.
 
 ## The merge
 

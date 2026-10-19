@@ -61,14 +61,15 @@ case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute p
 final="$REVIEW_LOGS/round-3.final.txt"
 rm -f "$final"
 base=$(git rev-parse origin/main)   # recorded once; the reviewer gets this sha, never the name to resolve
-codex exec review --base "$base" -o "$final" > "$REVIEW_LOGS/round-3.log" 2>&1 &
+codex exec review -c project_doc_max_bytes=0 --base "$base" -o "$final" > "$REVIEW_LOGS/round-3.log" 2>&1 &
 wait $! || echo "ROUND FAILED: the reviewer exited non-zero"
 grep -q '[^[:space:]]' "$final" 2>/dev/null || echo "ROUND FAILED: no final review was written"
 ```
 
 The skill's `review_round` does all of this, refuses a log directory inside the tree under review
-or any worktree of the checkout, refuses a base that is not a sha, and removes the final review of a
-round that failed, so no later step can read one. Codex resolves `--base` with
+or any worktree of the checkout, refuses a base that is not a sha, refuses a tree holding `.codex`
+or `.agents`, and removes the final review of a round that failed, so no later step can read one.
+Codex resolves `--base` with
 `git rev-parse --verify` when the review starts, and for a branch with an upstream that is ahead it
 takes the upstream instead (read from its source). A sha resolves to itself and has no upstream, so
 the diff is taken from the merge base of the head and the commit the round recorded.
