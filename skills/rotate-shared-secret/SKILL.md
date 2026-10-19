@@ -143,10 +143,11 @@ every one. Short of that, a step that needs it waits, and a retirement already d
    must match exactly: the same count, and the same first and last second. Where the senders send a
    delivery id and the receiver logs it, match the ids one to one instead: that is proof, provided
    each id is counted — as many times on one side as on the other, normally once — so that a
-   repeated request cannot hide behind its original. Without ids, the count and endpoints are
-   aggregate evidence, not proof — a lost delivery and an unknown request in the middle of the
-   window cancel exactly — and the record says so. If the receiver logs the slot, every request in
-   the window must have matched `next`. Then search code and configuration for any other sender —
+   repeated request cannot hide behind its original, and every row is an id: a blank row or a
+   placeholder such as `null` is no evidence. Without ids, the count and endpoints are aggregate
+   evidence, not proof — a lost delivery and an unknown request in the middle of the window cancel
+   exactly — and the record says so. If the receiver logs the slot, every request in the window
+   must have matched `next`. Then search code and configuration for any other sender —
    repositories, CI, schedulers, database definitions, provider dashboards, runbooks with example
    requests. State what the evidence cannot see: the log retention, any paging the tools needed,
    and whether the logs identify the caller at all

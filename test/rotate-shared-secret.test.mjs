@@ -470,3 +470,39 @@ test('copies are compared byte for byte: same, DIFFERENT or READ ERROR, and a tr
   }
   assert.match(exampleBash, /^set \+x -o pipefail$/m, 'the example does not switch tracing off');
 });
+
+// Follow-ups to #99, from Codex's final round at fde8f7d: one P1 and three P2s. Each is fixed by
+// class and fails closed, and each test below runs the skill's own shell where there is shell to run.
+
+// [P1] A blank, whitespace-only or placeholder row passed the non-empty check, so two extractions
+// that failed the same way (every row `null`, say) printed a match. Any such row is no evidence.
+test('the id comparison refuses blank, whitespace and placeholder rows: no evidence, never a match', async () => {
+  const cases = [
+    ['whitespace-only rows', '   \n', '   \n'],
+    ['a tab row among ids', 'd-1\n\t\n', 'd-1\n\t\n'],
+    ['a blank row between ids', 'd-1\n\nd-2\n', 'd-1\n\nd-2\n'],
+    ['an id with trailing whitespace', 'd-1 \n', 'd-1 \n'],
+    ['CRLF line endings', 'd-1\r\n', 'd-1\r\n'],
+  ];
+  for (const placeholder of ['null', 'NULL', 'None', 'nil', 'undefined', 'NaN', '-', '\\N', '(null)', '""']) {
+    cases.push([`every row ${placeholder}`, `${placeholder}\n${placeholder}\n`, `${placeholder}\n${placeholder}\n`]);
+    cases.push([`one row ${placeholder} among ids`, `d-1\n${placeholder}\n`, `${placeholder}\nd-1\n`]);
+  }
+  for (const [why, receiverIds, senderIds] of cases) {
+    const result = await compareIds(receiverIds, senderIds);
+    assert.ok(!result.matched, `${why} printed a match`);
+    assert.notEqual(result.status, 0, `${why} reported success`);
+    assert.match(result.out, /NO EVIDENCE: a row is blank, holds whitespace or is a placeholder/, `${why} was not reported as no evidence: ${result.out}`);
+  }
+  // A row check that could not read its input is no evidence either, never a pass.
+  const unread = await compareIds(['d-1'], ['d-1'], 'grep() { if [ "$1" = -Eiq ]; then return 2; fi; command grep "$@"; }');
+  assert.ok(!unread.matched && unread.status !== 0, 'a row check that failed let the comparison through');
+  assert.match(unread.out, /NO EVIDENCE/);
+  // Silence control: real ids that merely contain a placeholder still match.
+  const ids = ['null-1', 'd-none', 'nan0', '-1x', 'N', 'undefined-7', 'x-nil'];
+  const control = await compareIds(ids, [...ids].reverse());
+  assert.ok(control.matched && control.status === 0, `real ids containing a placeholder were refused: ${control.out}`);
+  assert.match(reconcile, /So is any row that is not an id — blank, holding whitespace, or a placeholder such as `null`, `-` or `\\N`/);
+  assert.match(procedureSteps(skill)[4], /every row is an id: a blank row or a placeholder such as `null` is no evidence/);
+  assert.ok(read('references/proving-no-other-caller.md').includes('| A blank row, or a placeholder such as `null` or `-`, among the ids |'), 'no table row for a placeholder id');
+});
