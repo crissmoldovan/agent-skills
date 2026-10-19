@@ -212,9 +212,9 @@ unmeasurable question is ceremony around a guess.
    control arm alone on the items the plan named for this stage, and compare its answers with what
    production stored for them, against the pass rule the plan gave. Check the provider that served
    every call against the pin. The stage spends only within its own cap, inside the study's, and
-   the guard enforces that cap at every admission. A
-   control that fails its pass rule stops the study here, with an addendum, because everything
-   measured against it would compare two systems neither of which is production's.
+   the guard enforces that cap at every admission. A control that fails its pass rule stops the
+   study here, with an addendum, because everything measured against it would compare two systems
+   neither of which is production's.
    **Complete when:** the stage ran under its own cap, its plan committed before its first call;
    every call was served by the pinned provider; and the result against its pass rule is committed
    — or the study stopped with an addendum saying why.
@@ -371,10 +371,9 @@ the difference the control produces against itself.
 Model B hallucinates slightly less than A (3.9% vs 4.1%) and costs 60% less, so it's the winner.
 ```
 
-No predicate, so nobody can tell what the 3.9% is a share of. No interval and no A/A distribution,
-so a 0.2-point gap could be the control disagreeing with itself. "Winner" comes from a non-inferiority bar that only ever asked
-whether B was safe to switch to. No judge is visible, so it may rest on one judge's taste. And
-nothing says where either number can be rebuilt.
+No predicate: nobody can tell what the 3.9% is a share of. No interval or A/A distribution: the gap
+could be the control disagreeing with itself. "Winner" answers a bar that only asked whether B was
+safe to switch to. No judge is visible, so it may rest on one judge's taste; no number is rebuilt.
 
 ## Pitfalls
 
@@ -412,15 +411,11 @@ nothing says where either number can be rebuilt.
 - **One A/A pair taken as the noise floor.** Two runs are one draw of how far the control differs
   from itself. Treated as a hard floor, it vetoes real differences on a lucky draw and passes
   noise on an unlucky one.
-- **A manifest that missed a file.** A file read from another study changed underneath, and the
-  reproduction still passed because the manifest never listed it.
-- **A module that shadows another.** A study module named like a standard-library module, or like
-  another study's module, makes the reproduction depend on the directory it was started from.
+- **A reproduction that read more than its manifest.** A file read from another study changed
+  underneath, unlisted; a module named like a standard-library one, or another study's, ran
+  different code depending on the directory the reproduction was started from.
 - **The silent repair.** A number corrected in place with no record spends the trust every other
   number depends on.
-- **A percentage with no predicate.** The same rate over "all items", "items with an answer" and
-  "items whose source determines the answer" can differ several-fold. Without the predicate, the
-  number cannot be compared with anything.
 
 ## Verification
 
@@ -481,9 +476,7 @@ nothing says where either number can be rebuilt.
   templates, the shape of `reproduce.sh` and the manifest, and what the report and the audit carry.
 - [The budget guard](references/budget-guard.md): its single-process scope, the parts, a sketch of
   the admission path, the restart, and how to arm each part.
-- [Parity and controls](references/parity-and-controls.md): request parity offline in the dry run,
-  output parity as a capped paid stage, pinning providers, the A/A distribution, the layout-only
-  control, and interleaving.
-- [Judging and metrics](references/judging-and-metrics.md): the panel, provenance tags and the
-  source-only reading, reporting each judge alone, the shortcut and its exactness test, invention,
-  denominators and predicates.
+- [Parity and controls](references/parity-and-controls.md): request and output parity, pinning
+  providers, the A/A distribution, the layout-only control, and interleaving.
+- [Judging and metrics](references/judging-and-metrics.md): the panel, provenance, each judge alone,
+  the shortcut and its exactness test, invention, denominators and predicates.
