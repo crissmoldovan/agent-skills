@@ -196,9 +196,13 @@ step, package, gate or adapter changes. It does not declare `## Bindings`.
 **What.** A new skill, `codex-review-loop`, runs an independent AI reviewer over a pull request in
 rounds — `codex review --base origin/main` in its examples, any reviewer that reviews a diff against
 a base and grades its findings in practice. Each round reviews a fresh worktree checked out at the
-pushed sha, never the checkout, and removes it when the round ends. A round counts only when the
-reviewer exited zero and wrote a non-empty final review — taken from the file `codex exec review -o`
-writes, never cut from the log; anything else is a failed round, run again. Every finding is checked
+pushed sha, never the checkout, checks it again after the reviewer exits — a tree the reviewer wrote
+into or moved fails the round before anything is pinned — and removes it when the round ends. The
+reviewer is given the base as the sha the round recorded, never a branch name it would resolve for
+itself, and its log directory must lie outside every worktree of the checkout. A round counts only
+when the reviewer exited zero and wrote a non-empty final review — taken from the file
+`codex exec review -o` writes, never cut from the log; anything else is a failed round, run again.
+Every finding is checked
 against the code before anyone acts on it. Every finding above the lowest grade of the reviewer's
 declared scale (P0 to P2, for the Codex CLI's P0 to P3) is fixed with a check watched failing under
 a deliberate break and restored from a byte copy. Each finding's effect on published numbers is
@@ -207,8 +211,11 @@ on a round with only lowest-grade findings, by deferring them or by fixing them 
 confirmation round, and splits the pull request when rounds keep finding new kinds of bug. The merge
 is a person's act, after a checklist: the head is the one the final round reviewed and no earlier
 round left unfixed, every finding has a complete disposition, the base has not moved since the
-review, the required checks passed, and any change to the reviewer's own instruction files was read
-by a person; then the merge runs pinned with `--match-head-commit`.
+review, the required checks passed, and any change to a file the reviewer takes instructions from was
+read by a person — the names its active configuration loads (for Codex, `AGENTS.override.md`,
+`AGENTS.md` and every `project_doc_fallback_filenames` entry) and its configuration in the tree, or,
+where that list cannot be established, every instruction-like file the diff touches; then the merge
+runs pinned with `--match-head-commit`.
 
 **Why.** It generalises a review loop one team ran for many rounds on its own pull requests,
 including the mistakes that loop made, with every name and identifier taken out.
