@@ -253,9 +253,12 @@ names for each key; a provider that cannot name it is out of scope, since a bill
 in the plan binds no key), any other paid credential and a client library that retries on its own;
 reserves every billable unit of each call — tokens, per-request fees, images, audio, hosted search,
 tool invocations — at a ceiling price, for every attempt, against the study's cap and the call's
-stage cap; reads the account's balance, never a key's own limit, before every admission, takes off
-everything the study has settled as possibly not shown yet, and latches the floor, failing closed
-when a read fails, or records the floor as unavailable where the provider has none; settles each
+stage cap; keeps a balance floor only on an account that is the study's alone — the research key its
+only key, no charge from before the study — since a shared account's lagging balance can miss
+charges no ledger of the study's holds; there it reads the account's balance, never a key's own
+limit, before every admission, takes off everything the study has settled as possibly not shown yet,
+and latches the floor, failing closed when a read fails; on a shared account, or where the provider
+has no balance, it records the floor as unavailable and the hard caps govern alone; settles each
 call before the next at the larger of list and reported cost per attempt, latching on a settlement
 above its reservation and closing that ledger; and on restart re-derives every total and invariant
 from its ledger. Concurrency is out of scope. The control's disagreement with itself is estimated as

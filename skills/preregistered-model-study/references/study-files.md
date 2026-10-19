@@ -75,13 +75,14 @@ Output parity (the first paid stage):
             stored answers, and how it is measured>; stage cap <amount>, inside the study cap.
             A fail stops the study with an addendum.
 Budget:     study cap <amount>; stage caps: output parity <amount>, main run <amount>, judging
-            <amount>; balance floor <amount>, read before every admission (or "unavailable":
-            no balance endpoint); ceiling price per model = the largest of list, list + <margin>%,
-            and the provider's maximum, for every billable unit (tokens, per-request fees, images,
-            audio, hosted search, tool invocations), each capped in the request; one research
-            account (one key, one balance) for every paid call, arms and judges alike, shown not
-            to be production's by the account identity the provider names for each key; one
-            paying process holding an operating-system lock, calls one at a time.
+            <amount>; balance floor <amount>, read before every admission, on an account that is
+            the study's alone (or "unavailable": no balance endpoint, or a shared account); ceiling
+            price per model = the largest of list, list + <margin>%, and the provider's maximum,
+            for every billable unit (tokens, per-request fees, images, audio, hosted search, tool
+            invocations), each capped in the request; one research account (one key, one
+            balance) for every paid call, arms and judges alike, shown not to be production's by
+            the account identity the provider names for each key; one paying process holding an
+            operating-system lock, calls one at a time.
 Stop rule:  stop and write an addendum if <condition>.
 Not covered: <item types, providers, volumes this study will not speak to>
 ```
@@ -239,9 +240,11 @@ arm appears in every chart, the control included.
 The audit is written for the next person to doubt the result. It carries:
 
 - a stage-by-stage timeline, with the commit each stage ran from;
-- the commit that added the PLAN, the FREEZE, the dry run, the manifest and each addendum, the push
-  that carried it, and the time of the first paid call after each — recorded once those commits
-  exist, since none of those files can name its own;
+- the commit that added the PLAN, the FREEZE, the dry run and each addendum, the push that carried
+  it, and the time of the first paid call after each — recorded once those commits exist, since
+  none of those files can name its own;
+- the commit and push that added the manifest, with "no later call" in place of a call time: it is
+  written after the calls, so first-call times belong to the files above, which precede them;
 - the spend per stage, from the guard's ledger, against that stage's cap and the study's;
 - every failure — a refused call, a malformed response, a timeout — and how it was scored;
 - every correction, with the outputs before and after, and the addendum or review record that

@@ -116,18 +116,27 @@ bound: the guard latches, writes STOP and closes the ledger (part 6).
 
 ### 4. A balance floor, read before every admission, that latches
 
-Where the provider exposes the research account's remaining balance, the guard reads it **before
-every admission** — nothing else is in flight at that moment, so the read describes the state the
-call will start from.
+The floor holds only on an account that is the study's alone. There, where the provider exposes
+the account's remaining balance, the guard reads it **before every admission** — nothing else is in
+flight at that moment, so the read describes the state the call will start from.
 
+- **Only an account that is the study's alone.** A balance read can lag, and on a shared account the
+  charges it is missing need not be the study's: another key's, or ones from before the study. No
+  ledger of the study's can subtract those, so the test below is no lower bound there: a balance
+  read stale at 120 against a true 100, with a floor of 90, admits a call of 15 and leaves 85. The
+  floor therefore counts only where the research key is the only key the provider lists on the
+  account and the account carries no charge from before the study — in practice, a new account
+  funded for the study. A time stamped on the balance does not rescue a shared account, because
+  another key can spend after it. Anywhere else the floor is unavailable, and the guard refuses to
+  start on a plan that claims one.
 - **The account's balance, never a key's limit.** A key's remaining spend limit can read healthy
-  while the account it draws on is nearly empty, because other keys spend the same credits (part 1).
-  A provider that reports only a per-key limit has no balance endpoint for this guard.
+  while the account it draws on is nearly empty, because credits are account-wide (part 1). A
+  provider that reports only a per-key limit has no balance endpoint for this guard.
 - **A call that would cross the floor is not admitted.** The admission needs
-  `balance - unseen_spend - reserved - worst(call) >= floor`. A balance can lag the calls billed to
-  it, and a time stamped on it does not say which charges it includes, so the guard assumes it shows
-  none of the study's spend: `unseen_spend` is every cost the study has settled, in this ledger and
-  in any ledger it closed (part 6). Against a balance that is current, that counts the spend twice
+  `balance - unseen_spend - reserved - worst(call) >= floor`. On an account that is the study's
+  alone, every charge a lagging balance may not show yet is the study's own, and no time stamped on
+  the balance says which it includes, so the guard assumes it shows none of them: `unseen_spend` is
+  every cost the study has settled, in this ledger and in any ledger it closed (part 6). Against a balance that is current, that counts the spend twice
   and halves the room between the starting balance and the floor, which fails closed; set the floor
   and the caps with it in mind. `reserved` is every reservation still standing: a call whose
   outcome is unknown (part 5), or one a crashed run left unsettled (part 6), may have been billed
@@ -141,8 +150,9 @@ call will start from.
 - **A read that fails is a breach.** A balance that could not be read is treated as one below the
   floor: fail closed.
 
-Where the provider exposes no balance, record in the plan that the floor is unavailable. The study
-and stage caps then govern alone, and should be set with that in mind.
+Where the provider exposes no balance, or the account is not the study's alone, record in the plan
+that the floor is unavailable. The study and stage caps then govern alone — they are the hard limit
+in every study — and should be set with that in mind.
 
 ### 5. Settle each call, and write it down before the next
 
@@ -216,6 +226,7 @@ start():
     refuse if the research key equals production's              # compared by hash, never printed
     refuse if the harness holds any paid credential but the research key   # one account, one balance
     refuse if the client library retries on its own             # every attempt is one the harness makes
+    refuse if the plan has a floor and the account is not the study's alone   # a shared balance bounds nothing
     spent, stage_spent[s]       = sums of the settled rows       # restore from the ledger
     unseen_spend                = spent + all that any ledger this study closed settled   # no balance is assumed to show it
     reserved, stage_reserved[s] = worst cases of reservations with no settlement   # never released here
@@ -277,6 +288,7 @@ call and no real key:
 | Lagging balance | settle a call, then stub a balance that does not show it, and admit a call that fits only if that settled cost is forgotten | latches and refuses: every settled cost comes off the balance |
 | Read failure | stub the balance read to fail | latches and refuses: an unreadable balance is a breach |
 | No balance endpoint | run with the floor marked unavailable; admit a call that fits the caps | admitted on the caps alone |
+| Floor on a shared account | plan a floor on an account that lists a second key, or carries a charge from before the study | refuses at start-up: the floor is unavailable there |
 | Settlement above the reservation | settle a call whose reported cost exceeds its reservation | latches, writes STOP, refuses the next admission |
 | Thrown call | make the send throw after the reservation row is written, catch it, and admit the next call | the thrown call's worst case still counts against the study and stage caps; nothing released it |
 | Restart | kill the process after a reservation row and before its settlement, then start another | the unsettled reservation counts at its worst case, for the study and its stage; settled totals are restored per stage |

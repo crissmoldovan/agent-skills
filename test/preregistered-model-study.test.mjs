@@ -427,12 +427,12 @@ test('the checklist allows exactly what the procedure allows', () => {
   const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
   const budgetItem = prerequisiteItems(skill).find((item) => /^6\. /.test(item));
   // No balance endpoint: the compatibility line, the floor rule and the prerequisite all allow it.
-  assert.match(frontmatterOf(skill), /with no balance endpoint the floor is recorded as unavailable/);
-  assert.match(steps[1], /With no balance endpoint, the plan says the floor is unavailable/);
+  assert.match(frontmatterOf(skill), /on a shared account or with no balance endpoint the floor is recorded as unavailable/);
+  assert.match(steps[1], /On a shared account, or with no balance endpoint, the plan says the floor is unavailable/);
   assert.match(budgetItem, /the floor recorded as unavailable/);
   assert.match(budgetItem, /\*\*Complete when:\*\* the cap is a number someone agreed to, and the floor is one too or is recorded as unavailable/);
   assert.doesNotMatch(budgetItem, /both are numbers someone agreed to/, 'the prerequisite demands a numeric floor again');
-  assert.match(checklist, /where none exists, the plan records the floor as unavailable/);
+  assert.match(checklist, /elsewhere the plan records the floor as unavailable and the caps govern alone/);
   // A change found after its calls ran is a correction, never backdated.
   assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated, and what it invalidates counts toward no verdict until redone\./);
   assert.match(steps[6], /each found after them is marked as a correction to them, never backdated/);
@@ -551,7 +551,7 @@ test('only the provider binds the research key to its account; a record in the p
 // Round 7 on #101 (P1): a lagging balance endpoint with no complete-through watermark cannot say
 // which settled spend it already shows. The guard trusts no timestamp: every settled cost comes off.
 test('the floor assumes the balance shows none of the study\'s spend, and trusts no timestamp on it', () => {
-  assert.match(budget, /a time stamped on it does not say which charges it includes, so the guard assumes it shows none of the study's spend: `unseen_spend` is every cost the study has settled, in this ledger and in any ledger it closed \(part 6\)/);
+  assert.match(budget, /no time stamped on the balance says which it includes, so the guard assumes it shows none of them: `unseen_spend` is every cost the study has settled, in this ledger and in any ledger it closed \(part 6\)/);
   assert.doesNotMatch(budget, /as-of time|as of a time|watermark|settled since the balance/, 'the floor trusts a timestamp on the balance again');
   assert.match(budget, /where there is a floor, `unseen_spend` goes on counting everything the closed ledger settled/);
   const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
@@ -631,7 +631,7 @@ test('the manifest does not list itself; the pushed commit that adds it anchors 
   const raw = read('references/study-files.md');
   assert.match(raw, /MANIFEST\.sha256 +a checksum for every other file reproduce\.sh reads; never for itself/);
   assert.match(files, /The manifest does not list itself: a file cannot hold its own checksum, because writing it in changes the file\. It is anchored the way the plan is, by the commit that adds it and the push that carries it/);
-  assert.match(files, /the commit that added the PLAN, the FREEZE, the dry run, the manifest and each addendum/);
+  assert.match(files, /the commit and push that added the manifest/);
   const tenth = procedureSteps(skill)[9];
   assert.match(tenth, /A checksum manifest lists every file it consumes, including files read from other studies, but itself, which its pushed commit anchors/);
   assert.match(tenth, /the manifest covers every other file the run opened/);
@@ -663,4 +663,40 @@ test('an addendum re-runs its offline gates before any call, then output parity 
   assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it and output parity after it where a request changed/);
   assert.match(checklist, /its offline gates re-run with it and output parity after it where a request changed/);
   assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it, then, where it changes a request, output parity run again as its first paid stage under a cap and pass rule it registers/);
+});
+
+// Codex round 2 on #104 (P1): subtracting the study's own settled spend is no lower bound on a shared
+// account, whose lagging balance can miss another key's charges or ones from before the study. The
+// floor counts only on an account that is the study's alone; anywhere else it is unavailable.
+test('the floor counts only on an account that is the study\'s alone; elsewhere it is unavailable and the caps govern', () => {
+  assert.match(budget, /The floor holds only on an account that is the study's alone\./);
+  assert.match(budget, /\*\*Only an account that is the study's alone\.\*\* A balance read can lag, and on a shared account the charges it is missing need not be the study's: another key's, or ones from before the study\. No ledger of the study's can subtract those/);
+  assert.match(budget, /a balance read stale at 120 against a true 100, with a floor of 90, admits a call of 15 and leaves 85/);
+  assert.match(budget, /The floor therefore counts only where the research key is the only key the provider lists on the account and the account carries no charge from before the study/);
+  assert.match(budget, /A time stamped on the balance does not rescue a shared account, because another key can spend after it\. Anywhere else the floor is unavailable, and the guard refuses to start on a plan that claims one/);
+  assert.match(budget, /Where the provider exposes no balance, or the account is not the study's alone, record in the plan that the floor is unavailable\. The study and stage caps then govern alone/);
+  const start = guardPath.slice(0, guardPath.indexOf('call(c):'));
+  assert.match(start, /refuse if the plan has a floor and the account is not the study's alone/);
+  assert.match(guardDoc, /\| Floor on a shared account \| plan a floor on an account that lists a second key, or carries a charge from before the study \| refuses at start-up: the floor is unavailable there \|/);
+  assert.match(procedureSteps(skill)[1], /\*\*A balance floor, read before every admission, that latches\*\*, only on an account that is the study's alone: the research key its only key, no charge from before the study/);
+  assert.match(procedureSteps(skill)[1], /On a shared account, or with no balance endpoint, the plan says the floor is unavailable and the hard caps govern alone/);
+  assert.match(prerequisiteItems(skill).find((item) => /^6\. /.test(item)), /or, with no balance endpoint or on an account not the study's alone, the floor recorded as unavailable/);
+  assert.match(checklist, /On an account that is the study's alone, with a balance endpoint, the account's balance was read before every admission/);
+  assert.match(frontmatterOf(skill), /on a shared account or with no balance endpoint the floor is recorded as unavailable/);
+  assert.match(files, /balance floor <amount>, read before every admission, on an account that is the study's alone \(or "unavailable": no balance endpoint, or a shared account\)/);
+  assert.match(releases, /keeps a balance floor only on an account that is the study's alone/);
+  assert.match(releases, /on a shared account, or where the provider has no balance, it records the floor as unavailable and the hard caps govern alone/);
+});
+
+// Codex round 2 on #104 (P2): the manifest is written after the calls, so "the first paid call after"
+// it does not normally exist. The audit records its commit and push only; call times belong to the
+// preregistration files, which precede the calls.
+test('the audit times the first call after each preregistration file, and records the manifest by commit and push only', () => {
+  const raw = read('references/study-files.md');
+  const audit = raw.slice(raw.indexOf('The audit is written for the next person to doubt the result.')).replace(/\s+/g, ' ');
+  assert.match(audit, /- the commit that added the PLAN, the FREEZE, the dry run and each addendum, the push that carried it, and the time of the first paid call after each/);
+  assert.match(audit, /- the commit and push that added the manifest, with "no later call" in place of a call time: it is written after the calls, so first-call times belong to the files above, which precede them/);
+  const timed = audit.slice(audit.indexOf('- the commit that added the PLAN'), audit.indexOf('- the commit and push that added the manifest'));
+  assert.ok(timed.length > 0, 'the audit no longer separates the preregistration files from the manifest');
+  assert.doesNotMatch(timed, /manifest/, 'the manifest is timed against a later paid call again');
 });

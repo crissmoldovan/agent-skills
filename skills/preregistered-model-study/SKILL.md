@@ -2,7 +2,7 @@
 name: preregistered-model-study
 description: "Run a model or prompt comparison whose verdict can be trusted: before any paid call, commit the plan, a freeze of every input by hash, and a dry run proving each arm differs from production only where intended; put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them; cap the spend in code; prove the harness reproduces production before measuring; judge with three vendors who can see where each piece of evidence came from; and ship a reproduce script and checksum manifest that rebuild every number offline. Symptoms: compare these models, is the cheaper model good enough, bake-off, A/B this prompt, run an eval before we switch, can we trust this benchmark, the study overspent, the judge rewarded an answer that made things up. Which model runs everyday work is model-routing's; the review round on each study pull request is codex-review-loop's."
 license: MIT
-compatibility: "Any harness that can run scripts and commit to a repository. Every paid call goes through one research account, not production's: one key, one balance, such as a multi-vendor gateway, reporting each call's cost and the key's account; with no balance endpoint the floor is recorded as unavailable. Judging needs three vendors' models on that account. Output is a committed study directory: plan, freeze, addenda, raw responses, scores, report, a reproduce script and a checksum manifest."
+compatibility: "Any harness that can run scripts and commit to a repository. Every paid call goes through one research account, not production's: one key, one balance, reporting each call's cost and the key's account; on a shared account or with no balance endpoint the floor is recorded as unavailable. Judging needs three vendors' models on that account. Output is a committed study directory: plan, freeze, addenda, raw responses, scores, report, a reproduce script and a checksum manifest."
 metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
@@ -103,13 +103,13 @@ unmeasurable question is ceremony around a guess.
    credential.
 4. **A study directory under version control.** Everything the study writes lands there and is
    committed, as prerequisite 7 allows: plan, freeze, addenda, raw responses, scores, report.
-   **Complete when:** the directory exists on a branch, and the plan is in the study's first
-   commit.
+   **Complete when:** the directory exists on a branch, and the plan is in its first commit.
 5. **Three judges from three vendors.** The plan says which judge, if any, shares a vendor with
    which arm, because every judge is also reported alone.
    **Complete when:** each judge is reachable, and each is named in the plan with its vendor.
 6. **A budget, agreed in numbers.** A study cap, and a floor on the account's remaining balance —
-   or, where the provider has no balance endpoint, the floor recorded as unavailable.
+   or, with no balance endpoint or on an account not the study's alone, the floor recorded as
+   unavailable.
    **Complete when:** the cap is a number someone agreed to, and the floor is one too or is recorded
    as unavailable, both in the plan.
 7. **The data classified.** Production requests, items and responses can carry customer data,
@@ -158,12 +158,14 @@ unmeasurable question is ceremony around a guess.
      only while `spent + reserved + worst <= cap`, and while its stage — output parity, the main
      run, judging — stays within its own pre-registered cap too. A cap checked after the call is a
      report, not a cap.
-   - **A balance floor, read before every admission, that latches.** A call is admitted only if
-     the account's balance just read — never a key's own limit — less everything the study has
-     settled, which no balance is assumed to show yet, and every reservation still standing, stays
-     at or above the floor after the call's worst case. A read below that, or a read that fails,
-     latches the run and writes a STOP flag with the reason; a later, healthier read does not lift
-     it. With no balance endpoint, the plan says the floor is unavailable and the caps govern alone.
+   - **A balance floor, read before every admission, that latches**, only on an account that is the
+     study's alone: the research key its only key, no charge from before the study. A call is
+     admitted only if the account's balance just read — never a key's own limit — less everything
+     the study has settled, which no balance is assumed to show yet, and every reservation still
+     standing, stays at or above the floor after the call's worst case. A read below that, or a read
+     that fails, latches the run and writes a STOP flag with the reason; a later, healthier read does
+     not lift it. On a shared account, or with no balance endpoint, the plan says the floor is
+     unavailable and the hard caps govern alone.
    - **Settle each call before the next.** The cost is the larger of the list-price and the
      provider-reported cost for every attempt, retries and failures included, summed. A settled
      cost above its reservation latches, writes STOP and closes the ledger: continuing takes an
@@ -442,10 +444,10 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
 - [ ] Before each call the guard reserved an upper bound on its bill — every billable unit at its
       bound and a ceiling price, for every attempt, the client library's own retries off — and
       checked the study cap and the call's stage cap; a unit with no cap or no price was refused.
-- [ ] Where a balance endpoint exists, the account's balance was read before every admission,
-      less everything the study settled, and a call that would cross the floor, a balance below it,
-      or a failed read latched the run and wrote STOP; where none exists, the plan records the floor
-      as unavailable.
+- [ ] On an account that is the study's alone, with a balance endpoint, the account's balance was
+      read before every admission, less everything the study settled, and a call that would cross
+      the floor, a balance below it, or a failed read latched the run and wrote STOP; elsewhere the
+      plan records the floor as unavailable and the caps govern alone.
 - [ ] Each call was settled, at the larger of list and reported cost per attempt, before the next
       admission; a settlement above its reservation latched the guard.
 - [ ] A restart restored the study's and every stage's totals from the ledger, with unsettled
@@ -456,10 +458,9 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
       production's own; every dry-run difference from production's request is intended.
 - [ ] Output parity ran as the first paid stage, under a cap and pass rule committed before its
       first call, and every call was served by the pinned provider.
-- [ ] The A/A distribution was estimated from repeated baseline runs or paired resampling, with
-      its interval; no single A/A pair was used as a floor or a veto; a layout-only control ran
-      where layout or caching could change; arms were interleaved per item; every arm had the same
-      inputs.
+- [ ] The A/A distribution was estimated from repeated baseline runs or paired resampling, with its
+      interval; no single A/A pair was used as a floor or a veto; a layout-only control ran where
+      layout or caching could change; arms were interleaved per item; every arm had the same inputs.
 - [ ] Every change after the first paid call has a dated addendum: one made before its calls was
       pushed before them, its offline gates re-run with it and output parity after it where a
       request changed; one found after them is marked as a correction, never backdated.
