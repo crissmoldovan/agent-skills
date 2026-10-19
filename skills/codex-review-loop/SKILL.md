@@ -21,8 +21,8 @@ This skill is the loop: what a round consists of, what each finding is owed, whe
 when it should stop and split instead, and what has to be true of the exact commit that merges. It
 is reviewer-agnostic. The examples use the Codex CLI, `codex review --base origin/main`, because
 that is a common reviewer that takes a base and grades its findings; any reviewer that does both
-fits. Its `exec` form, `codex exec review --base origin/main -o <file>`, also writes the final
-review to a file of its own, which is how the examples read it.
+fits. Its `exec` form, `codex exec review --base <base sha> -o <file>`, also writes the final
+review to a file of its own; the examples read it there, and pass the base as the sha recorded.
 
 ### What this skill does not own
 
@@ -86,20 +86,26 @@ skill says so and proposes a split, and the person who owns the work decides.
    never in the checkout. `git status --porcelain` does not list ignored files, and the reviewer
    reads them — generated configuration, build output — as if they were the commit. An uncommitted
    edit, an untracked or ignored file or an unpushed commit in the reviewed tree is reviewed and
-   never merged — or merged and never reviewed. The worktree goes when the round ends, however it ends.
+   never merged — or merged and never reviewed. Check the tree again when the reviewer exits: one
+   that wrote a file, ran a build or moved `HEAD` there reviewed something else, so the round fails
+   before anything is pinned. The worktree goes when the round ends, however it ends.
    **Complete when:** the round's record names the head and base shas, the remote branch points at
-   the head, the reviewer ran in a fresh worktree whose `git status --porcelain --ignored` was empty
-   at that sha, and the worktree and its directory are gone.
+   the head, the reviewer ran in a fresh worktree whose `HEAD` was that sha and whose
+   `git status --porcelain --ignored` was empty before the review and after it, and the worktree
+   and its directory are gone.
 
 2. **Start the reviewer in the background, writing to a file.** A review can take many minutes, and
    output read live from a terminal arrives interleaved and half-finished. For example:
-   `codex exec review --base origin/main -o "$REVIEW_LOGS/round-<n>.final.txt" > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`,
+   `codex exec review --base "$base" -o "$REVIEW_LOGS/round-<n>.final.txt" > "$REVIEW_LOGS/round-<n>.log" 2>&1 &`,
    with the final-review file removed first and each round number reserved once, atomically, so
-   nothing from an earlier or a concurrent round stands in for this one. The log directory is an absolute path, checked to lie outside the
-   reviewed tree and the checkout: a relative path would land the final review in the tree under
-   review, and a log in the checkout gets committed and quoted by a later round. Wait for the
-   process to exit before reading anything, and keep its exit status: a reviewer that exited
-   non-zero did not finish a review.
+   nothing from an earlier or a concurrent round stands in for this one. `$base` is the sha step 1
+   recorded, never a branch name: a reviewer given `origin/main` resolves it when it starts, and a
+   fetch in between moves it off the base the merge checklist compares. The log directory is an
+   absolute path, checked to lie outside the reviewed tree and every worktree of the checkout
+   (`git worktree list --porcelain`), the checkout included: a relative path would land the final
+   review in the tree under review, and a log in a worktree gets committed and quoted by a later
+   round. Wait for the process to exit before reading anything, and keep its exit status: a
+   reviewer that exited non-zero did not finish a review.
    **Complete when:** the reviewer exited zero, and its full output is in the round's log file — or
    the round is recorded as failed and run again as a new round.
 
@@ -260,21 +266,26 @@ split this PR so that the part that keeps failing gets its own branch.
 set -euo pipefail
 
 # One round of review. It never merges: the merge is a person's act, after step 14's checklist.
-# REVIEW_LOGS is absolute, outside this checkout and the review tree.
+# REVIEW_LOGS is absolute, outside the review tree and every worktree of this checkout.
 : "${ROUND:?set ROUND to the number of this round}"
 : "${REVIEW_LOGS:?set REVIEW_LOGS to an absolute directory outside the repository}"
 case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute path"; exit 1;; esac
 
 # A round counts only if the reviewer exited zero AND wrote a non-empty final review, which the exec
 # form writes, and only that, to the file -o names: no log marker can cut it. A failed round leaves none.
-review_round() {  # review_round <n> <tree>
-  local tree_abs top logs_abs log final
+review_round() {  # review_round <n> <tree> <base sha>
+  local tree_abs wts wt wt_abs logs_abs log final
   case "$REVIEW_LOGS" in /*) ;; *) echo "ROUND $1 REFUSED: REVIEW_LOGS must be an absolute path"; return 1;; esac
-  tree_abs=$(cd "$2" && pwd -P) && top=$(git rev-parse --show-toplevel) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
-  case "$logs_abs/" in "$tree_abs"/*|"$top"/*) echo "ROUND $1 REFUSED: REVIEW_LOGS is inside the reviewed tree or this checkout"; return 1;; esac
+  # The reviewer gets the recorded sha, never a name it would resolve for itself when it starts.
+  [[ "${3:-}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || { echo "ROUND $1 REFUSED: the base must be the recorded sha, not a name"; return 1; }
+  tree_abs=$(cd "$2" && pwd -P) && wts=$(git worktree list --porcelain) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
+  while IFS= read -r wt; do  # the reviewed tree, then every worktree of this checkout, the checkout included
+    wt_abs=$(cd "$wt" 2>/dev/null && pwd -P) || wt_abs=$wt
+    case "$logs_abs/" in "$wt_abs"/*|"$wt"/*) echo "ROUND $1 REFUSED: REVIEW_LOGS is inside the reviewed tree or a worktree of this checkout: $wt"; return 1;; esac
+  done < <(printf '%s\n' "$tree_abs"; printf '%s\n' "$wts" | sed -n 's/^worktree //p')
   log="$logs_abs/round-$1.log"; final="$logs_abs/round-$1.final.txt"
   rm -f "$final" "$logs_abs/round-$1.dispositions"  # nothing from an earlier run stands in for this one
-  (cd "$2" && codex exec review --base origin/main -o "$final") > "$log" 2>&1 &
+  (cd "$2" && codex exec review --base "$3" -o "$final") > "$log" 2>&1 &
   wait $! || { rm -f "$final"; echo "ROUND $1 FAILED: the reviewer exited non-zero; not a clean round"; return 1; }
   grep -q '[^[:space:]]' "$final" 2>/dev/null \
     || { rm -f "$final"; echo "ROUND $1 FAILED: no final review was written; not a clean round"; return 1; }
@@ -289,6 +300,11 @@ terminal_round() {  # terminal_round <n>
   [ -z "$other" ] || { echo "NOT TERMINAL: round $1 grades findings other than the lowest, P3:" $other; return 1; }
 }
 
+# The tree is exactly that commit: HEAD is the sha, and git lists nothing in it, ignored files included.
+exact_tree() {  # exact_tree <tree> <sha>
+  [ "$(git -C "$1" rev-parse HEAD)" = "$2" ] && [ -z "$(git -C "$1" status --porcelain --ignored)" ]
+}
+
 # A round number is reserved atomically, by mkdir, and never reused. Review exactly the pushed bytes in a
 # fresh detached worktree, never the checkout, whose ignored files `git status --porcelain` hides.
 mkdir -p "$REVIEW_LOGS" && mkdir "$REVIEW_LOGS/round-$ROUND.lock" 2>/dev/null || { echo "REFUSE: round $ROUND is taken: it ran, or is running; review as a new round"; exit 1; }
@@ -297,8 +313,10 @@ sha=$(git rev-parse '@{upstream}'); base=$(git rev-parse origin/main)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/review-tree.XXXXXX"); tree="$scratch/tree"
 trap 'git worktree remove --force "$tree" 2>/dev/null || rm -rf "$tree"; rm -rf "$scratch"; git worktree prune' EXIT
 git worktree add --detach "$tree" "$sha"
-[ -z "$(git -C "$tree" status --porcelain --ignored)" ] || { echo "REFUSE: the review tree is not exactly $sha"; exit 1; }
-review_round "$ROUND" "$tree"    # a failed round stops here, before anything is pinned
+exact_tree "$tree" "$sha" || { echo "REFUSE: the review tree is not exactly $sha"; exit 1; }
+review_round "$ROUND" "$tree" "$base"    # a failed round stops here, before anything is pinned
+# Check again: a reviewer that wrote into the tree, built there or moved HEAD reviewed something else.
+exact_tree "$tree" "$sha" || { rm -f "$REVIEW_LOGS/round-$ROUND.final.txt"; echo "ROUND $ROUND FAILED: the review tree changed while it was reviewed; nothing is pinned"; exit 1; }
 echo "$sha" > "$REVIEW_LOGS/round-$ROUND.head"; echo "$base" > "$REVIEW_LOGS/round-$ROUND.base"
 terminal_round "$ROUND"          # so does a round with P0-P2 findings left
 echo "Round $ROUND is terminal. Record a complete disposition per finding in round-$ROUND.dispositions; a review"
@@ -312,8 +330,8 @@ A specimen, not a prompt.
 ### A round's review record
 
 ```text
-Review round 3 — PR <number> — head <sha> against origin/main — posted on the pull request
-Reviewer: codex exec review --base origin/main -o <file>; final review from the -o file
+Review round 3 — PR <number> — head <sha> against origin/main at <base sha> — posted on the PR
+Reviewer: codex exec review --base <base sha> -o <file>; final review from the -o file
 
 [P1] The scorer counts a "does not apply" answer as an invention
   verified: yes — <file>:<line>; fixture item <id> reproduces it
@@ -380,7 +398,10 @@ earlier round is stated where the reader will see it.
   the push, or a file never committed, is reviewed and then never merged, and a commit not yet
   pushed is merged without the review having seen it on the branch. A checkout that holds only
   ignored files looks clean to `git status --porcelain` and is not. Review a fresh worktree at the
-  pushed sha, and remove it when the round ends: rounds that leave theirs pile up.
+  pushed sha, and remove it when the round ends: rounds that leave theirs pile up. A tree clean
+  before the review says nothing about the tree the reviewer left: check it again after it exits.
+- **A base the reviewer resolves for itself.** Given a branch name, the reviewer reads the ref when
+  it starts, not when the round recorded it, and a fetch in between moves it. Pass the recorded sha.
 - **A base that moved after the review.** The head pin does not cover it, and `baseRefOid` does
   not see it: on one open pull request it named a base 17 commits behind the base branch's tip,
   and the pull request read `MERGEABLE`. Compare the branch's live tip with the round's base.
@@ -406,9 +427,10 @@ earlier round is stated where the reader will see it.
 - [ ] Each round names the head sha it reviewed and the base sha it diffed against, and the remote
       branch pointed at the head.
 - [ ] Each round reviewed a fresh worktree at that sha whose `git status --porcelain --ignored`
-      was empty — never the checkout — and the worktree and its directory were removed after.
-- [ ] The reviewer ran in the background to a log file outside the repository, and was read only
-      after it exited.
+      was empty — never the checkout — and the worktree and its directory were removed after. The
+      tree was checked again after the reviewer exited: `HEAD` still that sha, and nothing listed.
+- [ ] The reviewer ran in the background, given the recorded base sha rather than a branch name, to
+      a log directory outside every worktree of the checkout, and was read only after it exited.
 - [ ] Each round counted only on a zero exit and a non-empty final review; any other round was
       recorded as failed and run again.
 - [ ] Each round's findings came from the reviewer's final message alone — the file its `-o`

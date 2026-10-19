@@ -47,7 +47,7 @@ test('it is reviewer-agnostic, with codex review --base origin/main as the main 
   assert.match(flat, /It is reviewer-agnostic/);
   assert.match(flat, /`codex review --base origin\/main`/);
   const bash = fenced(section(skill, 'Usage Examples'), 'bash').join('\n');
-  assert.match(bash, /\(cd "\$2" && codex exec review --base origin\/main -o "\$final"\) > "\$log" 2>&1 &$/m, 'the review does not run in the background, with its final message to a file');
+  assert.match(bash, /\(cd "\$2" && codex exec review --base "\$3" -o "\$final"\) > "\$log" 2>&1 &$/m, 'the review does not run in the background, against the recorded base, with its final message to a file');
   // The marker cut stays documented as a fallback, with its flaw stated.
   assert.match(record, /awk '\/\^codex\$\/\{buf=""\}/);
   assert.match(record, /a line that equals the marker inside quoted output — a file the review shows, a command's output — restarts the cut there/);
@@ -138,10 +138,11 @@ function exampleFunction(name) {
   assert.notEqual(start, -1, `the Usage Examples no longer define ${name}`);
   return exampleBash.slice(start, exampleBash.indexOf('\n}\n', start) + 3);
 }
+const BASE = 'b'.repeat(40);  // a recorded base sha; the stub reviewers here do not resolve it
 function runBash(script) {
   const dir = removeOnExit(mkdtempSync(join(tmpdir(), 'review-loop-')));
   const file = join(dir, 'run.sh');
-  const functions = ['review_round', 'terminal_round'].map(exampleFunction).join('\n');
+  const functions = ['review_round', 'terminal_round', 'exact_tree'].map(exampleFunction).join('\n');
   writeFileSync(file, `REVIEW_LOGS=${JSON.stringify(dir)}\n${functions}\n${script}\n`);
   const run = spawnSync('bash', [file], { encoding: 'utf8' });
   return { status: run.status, out: run.stdout + run.stderr };
@@ -159,21 +160,21 @@ test('a round counts only on a zero exit and a non-empty final review, taken fro
   };
   const results = {};
   for (const [name, body] of Object.entries(reviewer)) {
-    const { status } = runBash(`${stub(body)}\nreview_round 1 .`);
+    const { status } = runBash(`${stub(body)}\nreview_round 1 . ${BASE}`);
     results[name] = status === 0 ? 'counted' : 'failed';
   }
   assert.deepEqual(results, { clean: 'counted', crashed: 'failed', 'no output': 'failed', 'empty review': 'failed' });
 
   // A review that quotes a line reading exactly "codex" keeps every finding before it.
   const quoted = runBash(`${stub(`printf 'log\\ncodex\\n'; printf '[P1] A real finding\\nquoted output:\\ncodex\\nend of quote\\n' > "$out"; return 0`)}
-review_round 1 . && cat "$REVIEW_LOGS/round-1.final.txt"`);
+review_round 1 . ${BASE} && cat "$REVIEW_LOGS/round-1.final.txt"`);
   assert.equal(quoted.status, 0, quoted.out);
   assert.match(quoted.out, /\[P1\] A real finding/, 'a finding before an embedded marker was lost');
 
   // A final-review file left by an earlier round never stands in for this one.
   const stale = runBash(`printf '[P2] From an earlier round\\n' > "$REVIEW_LOGS/round-1.final.txt"
 ${stub(`printf 'log only\\n'; return 0`)}
-review_round 1 .`);
+review_round 1 . ${BASE}`);
   assert.notEqual(stale.status, 0, 'a stale final-review file counted as this round');
 
   const steps = procedureSteps(skill);
@@ -208,15 +209,15 @@ test('the final review and the log stay outside the reviewed tree, a detached wo
     `git -C ${JSON.stringify(repo)} worktree add -q --detach ${JSON.stringify(tree)} HEAD`,
   ].join('\n');
 
-  const relative = runBash(`${setup}\n${stub}\nREVIEW_LOGS=review-logs\nreview_round 1 ${JSON.stringify(tree)}`);
+  const relative = runBash(`${setup}\n${stub}\nREVIEW_LOGS=review-logs\nreview_round 1 ${JSON.stringify(tree)} ${BASE}`);
   assert.notEqual(relative.status, 0, 'a relative REVIEW_LOGS was accepted');
   assert.match(relative.out, /REVIEW_LOGS must be an absolute path/);
 
-  const inside = runBash(`${stub}\nREVIEW_LOGS=${JSON.stringify(join(tree, 'logs'))}\nreview_round 1 ${JSON.stringify(tree)}`);
+  const inside = runBash(`${stub}\nREVIEW_LOGS=${JSON.stringify(join(tree, 'logs'))}\nreview_round 1 ${JSON.stringify(tree)} ${BASE}`);
   assert.notEqual(inside.status, 0, 'a REVIEW_LOGS inside the reviewed tree was accepted');
   assert.match(inside.out, /REVIEW_LOGS is inside the reviewed tree/);
 
-  const outside = runBash(`${stub}\nREVIEW_LOGS=${JSON.stringify(logs)}\nreview_round 1 ${JSON.stringify(tree)} && git -C ${JSON.stringify(tree)} status --porcelain && cat ${JSON.stringify(join(logs, 'round-1.final.txt'))}`);
+  const outside = runBash(`${stub}\nREVIEW_LOGS=${JSON.stringify(logs)}\nreview_round 1 ${JSON.stringify(tree)} ${BASE} && git -C ${JSON.stringify(tree)} status --porcelain && cat ${JSON.stringify(join(logs, 'round-1.final.txt'))}`);
   assert.equal(outside.status, 0, outside.out);
   assert.equal(outside.out.trim(), '[P3] A small thing', 'the worktree is not clean, or the final review is not in the log directory');
 
@@ -235,11 +236,12 @@ const REVIEWS = {
   p4: ['Out of scale.', '', 'Full review comments:', '', `- ${FINDING}`, '- [P4] A grade outside the scale — file.txt:1-1'],
   garbled: ['Error: stream disconnected before completion'],
 };
-function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false, logsInCheckout = false } = {}) {
+function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false, logsInCheckout = false, logsInOtherWorktree = false } = {}) {
   const base = removeOnExit(mkdtempSync(join(tmpdir(), 'review-e2e-')));
   const origin = join(base, 'origin.git');
   const work = join(base, 'work');
-  const logs = logsInCheckout ? join(work, 'review-logs') : join(base, 'logs');
+  const other = join(base, 'other-worktree');
+  const logs = logsInCheckout ? join(work, 'review-logs') : logsInOtherWorktree ? join(other, 'review-logs') : join(base, 'logs');
   const tmp = join(base, 'tmp');
   mkdirSync(tmp);
   const git = (...args) => execFileSync('git', ['-c', 'user.email=reviewer@example.com', '-c', 'user.name=reviewer', ...args], { cwd: work, stdio: 'pipe', encoding: 'utf8' }).trim();
@@ -260,23 +262,30 @@ function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch 
   if (dirty) writeFileSync(join(work, 'untracked.txt'), 'not committed\n');
   if (hook) writeFileSync(join(work, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\nprintf "TOKEN=generated\\n" > generated.env\n', { mode: 0o755 });
   if (breakFetch) git('remote', 'set-url', 'origin', join(base, 'no-such-origin.git'));
+  if (logsInOtherWorktree) git('worktree', 'add', '-q', '--detach', other, 'HEAD');
   const reviews = Object.entries(REVIEWS).map(([mode, lines]) => `${mode}) printf '%s\\n' ${lines.map((line) => `'${line}'`).join(' ')} > "$out";;`).join('\n    ');
   const ghCalls = join(base, 'gh-calls');
-  const stubs = `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done
+  // The stub resolves --base the way Codex does, with git rev-parse --verify when the review starts.
+  // CODEX_BEFORE runs first (a fetch from another session moving the base), CODEX_AFTER last (a
+  // reviewer that writes into the tree it reviews).
+  const stubs = `codex() { local out="" base=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2";; --base) base="$2";; esac; shift; done
   pwd -P > "$REVIEW_LOGS/codex-cwd"; ls -a > "$REVIEW_LOGS/codex-ls"
+  if [ -n "\${CODEX_BEFORE:-}" ]; then eval "$CODEX_BEFORE"; fi
+  git rev-parse --verify "$base" > "$REVIEW_LOGS/codex-base"
   case "$CODEX_MODE" in
     ${reviews}
     crash) printf 'partial\\n' > "$out"; return 1;;
-  esac; }
+  esac
+  if [ -n "\${CODEX_AFTER:-}" ]; then eval "$CODEX_AFTER"; fi; }
 gh() { echo "gh $*" >> ${JSON.stringify(ghCalls)}; }`;
   const script = join(base, 'run.sh');
   writeFileSync(script, `${stubs}\n${exampleBash}\n`);
   const cwdFile = join(logs, 'codex-cwd');
   return {
-    sha, baseSha, git, work, logs, script, tmp: realpathSync(tmp),
-    review(mode = 'p3', ROUND = '1') {
+    sha, baseSha, git, work, logs, other, script, tmp: realpathSync(tmp),
+    review(mode = 'p3', ROUND = '1', hooks = {}) {
       rmSync(cwdFile, { force: true });
-      const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, ROUND, TMPDIR: tmp, CODEX_MODE: mode } });
+      const run = spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: { PATH: process.env.PATH, REVIEW_LOGS: logs, ROUND, TMPDIR: tmp, CODEX_MODE: mode, ...hooks } });
       return {
         status: run.status, out: run.stdout + run.stderr,
         reviewedIn: existsSync(cwdFile) ? readFileSync(cwdFile, 'utf8').trim() : null,
@@ -420,10 +429,10 @@ test('the log directory may not lie in the checkout the recipe runs from', () =>
   const repo = exampleRepo({ logsInCheckout: true });
   const run = repo.review();
   assert.notEqual(run.status, 0, 'a REVIEW_LOGS inside the checkout was accepted');
-  assert.match(run.out, /ROUND 1 REFUSED: REVIEW_LOGS is inside the reviewed tree or this checkout/);
+  assert.match(run.out, /ROUND 1 REFUSED: REVIEW_LOGS is inside the reviewed tree or a worktree of this checkout/);
   assert.equal(run.reviewedIn, null, 'the reviewer ran with its logs inside the checkout');
   assert.equal(repo.git('status', '--porcelain', '--untracked-files=all'), '', 'the refused round wrote into the checkout');
-  assert.match(procedureSteps(skill)[1], /The log directory is an absolute path, checked to lie outside the reviewed tree and the checkout/);
+  assert.match(procedureSteps(skill)[1], /The log directory is an absolute path, checked to lie outside the reviewed tree and every worktree of the checkout \(`git worktree list --porcelain`\), the checkout included/);
 });
 
 // Codex round 4 on #100 [P1]: a non-empty review with no grade in it passed as a clean round. A clean
@@ -506,6 +515,67 @@ test('the specimen record meets its own contract: effect for every finding, veri
 });
 
 // Follow-ups from #100's final Codex round, at cd2e7d3.
+
+// [P2] SKILL.md:274: the reviewer was handed origin/main and resolved it when it started, so a fetch
+// between the round recording $base and the reviewer starting reviewed against a base nobody recorded.
+test('the reviewer is given the recorded base sha, never a name it resolves for itself', () => {
+  const repo = exampleRepo();
+  // Another session's fetch moves origin/main after the round recorded its base, before the review starts.
+  const run = repo.review('p3', '1', { CODEX_BEFORE: 'git update-ref refs/remotes/origin/main HEAD' });
+  assert.equal(run.status, 0, run.out);
+  assert.equal(readFileSync(join(repo.logs, 'round-1.base'), 'utf8').trim(), repo.baseSha);
+  assert.equal(readFileSync(join(repo.logs, 'codex-base'), 'utf8').trim(), repo.baseSha, 'the reviewer resolved the base for itself, after it moved');
+
+  // review_round refuses a base that is a name rather than a sha, and the reviewer never starts.
+  for (const name of ['origin/main', 'main', '']) {
+    const refused = runBash(`codex() { echo REVIEWED; }\nreview_round 1 . ${JSON.stringify(name)}`);
+    assert.notEqual(refused.status, 0, `a base of ${JSON.stringify(name)} was accepted`);
+    assert.match(refused.out, /ROUND 1 REFUSED: the base must be the recorded sha, not a name/);
+    assert.doesNotMatch(refused.out, /REVIEWED/);
+  }
+  // No example in the skill's files hands the reviewer a base by name.
+  for (const file of ['SKILL.md', ...loaded.references.map((reference) => `references/${reference}`)]) {
+    for (const block of fenced(file === 'SKILL.md' ? skill : read(file), 'bash')) {
+      assert.doesNotMatch(block, /codex[^\n]*review[^\n]*--base (?!"\$)/, `${file} hands the reviewer a base by name:\n${block}`);
+    }
+  }
+  assert.match(procedureSteps(skill)[1], /`\$base` is the sha step 1 recorded, never a branch name: a reviewer given `origin\/main` resolves it when it starts/);
+  assert.match(exampleBash, /^review_round "\$ROUND" "\$tree" "\$base" {4}# a failed round stops here, before anything is pinned$/m);
+});
+
+// [P2] SKILL.md:298: the review tree was checked clean only before the review. A reviewer that wrote
+// into it, built there or moved HEAD reviewed something other than the commit, and the round counted.
+test('a reviewer that changes the review tree fails the round, and nothing is pinned', () => {
+  for (const [why, after] of [
+    ['wrote an untracked file', 'printf "x\\n" > build.log'],
+    ['wrote an ignored file', 'printf "TOKEN=generated\\n" > generated.env'],
+    ['moved HEAD to another commit', 'git checkout -q --detach HEAD~1'],
+  ]) {
+    const repo = exampleRepo();
+    const run = repo.review('p3', '1', { CODEX_AFTER: after });
+    assert.ok(run.reviewedIn, `the reviewer never ran, so nothing was tested (${why})`);
+    assert.notEqual(run.status, 0, `a reviewer that ${why} still counted`);
+    assert.match(run.out, /ROUND 1 FAILED: the review tree changed while it was reviewed; nothing is pinned/);
+    for (const pin of ['head', 'base', 'final.txt']) {
+      assert.equal(existsSync(join(repo.logs, `round-1.${pin}`)), false, `a reviewer that ${why} left round-1.${pin}`);
+    }
+    assert.deepEqual(repo.left(), { temp: [], worktrees: 1 }, `a reviewer that ${why} left a temporary directory or a worktree behind`);
+  }
+  assert.match(exampleBash, /^exact_tree "\$tree" "\$sha" \|\| \{ rm -f "\$REVIEW_LOGS\/round-\$ROUND\.final\.txt"; echo "ROUND \$ROUND FAILED/m);
+  assert.match(procedureSteps(skill)[0], /Check the tree again when the reviewer exits/);
+});
+
+// [P2] SKILL.md:271: REVIEW_LOGS inside another registered worktree of the checkout passed the
+// containment check, which knew only the review tree and the checkout's own top level.
+test('the log directory may not lie in any worktree of the checkout', () => {
+  const repo = exampleRepo({ logsInOtherWorktree: true });
+  const run = repo.review();
+  assert.notEqual(run.status, 0, 'a REVIEW_LOGS inside another worktree of the checkout was accepted');
+  assert.match(run.out, /ROUND 1 REFUSED: REVIEW_LOGS is inside the reviewed tree or a worktree of this checkout/);
+  assert.equal(run.reviewedIn, null, 'the reviewer ran with its logs inside another worktree');
+  assert.equal(execFileSync('git', ['-C', repo.other, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' }), '', 'the refused round wrote into the other worktree');
+  assert.match(exampleBash, /git worktree list --porcelain/);
+});
 
 // [P2] merge-preconditions.md:128-130: the instruction-file grep had no closing quote, and a second
 // fence opened before the first closed, so the merge command rendered inside the grep's block.
