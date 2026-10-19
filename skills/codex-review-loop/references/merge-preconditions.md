@@ -117,15 +117,61 @@ head says nothing about this one.
 
 ## 7. Nothing in the diff told the reviewer what to say
 
-A reviewer reads project instruction files from the tree it runs in — for Codex, `AGENTS.md`; a Codex
-session's own record of a review opens with `AGENTS.md instructions for <the directory it ran in>`.
-The round runs in a worktree at the pull request's head, so a pull request that adds or edits such a
-file hands the reviewer instructions nobody has reviewed: one line can tell it to grade everything
-P3. A round over such a diff is not independent until a person has read those changes and recorded
-that in the round's record.
+A reviewer reads project instruction files from the tree it runs in, and its configuration decides
+which names count. Codex, read from its source: in each directory from the project root down to
+where it runs, the first that exists of `AGENTS.override.md`, `AGENTS.md` and each name in
+`project_doc_fallback_filenames`. A configuration with `project_doc_fallback_filenames = ["CLAUDE.md"]`
+takes instructions from `CLAUDE.md` wherever no `AGENTS.md` sits beside it. That configuration comes
+in layers — the user's `config.toml`, the profile in use, a `-c` override on the command, managed
+settings, and a project's own `.codex/config.toml`, which a pull request can add. A Codex session's
+own record of a review opens with `AGENTS.md instructions for <the directory it ran in>` whichever
+file supplied them, so it shows that instructions were loaded, not which file they came from.
+
+The round runs in a worktree at the pull request's head, so a pull request that adds or edits any of
+those files hands the reviewer instructions nobody has reviewed: one line can tell it to grade
+everything P3. A round over such a diff is not independent until a person has read those changes
+and recorded that in the round's record.
+
+Build the list from the reviewer, not from this page: every name its active configuration loads,
+from every layer that applies to the run — or, for a reviewer whose session record names each
+instruction file it loaded, that list. The reviewer's configuration in the tree, for Codex anything
+under `.codex/`, is on the list whatever it says, because it can change the list; and where a file
+on the list is a symbolic link, its target is on it too. When the list cannot be established — a
+layer you cannot read, an override you did not see, a reviewer that does not say — fail closed:
+every instruction-like file the diff touches counts, and a person reads each one. Record which list
+the round used.
 
 ```bash
-git diff --name-only <recorded base>...<reviewed sha> | grep -E '(^|/)AGENTS(\.override)?\.md
+# instruction_files <recorded base> <reviewed sha> [name...]: the files the pull request changed that
+# can carry the reviewer's instructions. Pass every name its active configuration loads, for Codex
+# AGENTS.override.md, AGENTS.md and each project_doc_fallback_filenames entry. With no name it fails
+# closed, onto every instruction-like file. .codex/ and any path git had to quote are listed either way.
+instruction_files() {
+  local changed
+  changed=$(git -c core.quotePath=false diff --name-only --no-renames "$1...$2") || { echo "CANNOT TELL: the diff could not be listed"; return 1; }
+  printf '%s\n' "$changed" | NAMES="${*:3}" awk '
+    { path = tolower("/" $0); file = path; sub(/.*\//, "", file)
+      hit = path ~ /\/\.codex\// || substr($0, 1, 1) == "\""
+      n = split(tolower(ENVIRON["NAMES"]), name, " ")
+      for (i = 1; i <= n; i++) if (file == name[i]) hit = 1
+      if (n == 0 && path ~ /\/(agents|claude)[^\/]*\.md$|\/\.(cursorrules|clinerules|windsurfrules)$|\/\.github\/copilot-instructions\.md$|\/\.(agents|claude|cursor|windsurf)\/|\/\.github\/instructions\//) hit = 1
+      if (hit) print }'
+}
+instruction_files <recorded base> <reviewed sha> AGENTS.override.md AGENTS.md CLAUDE.md   # this run's names
+```
+
+Every path it prints is read by a person before the merge, and the record says so. It prints nothing
+only when the diff touches none of them; `CANNOT TELL` is not that, and stops the merge like a hit.
+Names are compared without regard to case, as a case-insensitive file system would find them, and
+with no name given it lists the instruction files of some common agents: `AGENTS*.md`, `CLAUDE*.md`,
+`.cursorrules`, `.clinerules`, `.windsurfrules`, `.github/copilot-instructions.md`, and anything
+under `.agents/`, `.claude/`, `.cursor/`, `.windsurf/` or `.github/instructions/`. That list is a
+floor, not a definition: any other file in the diff written for an agent to read — another tool's
+instructions or configuration — is read by a person as well.
+
+## The merge
+
+When every line has held, merge with the head pinned:
 
 ```bash
 gh pr merge <pr> --merge --match-head-commit <reviewed sha>

@@ -219,9 +219,12 @@ skill says so and proposes a split, and the person who owns the work decides.
     5. It targets the branch it should, not a base that merged and is gone, and it is mergeable.
     6. Every required check completed and passed on that exact commit: a zero exit, a non-empty
        list, every one passed. No checks is not a pass, and a conflicting pull request gets none.
-    7. If the diff adds or changes a file the reviewer takes instructions from — its project
-       instruction files, such as `AGENTS.md` for Codex — the pull request configured its own review:
-       a person has read those changes and recorded that in the round's record, or it does not merge.
+    7. If the diff adds or changes a file the reviewer takes instructions from, the pull request
+       configured its own review: a person has read those changes and recorded that in the round's
+       record, or it does not merge. Those files are the names the reviewer's active configuration
+       loads — for Codex, `AGENTS.override.md`, `AGENTS.md` and every `project_doc_fallback_filenames`
+       entry — or its session record lists, and its configuration in the tree. Where that list cannot
+       be established, every instruction-like file the diff touches counts.
 
     Then merge with the head pinned, so that a push in between fails the merge instead of merging
     unreviewed code: `gh pr merge <n> --merge --match-head-commit <reviewed sha>`.
@@ -438,7 +441,8 @@ earlier round is stated where the reader will see it.
       reviewed before by a round that did not end the loop; a complete disposition per finding, or
       the review recorded clean; the recorded base still the branch's tip; the intended branch,
       mergeable; a non-empty, all-passed list of required checks from a zero-exit call; and any
-      change to the reviewer's instruction files read by a person and recorded.
+      change to the reviewer's instruction files read by a person and recorded — the files its
+      active configuration loads, or every instruction-like file when that list is not known.
 - [ ] The merge used `--match-head-commit`.
 
 ## Deeper reading
