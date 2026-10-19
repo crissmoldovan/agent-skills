@@ -125,15 +125,24 @@ An addendum that changes a frozen file updates that file's entry in FREEZE.json 
 and records the old hash.
 
 **An addendum that changes a frozen file re-runs every gate that read it.** Each gate passed
-against the old bytes and says nothing about the new ones. So before the first call the addendum
-governs, every gate that read the changed file runs again against the new bytes, and its results are
-pushed with the addendum: the guard's drills, for the guard or a price table; the dry run and output
-parity, for anything that builds a request; the metric-definition check and the shortcut's exactness
-test, for the rubric, the judge runner or the scorer; the mutation drills, for the scorer or
-`reproduce.sh`. A gate that cannot run again stops the study, as a failed one would. A correction
-found after its calls ran makes what the old bytes produced for them — calls, verdicts, scores —
-invalid: none of it counts toward a verdict unless it is produced again under the new bytes, once
-their gates pass.
+against the old bytes and says nothing about the new ones. The order is the plan's own:
+
+1. **The offline gates first, pushed with the addendum.** Before any call the addendum governs,
+   every offline gate that read the changed file runs again against the new bytes, and its results
+   are pushed with the addendum: the guard's drills, for the guard or a price table; the dry run,
+   for anything that builds a request; the metric-definition check and the shortcut's exactness
+   test, for the rubric, the judge runner or the scorer; the mutation drills, for the scorer or
+   `reproduce.sh`.
+2. **Then output parity, as the addendum's first paid stage.** Output parity is a paid call the
+   addendum governs, so it cannot be pushed with it. Where the addendum changes anything that builds
+   a request, output parity runs again after that push, as the addendum's first paid stage, under
+   the pass rule and the cap of its own that the addendum registers; and its result is pushed before
+   any later call of the study.
+
+A gate that fails, or cannot run again, stops the study, as the plan's own output parity does. A
+correction found after its calls ran makes what the old bytes produced for them — calls, verdicts,
+scores — invalid: none of it counts toward a verdict unless it is produced again under the new
+bytes, once their gates pass.
 
 Each arm's request parameters are hashed, because a sampling parameter changed after the freeze
 changes the comparison while the prompts still match. Every price table the guard reads is hashed,
@@ -158,6 +167,8 @@ Written on: <sha of the parent commit>   Governs calls: <batch or range>   To be
 What changed:  <one paragraph>
 Why:           <what was found, and how>
 Effect:        <which numbers move, measured: before -> after, or "none, measured by <command>">
+Gates re-run:  <each offline gate that read a changed file, with its result, pushed with this file>
+Output parity: <first paid stage: items, pass rule, cap — or "none: no request changes">
 Alternatives:  <what else was considered>
 ```
 

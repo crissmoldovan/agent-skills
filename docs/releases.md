@@ -243,29 +243,31 @@ data is classified first: the study uses only data that every recipient, each ca
 each judge vendor, is approved to receive, and every artefact that carries it is kept where its
 class allows. Output parity is the first paid stage, with its own pre-registered pass rule and cap,
 and every later change is a dated addendum pushed before the calls it governs, the same anchor as
-the plan, with every gate that read a file it changes run again first, or, when found after them, a
-dated correction, never backdated, whose invalidated results count toward no verdict until redone.
-The spend is guarded in code by a single-threaded guard — one research account for every paid call,
-one paying process holding an operating-system lock, calls one at a time — that refuses production's
-account (compared by the account the provider names for each key; a provider that cannot name it is
-out of scope, since a billing account written in the plan binds no key), any other paid credential
-and a client library that retries on its own; reserves every billable unit of each call — tokens,
-per-request fees, images, audio, hosted search, tool invocations — at a ceiling price, for every
-attempt, against the study's cap and the call's stage cap; reads the account's balance, never a
-key's own limit, before every admission, takes off everything the study has settled as possibly not
-shown yet, and latches the floor, failing closed when a read fails, or records the floor as
-unavailable where the provider has none; settles each call before the next at the larger of list and
-reported cost per attempt, latching on a settlement above its reservation and closing that ledger;
-and on restart re-derives every total and invariant from its ledger. Concurrency is out of scope.
-The control's disagreement with itself is estimated as an A/A distribution with its interval, never
-read off one pair of runs. Three judges from three vendors, on the same account, give one verdict
-per normalised answer, reused by every arm that gave it; a shortcut that judges only where the arms
-differ covers item-wise additive metrics alone, never invention; they see provenance-tagged evidence
-and a source-only reading, and each is reported alone. Quality, harm and cost are reported beside
-the bars, because passing a bar is not being better. A `reproduce.sh`, which checks every frozen
-file against the freeze itself before the manifest and runs under the frozen runtime and dependency
-lock, and a checksum manifest, which lists every other file and is anchored by its pushed commit,
-rebuild every number offline, and every gate is armed by mutation.
+the plan, with every offline gate that read a file it changes run again and pushed with it, then,
+where it changes a request, output parity run again as its first paid stage under a cap and pass
+rule it registers, or, when found after them, a dated correction, never backdated, whose invalidated
+results count toward no verdict until redone. The spend is guarded in code by a single-threaded
+guard — one research account for every paid call, one paying process holding an operating-system
+lock, calls one at a time — that refuses production's account (compared by the account the provider
+names for each key; a provider that cannot name it is out of scope, since a billing account written
+in the plan binds no key), any other paid credential and a client library that retries on its own;
+reserves every billable unit of each call — tokens, per-request fees, images, audio, hosted search,
+tool invocations — at a ceiling price, for every attempt, against the study's cap and the call's
+stage cap; reads the account's balance, never a key's own limit, before every admission, takes off
+everything the study has settled as possibly not shown yet, and latches the floor, failing closed
+when a read fails, or records the floor as unavailable where the provider has none; settles each
+call before the next at the larger of list and reported cost per attempt, latching on a settlement
+above its reservation and closing that ledger; and on restart re-derives every total and invariant
+from its ledger. Concurrency is out of scope. The control's disagreement with itself is estimated as
+an A/A distribution with its interval, never read off one pair of runs. Three judges from three
+vendors, on the same account, give one verdict per normalised answer, reused by every arm that gave
+it; a shortcut that judges only where the arms differ covers item-wise additive metrics alone, never
+invention; they see provenance-tagged evidence and a source-only reading, and each is reported
+alone. Quality, harm and cost are reported beside the bars, because passing a bar is not being
+better. A `reproduce.sh`, which checks every frozen file against the freeze itself before the
+manifest and runs under the frozen runtime and dependency lock, and a checksum manifest, which lists
+every other file and is anchored by its pushed commit, rebuild every number offline, and every gate
+is armed by mutation.
 
 **Why.** It generalises a series of model comparisons on one team whose first verdicts did not
 survive scrutiny, with every name and identifier taken out.

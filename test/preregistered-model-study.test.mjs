@@ -436,7 +436,7 @@ test('the checklist allows exactly what the procedure allows', () => {
   // A change found after its calls ran is a correction, never backdated.
   assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated, and what it invalidates counts toward no verdict until redone\./);
   assert.match(steps[6], /each found after them is marked as a correction to them, never backdated/);
-  assert.match(checklist, /one made before its calls was pushed before them, with every gate on a file it changed re-run; one found after them is marked as a correction, never backdated/);
+  assert.match(checklist, /one made before its calls was pushed before them, its offline gates re-run with it and output parity after it where a request changed; one found after them is marked as a correction, never backdated/);
   assert.doesNotMatch(checklist, /has a dated addendum committed before the calls it governs\./, 'the checklist requires every addendum to predate its calls again');
   // The judging shortcut: only the items where the arms differ are judged.
   assert.match(steps[7], /\*\*Judge only where the arms differ\*\*/);
@@ -568,18 +568,18 @@ test('the floor assumes the balance shows none of the study\'s spend, and trusts
 // Round 7 on #101 (P1): an addendum that changes the guard, the request builder, parameters, rubric,
 // judge or scorer left every earlier gate attached to the old bytes. Each gate that read the file runs again.
 test('an addendum that changes a frozen file re-runs every gate that read it before its first governed call', () => {
-  assert.match(files, /\*\*An addendum that changes a frozen file re-runs every gate that read it\.\*\* Each gate passed against the old bytes and says nothing about the new ones\. So before the first call the addendum governs, every gate that read the changed file runs again against the new bytes, and its results are pushed with the addendum/);
-  for (const gate of ["the guard's drills, for the guard or a price table", 'the dry run and output parity, for anything that builds a request', "the metric-definition check and the shortcut's exactness test, for the rubric, the judge runner or the scorer", 'the mutation drills, for the scorer or `reproduce.sh`']) {
+  assert.match(files, /\*\*An addendum that changes a frozen file re-runs every gate that read it\.\*\* Each gate passed against the old bytes and says nothing about the new ones\./);
+  for (const gate of ["the guard's drills, for the guard or a price table", 'the dry run, for anything that builds a request', "the metric-definition check and the shortcut's exactness test, for the rubric, the judge runner or the scorer", 'the mutation drills, for the scorer or `reproduce.sh`']) {
     assert.ok(files.includes(gate), `an addendum no longer re-runs: ${gate}`);
   }
-  assert.match(files, /A gate that cannot run again stops the study, as a failed one would/);
+  assert.match(files, /A gate that fails, or cannot run again, stops the study, as the plan's own output parity does/);
   assert.match(files, /A correction found after its calls ran makes what the old bytes produced for them — calls, verdicts, scores — invalid: none of it counts toward a verdict unless it is produced again under the new bytes, once their gates pass/);
   const seventh = procedureSteps(skill)[6];
-  assert.match(seventh, /An addendum that changes a frozen file re-runs every gate that read the old bytes, before that call, and pushes the results with it/);
+  assert.match(seventh, /An addendum that changes a frozen file re-runs every gate that read the old bytes/);
   assert.match(seventh, /what it invalidates counts toward no verdict until redone/);
-  assert.match(seventh, /\*\*Complete when:\*\*[^]*with every gate on a file it changed re-run/);
-  assert.match(checklist, /pushed before them, with every gate on a file it changed re-run/);
-  assert.match(releases, /with every gate that read a file it changes run again first/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it/);
+  assert.match(checklist, /pushed before them, its offline gates re-run with it/);
+  assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it/);
 });
 
 // Round 7 on #101 (P1): a mid-study addendum was accepted as a local commit, whose date an amend or a
@@ -638,4 +638,29 @@ test('the manifest does not list itself; the pushed commit that adds it anchors 
   assert.match(flat, /a checksum manifest covering every other file it reads/);
   assert.match(checklist, /The manifest covers every other consumed input/);
   assert.match(releases, /a checksum manifest, which lists every other file and is anchored by its pushed commit/);
+});
+
+// Codex round 1 on #104 (P1): the gate re-run rule pushed output parity's results WITH the addendum,
+// but output parity is a paid call that addendum governs, so the rule was circular. The offline gates
+// run first and are pushed with it; then output parity runs as the addendum's first paid stage.
+test('an addendum re-runs its offline gates before any call, then output parity as its first paid stage', () => {
+  const raw = read('references/study-files.md');
+  const rule = raw.slice(raw.indexOf('**An addendum that changes a frozen file re-runs every gate that read it.**'), raw.indexOf("Each arm's request parameters are hashed")).replace(/\s+/g, ' ');
+  const offline = rule.indexOf('**The offline gates first, pushed with the addendum.**');
+  const paid = rule.indexOf("**Then output parity, as the addendum's first paid stage.**");
+  assert.ok(offline !== -1 && paid !== -1 && offline < paid, 'the offline gates no longer come before output parity');
+  const pushedWith = rule.slice(offline, paid);
+  assert.doesNotMatch(pushedWith, /output parity/, 'output parity, a paid call, is pushed with the addendum again');
+  assert.match(pushedWith, /Before any call the addendum governs, every offline gate that read the changed file runs again against the new bytes, and its results are pushed with the addendum/);
+  assert.match(rule, /Output parity is a paid call the addendum governs, so it cannot be pushed with it\. Where the addendum changes anything that builds a request, output parity runs again after that push, as the addendum's first paid stage, under the pass rule and the cap of its own that the addendum registers; and its result is pushed before any later call of the study/);
+  assert.match(rule, /A gate that fails, or cannot run again, stops the study, as the plan's own output parity does/);
+  assert.match(raw, /Gates re-run: +<each offline gate that read a changed file, with its result, pushed with this file>/);
+  assert.match(raw, /Output parity: <first paid stage: items, pass rule, cap — or "none: no request changes">/);
+  assert.match(parity, /the addendum and its re-run dry run are pushed first, then output parity runs as the addendum's first paid stage, under the pass rule and cap the addendum registers, and its result is pushed before any later call\. A fail stops the study here too/);
+  assert.match(budget, /or an addendum's output parity, whose cap that addendum registers/);
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /re-runs every gate that read the old bytes: the offline ones before any call it governs, pushed with it; then, if a request changed, output parity as its first paid stage, under a cap and pass rule it registers, pushed before any later call/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it and output parity after it where a request changed/);
+  assert.match(checklist, /its offline gates re-run with it and output parity after it where a request changed/);
+  assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it, then, where it changes a request, output parity run again as its first paid stage under a cap and pass rule it registers/);
 });

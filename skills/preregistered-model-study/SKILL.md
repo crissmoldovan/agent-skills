@@ -244,12 +244,15 @@ unmeasurable question is ceremony around a guess.
    commit it was written on. It is pushed to the study's pull request before the first call it
    governs — the plan's anchor, not a local commit. A file cannot name the commit that adds it, so
    the audit records the addendum's commit, its push and the first call it governs. An addendum that
-   changes a frozen file re-runs every gate that read the old bytes, before that call, and pushes the
-   results with it. A change discovered after its calls ran is recorded as a correction to those
-   calls. It is never backdated, and what it invalidates counts toward no verdict until redone.
+   changes a frozen file re-runs every gate that read the old bytes: the offline ones before any call
+   it governs, pushed with it; then, if a request changed, output parity as its first paid stage,
+   under a cap and pass rule it registers, pushed before any later call. A change discovered after
+   its calls ran is recorded as a correction to those calls. It is never backdated, and what it
+   invalidates counts toward no verdict until redone.
    **Complete when:** every change since the first paid call has an addendum; each one made before
-   its calls was pushed before the first call it governs, with every gate on a file it changed
-   re-run, and each found after them is marked as a correction to them, never backdated.
+   its calls was pushed before the first call it governs, its offline gates re-run with it and output
+   parity after it where a request changed; each found after them is marked as a correction to them,
+   never backdated.
 
 8. **Judge with three vendors, and let the judges see provenance**
    ([judging and metrics](references/judging-and-metrics.md)).
@@ -394,23 +397,20 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
 - **A judge that cannot see invention.** Given the same untagged evidence as the model, a judge
   reads a guessed field as a sourced one and marks the answer correct. Provenance tags and a
   source-only reading are what let it notice.
-- **A harness that was not production.** A reordered message, a missing schema field or a default
-  parameter makes the control a different system. Everything measured after that compares two
-  systems that are not the one being decided about.
+- **A control that was not production.** A reordered message, a missing schema field or a default
+  parameter makes the control a different system, and a fault in a fresh control run makes every
+  other arm look better. Compare it with production's stored outputs before trusting it.
 - **The "same" model from a different provider.** Providers serving one model name can answer
   differently, and a router that picks by request layout can move an arm to another provider
   when only its layout changed.
-- **A broken control.** A fresh control run with a fault in it makes every other arm look better.
-  Compare the control with production's stored outputs before trusting it as the baseline.
 - **Unequal inputs.** One arm missing an input for some items loses those items for a reason the
   study is not about, and the loss is reported as the model's.
 - **A reservation that is not a bound.** A cap checked after the call reports money already spent;
   a reservation at list price, or counting tokens only, is exceeded by the first call billed above
   list or that also searched the web, and the cap with it. Reserve every billable unit at a ceiling
   price, first.
-- **Parity paid for before it was planned.** Running the control "just to check parity" is a paid
-  call nothing constrained, and both its spend and its result arrive before the plan could. Request
-  parity costs nothing and belongs in the dry run; output parity is a paid stage with its own cap.
+- **Parity paid for before it was planned.** A control run "just to check parity" spends before any
+  plan constrains it. Request parity is free, in the dry run; output parity is a capped paid stage.
 - **More than one call in flight.** Two paying processes, or parallel calls in one, each reserve
   against a total the others have not added to yet, and together spend past the cap. This guard's
   cap is hard only for one process, one call at a time.
@@ -461,8 +461,8 @@ safe to switch to. No judge is visible, so it may rest on one judge's taste; no 
       where layout or caching could change; arms were interleaved per item; every arm had the same
       inputs.
 - [ ] Every change after the first paid call has a dated addendum: one made before its calls was
-      pushed before them, with every gate on a file it changed re-run; one found after them is
-      marked as a correction, never backdated.
+      pushed before them, its offline gates re-run with it and output parity after it where a
+      request changed; one found after them is marked as a correction, never backdated.
 - [ ] Three judges from three vendors scored every item — or, under a shortcut the plan
       registered, every item where the arms differ, with absolute rates reported as not measured;
       the majority and each judge alone are reported; judges saw provenance tags and a source-only

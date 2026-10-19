@@ -40,6 +40,11 @@ production yet, or the control run is faulty, and every arm compared against it 
 fault: the study stops there, with an addendum. The A/A distribution measured later in the run says
 whether the pass rule's tolerance was reasonable; if it was too loose, say so in an addendum.
 
+An addendum that changes anything that builds a request runs output parity again, in the same
+order: the addendum and its re-run dry run are pushed first, then output parity runs as the
+addendum's first paid stage, under the pass rule and cap the addendum registers, and its result is
+pushed before any later call. A fail stops the study here too.
+
 A control that fails parity is not a slightly worse control. It is a different system, and the
 study would be measuring the distance between two systems neither of which is the one being decided
 about.

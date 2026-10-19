@@ -97,8 +97,9 @@ worst(call)      = worst_attempt * max_attempts
   to start while they are on. A library whose retries cannot be turned off cannot be used for paid
   calls: no record read afterwards puts back a bound that was never reserved.
 - **Every stage has its own cap.** Each call belongs to a stage — output parity, the main run,
-  judging — and the stage's pre-registered cap is checked in the same admission as the study's. A
-  call that would still fit the study cap but exceed its stage's is refused.
+  judging, or an addendum's output parity, whose cap that addendum registers — and the stage's
+  pre-registered cap is checked in the same admission as the study's. A call that would still fit
+  the study cap but exceed its stage's is refused.
 
 The invariant, which holds only under the single-process rule above:
 
