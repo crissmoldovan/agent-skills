@@ -13,17 +13,56 @@ const judging = read('references/judging-and-metrics.md').replace(/\s+/g, ' ');
 const files = read('references/study-files.md').replace(/\s+/g, ' ');
 const frontmatterOf = (source) => source.slice(0, source.indexOf('\n---\n', 4));
 const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
-// The skill's release prose is staged under `## Unreleased` in docs/releases.md until its release,
-// then moved word for word into CHANGELOG.md. Read docs/releases.md as before; only when Unreleased
-// carries no entry for this skill, add the NEWEST changelog section that names it, never older ones,
-// so a future staged entry is the one checked and history cannot satisfy its assertions.
+// Release prose. A release's entry for this skill is staged as a `###` entry under `## Unreleased`
+// in docs/releases.md, then moved word for word under that version's heading in CHANGELOG.md. The
+// skill's OWN entry is the `###` entry whose **What.** paragraph names it first; another skill's
+// entry that mentions it, or a version section that merely contains its name, is not (Codex round 2
+// on #106). Every assertion reads one extracted entry, never the whole of either file, and the skill's
+// paragraph in the Published catalog is read on its own.
 const releasesDoc = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8');
-const unreleased = (releasesDoc.split(/\n## Unreleased\n/)[1] ?? '').split(/\n## /)[0];
-const latestChangelogEntry = () => {
-  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
-  return changelog.split(/\n(?=## \d)/).find((section) => /^## \d/.test(section) && section.includes('`preregistered-model-study`')) ?? '';
+const changelogDoc = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+const ownEntries = (block, skill) => block.split(/\n(?=### )/)
+  .filter((entry) => entry.startsWith('### ') && entry.match(/\*\*What\.\*\*[^`]*`([^`]+)`/)?.[1] === skill);
+const onlyOne = (found, where) => {
+  if (found.length > 1) throw new Error(`${where} holds ${found.length} entries of the skill's own; which one is meant is ambiguous`);
+  return found[0];
 };
-const releases = (unreleased.includes('`preregistered-model-study`') ? releasesDoc : `${releasesDoc}\n${latestChangelogEntry()}`).replace(/\s+/g, ' ');
+const unreleasedOf = (doc) => (doc.split(/\n## Unreleased\n/)[1] ?? '').split(/\n## /)[0];
+const versionSections = (changelog) => changelog.split(/\n(?=## \d)/).filter((section) => /^## \d/.test(section));
+// The skill's own entry in the release of `version`: under its CHANGELOG heading once released, and
+// the staged one while it is the package's version and has no heading yet. Wording a release shipped
+// is held against that release's entry, so a later entry need not restate it.
+function entryForVersion(version, { doc = releasesDoc, changelog = changelogDoc, current = packageVersion, skill = name } = {}) {
+  const section = versionSections(changelog).find((text) => text.startsWith(`## ${version}\n`));
+  if (section) return onlyOne(ownEntries(section, skill), `CHANGELOG.md's ## ${version}`);
+  if (version === current) return onlyOne(ownEntries(unreleasedOf(doc), skill), "docs/releases.md's ## Unreleased");
+  return undefined;
+}
+// The active entry: the skill's own staged entry if there is one, otherwise its own entry in the
+// newest CHANGELOG section that has one. Nothing current may contradict the skill.
+function activeEntryOf({ doc = releasesDoc, changelog = changelogDoc, skill = name } = {}) {
+  const staged = onlyOne(ownEntries(unreleasedOf(doc), skill), "docs/releases.md's ## Unreleased");
+  if (staged) return staged;
+  for (const section of versionSections(changelog)) {
+    const own = onlyOne(ownEntries(section, skill), `CHANGELOG.md's ${section.split('\n')[0]}`);
+    if (own) return own;
+  }
+  return undefined;
+}
+// The skill's paragraph in the Published catalog, which says what it owns between releases.
+function catalogueOf(doc = releasesDoc, skill = name) {
+  const catalog = (doc.split(/\n## Published catalog\n/)[1] ?? '').split(/\n## /)[0];
+  return onlyOne(catalog.split(/\n\n+/).map((paragraph) => paragraph.trim()).filter((paragraph) => paragraph.startsWith(`\`${skill}\``)), 'the Published catalog');
+}
+const flatText = (text) => (text ?? '').replace(/\s+/g, ' ');
+const activeEntry = flatText(activeEntryOf());
+const catalogue = flatText(catalogueOf());
+const released = (version) => {
+  const entry = entryForVersion(version);
+  assert.ok(entry, `no entry of ${name}'s own for ${version}`);
+  return flatText(entry);
+};
 
 // The order is the contract: a plan written after the calls, or parity proven after measuring,
 // is exactly what produced the verdicts this skill exists to prevent.
@@ -446,12 +485,12 @@ test('the checklist allows exactly what the procedure allows', () => {
   // A change found after its calls ran is a correction, never backdated.
   assert.match(steps[6], /A change discovered after its calls ran is recorded as a correction to those calls\. It is never backdated, and what it invalidates counts toward no verdict until redone\./);
   assert.match(steps[6], /each found after them is marked as a correction to them, never backdated/);
-  assert.match(checklist, /one made before its calls was pushed before them, its offline gates re-run with it and output parity after it where a request changed; one found after them is marked as a correction, never backdated/);
+  assert.match(checklist, /one made before its calls was pushed before them, its offline gates re-run and pushed with it and, where a request changed, its output parity pushed before any later call; one found after them is marked as a correction, never backdated/);
   assert.doesNotMatch(checklist, /has a dated addendum committed before the calls it governs\./, 'the checklist requires every addendum to predate its calls again');
   // The judging shortcut: only the items where the arms differ are judged.
   assert.match(steps[7], /\*\*Judge only where the arms differ\*\*/);
-  assert.match(steps[7], /every item — or, under a shortcut the plan registered, every item where the arms differ — has three raw judge verdicts/);
-  assert.match(checklist, /scored every item — or, under a shortcut the plan registered, every item where the arms differ, with absolute rates reported as not measured/);
+  assert.match(steps[7], /for each item-wise additive metric the plan named for the shortcut, every item where the arms differ has three raw judge verdicts/);
+  assert.match(checklist, /scored every item where the arms differ for each item-wise additive metric the plan named for the shortcut, its absolute rate reported as not measured/);
   assert.doesNotMatch(checklist, /Three judges from three vendors scored every item;/, 'the checklist requires every item judged under the shortcut again');
 });
 
@@ -505,8 +544,8 @@ test('every summary of the addenda rule allows a dated correction found after th
   assert.match(flat, /\*\*ADDENDA\*\* — every change after the first paid call, dated, with its reason: pushed before the calls it governs, or, when found after them, recorded as a correction and never backdated/);
   assert.doesNotMatch(flat, /\*\*ADDENDA\*\* — [^.]*each committed before the calls it governs\./, 'the summary requires every addendum to predate its calls again');
   assert.match(frontmatterOf(skill), /put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them;/);
-  // `releases` is the module-level read: docs/releases.md and CHANGELOG.md
-  assert.match(releases, /puts every later change in a dated addendum pushed before the calls it governs, or records one found after them as a dated correction/);
+  // The catalogue paragraph, read on its own: the release entries word this differently.
+  assert.match(catalogue, /puts every later change in a dated addendum pushed before the calls it governs, or records one found after them as a dated correction/);
 });
 
 // Round 6 on #101: a local commit can be amended or backdated, so "committed before" was not
@@ -555,7 +594,7 @@ test('only the provider binds the research key to its account; a record in the p
   for (const [where, text] of [['SKILL.md', flat], ['budget-guard.md', budget], ['study-files.md', files]]) {
     assert.doesNotMatch(text, /separately provisioned billing account|the plan's billing account|the key's remaining balance/, `${where} accepts a billing account from the plan, or a key's balance, again`);
   }
-  assert.match(releases, /compared by the account the provider names for each key; a provider that cannot name it is out of scope, since a billing account written in the plan binds no key/);
+  assert.match(released('0.30.0'), /compared by the account the provider names for each key; a provider that cannot name it is out of scope, since a billing account written in the plan binds no key/);
 });
 
 // Round 7 on #101 (P1): a lagging balance endpoint with no complete-through watermark cannot say
@@ -572,7 +611,7 @@ test('the floor assumes the balance shows none of the study\'s spend, and trusts
   assert.match(guardDoc, /\| Lagging balance \| settle a call, then stub a balance that does not show it, and admit a call that fits only if that settled cost is forgotten \| latches and refuses: every settled cost comes off the balance \|/);
   assert.match(procedureSteps(skill)[1], /less everything the study has settled, which no balance is assumed to show yet, and every reservation still standing/);
   assert.match(checklist, /the account's balance was read before every admission, less everything the study settled/);
-  assert.match(releases, /takes off everything the study has settled as possibly not shown yet/);
+  assert.match(released('0.30.0'), /takes off everything the study has settled as possibly not shown yet/);
 });
 
 // Round 7 on #101 (P1): an addendum that changes the guard, the request builder, parameters, rubric,
@@ -587,9 +626,9 @@ test('an addendum that changes a frozen file re-runs every gate that read it bef
   const seventh = procedureSteps(skill)[6];
   assert.match(seventh, /An addendum that changes a frozen file re-runs every gate that read the old bytes/);
   assert.match(seventh, /what it invalidates counts toward no verdict until redone/);
-  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it/);
-  assert.match(checklist, /pushed before them, its offline gates re-run with it/);
-  assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run and pushed with it/);
+  assert.match(checklist, /pushed before them, its offline gates re-run and pushed with it/);
+  assert.match(released('0.30.0'), /with every offline gate that read a file it changes run again and pushed with it/);
 });
 
 // Round 7 on #101 (P1): a mid-study addendum was accepted as a local commit, whose date an amend or a
@@ -606,10 +645,10 @@ test('an addendum is pushed before its first governed call, the same anchor as t
   assert.match(files, /each addendum, the push that carried it, and the time of the first paid call after each/);
   assert.match(checklist, /one made before its calls was pushed before them/);
   assert.match(section(skill, 'Usage Examples'), /and push it before the next batch runs/);
-  for (const [where, text] of [['SKILL.md', flat], ['study-files.md', files], ['releases.md', releases]]) {
+  for (const [where, text] of [['SKILL.md', flat], ['study-files.md', files], ['the active release entry', activeEntry], ['the catalogue paragraph', catalogue]]) {
     assert.doesNotMatch(text, /addend(?:um|a)[^.]{0,40} committed before the calls it governs|To be committed before them/i, `${where} anchors an addendum on a local commit again`);
   }
-  assert.match(releases, /every later change is a dated addendum pushed before the calls it governs, the same anchor as the plan/);
+  assert.match(released('0.30.0'), /every later change is a dated addendum pushed before the calls it governs, the same anchor as the plan/);
 });
 
 // Round 7 on #101 (P2): production routing that cannot be pinned — a router, or a provider fallback —
@@ -619,7 +658,7 @@ test('production routing that cannot be pinned is out of scope', () => {
   assert.match(parity, /\*\*Production routing that cannot be pinned is out of scope\.\*\* Where production's own request leaves the provider to a router, or lets a fallback move it, the control cannot both equal production's request and carry a pin/);
   assert.match(parity, /This skill does not reproduce the routing to stand in for a pin: such a study is out of scope until production's request pins its provider/);
   assert.match(checklist, /with the provider pinned in every arm's request and in production's own/);
-  assert.match(releases, /production routing that cannot be pinned is out of scope/);
+  assert.match(released('0.30.0'), /production routing that cannot be pinned is out of scope/);
 });
 
 // Round 7 on #101 (P2): judging only where the arms differ is exact only for item-wise additive
@@ -630,9 +669,9 @@ test('the judging shortcut covers item-wise additive metrics only, never inventi
   assert.match(judging, /comes from the source-only reading, so invention is never scored under the shortcut/);
   assert.match(judging, /require every difference between arms, on every metric the shortcut is used for, to be identical/);
   assert.match(procedureSteps(skill)[7], /\*\*Judge only where the arms differ\*\*, if cost forces it, and only on item-wise additive metrics — never invention, whose denominator the judges decide/);
-  assert.match(checklist, /A shortcut covers only item-wise additive metrics, never invention, and has a passing exactness test on a fixture/);
+  assert.match(checklist, /for each item-wise additive metric the plan named for the shortcut, its absolute rate reported as not measured, and every item for every other metric, invention always among them; .* A shortcut has a passing exactness test on a fixture/);
   assert.match(files, /judge only where arms differ, for item-wise additive metrics only/);
-  assert.match(releases, /a shortcut that judges only where the arms differ covers item-wise additive metrics alone, never invention/);
+  assert.match(released('0.30.0'), /a shortcut that judges only where the arms differ covers item-wise additive metrics alone, never invention/);
 });
 
 // Round 7 on #101 (P2): a manifest cannot hold its own checksum. It lists every other file, and the
@@ -647,7 +686,7 @@ test('the manifest does not list itself; the pushed commit that adds it anchors 
   assert.match(tenth, /the manifest covers every other file the run opened/);
   assert.match(flat, /a checksum manifest covering every other file it reads/);
   assert.match(checklist, /The manifest covers every other consumed input/);
-  assert.match(releases, /a checksum manifest, which lists every other file and is anchored by its pushed commit/);
+  assert.match(released('0.30.0'), /a checksum manifest, which lists every other file and is anchored by its pushed commit/);
 });
 
 // Codex round 1 on #104 (P1): the gate re-run rule pushed output parity's results WITH the addendum,
@@ -670,9 +709,9 @@ test('an addendum re-runs its offline gates before any call, then output parity 
   assert.match(budget, /or an addendum's output parity, whose cap that addendum registers/);
   const seventh = procedureSteps(skill)[6];
   assert.match(seventh, /re-runs every gate that read the old bytes: the offline ones before any call it governs, pushed with it; then, if a request changed, output parity as its first paid stage, under a cap and pass rule it registers, pushed before any later call/);
-  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run with it and output parity after it where a request changed/);
-  assert.match(checklist, /its offline gates re-run with it and output parity after it where a request changed/);
-  assert.match(releases, /with every offline gate that read a file it changes run again and pushed with it, then, where it changes a request, output parity run again as its first paid stage under a cap and pass rule it registers/);
+  assert.match(seventh, /\*\*Complete when:\*\*[^]*its offline gates re-run and pushed with it and, where a request changed, its output parity pushed before any later call/);
+  assert.match(checklist, /its offline gates re-run and pushed with it and, where a request changed, its output parity pushed before any later call/);
+  assert.match(released('0.30.0'), /with every offline gate that read a file it changes run again and pushed with it, then, where it changes a request, output parity run again as its first paid stage under a cap and pass rule it registers/);
 });
 
 // Codex round 2 on #104 (P1): subtracting the study's own settled spend is no lower bound on a shared
@@ -694,8 +733,8 @@ test('the floor counts only on an account that is the study\'s alone; elsewhere 
   assert.match(checklist, /On an account that is the study's alone, with a balance endpoint, the account's balance was read before every admission/);
   assert.match(frontmatterOf(skill), /on a shared account or with no balance endpoint the floor is recorded as unavailable/);
   assert.match(files, /balance floor <amount>, read before every admission, on an account that is the study's alone \(or "unavailable": no balance endpoint, or a shared account\)/);
-  assert.match(releases, /keeps a balance floor only on an account that is the study's alone/);
-  assert.match(releases, /on a shared account, or where the provider has no balance, it records the floor as unavailable and the hard caps govern alone/);
+  assert.match(released('0.30.0'), /keeps a balance floor only on an account that is the study's alone/);
+  assert.match(released('0.30.0'), /on a shared account, or where the provider has no balance, it records the floor as unavailable and the hard caps govern alone/);
 });
 
 // Codex round 2 on #104 (P2): the manifest is written after the calls, so "the first paid call after"
@@ -709,4 +748,100 @@ test('the audit times the first call after each preregistration file, and record
   const timed = audit.slice(audit.indexOf('- the commit that added the PLAN'), audit.indexOf('- the commit and push that added the manifest'));
   assert.ok(timed.length > 0, 'the audit no longer separates the preregistration files from the manifest');
   assert.doesNotMatch(timed, /manifest/, 'the manifest is timed against a later paid call again');
+});
+
+// Codex final round on #104 (at e206cc9). Each completion check below could be met while the rule it
+// closes was broken. The rules were right; the checks now ask for what they say. `completion(step)` is
+// the step's Complete-when clause, and `checklistItem(start)` the one checklist line opening so.
+const completion = (step) => step.slice(step.indexOf('**Complete when:**'));
+const checklistItem = (start) => {
+  const items = checklist.split(/- \[ \] /).filter((item) => item.startsWith(start));
+  assert.equal(items.length, 1, `expected one checklist line opening "${start}", found ${items.length}`);
+  return items[0];
+};
+
+// [P1] SKILL.md:254-257: a correction found after its calls ran was complete once it was labelled a
+// correction, though the rule says what it invalidates counts toward no verdict until redone.
+test('a correction is complete only when everything it invalidated was redone or excluded before any bar\'s verdict', () => {
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /what it invalidates counts toward no verdict until redone/);
+  const addendum = checklistItem('Every change after the first paid call has a dated addendum');
+  for (const [where, text] of [['step 7\'s completion', completion(seventh)], ['the checklist', addendum]]) {
+    const correction = text.slice(text.indexOf('found after them is marked as a correction'));
+    assert.ok(correction.length > 0, `${where} no longer speaks of a correction`);
+    assert.match(correction, /never backdated, and every call, judge verdict and score it invalidated was redone or excluded before any bar's verdict/, `${where} completes a correction on its label alone`);
+  }
+  assert.match(files, /none of it counts toward a verdict unless it is produced again under the new bytes, once their gates pass/);
+  assert.match(released('0.30.1'), /A correction found after its calls ran is complete only when every call, judge verdict and score it invalidated was redone or excluded before any bar's verdict/);
+});
+
+// [P1] SKILL.md:249-251: the rule pushes an addendum's output-parity result before any later call,
+// but both completion checks asked only that output parity ran after the addendum.
+test('both completion checks require an addendum\'s output parity pushed before any later call', () => {
+  const seventh = procedureSteps(skill)[6];
+  assert.match(seventh, /output parity as its first paid stage, under a cap and pass rule it registers, pushed before any later call/);
+  const addendum = checklistItem('Every change after the first paid call has a dated addendum');
+  for (const [where, text] of [['step 7\'s completion', completion(seventh)], ['the checklist', addendum]]) {
+    assert.match(text, /where a request changed, its output parity pushed before any later call/, `${where} lets output parity's result wait past later calls`);
+    assert.doesNotMatch(text, /output parity after it/, `${where} asks only that output parity ran after the addendum again`);
+  }
+  assert.match(released('0.30.1'), /its output parity counts only once its result is pushed before any later call, in step 7's completion and in the checklist alike/);
+});
+
+// [P2] SKILL.md:269-275: the judging completion was global, so a study that registered the shortcut
+// for one additive metric could judge only the differing items for every metric, leaving invention
+// without its denominator. It is per metric: the shortcut's items only for the additive metrics the
+// plan named for it, every item for everything else, invention always among them.
+test('judging is complete per metric: every item for invention and every metric not named for the shortcut', () => {
+  const eighth = procedureSteps(skill)[7];
+  const judgingLine = checklistItem('Three judges from three vendors');
+  assert.match(completion(eighth), /for each item-wise additive metric the plan named for the shortcut, every item where the arms differ has three raw judge verdicts, and for every other metric, invention always among them, every item does/);
+  assert.match(judgingLine, /scored every item where the arms differ for each item-wise additive metric the plan named for the shortcut, its absolute rate reported as not measured, and every item for every other metric, invention always among them/);
+  for (const [where, text] of [["step 8's completion", completion(eighth)], ['the checklist', judgingLine]]) {
+    assert.doesNotMatch(text, /under a shortcut the plan registered, every item where the arms differ/, `${where} lets one registered shortcut cover every metric again`);
+  }
+  // The plan names the metrics the shortcut covers, which is what "named for the shortcut" reads.
+  assert.match(files, /judge only where arms differ, for item-wise additive metrics only \(<which>; exactness test: <fixture>\)/);
+  assert.match(judging, /\*\*Every other metric is judged on every item\.\*\*/);
+  assert.match(released('0.30.1'), /judging is complete per metric: every item for invention and for every metric the plan did not name for the shortcut, and only the items where the arms differ for each item-wise additive metric it named/);
+});
+
+// Codex round 2 on #106 (at b0d5c5a), two P2s on how this file chose its release prose. It read all of
+// docs/releases.md, so wording in the permanent Published catalog satisfied an assertion meant for a
+// release entry; and it took the newest CHANGELOG version that contained the skill's name, so a later
+// release that only cross-referenced it would be picked. Held on fixtures, then on the real files.
+test("release prose is read from the skill's own entry, and its catalogue paragraph on its own", () => {
+  const entry = (skill, text) => `### A heading\n\n**What.** \`${skill}\` ${text}\n\n**Why.** Because.\n`;
+  const doc = (staged) => `# Releases\n\n## Published catalog\n\nThis catalog ships \`${name}\`.\n\n\`${name}\` CATALOGUE-ONLY wording.\n\n## Unreleased\n\nProse for the next release.\n\n${staged}\n## Release checklist\n\n1. Check.\n`;
+  const changelog = [
+    '# Changelog\n\nIntro.\n',
+    `## 0.31.0\n\n${entry('another-skill', `cross-references \`${name}\`: CROSS-REFERENCE wording.`)}`,
+    `## 0.30.1\n\n${entry(name, 'OWN-0.30.1 wording.')}`,
+    `## 0.30.0\n\n${entry(name, 'OWN-0.30.0 wording.')}`,
+  ].join('\n');
+  // Nothing of its own staged: its own entry in the newest section that has one, not a newer section
+  // that only mentions it, and not another skill's staged entry that mentions it.
+  const mentioned = activeEntryOf({ doc: doc(entry('another-skill', `mentions \`${name}\`: STAGED-MENTION wording.`)), changelog });
+  assert.match(mentioned, /OWN-0\.30\.1 wording/);
+  assert.doesNotMatch(mentioned, /CROSS-REFERENCE|STAGED-MENTION|CATALOGUE-ONLY/);
+  // Its own entry staged: that entry alone, not the rest of docs/releases.md.
+  const stagedDoc = doc(entry(name, 'STAGED-OWN wording.'));
+  const staged = activeEntryOf({ doc: stagedDoc, changelog });
+  assert.match(staged, /STAGED-OWN wording/);
+  assert.doesNotMatch(staged, /CATALOGUE-ONLY|Prose for the next release|OWN-0\.30\.1|Release checklist/);
+  // A release's own entry: its CHANGELOG section once released, the staged entry while it is the
+  // package's version, and none for a version whose section only mentions the skill.
+  const at = (version) => entryForVersion(version, { doc: stagedDoc, changelog, current: '0.31.1' });
+  assert.match(at('0.30.0'), /OWN-0\.30\.0 wording/);
+  assert.match(at('0.31.1'), /STAGED-OWN wording/);
+  assert.equal(at('0.31.0'), undefined, "a version that only cross-references the skill was read as the skill's own entry");
+  assert.equal(at('0.31.2'), undefined, "a version that is neither released nor the package's read the staged entry");
+  // The catalogue: the skill's own paragraph, nothing else of the Published catalog.
+  assert.equal(catalogueOf(stagedDoc), `\`${name}\` CATALOGUE-ONLY wording.`);
+  // Two entries of its own in one place: which is meant is ambiguous, so nothing is read.
+  assert.throws(() => activeEntryOf({ doc: doc(`${entry(name, 'A.')}\n${entry(name, 'B.')}`), changelog }), /holds 2 entries of the skill's own/);
+  // The real files: an entry and a paragraph were found, each one extract and not a whole file.
+  assert.ok(activeEntry.length > 0, `no active release entry of ${name}'s own`);
+  assert.ok(catalogue.startsWith(`\`${name}\``), `no Published catalog paragraph for ${name}`);
+  for (const text of [activeEntry, catalogue]) assert.doesNotMatch(text, /## (?:Unreleased|Release checklist|Published catalog|\d)/, 'an extract runs past its own entry');
 });

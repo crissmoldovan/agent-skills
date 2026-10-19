@@ -3,7 +3,7 @@ name: rotate-shared-secret
 description: "Rotate a secret that services share without downtime: the receiver accepts the current key or a next key, with an empty value never matching; the next key is generated into a 0600 file and never printed; every sender moves to a secret store and is verified delivering; the old key is retired only after the receiver's handled requests in a fixed window match the senders' own delivery records exactly and a search finds no other caller; then the receiver is redeployed, the live domain is confirmed to serve the new build, and probes show the new key passing and the old key, a wrong key and no key refused. Symptoms: rotate the webhook secret, the shared key may have leaked, the key is a literal in a trigger or config file, change the token without breaking anything, who else calls with this key, retire the old secret. Placing a single credential is secure-credential-setup's; a change crossing code, schema and jobs is land-complex-change's."
 license: MIT
 compatibility: "A receiver you can redeploy and whose live domain can be traced to a deployment; senders that can read a secret store; request logs on the receiver and delivery records on each sender covering one window. A bash shell with openssl and curl. Output is the new key in place on every side, the old key refused, a reconciliation record and a probe record. No key value or hash appears in any output."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -261,10 +261,13 @@ case $? in 0) echo same ;; 1) echo DIFFERENT; false ;; *) echo "READ ERROR"; fal
 
 # Step 4, before any sender drops the old key: a store that cannot be read back leaves the senders'
 # copies as the only readable ones. A new shell has lost step 2's umask, so set it again. Save the
-# old key raw, never printed: a new 0600 copy, or a failure that keeps any copy saved earlier.
+# old key raw, never printed: a new 0600 copy, or a failure that keeps any copy saved earlier. An
+# old.key that is a directory or a link is refused first: mv would put the copy inside it.
 umask 077
 rm -f "${SCRATCH:?}/old.key.tmp"
-if <platform-cli> secrets get SHARED_KEY > "${SCRATCH:?}/old.key.tmp" && [ -s "$SCRATCH/old.key.tmp" ] \
+if [ -d "$SCRATCH/old.key" ] || [ -L "$SCRATCH/old.key" ]; then
+  echo "OLD KEY NOT SAVED: old.key is a directory or a link; nothing was read"; false
+elif <platform-cli> secrets get SHARED_KEY > "${SCRATCH:?}/old.key.tmp" && [ -s "$SCRATCH/old.key.tmp" ] \
   && mv "${SCRATCH:?}/old.key.tmp" "$SCRATCH/old.key"; then
   ls -l "$SCRATCH/old.key"
 else
@@ -276,11 +279,12 @@ fi
 # in the receiver's own header and scheme. Every probe gets a fresh body, a new timestamp and nonce
 # (adapt body to your receiver, keeping both wherever its scheme signs them), so a receiver that
 # refuses replays refuses a key, never a repeat. A probe sends nothing when its key file is missing,
-# empty or not a regular file, or its request cannot be built. Every write starts from no file.
+# empty or not a regular file, or its request cannot be built: a nonce, a timestamp or a signature
+# that failed. Every write starts from no file.
 umask 077
 rm -f "${SCRATCH:?}/wrong.key"; printf '%064d' 0 > "${SCRATCH:?}/wrong.key"   # a wrong key of the right length
 sign() { node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",f.readFileSync(process.argv[1])).update(f.readFileSync(process.argv[2])).digest("hex"))' "$1" "$2"; }
-body() { local n; rm -f "${SCRATCH:?}/probe.json"; n=$(openssl rand -hex 16) && [ "${#n}" -eq 32 ] && printf '{"probe":true,"timestamp":%s,"nonce":"%s"}' "$(date +%s)" "$n" > "${SCRATCH:?}/probe.json"; }
+body() { local n t; rm -f "${SCRATCH:?}/probe.json"; n=$(openssl rand -hex 16) && [ "${#n}" -eq 32 ] && t=$(date +%s) && [ "$t" -gt 0 ] 2>/dev/null && printf '{"probe":true,"timestamp":%s,"nonce":"%s"}' "$t" "$n" > "${SCRATCH:?}/probe.json"; }
 probe() {  # probe <label> <key file, or none>
   rm -f "${SCRATCH:?}/probe.hdr" "$SCRATCH/probe.json"
   if [ "$2" != none ] && ! { [ -f "$2" ] && [ ! -L "$2" ] && [ -s "$2" ]; }; then
@@ -363,7 +367,8 @@ the record says what the match cannot rule out.
 - **A key file written in a new shell.** `umask 077` lasts as long as the shell that set it, and a
   redirect into an existing file keeps that file's mode. A step run days later in a new terminal
   writes the old key's copy and the header files 0644. Every block that writes a key sets the
-  umask itself and starts from no file.
+  umask itself and starts from no file, and a directory where the file belongs is refused, since
+  `mv` would put the key inside it.
 - **The old key's last readable copy removed.** With a store that cannot be read back, the
   senders' copies are the only readable ones, and moving the senders removes them. Save and prove
   the old key before the first sender moves, or the old-key probe has nothing to send.

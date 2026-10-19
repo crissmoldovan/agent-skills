@@ -106,7 +106,8 @@ that refusal reads as a retirement that took. Each probe, the old key's after th
 included, gets its own timestamp and nonce. For the same reason a probe sends nothing when its key
 file is missing, empty or not a regular file, or its body or signature failed: an empty signature,
 a signature made with an empty key, or a header with no key in it is refused for the wrong reason
-too.
+too. The body's nonce and timestamp are each checked before the body is written, so a clock that
+failed sends nothing, never a body with no timestamp in it.
 
 The skill's example defines `probe`, which does all of this for either kind of key, chosen by
 `KIND` (`bearer` or `signing`, with no default). Define it again in every new shell: a new shell
@@ -138,7 +139,8 @@ for it, and prove the copy before any sender drops the old key (step 4): while t
 same header or signature scheme, over a fresh body — and see it accepted. Save it then, not at the promotion: a store that cannot be read back — many
 platforms keep secrets write-only — leaves the senders' copies as the only readable ones, and
 moving the senders removes them. Save it under a `umask 077` set in the same shell, since a new
-shell has lost step 2's. A copy that was not accepted then cannot show anything now.
+shell has lost step 2's, and refuse an `old.key` that is a directory or a link: `mv` would put the
+copy inside it, and the cleanup would leave it there. A copy that was not accepted then cannot show anything now.
 
 Where the backends sit behind a load balancer and cannot be addressed one by one, a probe through
 the live domain reaches whichever backend answered, and nothing more. One probe proves nothing about

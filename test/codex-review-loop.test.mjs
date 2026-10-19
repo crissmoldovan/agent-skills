@@ -236,11 +236,11 @@ const REVIEWS = {
   p4: ['Out of scale.', '', 'Full review comments:', '', `- ${FINDING}`, '- [P4] A grade outside the scale — file.txt:1-1'],
   garbled: ['Error: stream disconnected before completion'],
 };
-function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false, logsInCheckout = false, logsInOtherWorktree = false, files = {}, links = {} } = {}) {
+function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch = false, logsInCheckout = false, logsInOtherWorktree = false, otherWorktree = false, otherName = 'other-worktree', files = {}, links = {} } = {}) {
   const base = removeOnExit(mkdtempSync(join(tmpdir(), 'review-e2e-')));
   const origin = join(base, 'origin.git');
   const work = join(base, 'work');
-  const other = join(base, 'other-worktree');
+  const other = join(base, otherName);
   const logs = logsInCheckout ? join(work, 'review-logs') : logsInOtherWorktree ? join(other, 'review-logs') : join(base, 'logs');
   const tmp = join(base, 'tmp');
   mkdirSync(tmp);
@@ -266,7 +266,7 @@ function exampleRepo({ ignored = false, dirty = false, hook = false, breakFetch 
   if (dirty) writeFileSync(join(work, 'untracked.txt'), 'not committed\n');
   if (hook) writeFileSync(join(work, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\nprintf "TOKEN=generated\\n" > generated.env\n', { mode: 0o755 });
   if (breakFetch) git('remote', 'set-url', 'origin', join(base, 'no-such-origin.git'));
-  if (logsInOtherWorktree) git('worktree', 'add', '-q', '--detach', other, 'HEAD');
+  if (logsInOtherWorktree || otherWorktree) git('worktree', 'add', '-q', '--detach', other, 'HEAD');
   const reviews = Object.entries(REVIEWS).map(([mode, lines]) => `${mode}) printf '%s\\n' ${lines.map((line) => `'${line}'`).join(' ')} > "$out";;`).join('\n    ');
   const ghCalls = join(base, 'gh-calls');
   // The stub resolves --base the way Codex does, with git rev-parse --verify when the review starts.
@@ -577,7 +577,40 @@ test('the log directory may not lie in any worktree of the checkout', () => {
   assert.match(run.out, /ROUND 1 REFUSED: REVIEW_LOGS is inside the reviewed tree or a worktree of this checkout/);
   assert.equal(run.reviewedIn, null, 'the reviewer ran with its logs inside another worktree');
   assert.equal(execFileSync('git', ['-C', repo.other, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' }), '', 'the refused round wrote into the other worktree');
-  assert.match(exampleBash, /git worktree list --porcelain/);
+  assert.match(exampleBash, /git worktree list --porcelain -z/);
+});
+
+// Codex final round on #105 (at a56f71f) [P2], SKILL.md:277-281: `git worktree list --porcelain`
+// prints a registered path that holds a newline across two lines, so the containment check compared
+// the log directory with a truncated path, and logs inside that worktree passed. The list is now read
+// NUL-delimited (-z), and a list git did not finish refuses the round rather than checking less.
+test('the worktree list is read NUL-delimited, and a list git could not finish refuses the round', () => {
+  const NEWLINE = 'other\nworktree';
+  const inside = exampleRepo({ logsInOtherWorktree: true, otherName: NEWLINE });
+  assert.ok(existsSync(inside.other) && inside.other.includes('\n'), 'the fixture has no worktree whose path holds a newline');
+  const refused = inside.review();
+  assert.notEqual(refused.status, 0, 'a REVIEW_LOGS inside a worktree whose path holds a newline was accepted');
+  assert.match(refused.out, /ROUND 1 REFUSED: REVIEW_LOGS is inside the reviewed tree or a worktree of this checkout/);
+  assert.equal(refused.reviewedIn, null, 'the reviewer ran with its logs inside a worktree of the checkout');
+  // Silence control: the same worktree registered, the logs outside every worktree, the round counts.
+  const outside = exampleRepo({ otherWorktree: true, otherName: NEWLINE }).review();
+  assert.equal(outside.status, 0, outside.out);
+  assert.ok(outside.reviewedIn, 'the reviewer never ran');
+
+  // A list git could not finish, wholly or after part of it, is no evidence: the round refuses.
+  const reviewer = `codex() { local out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done; printf '[P3] A small thing\\n' > "$out"; }`;
+  for (const [why, stub] of [
+    ['git cannot list the worktrees', 'git() { if [ "$1 $2" = "worktree list" ]; then return 128; fi; command git "$@"; }'],
+    ['git lists part of them, then fails', `git() { if [ "$1 $2" = "worktree list" ]; then printf 'worktree /elsewhere\\0HEAD ${'a'.repeat(40)}\\0'; return 1; fi; command git "$@"; }`],
+  ]) {
+    const result = runBash(`${reviewer}\n${stub}\nreview_round 1 . ${BASE}`);
+    assert.notEqual(result.status, 0, `${why}: the round counted`);
+    assert.match(result.out, /ROUND 1 REFUSED: git could not list this checkout's worktrees/, `${why}: ${result.out}`);
+  }
+  const control = runBash(`${reviewer}\nreview_round 1 . ${BASE}`);
+  assert.equal(control.status, 0, `a round with a complete worktree list was refused: ${control.out}`);
+  assert.match(exampleFunction('review_round'), /git worktree list --porcelain -z && printf 'END\\0'\)/);
+  assert.match(exampleFunction('review_round'), /while IFS= read -r -d '' wt; do/);
 });
 
 // [P2] merge-preconditions.md:128-130: the instruction-file grep had no closing quote, and a second

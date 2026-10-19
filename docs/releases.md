@@ -149,6 +149,112 @@ rebuild every number offline. Which model runs everyday work stays `model-routin
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+### A saved key is never moved into a directory, and a probe never goes without its timestamp
+
+**What.** `rotate-shared-secret` corrects two commands in its example. The block that saves the old
+key's copy in step 4 now refuses an `old.key` that is a directory or a link before it reads the
+store: `mv` moved the copy inside such a directory and reported success, and the cleanup's `rm -f`
+then left the key there, outside the scratch directory when a link pointed out of it. The probe's
+body takes its timestamp from a checked assignment that must be a number, so a clock that fails
+sends nothing; before, `curl` sent JSON with no timestamp in it, which the receiver refused for the
+wrong reason. The reference and the pitfall about key files say the same.
+
+**Why.** The last review round on the changes that went into 0.30.0 found both. They were recorded
+as follow-ups rather than fixed before that release.
+
+**Impact.** A rotation that follows the example can no longer leave a copy of the old key where the
+cleanup does not reach it, or read the refusal of a malformed probe as a retirement that took. No
+step, completion condition or checklist line changes meaning.
+
+**Compatibility.** **Patch. No migration.** Two example commands and the sentences describing them
+change, within the contract the skill already stated: a new 0600 copy or a failure, and a probe
+that sends nothing when its request cannot be built. Skill metadata version 1.0.0 to 1.0.1.
+
+**Who should update.**
+
+- **Anyone with `rotate-shared-secret` installed:** update in each scope where it is installed, and
+  re-copy the example's save block and `body()` wherever you keep a copy of them.
+
+  ```bash
+  npx skills update --project --yes   # from the project
+  npx skills update --global --yes
+  ```
+
+- **Everyone else:** nothing changes.
+
+### A review round reads every worktree path whole, newlines included
+
+**What.** `codex-review-loop`'s `review_round` reads the checkout's worktrees with
+`git worktree list --porcelain -z`, one NUL-terminated record at a time. Read line by line, a
+registered worktree whose path holds a newline was compared as a truncated path, so a log directory
+inside that worktree passed the check that keeps logs out of every worktree of the checkout. A list
+git could not finish, wholly or after part of it, now refuses the round instead of checking fewer
+worktrees.
+
+**Why.** The last review round on the changes that went into 0.30.0 found it, and it was recorded as
+a follow-up rather than fixed before that release.
+
+**Impact.** A round whose log directory lies in any registered worktree is refused whatever that
+worktree's path holds, and a round that cannot see the whole list does not run. The `-z` flag needs
+git 2.36 or later; an older git fails the listing, and the round refuses rather than run unchecked.
+
+**Compatibility.** **Patch. No migration.** One example function changes; the rule it enforces —
+logs outside the reviewed tree and every worktree of the checkout — is unchanged. Skill metadata
+version 1.0.0 to 1.0.1.
+
+**Who should update.**
+
+- **Anyone who runs `codex-review-loop`'s example recipe:** update in each scope where it is
+  installed, and re-copy `review_round` wherever you keep a copy of it.
+
+  ```bash
+  npx skills update --project --yes   # from the project
+  npx skills update --global --yes
+  ```
+
+- **Everyone else:** nothing changes.
+
+### A model study's completion checks ask for what its rules require
+
+**What.** `preregistered-model-study` corrects three completion checks that asked for less than the
+rules they close. A correction found after its calls ran is complete only when every call, judge
+verdict and score it invalidated was redone or excluded before any bar's verdict; before, marking it
+as a correction was enough. Where an addendum changes a request, its output parity counts only once
+its result is pushed before any later call, in step 7's completion and in the checklist alike; both
+asked only that it ran after the addendum. And judging is complete per metric: every item for
+invention and for every metric the plan did not name for the shortcut, and only the items where the
+arms differ for each item-wise additive metric it named. Before, a study that registered the
+shortcut for one metric could judge only the differing items for all of them, leaving invention
+without its denominator. To keep the body within its line cap, two pitfalls that repeated a step,
+"Unequal inputs" and "The silent repair", are removed; steps 6 and 12 still say both.
+
+**Why.** The last review round on the changes that went into 0.30.0 found that each of the three
+checks could be met while the rule it closes was broken. They were recorded as follow-ups rather
+than fixed before that release.
+
+**Impact.** A study that ticks its checklist can no longer report a verdict that rests on
+invalidated outputs, run calls before its output parity is on record, or score invention on part of
+its denominator. For contributors: the skill's test reads release prose from the skill's own entry
+only — the staged one, or its own `###` entry in the newest changelog section that has one — holds
+each release's wording against that release's entry, and checks the Published catalog paragraph on
+its own.
+
+**Compatibility.** **Patch. No migration.** Step 7's and step 8's completion conditions and the two
+matching checklist lines now require what those steps' rules, and the references, already said; no
+rule, template or reference changes meaning. Skill metadata version 1.0.0 to 1.0.1.
+
+**Who should update.**
+
+- **Anyone running a study with `preregistered-model-study`:** update in each scope where it is
+  installed, and check a study in progress against the three corrected checks.
+
+  ```bash
+  npx skills update --project --yes   # from the project
+  npx skills update --global --yes
+  ```
+
+- **Everyone else:** nothing changes.
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.

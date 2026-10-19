@@ -3,7 +3,7 @@ name: codex-review-loop
 description: "Run an independent AI code review on a pull request in rounds until a round returns only lowest-severity findings: start the reviewer in the background writing to a file, read only the reviewer's final message, check every finding against the code before acting, fix everything above the lowest severity with a check you watched fail by breaking the fix on purpose, measure each finding's effect on any published result, write a review record per round, split the pull request when rounds keep finding new kinds of bug, and merge only a head whose required checks ran on that exact commit. Symptoms: run codex review, get a second opinion on this PR, review until clean, the reviewer flagged a P1, is this ready to merge, codex review --base origin/main. The Blocks-hosted review loop is request-blocks-review's; containing a risky change is land-complex-change's."
 license: MIT
 compatibility: "A git repository with a pull request, or a branch and its base, and a reviewer CLI that reviews a diff against a base and grades findings by severity. The examples use the Codex CLI; any reviewer with those two properties fits. Merge checks use the GitHub CLI. Output is the fixed branch, one review record per round, and either a merge pinned to the reviewed head or the stated reason it is not ready."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -270,15 +270,19 @@ case "$REVIEW_LOGS" in /*) ;; *) echo "REFUSE: REVIEW_LOGS must be an absolute p
 # A round counts only if the reviewer exited zero AND wrote a non-empty final review, which the exec
 # form writes, and only that, to the file -o names: no log marker can cut it. A failed round leaves none.
 review_round() {  # review_round <n> <tree> <base sha>
-  local tree_abs wts wt wt_abs logs_abs log final
+  local tree_abs listed wt wt_abs logs_abs log final
   case "$REVIEW_LOGS" in /*) ;; *) echo "ROUND $1 REFUSED: REVIEW_LOGS must be an absolute path"; return 1;; esac
   # The reviewer gets the recorded sha, never a name it would resolve for itself when it starts.
   [[ "${3:-}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || { echo "ROUND $1 REFUSED: the base must be the recorded sha, not a name"; return 1; }
-  tree_abs=$(cd "$2" && pwd -P) && wts=$(git worktree list --porcelain) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
-  while IFS= read -r wt; do  # the reviewed tree, then every worktree of this checkout, the checkout included
+  tree_abs=$(cd "$2" && pwd -P) && mkdir -p "$REVIEW_LOGS" && logs_abs=$(cd "$REVIEW_LOGS" && pwd -P) || return 1
+  # The reviewed tree, then every worktree of this checkout, the checkout included. NUL-delimited (-z,
+  # git 2.36+): a path may hold a newline. A list git did not finish has no END record, and refuses.
+  while IFS= read -r -d '' wt; do
+    case $wt in END) listed=yes; continue;; "worktree "*) wt=${wt#worktree };; *) continue;; esac
     wt_abs=$(cd "$wt" 2>/dev/null && pwd -P) || wt_abs=$wt
     case "$logs_abs/" in "$wt_abs"/*|"$wt"/*) echo "ROUND $1 REFUSED: REVIEW_LOGS is inside the reviewed tree or a worktree of this checkout: $wt"; return 1;; esac
-  done < <(printf '%s\n' "$tree_abs"; printf '%s\n' "$wts" | sed -n 's/^worktree //p')
+  done < <(printf 'worktree %s\0' "$tree_abs"; git worktree list --porcelain -z && printf 'END\0')
+  [ "${listed:-}" = yes ] || { echo "ROUND $1 REFUSED: git could not list this checkout's worktrees"; return 1; }
   # The reviewer takes nothing from the tree: -c turns off its instruction files; these two no flag does.
   for wt in .codex .agents; do if [ -e "$2/$wt" ] || [ -L "$2/$wt" ]; then echo "ROUND $1 REFUSED: the reviewed tree holds $wt, which configures its reviewer"; return 1; fi; done
   log="$logs_abs/round-$1.log"; final="$logs_abs/round-$1.final.txt"
