@@ -13,9 +13,17 @@ const judging = read('references/judging-and-metrics.md').replace(/\s+/g, ' ');
 const files = read('references/study-files.md').replace(/\s+/g, ' ');
 const frontmatterOf = (source) => source.slice(0, source.indexOf('\n---\n', 4));
 const checklist = section(skill, 'Verification').replace(/\s+/g, ' ');
-// The skill's release prose is staged in docs/releases.md until its release, then moved word for word
-// into CHANGELOG.md, so it is read from both: wherever the release record keeps it.
-const releases = ['../docs/releases.md', '../CHANGELOG.md'].map((p) => readFileSync(new URL(p, import.meta.url), 'utf8')).join(' ').replace(/\s+/g, ' ');
+// The skill's release prose is staged under `## Unreleased` in docs/releases.md until its release,
+// then moved word for word into CHANGELOG.md. Read docs/releases.md as before; only when Unreleased
+// carries no entry for this skill, add the NEWEST changelog section that names it, never older ones,
+// so a future staged entry is the one checked and history cannot satisfy its assertions.
+const releasesDoc = readFileSync(new URL('../docs/releases.md', import.meta.url), 'utf8');
+const unreleased = (releasesDoc.split(/\n## Unreleased\n/)[1] ?? '').split(/\n## /)[0];
+const latestChangelogEntry = () => {
+  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  return changelog.split(/\n(?=## \d)/).find((section) => /^## \d/.test(section) && section.includes('`preregistered-model-study`')) ?? '';
+};
+const releases = (unreleased.includes('`preregistered-model-study`') ? releasesDoc : `${releasesDoc}\n${latestChangelogEntry()}`).replace(/\s+/g, ' ');
 
 // The order is the contract: a plan written after the calls, or parity proven after measuring,
 // is exactly what produced the verdicts this skill exists to prevent.
