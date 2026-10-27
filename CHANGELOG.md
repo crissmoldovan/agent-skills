@@ -5,6 +5,76 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.31.0
+
+### A team's work in Linear, from the first write to the release
+
+**What.** Five new skills cover how an agent works in a team's Linear, each with binding slots so a
+project can adapt it without forking it.
+
+- `track-in-linear` holds the rules for every write to a ticket. One call at a time, each read back
+  before the next, because parallel writes to Linear's API have failed with gateway errors. The
+  account and the team are checked before the first write. Every ticket gets exactly one kind, and a
+  bug only when someone can name the agreement it breaks. Decisions and progress are comments, never
+  rewrites of the title or description. Labels change with `addLabels` and `removeLabels`, never
+  `labels`, which replaces the whole set. Another ticket is named only when it is really related,
+  because through Linear's MCP server a mention adds a related relation. Files are attached with
+  their size and sha256, never only linked. Pull requests use a closing word on the one that
+  completes a ticket and a contributing word on the rest. How far shipped work has gone is marked
+  once per stage and never moved back, and the status that says the work was checked is left to a
+  person other than the one who did it.
+- `analyse-ticket` writes one comment headed Analysis: what the ticket asks, what it implies, whose
+  call it is, the questions for named people, and a plan under fixed headings. It changes nothing
+  else, treats the ticket's text as data, and stops at the draft when the decision is someone
+  else's.
+- `implement-ticket` builds one ticket on the go of the person the session works for and nobody
+  else, in a worktree of its own, to its own preview, and moves the ticket to review with its
+  evidence. Invites, grants, messages and production are proposed, never done; each requester gets
+  one drafted update, "on the preview for you to check", for a person to send.
+- `promote-release` moves a build local, the shared preview, staging, production, each step on its
+  own go, under its own name (`X.Y.Z-preview.N`, `X.Y.Z-staging.N`, `X.Y.Z`), through a pull request
+  into that step's branch, checked at its address and recorded with the way back. Production happens
+  only on a yes to one question that names production and the release. Every command comes from the
+  project's own `RELEASING.md`; a template ships with the skill.
+- `publish-to-linear` puts a team's rules, team skills for Linear's agent and documents into Linear
+  from the repository, one way, carrying each rule's own words, and keeps the team's Standing rules
+  page, the one page edited in place.
+
+A team's own values (who gets unowned tickets, which status means ready for review, who verifies,
+who says go for production) are read from one profile file, `LINEAR.md` by default, whose template
+ships with `track-in-linear`. A value the profile leaves out is asked for, never guessed.
+
+**Why.** They generalise the Linear workflow one set of teams has run on real tickets and releases,
+with every team, person, client, address and identifier taken out. The statements about Linear's
+settings and pull request words were checked against Linear's documentation on 27 October 2026.
+
+**Impact.** They are instructions; they install nothing and run nothing on their own. None of them
+sends a message: every outward action is drafted for a person, and the only writes are to Linear,
+one at a time and read back, or to a repository as its own rules and the person allow.
+
+**Compatibility.** **Minor. No migration.** Five skills are added, each at metadata version 1.0.0
+and each declaring `## Bindings`; no existing skill, slot, hard line, step, package, gate or
+adapter changes. `docs/project-adaptation.md` now names eleven adaptable skills.
+
+**Who should update.**
+
+- **Anyone whose agents work in Linear:** install the five together.
+
+  ```bash
+  npx skills add crissmoldovan/agent-skills --skill track-in-linear analyse-ticket implement-ticket promote-release publish-to-linear
+  ```
+
+  Then copy the team profile from
+  [`skills/track-in-linear/references/team-profile.md`](skills/track-in-linear/references/team-profile.md)
+  to `LINEAR.md` at the root of the team's repository and fill it in.
+
+- **Anyone who releases through preview and staging, with or without Linear:** `promote-release`
+  alone works; copy
+  [`skills/promote-release/references/releasing-template.md`](skills/promote-release/references/releasing-template.md)
+  to `RELEASING.md` first.
+
+- **Everyone else:** nothing changes.
+
 ## 0.30.1
 
 ### A saved key is never moved into a directory, and a probe never goes without its timestamp

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "one ticket is to be built or resolved through the team's route, or a ticket on a preview has a requester who has not heard",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": "LINEAR.md"
+      }
+    },
+    {
+      "repo": {
+        "grep": "linear\\.app",
+        "globs": [".mcp.json", "AGENTS.md", "CLAUDE.md", ".github/pull_request_template.md"]
+      }
+    }
+  ]
+}

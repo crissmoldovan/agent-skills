@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "work is filed, classified, moved, labelled, commented on or closed in Linear, or a decision or a step of progress must be recorded on a ticket",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": "LINEAR.md"
+      }
+    },
+    {
+      "repo": {
+        "grep": "linear\\.app",
+        "globs": [".mcp.json", "AGENTS.md", "CLAUDE.md", ".github/pull_request_template.md"]
+      }
+    }
+  ]
+}

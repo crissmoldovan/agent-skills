@@ -12,7 +12,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, and `preregistered-model-study` — thirty-five in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -71,7 +71,18 @@ the review record, the stop and split rules, and the merge pinned to the reviewe
 `request-blocks-review` owns the loop with Blocks as the reviewer; and `preregistered-model-study` owns a model or prompt comparison whose verdict can be trusted —
 the plan, freeze and dry run pushed before the study's first paid call, the dated addenda, the
 spend guard in code, request and output parity, the provenance-aware judge panel, and the offline
-reproduction — while `model-routing` owns which model runs everyday work. A new skill must state which of these it does not duplicate.
+reproduction — while `model-routing` owns which model runs everyday work; and five skills own a team's work
+in Linear, each reading the team's values from one profile: `track-in-linear` owns every write to a ticket —
+one call at a time and read back, exactly one kind, decisions as comments, labels changed without wiping
+the rest, mentions only for real relations, and acceptance left to a person; `analyse-ticket` owns the one
+Analysis comment that plans a ticket and changes nothing else; `implement-ticket` owns one ticket built
+through the team's route, on the person's go alone, with every outward action and every update to a
+requester drafted for a person to send — while `resolve-problem-report` owns the arc from a reported
+problem to its root cause and fix; `promote-release` owns a build moved local, preview, staging,
+production, each step on its own go, under its own name, through a pull request and checked at its
+address — while `release-notes` owns the note for the version; and `publish-to-linear` owns putting a
+team's rules, team skills and documents into Linear from the repository, and the team's Standing rules
+page. A new skill must state which of these it does not duplicate.
 
 Read [the public-content policy](docs/public-content-policy.md) and [architecture](docs/architecture.md). Never copy internal playbooks, credentials, customer data, or machine-specific instructions into this public repository.
 

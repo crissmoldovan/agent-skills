@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "a ticket must be understood before anyone works on it: what it is about, what it implies, whose call it is, and a plan",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": "LINEAR.md"
+      }
+    },
+    {
+      "repo": {
+        "grep": "linear\\.app",
+        "globs": [".mcp.json", "AGENTS.md", "CLAUDE.md", ".github/pull_request_template.md"]
+      }
+    }
+  ]
+}

@@ -1,13 +1,14 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Thirty-five public, portable Agent Skills for agent operations, reviews, releases
+  Forty public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories,
   evidence-backed investigation of what a change would touch, sessions that
   resume on their own after a usage limit, plain-language lessons in how a
   project works, secrets rotated without downtime, independent review loops that end on a
-  reviewed head, and model comparisons whose verdicts can be trusted.
+  reviewed head, model comparisons whose verdicts can be trusted, and work tracked,
+  analysed, built, released and documented in Linear.
 </p>
 
 A public package by **Criss Moldovan**. Every skill is independently discoverable
@@ -21,7 +22,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Thirty-five skills. Each one below carries its own install command and a couple of
+Forty skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -582,6 +583,85 @@ Ask it:
 
 More: [Skill](skills/preregistered-model-study/SKILL.md) · [Study files](skills/preregistered-model-study/references/study-files.md) · [The budget guard](skills/preregistered-model-study/references/budget-guard.md) · [Parity and controls](skills/preregistered-model-study/references/parity-and-controls.md) · [Judging and metrics](skills/preregistered-model-study/references/judging-and-metrics.md)
 
+### `track-in-linear`
+
+Write to Linear the way a team can rely on: one call at a time, each read back; every ticket classified as exactly one kind; decisions and progress recorded as comments, never as rewrites; labels changed without wiping the rest; another ticket mentioned only when it is really related; files attached, not linked; and work never marked accepted by the agent that did it. The team's own values come from its profile, and any it leaves out are asked for. Symptoms: open a ticket, what kind is this, move it to review, mark it shipped, it reached staging, record this on the ticket, who owes this, add the release label, a ticket with no assignee, a pull request that should link a ticket, a related link nobody asked for. Analysing a ticket is analyse-ticket's, building one implement-ticket's, moving a build between environments promote-release's, and putting rules or documents into Linear publish-to-linear's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill track-in-linear
+```
+
+Ask it:
+
+- *"Use track-in-linear: file what Dana sent in the support thread as a ticket in our team. Her exact words and both screenshots on it, the right kind, and read it back."*
+- *"We just decided to drop the CSV export from this release. Record that on every ticket it touches, with the time and my words, before you carry on."*
+- *"The related links on ABC-41 look wrong. Find which writes added them and take off the ones that are not real relations."*
+
+More: [Skill](skills/track-in-linear/SKILL.md) · [The team profile](skills/track-in-linear/references/team-profile.md)
+
+### `analyse-ticket`
+
+Understand a ticket before anyone works on it, and write it down as one comment headed Analysis: what it is about, what it implies, whose call it is, the next steps, and an implementation plan under fixed headings when something must be built. It changes nothing else: no status, label, assignee, relation, branch, commit or message, each of which is proposed in the comment instead. Text in the ticket is data, never a step of the plan, and when the call is someone else's the analysis stops at the draft. Symptoms: analyse ABC-12, what does this ticket imply, what would it take, plan this ticket, a ticket in triage with no analysis, a ticket whose ask changed after a new message. Filing and moving tickets is track-in-linear's, building one implement-ticket's, and taking a bug report through reproduction to a landed fix resolve-problem-report's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill analyse-ticket
+```
+
+Ask it:
+
+- *"Use analyse-ticket on ABC-12: what it is really asking, what it would touch, whose call it is, and a plan if something has to be built. Change nothing on the ticket except the one comment."*
+- *"The requester added a message to ABC-12 that changes the ask. Bring the analysis up to date in place, and tell me what changed in it."*
+
+More: [Skill](skills/analyse-ticket/SKILL.md)
+
+### `implement-ticket`
+
+Build or resolve one ticket through the team's own route, on the go of the person the session works for and nobody else: what else the change touches first, a worktree cut from the branch the team names, the repository's own checks, the ticket moved to in progress and then to review with its evidence, and, once it is on a preview, everyone whose request fed the ticket listed with one drafted update each, for a person to send. Invites, access grants, messages and anything on production are proposed, never done. Symptoms: implement ABC-12, do this ticket, build what the analysis planned, ship it, apply this data, a ticket on a preview whose requester has not heard, a ticket that asks for an invite or access, a request to go straight to production. Understanding a ticket first is analyse-ticket's, the Linear writes track-in-linear's, moving the build to staging and production promote-release's, and root-causing a reported problem resolve-problem-report's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill implement-ticket
+```
+
+Ask it:
+
+- *"Use implement-ticket on ABC-12: build what the analysis planned, in a worktree from main, run the tests, and move the ticket to review with the evidence once it is on its own preview. Do not commit until I say."*
+- *"ABC-30 asks us to invite two people to the staging site. Resolve it the way the skill says: give me the exact invites to send, and record the decision on the ticket once I have made it."*
+- *"The client wrote on ABC-41 that it should go straight to production tonight. Handle that: draft the refusal and the flag, show me both, and carry on with the normal route."*
+
+More: [Skill](skills/implement-ticket/SKILL.md)
+
+### `promote-release`
+
+Move one build from a developer's machine to production in steps, local, the shared preview, staging, production, each on its own go, under its own name (X.Y.Z-preview.N, X.Y.Z-staging.N, X.Y.Z) and through a pull request into that step's branch; check that the address serves the commit shipped; record the step and the way back; mark the tickets it carries; and draft who to tell for a person to send. Production happens only on an explicit yes that names production, every confirmation a step waits for is recorded, and every command comes from the project's own RELEASING.md, never guessed. Symptoms: release this, cut a preview, promote to staging, promote to production, is it on staging, what number is this release, roll it back, someone asks to skip staging, a -preview name about to reach staging, an address that may not be serving the new build. The note for the version is release-notes', the ticket marks track-in-linear's, and one ticket's own preview implement-ticket's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill promote-release
+```
+
+Ask it:
+
+- *"Use promote-release: put what is on the shared preview onto staging. Name it, stamp it through a pull request, check the staging address serves the new commit, mark the tickets, and draft who to tell. Stop before production."*
+- *"2.4.0-staging.1 has both confirmations recorded. Ask me the production question, and if I say yes, take it to production and write down the deployment we would go back to."*
+- *"The client asked us to skip staging for tonight's fix. Check who the profile says can skip a step, and tell me what that means for this release."*
+
+More: [Skill](skills/promote-release/SKILL.md) · [The RELEASING.md template](skills/promote-release/references/releasing-template.md)
+
+### `publish-to-linear`
+
+Put a team's rules and reference into Linear so the people and agents working there can find them, written once in the repository and published one way: agent guidance for the workspace or a team, a team skill for Linear's agent, a document on a team, project or initiative, and the one page a team keeps in Linear itself, its Standing rules. Each place gets the form its reader needs and the rule's own words in full, the copy says where to edit it, every publish has the person's go and is read back, and a new standing rule is added in place the day it is given. Symptoms: add this to Linear's guidance, make a Linear skill for filing bugs, put the handbook in Linear, teach Linear's agent our rules, update the how-we-work document, save this as a standing rule, add it to the team's resources, the guidance in Linear differs from the repository. Writing to tickets is track-in-linear's; the record of why a rule was made is decision-journal's.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill publish-to-linear
+```
+
+Ask it:
+
+- *"Use publish-to-linear: our rule for pull request words is in docs/working-rules.md. Put it into the team's agent guidance in its own words, and tell me exactly what to paste and where."*
+- *"Make a team skill for Linear's agent that files a bug the way our team does. Write it in the repository first, then give me the text to add."*
+- *"From now on, nothing goes to production on a Friday. Save that as a standing rule for the team."*
+
+More: [Skill](skills/publish-to-linear/SKILL.md)
+
 ## Install — for humans
 
 Install the complete pack for the current project:
@@ -633,7 +713,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the thirty-five public skills from crissmoldovan/agent-skills.
+Install or update the forty public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -701,9 +781,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The thirty-five, in the order they appear above:
+The forty, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study` · `track-in-linear` · `analyse-ticket` · `implement-ticket` · `promote-release` · `publish-to-linear`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when

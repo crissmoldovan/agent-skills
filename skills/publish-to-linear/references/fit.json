@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "a team's rules, a skill for Linear's agent, or a reference document must be put into Linear, or a standing rule saved",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": "LINEAR.md"
+      }
+    },
+    {
+      "repo": {
+        "exists": "linear/"
+      }
+    }
+  ]
+}
