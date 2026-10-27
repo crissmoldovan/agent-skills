@@ -117,8 +117,10 @@ and take their rules from the skills installed in their own harness.
    can also be created by asking Linear's agent to save it as a team skill. **Complete when:** the
    document call returned, or the person says the text is in.
 5. **S5. Read it back:** `get_document`; for a team skill, `list_agent_skills` and
-   `get_agent_skill`, compared with the file. **Complete when:** the copy in Linear matches the
-   merged file, word for word, or the difference is reported.
+   `get_agent_skill`, compared with the file. Agent guidance has no read tool: ask the person to
+   copy the saved text back from Linear's settings, and compare that. Until a copy is compared,
+   the publish is recorded as unverified. **Complete when:** the copy in Linear matches the merged
+   file, word for word, or the difference, or the missing read-back, is reported.
 6. **S6. Record the publish** where B4 says: what, where in Linear, from which commit, and who
    said go. **Complete when:** the record is committed with the person's leave, as the
    repository's rules require.
@@ -184,7 +186,7 @@ publish the repository's version over it once I say go.
 - [ ] Guidance and team skills carry the rule's own words, not a pointer or a paraphrase
 - [ ] Each copy names where to edit it, except the Standing rules page
 - [ ] Every publish had the person's go, quoted with its time
-- [ ] Every published copy was read back and matched the merged file, or the difference was reported
+- [ ] Every published copy was read back and matched the merged file, or the difference was reported; guidance nobody copied back is recorded as unverified
 - [ ] A standing rule was added in place, numbered and dated, on the team's one page
 - [ ] The ticket that prompted a rule has its comment, and the setup change is proposed where needed
 - [ ] Every publish is recorded with what, where, from which commit, and who said go

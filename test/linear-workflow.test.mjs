@@ -154,6 +154,17 @@ test('publish-to-linear: written in the repository, published one way, standing 
   // No MCP tool writes guidance or a team skill: the skill must not claim one does.
   assert.match(skill, /no MCP tool writes\s+them/);
   assert.match(skill, /checked against Linear's documentation on 27 October 2026/);
+  // Guidance has no read tool, so its read-back comes from the person, and is unverified until then.
+  assert.match(section(skill, 'Procedure'), /Agent guidance has no read tool: ask the person/);
+  assert.match(section(skill, 'Procedure'), /recorded as unverified/);
+});
+
+test('linear workflow: a release moves only the tickets it completes, and an analysis writes no log', () => {
+  // A contributing pull request leaves work to do, so the ticket keeps its status when it ships.
+  assert.match(section(skills['track-in-linear'], 'How far shipped work has gone'), /A ticket only partly in the release[\s\S]*?keeps its status and its mark/);
+  assert.match(section(skills['promote-release'], 'Procedure'), /a ticket only partly\s+in it keeps its status/);
+  assert.match(section(skills['analyse-ticket'], 'Bindings'), /proposes its `analysed` entry and never writes it/);
+  assert.doesNotMatch(section(skills['analyse-ticket'], 'Procedure'), /add an `analysed` entry/);
 });
 
 test('linear workflow: the skills name no host but placeholders and the pack itself, and no machine path', async () => {

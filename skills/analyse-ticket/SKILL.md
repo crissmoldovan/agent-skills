@@ -56,7 +56,7 @@ describes. A slot nobody binds keeps its default.
 | B5 | how what else a change would touch is mapped | skill | `blast-area` |
 | B6 | how a question for another person is written | skill | `request-answers` |
 | B7 | the team's automatic analyser, whose comment this skill replies to rather than repeats | value | none |
-| B8 | the team's log of what comes in, read as the ticket's source and given an `analysed` entry | value | none |
+| B8 | the team's log of what comes in, read as the ticket's source; this skill proposes its `analysed` entry and never writes it | value | none |
 
 ## Hard lines
 
@@ -121,8 +121,9 @@ describes. A slot nobody binds keeps its default.
     assignee, one that belongs to someone else is named for the lead to decide. **Complete
     when:** every change the ticket seems to need is listed, and none is applied.
 11. **S11. Write the comment and read it back,** through B3's rules: identity checked, one call,
-    read back. Where B8 names a log, add an `analysed` entry (ticket, comment id). **Complete
-    when:** the read-back shows the one comment and no new relation.
+    read back. Where B8 names a log, put its `analysed` entry (ticket, comment id) in the report
+    for whoever keeps the log (H1). **Complete when:** the read-back shows the one comment and no
+    new relation.
 
 ## The comment
 

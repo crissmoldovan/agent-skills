@@ -181,7 +181,7 @@ leaves out is not used: ask before inventing one.
 | intake → planned | a person, after sorting |
 | planned → in progress | the work's first pull request, or by hand with a comment |
 | in progress → in review | the pull request, **only with the evidence below attached**, or by hand |
-| in review → shipped | the release that carries it, by hand, or the team's merge automation |
+| in review → shipped | the release that completes it, by hand, or the team's merge automation |
 | shipped → accepted | **a person other than the one who did the work; never an agent session** (H6) |
 | any → blocked | with the reason and what it waits on (a waiting-on label or a blocked-by link) |
 | any → canceled or duplicate | a person, with the reason in a comment |
@@ -203,9 +203,11 @@ Only for a team whose profile has a stage group (a single-choice label group suc
 Preview, Staging, Production) or version labels. A team on Linear's Releases lets its release
 pipeline record this instead, or adds the release with `addReleases`.
 
-1. **A release marks every ticket whose work it carries,** by hand: the shipped status, and the
-   stage label for where it went.
-2. **One mark, never two.** One `save_issue` per ticket: the status, `removeLabels` with the stage
+1. **A release marks every ticket whose work it completes,** by hand: the shipped status, and the
+   stage label for where it went. A ticket only partly in the release (its pull request used a
+   contributing word) keeps its status and its mark; it gets the comment in step 4, naming the
+   part that reached the stage.
+2. **One mark, never two.** One `save_issue` per completed ticket: the status, `removeLabels` with the stage
    label it carries, `addLabels` with the new one. Read back: exactly one stage label, the right
    one, every other label as it was.
 3. **Never back.** The stages go in the profile's order. A ticket already marked at this stage or

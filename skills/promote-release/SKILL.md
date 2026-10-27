@@ -116,8 +116,10 @@ describes. A slot nobody binds keeps its default.
 7. **S7. Record it, before any message:** the step, the deployment, the commit served, the UTC
    time, who shipped it on whose word, the way back. **Complete when:** the record is written where
    `RELEASING.md` says.
-8. **S8. Mark the tickets** the release carries, through B5: the shipped status with this step's
-   stage mark and the version label as shipped, one comment each, read back; never accepted. A
+8. **S8. Mark the tickets** the release carries, through B5: each ticket it completes gets the
+   shipped status with this step's stage mark and the version label as shipped; a ticket only partly
+   in it keeps its status and gets a comment naming the part that arrived. One comment each, read
+   back; never accepted. A
    team on Linear's Releases checks the release appeared in its pipeline instead. **Complete
    when:** every carried ticket is marked or listed with why it was left.
 9. **S9. Draft who to tell:** the people the profile lists for this step, and for each carried
