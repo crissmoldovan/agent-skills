@@ -26,9 +26,12 @@ What checks what today:
   [adapting a pack skill](../skills/update-agent-skills/references/adapting.md) is the guide to
   it, and it follows this page.
 
-Six skills in this catalogue declare the section: `release-notes`, `report-progress`,
+Eleven skills in this catalogue declare the section: `release-notes`, `report-progress`,
 `request-answers`, `resolve-problem-report` (in `references/assessing-a-report.md`),
-`mine-session-transcripts` and `coding-teacher`.
+`mine-session-transcripts`, `coding-teacher`, `track-in-linear`, `analyse-ticket`,
+`implement-ticket`, `promote-release` and `publish-to-linear`. The five Linear skills read a team's
+values from its profile by default, so a team that keeps them in a profile file needs no overlay;
+an overlay binds them where a project keeps them elsewhere.
 
 ## The three kinds of id
 

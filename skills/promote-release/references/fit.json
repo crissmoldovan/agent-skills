@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "a build is about to move to the shared preview, staging or production, or a release must be named, approved, checked or rolled back",
+  "anyOf": [
+    {
+      "repo": {
+        "exists": "RELEASING.md"
+      }
+    },
+    {
+      "repo": {
+        "grep": "## Releases",
+        "globs": [
+          "LINEAR.md"
+        ]
+      }
+    }
+  ]
+}

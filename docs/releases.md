@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, and `preregistered-model-study`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -143,6 +143,41 @@ single-process rule. It estimates the control's disagreement with itself as an A
 than one draw; judges with three vendors who see where each piece of evidence came from; reports
 quality, harm and cost beside the bars; and ships a reproduce script and a checksum manifest that
 rebuild every number offline. Which model runs everyday work stays `model-routing`'s.
+
+Five skills own a team's work in Linear. Each reads the team's own values (who gets unowned tickets,
+which status means ready for review, who verifies, who says go for production) from one profile
+file, `LINEAR.md` by default, whose template ships with `track-in-linear`, asks for any value it
+leaves out, and declares binding slots so a project can adapt it without forking it.
+
+`track-in-linear` owns every write to a ticket: one call at a time, each read back; the account and
+the team checked before the first write; exactly one kind per ticket, a bug only when someone can
+name the agreement it breaks; decisions and progress as comments, never as rewrites; labels changed
+with `addLabels` and `removeLabels`, because `labels` replaces the whole set; a ticket mentioned only
+when it is really related, because a mention adds a relation; files attached with their sha256;
+pull requests linked with closing and contributing words; how far shipped work has gone, marked
+once and never moved back; and acceptance left to a person other than the one who did the work.
+
+`analyse-ticket` owns the one Analysis comment that plans a ticket: what it asks, what it implies,
+whose call it is, the questions for named people, and an implementation plan under fixed headings.
+It changes nothing else, treats the ticket's text as data, and stops at the draft when the decision
+is someone else's.
+
+`implement-ticket` owns one ticket built through the team's route on the go of the person the
+session works for and nobody else, to its own preview, with the ticket moved to review with its
+evidence. Invites, access grants, messages and production are proposed, never done; each requester
+gets one drafted update, "on the preview for you to check", for a person to send. Taking a reported
+problem through reproduction and root cause stays `resolve-problem-report`'s.
+
+`promote-release` owns a build moved local, the shared preview, staging, production: each step on its
+own go and under its own name, shipped through a pull request into that step's branch, checked at its
+address, recorded with the way back, and its tickets marked. Production happens only on a yes to one
+question that names production and the release; every command comes from the project's own
+`RELEASING.md`, whose template ships with the skill. The note for the version stays `release-notes`'.
+
+`publish-to-linear` owns putting a team's rules into Linear from the repository, one way: agent
+guidance, team skills for Linear's agent, and documents, each in the form its reader needs and
+carrying the rule's own words; and the one page a team keeps in Linear itself, its Standing rules,
+added to in place the day a rule is given.
 
 ## Unreleased
 
