@@ -74,7 +74,7 @@ jobs:
           npm --prefix packages/workspace-governance run assemble:runtime -- --output "$payload/bundle"
           cp skills/workspace-governance/scripts/install-runtime.mjs "$payload/install-runtime.mjs"
           cp packages/workspace-governance/scripts/m4-consumer.mjs "$payload/m4-consumer.mjs"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: workspace-governance-clean-consumer
           path: ${{ runner.temp }}/p31-payload
@@ -92,7 +92,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: workspace-governance-clean-consumer
           path: ${{ runner.temp }}/p31-payload
@@ -112,7 +112,7 @@ jobs:
             --npm "$(command -v npm)" \
             --tar "$(command -v tar)" \
             --git "$(command -v git)"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: p31-${{ matrix.os }}-result
