@@ -7,7 +7,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
-`resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
+`resolve-problem-report`, `new-ux-discovery`, `explore-prd`, `workspace-governance`, `report-progress`,
 `work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
@@ -29,6 +29,11 @@ it and nothing installs it for them. `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`, and
 `new-ux-discovery` compose the same way over evidence, change mapping and contained
 delivery, each naming the sibling that owns the adjacent job and each usable alone.
+
+`explore-prd` owns the journey from an existing PRD to reviewed experience prototypes and
+static visual directions, then an ordered shortlist with both themes before a selected restyle.
+It keeps scenario decisions, capability evidence, reversible checkpoints and browser observations
+distinct; PRD authorship stays with its author and production delivery remains separate.
 
 `decision-journal` records why a decision was made, anchored to evidence a reader can
 check, and stands alone. It carries its own CLI as `scripts/agent-journal.mjs`, bundled
@@ -183,6 +188,27 @@ added to in place the day a rule is given.
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+### Explore a PRD before choosing its visual direction
+
+**What.** Adds `explore-prd` 1.0.0: a workflow from an existing PRD through realistic fictional
+scenarios, verified capability boundaries and reversible functional prototypes to distinct static
+artboards. Shortlisting is an explicit decision and gallery update; every shortlisted direction
+then gets light/dark exploration, switches on gallery and mockups, and ordered Previous/Next
+navigation. A final direction decision precedes restyling the working prototype. Templates,
+review checklists and sanitized process evidence carry the non-obvious lessons.
+
+**Why.** Product assumptions, local demonstrations and engine capabilities can otherwise blur;
+visual exploration can grow beyond its useful scope or be called ready before it renders.
+The workflow keeps those boundaries visible and requires evidence at the review surface.
+
+**Impact and adoption.** This is an additive skill with no runtime dependency or migration for
+existing skills. PRD authorship, production delivery and local/global installation remain separate.
+Pack metadata stages the additive minor version 0.32.0; this PR does not tag or publish it.
+After that release is published, install with
+`npx skills add crissmoldovan/agent-skills --skill explore-prd`, or update an existing copy at its
+explicit project/global scope using the README's update guidance. This staged entry does not mean
+the skill is already released or installed.
 
 ## Release checklist
 
