@@ -71,17 +71,17 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.31.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.31.0');
-  assert.equal(rootLock.version, '0.31.0');
-  assert.equal(rootLock.packages[''].version, '0.31.0');
+test('v0.32.0 candidate metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.32.0');
+  assert.equal(rootLock.version, '0.32.0');
+  assert.equal(rootLock.packages[''].version, '0.32.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 40);
+  assert.equal(skillNames.length, 41);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships forty skills/i);
-  assert.match(composition, /catalog ships forty skills/i);
+  assert.match(architecture, /now ships forty-one skills/i);
+  assert.match(composition, /catalog ships forty-one skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -98,8 +98,8 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /forty public, portable Agent Skills/i);
-  assert.match(readme, /^Forty skills\. Each one below/m);
+  assert.match(readme, /forty-one public, portable Agent Skills/i);
+  assert.match(readme, /^Forty-one skills\. Each one below/m);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -1279,7 +1279,7 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
 test("no skill's example ask tells the reader to use a different skill", () => {
   const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
   const names = entries.map(([, name]) => name);
-  assert.equal(names.length, 40, 'every skill has a catalog entry');
+  assert.equal(names.length, 41, 'every skill has a catalog entry');
   for (const [, name, entry] of entries) {
     const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
     for (const ask of asks) {
@@ -1303,7 +1303,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
   const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  assert.equal(names.length, 40, 'the sweep must cover the whole pack');
+  assert.equal(names.length, 41, 'the sweep must cover the whole pack');
   for (const name of names) {
     const source = await read(`skills/${name}/SKILL.md`);
     assert.match(
@@ -1327,7 +1327,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
 // A severity number is a judgement; this is not. The list makes a claim about itself, so the
 // claim is what is tested.
 test('the flat skill list is in the catalog order it claims, and covers the pack', async () => {
-  const sentinel = readme.match(/^The forty, in the order they appear above:$/m);
+  const sentinel = readme.match(/^The forty-one, in the order they appear above:$/m);
   assert.ok(sentinel, 'the flat list no longer announces itself as catalog-ordered');
 
   const after = readme.slice(readme.indexOf(sentinel[0]) + sentinel[0].length);

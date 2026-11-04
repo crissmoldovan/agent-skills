@@ -9,10 +9,10 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `publish-agent-skill`, `update-agent-skills`, `release-ledger`, `github-webhooks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
-`new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
+`new-ux-discovery`, `explore-prd`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
 `layer-repository-docs`, `isolated-change-validation`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty in all. Routing
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty-one in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -22,7 +22,8 @@ checking and listing the adapted copy a project makes of a pack skill;
 owns what a proposed change would affect and `visualise-blast-area` owns drawing it;
 `land-complex-change` owns the declared touch-set budget and the regression gate
 ladder; `resolve-problem-report` owns the arc from a report to a resolution;
-`new-ux-discovery` owns gated UX opportunity discovery; `request-answers` owns the ask
+`new-ux-discovery` owns gated UX opportunity discovery; `explore-prd` owns turning an existing PRD
+into reviewed experience prototypes, visual directions, an ordered shortlist and light/dark exploration; `request-answers` owns the ask
 that unblocks work on another person's judgement — the answer sheet they reply to and the
 ledger of what came back — while `decision-journal` owns the
 record of why a decision was made; `delphi-ground` owns the verified-facts briefing
