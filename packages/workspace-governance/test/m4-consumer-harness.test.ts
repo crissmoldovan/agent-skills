@@ -27,7 +27,7 @@ test("CI adds producer-separated Linux and macOS clean consumers without replaci
   assert.match(workflow, /\n  clean-bundled-consumer:/);
   assert.match(workflow, /needs: workspace-governance-bundle/);
   assert.match(workflow, /ubuntu-latest/);
-  assert.match(workflow, /macos-14/);
+  assert.match(workflow, /macos-15/);
   assert.match(workflow, /node-version: 24/);
   assert.match(workflow, /actions\/upload-artifact@/);
   assert.match(workflow, /actions\/download-artifact@/);

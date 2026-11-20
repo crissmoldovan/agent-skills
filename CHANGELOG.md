@@ -5,6 +5,27 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.32.0
+
+### Keep agent workspaces within a storage budget
+
+**What.** `manage-workspace-storage` adds a context and capacity guard plus a preview-first
+cleanup command for disposable scratch it owns. It reports actual free space before and
+after a cleanup.
+
+**Why.** Project context can grow unnoticed when repeated builds retain a fresh checkout,
+dependencies, fixtures, and evidence together. A budget and a known cleanup point contain
+that growth while the required proof remains readable.
+
+**Compatibility.** Minor. No migration. The new skill is optional and runs no scheduled
+cleanup. The bundled helper uses Node.js 22 or newer on macOS or Linux.
+
+**Who should update.** Agents running local builds or investigating accumulated test output.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage
+```
+
 ## 0.31.0
 
 ### A team's work in Linear, from the first write to the release
