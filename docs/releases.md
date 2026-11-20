@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -57,6 +57,10 @@ the parent runs itself rather than believing a builder's report, the independent
 and the bundle an unattended run is handed over in. The moment the change is landing in the
 repository it is `land-complex-change`'s; the map it is budgeted from is `blast-area`'s; and the
 verdict it produces authorizes nothing beyond itself.
+
+`manage-workspace-storage` owns project-local context budgets, workspace headroom, and
+retiring disposable scratch after preserving required evidence. Its guard reports and blocks
+on the measured limits. Its cleanup helper previews and accepts only its own closed runs.
 
 `update-agent-skills` moves installed copies wherever they live, and owns the adapted copy a
 project makes of a pack skill: it composes the copy from a pinned release and the project's

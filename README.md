@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Forty public, portable Agent Skills for agent operations, reviews, releases
+  Forty-one public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories,
   evidence-backed investigation of what a change would touch, sessions that
@@ -22,7 +22,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Forty skills. Each one below carries its own install command and a couple of
+Forty-one skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -423,6 +423,21 @@ Ask it:
 
 More: [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract](skills/isolated-change-validation/references/evidence-contract.md) · [Handoff bundle](skills/isolated-change-validation/references/handoff-bundle.md)
 
+### `manage-workspace-storage`
+
+Keep agent context small and retire disposable build and test files after verification. Check a context budget and volume headroom, give each run a project-owned scratch directory, preserve evidence, and reclaim disk space within a checked scope. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, or a large build needs a storage preflight and cleanup.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage
+```
+
+Ask it:
+
+- *"Use manage-workspace-storage before the browser suite. Check the target volume, keep .context small, and clean up this run's scratch after retaining its result."*
+- *"Tell me what filled this project's disk and which files are safe to remove."*
+
+More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md)
+
 ### `onboard-project`
 
 Choose and wire a repository's skills from evidence instead of hoping a description matches: scan the repository and its own session history against every skill's declared fit, show one change list where each row carries the evidence that justified it and the undo that takes it back, and on one yes write a profile plus a generated .claude/rules/skill-routing.md that every session in this repository loads. A quiet session-start check then says one line when a listed skill is neither installed nor adapted here, the repository's evidence or its adapted copies move, or the routing file drifts. Symptoms: which skills should this project use, set this repo up for agents, the right skill never loads when I need it, we installed it and nobody uses it, onboard this project, check the prerequisites for this repo, re-check now that we have a database. It writes its own rules file and never edits CLAUDE.md, AGENTS.md or a generated context file, and it installs nothing itself: it prints the commands and you run them.
@@ -713,7 +728,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the forty public skills from crissmoldovan/agent-skills.
+Install or update the forty-one public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -781,9 +796,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The forty, in the order they appear above:
+The forty-one, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study` · `track-in-linear` · `analyse-ticket` · `implement-ticket` · `promote-release` · `publish-to-linear`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `manage-workspace-storage` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study` · `track-in-linear` · `analyse-ticket` · `implement-ticket` · `promote-release` · `publish-to-linear`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when
@@ -1146,10 +1161,10 @@ The output is not committed, and nothing publishes it: a committed copy would be
 second answer to what the pack contains, and the two would drift. The site is a local
 reader — build it with `npm run site` and serve `site/dist` with any static server.
 
-There is deliberately no hosted copy. The pack's public homes are this repository and
-its [skills.sh listing](https://skills.sh/crissmoldovan/agent-skills); a third would be
-another URL to keep true. `site/dist` is a plain static directory, so if that changes
-its mind it can be served from anywhere without a build step.
+The generated reader in `site/dist` is for local use. The public
+[Agent Skills catalogue](https://crissmoldovan.com/agent-skills) imports the skills
+from this repository. The pack is also discoverable on
+[skills.sh](https://skills.sh/crissmoldovan/agent-skills).
 
 ## License
 
