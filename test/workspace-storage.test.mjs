@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,7 @@ import { tempDir } from './helpers/temp-dir.mjs';
 const script = fileURLToPath(new URL('../skills/manage-workspace-storage/scripts/workspace-storage.mjs', import.meta.url));
 
 async function fixture() {
-  const root = await tempDir('workspace-storage-');
+  const root = realpathSync.native(await tempDir('workspace-storage-'));
   const project = path.join(root, 'project');
   const scratch = path.join(root, 'scratch');
   mkdirSync(project);
@@ -57,6 +57,36 @@ test('an unretired run blocks another start and a preview leaves all files in pl
   const open = call('cleanup', '--run', run, '--apply');
   assert.notEqual(open.status, 0);
   assert.match(open.stderr, /--closed/);
+});
+
+test('inventory distinguishes owned runs, registered checkouts, and unrelated output', async () => {
+  const { call, root, project, scratch } = await fixture();
+  const started = call('start', '--scratch-root', scratch, '--min-free-mib', '0', '--purpose', 'Tauri test');
+  assert.equal(started.status, 0, started.stderr);
+  const { run } = JSON.parse(started.stdout);
+  const other = path.join(root, 'other');
+  const artifact = path.join(scratch, 'legacy-verification');
+  const checkout = path.join(artifact, 'candidate');
+  const unknown = path.join(scratch, 'unattributed');
+  mkdirSync(other);
+  mkdirSync(artifact);
+  mkdirSync(unknown);
+  const git = (...args) => {
+    const result = spawnSync('git', ['-C', other, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git('init', '-q');
+  git('-c', 'user.name=Storage test', '-c', 'user.email=storage@example.invalid',
+    '-c', 'commit.gpgSign=false', 'commit', '--allow-empty', '-qm', 'initial');
+  git('worktree', 'add', '-q', '--detach', checkout);
+  const result = call('inventory', '--artifact-root', scratch, '--owner-project', other);
+  assert.equal(result.status, 0, result.stderr);
+  const rows = new Map(JSON.parse(result.stdout).folders.map((row) => [row.path, row]));
+  assert.equal(rows.get(run).ownerEvidence[0].project, project);
+  assert.equal(rows.get(run).ownerEvidence[0].purpose, 'Tauri test');
+  assert.deepEqual(rows.get(artifact).ownerEvidence, [{ kind: 'git-worktree', project: other, path: checkout }]);
+  assert.deepEqual(rows.get(unknown).ownerEvidence, []);
+  assert.ok(existsSync(run) && existsSync(checkout) && existsSync(unknown));
 });
 
 test('cleanup preserves linked files, refuses other projects, and verifies the owned run is gone', async () => {

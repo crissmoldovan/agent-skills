@@ -163,6 +163,7 @@ test('a missing file is evidence, and only for an exact path', () => {
 test('the shipped fit.json files match the repositories they should, and not the ones they should not', () => {
   const catalogue = loadCatalogue(packRoot);
   const table = [
+    ['manage-workspace-storage', 'rust-crate', 'bare'],
     ['release-notes', 'versioned-node', 'bare'],
     ['release-notes', 'rust-crate', 'bare'],
     ['release-notes', 'changesets', 'bare'],

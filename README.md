@@ -425,7 +425,9 @@ More: [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract]
 
 ### `manage-workspace-storage`
 
-Keep agent context small and retire disposable build and test files after verification. Check a context budget and volume headroom, give each run a project-owned scratch directory, preserve evidence, and reclaim disk space within a checked scope. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, or a large build needs a storage preflight and cleanup.
+Plan storage before large builds and retire disposable outputs at closeout. Check context and disk headroom, give each run project-owned scratch, and preserve a small evidence record. Use for Tauri or Rust builds, full browser suites, packaged verification, repeated cold rebuilds, and investigations of growing .context, worktree or artifact storage.
+
+Project onboarding recommends this skill from build and test configuration or an explicit agent instruction.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage
@@ -436,7 +438,7 @@ Ask it:
 - *"Use manage-workspace-storage before the browser suite. Check the target volume, keep .context small, and clean up this run's scratch after retaining its result."*
 - *"Tell me what filled this project's disk and which files are safe to remove."*
 
-More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md)
+More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md) · [Tauri and Rust lifecycle](skills/manage-workspace-storage/references/tauri-rust.md)
 
 ### `onboard-project`
 
