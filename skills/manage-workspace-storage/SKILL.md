@@ -37,7 +37,9 @@ Use this skill for the storage those workflows consume and leave behind.
    artifact directory against known project checkouts and managed run records.
    For suspected shared use, check Git worktree registrations, workspace-manager attachments,
    links and mounts, and open or known in-flight operations. Check links into the candidate
-   from the known consumers, including ignored dependency directories. A folder name is a
+   from the known consumers, including ignored dependency directories and Git object stores
+   linked through `objects/info/alternates`. Before retiring a source copy, check that required
+   Git refs and local changes can be recovered from a retained repository or bundle. A folder name is a
    lead about ownership. Resolve the owner for files kept by another checkout, a container,
    or a running job. For pending runs, follow the launch entrypoint through linked helpers,
    imports and file paths built at runtime. Check the resolved inputs against the proposed
