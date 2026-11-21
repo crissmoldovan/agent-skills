@@ -3,8 +3,7 @@ name: manage-workspace-storage
 description: "Plan storage before large builds and retire disposable outputs at closeout. Check context and disk headroom, give each run project-owned scratch, and preserve a small evidence record. Use for Tauri or Rust builds, full browser suites, packaged verification, repeated cold rebuilds, and investigations of growing .context, worktree or artifact storage."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files and disk usage. The bundled guard and scratch helper require Node.js 22 or newer on macOS or Linux. Git is needed only to inspect or retire Git worktrees. The helper makes no network requests."
-metadata: "group=workflow; lifecycle=release; version=1.3.1; author=crissmoldovan"
-allowed-tools: Read Grep Glob Bash
+metadata: { "group": "workflow", "lifecycle": "release", "version": "1.3.1", "author": "crissmoldovan" }
 ---
 
 # Manage workspace storage
@@ -12,6 +11,11 @@ allowed-tools: Read Grep Glob Bash
 Give each run a place for temporary output and a place for its durable result. Retire generated
 output when verification closes after a pass, failure, or abandoned attempt. Keep recovery data
 for interrupted work until cleanup or restoration is verified.
+
+Use the current client's file and shell tools and its normal authorization for changes. This
+workflow can audit only the filesystem the client can see. Run it in a host-local session to
+inspect a workstation's disk. In an environment without the bundled helper's prerequisites,
+use the workflow with that environment's disk and process tools.
 
 ## When to Use
 

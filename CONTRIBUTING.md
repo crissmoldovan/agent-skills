@@ -115,8 +115,11 @@ has the parts the others have. Those marked † are checked by `scripts/verify-s
 catalog and site tests; the rest is the shape the catalogue's skills already share.
 
 - **Frontmatter:** `name`† (the folder's name), `description`†, `license: MIT`, `compatibility`† (at
-  most 500 characters: what the skill needs and what it outputs), `metadata` as
-  `"group=workflow; lifecycle=release; version=<x.y.z>; author=<handle>"`, and `allowed-tools`. The
+  most 500 characters: what the skill needs and what it outputs), and `metadata` as a mapping of
+  string values for `group`, `lifecycle`, `version`, and `author`. Use an inline JSON object
+  for catalogue readers. The legacy `"group=workflow; lifecycle=release; version=<x.y.z>; author=<handle>"`
+  form remains readable for existing skills. Use `allowed-tools` only when a declared tool
+  list is appropriate for the target clients. The
   description is at most 1024 characters† and is what a runtime matches: what the skill does, then
   `Symptoms:` or `Use when` with the words a person would type, then which sibling skill owns the job
   next to it. `lifecycle`† is the skill's own maturity, not the stage of the work it serves, and

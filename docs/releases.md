@@ -188,6 +188,20 @@ added to in place the day a rule is given.
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
 
+**Verification storage and closeout.** Start each browser or native build with its own scratch
+directory and a plan to retire it when the run closes. The storage skill covers passed, failed
+and interrupted runs, with specific guidance for Cargo and Tauri. It keeps compact evidence
+and traces exact inputs that a pending run still uses, including linked Git objects. The
+isolated validation skill carries the same closeout step into its handoff.
+
+**Compatibility.** The storage helper uses Node.js 22 or newer on macOS or Linux. Both skills use
+portable frontmatter and the current client's normal tool permissions. Update them in your
+chosen client, for example in local Claude Code:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage isolated-change-validation --agent claude-code --global
+```
+
 ## Release checklist
 
 1. Confirm every new or changed skill is under `skills/<name>/SKILL.md`.

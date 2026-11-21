@@ -705,6 +705,22 @@ npx skills add crissmoldovan/agent-skills --skill request-answers
 npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
 ```
 
+To install just the build and cleanup workflows in local Claude Code:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage isolated-change-validation --agent claude-code --global
+```
+
+Omit `--global` for a single project. Claude Code also loads an entire skill folder placed
+under `~/.claude/skills/` or a project's `.claude/skills/`. Run `/skills` to check discovery.
+For Claude on the web and Cowork, upload a ZIP of the skill folder through **Customize → Skills**.
+Use a host-local session for disk cleanup when the skill needs to inspect that machine's files.
+[Claude Code skill locations](https://code.claude.com/docs/en/skills) · [Claude skill uploads](https://support.claude.com/en/articles/12512180-use-skills-in-claude)
+
+Each skill's compatibility field lists its requirements. Skills that call a particular client's
+hooks, transcript files, or runtime tools need those features. A different client can install the
+portable skills without installing the pack's optional adapters.
+
 Three skills carry a second step, stated in their entry's install block:
 `decision-journal` puts its CLI on PATH, `update-agent-skills` can install a session
 hook that checks freshness and carries the composer that adapts a pack skill to one

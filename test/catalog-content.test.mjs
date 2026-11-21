@@ -327,6 +327,14 @@ test('frontmatter stays compatible with Agent Skills and skills.sh discovery', (
 
 // `lifecycle` in a skill's metadata is the skill's own maturity, not the stage of the work it serves
 // (CONTRIBUTING, "What every skill carries"), and every skill this catalogue publishes is released.
+function skillMetadataValue(source, key) {
+  const frontmatter = source.split('\n---\n', 1)[0];
+  const object = frontmatter.match(/^metadata: (\{[^\n]*\})$/m)?.[1];
+  if (object) return JSON.parse(object)[key];
+  const scalar = frontmatter.match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
+  return scalar.split(';').map(field => field.trim()).find(field => field.startsWith(key + '='))?.slice(key.length + 1);
+}
+
 // agent-lifecycle and workspace-governance keep the frontmatter of their own releases, which has no
 // lifecycle field.
 test("every skill's metadata lifecycle is its maturity, and every published skill's is release", async () => {
@@ -334,8 +342,7 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
   const wrong = [];
   for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
     if (!entry.isDirectory() || ownReleaseForm.has(entry.name)) continue;
-    const metadata = (await read(`skills/${entry.name}/SKILL.md`)).match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
-    const value = metadata.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]?.trim();
+    const value = skillMetadataValue(await read(`skills/${entry.name}/SKILL.md`), 'lifecycle');
     if (value !== 'release') wrong.push(`${entry.name}: ${value ?? 'no lifecycle'}`);
   }
   assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
@@ -354,7 +361,7 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
     t.skip('no catalogue tag in this checkout\'s history');
     return;
   }
-  const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+  const versionOf = (source) => skillMetadataValue(source, 'version')
     ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
   const newer = (now, before) => {
     const [a, b] = [now, before].map((version) => version.split('.').map(Number));
