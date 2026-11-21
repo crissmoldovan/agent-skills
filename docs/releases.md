@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `manage-rust-build-artifacts`, `manage-tauri-build-artifacts`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -61,6 +61,9 @@ verdict it produces authorizes nothing beyond itself.
 `manage-workspace-storage` owns project-local context budgets, workspace headroom, and
 retiring disposable scratch after preserving required evidence. Its guard reports and blocks
 on the measured limits. Its cleanup helper previews and accepts only its own closed runs.
+`manage-rust-build-artifacts` applies that workflow to Cargo targets and intermediates.
+`manage-tauri-build-artifacts` applies it to frontend output, packaged apps, and installers.
+Both point back to the core skill for worktree custody, evidence, and cleanup scope.
 
 `update-agent-skills` moves installed copies wherever they live, and owns the adapted copy a
 project makes of a pack skill: it composes the copy from a pinned release and the project's
@@ -187,6 +190,21 @@ added to in place the day a rule is given.
 
 Prose for the next catalogue release. Nothing below is published until the version is
 bumped, the branch is merged, and a tag carries these notes.
+
+**Verification storage and closeout.** Start each browser or native build with its own scratch
+directory and a plan to retire it when the run closes. The core storage skill covers passed, failed
+and interrupted runs. Separate Rust and Tauri skills cover their own build outputs and use
+the core closeout. The core keeps compact evidence
+and traces exact inputs that a pending run still uses, including linked Git objects. The
+isolated validation skill carries the same closeout step into its handoff.
+
+**Compatibility.** The storage helper uses Node.js 22 or newer on macOS or Linux. The cleanup skills use
+portable frontmatter and the current client's normal tool permissions. Update them in your
+chosen client, for example in local Claude Code:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage isolated-change-validation --agent claude-code --global
+```
 
 ## Release checklist
 

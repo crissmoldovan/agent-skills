@@ -1,17 +1,21 @@
 ---
 name: manage-workspace-storage
-description: "Keep agent context small and retire disposable build and test files after verification. Check a context budget and volume headroom, give each run a project-owned scratch directory, preserve evidence, and reclaim disk space within a checked scope. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, or a large build needs a storage preflight and cleanup."
+description: "Manage worktree and test artifact storage across projects and clients. Check disk and context headroom, give builds and test runs owned scratch space, and retire closed outputs after preserving compact evidence and pending inputs. Use for large builds, browser suites, repeated rebuilds, and investigations of growing .context, worktree or artifact storage."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files and disk usage. The bundled guard and scratch helper require Node.js 22 or newer on macOS or Linux. Git is needed only to inspect or retire Git worktrees. The helper makes no network requests."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
-allowed-tools: Read Grep Glob Bash
+metadata: { "group": "workflow", "lifecycle": "release", "version": "1.3.1", "author": "crissmoldovan" }
 ---
 
 # Manage workspace storage
 
-An interrupted run needs a checkpoint. A finished run needs evidence. Neither needs a second
-checkout sitting beside its logs for the rest of the project. Keep a compact record in context
-and give large, disposable outputs a location and an end of life before creating them.
+Give each run a place for temporary output and a place for its durable result. Retire generated
+output when verification closes after a pass, failure, or abandoned attempt. Keep recovery data
+for interrupted work until cleanup or restoration is verified.
+
+Use the current client's file and shell tools and its normal authorization for changes. This
+workflow can audit only the filesystem the client can see. Run it in a host-local session to
+inspect a workstation's disk. In an environment without the bundled helper's prerequisites,
+use the workflow with that environment's disk and process tools.
 
 ## When to Use
 
@@ -33,10 +37,18 @@ Use this skill for the storage those workflows consume and leave behind.
 ## Procedure
 
 1. **Measure what already exists.** Start with available bytes on the volumes the run uses and
-   an allocated-size breakdown of the named directory, using a bounded top-level inventory.
-   For suspected shared use, check Git worktree registrations, links and mounts, and open or
-   known in-flight operations. A folder name is a lead about ownership. Files kept by another
-   checkout, a container, or a running job need their owner resolved.
+   an allocated-size breakdown of the named directory. Use `inventory` to match a shared
+   artifact directory against known project checkouts and managed run records.
+   For suspected shared use, check Git worktree registrations, workspace-manager attachments,
+   links and mounts, and open or known in-flight operations. Check links into the candidate
+   from the known consumers, including ignored dependency directories and Git object stores
+   linked through `objects/info/alternates`. Before retiring a source copy, check that required
+   Git refs and local changes can be recovered from a retained repository or bundle. A folder name is a
+   lead about ownership. Resolve the owner for files kept by another checkout, a container,
+   or a running job. For pending runs, follow the launch entrypoint through linked helpers,
+   imports and file paths built at runtime. Check the resolved inputs against the proposed
+   removals. Use a read-only dependency preflight when the runner can resolve inputs without
+   provisioning or starting the job.
    **Complete when:** the baseline and largest contributors are recorded, with uncertainties
    where the evidence does not establish ownership or recoverability.
 
@@ -47,29 +59,46 @@ Use this skill for the storage those workflows consume and leave behind.
    Pick the headroom from the actual build and its peak scratch usage. Invoke the guard before
    and after heavy stages on each volume they write to. Use it as a preflight command in a
    recurring workflow where it needs to stop a launch. Correct the storage plan if it refuses.
+   At launch, record the owning project, run purpose or ticket, disposable paths, durable
+   evidence destination, and cleanup scope. Where the owner permits, include exact run-owned
+   cleanup in the launch authorization. Use `start --purpose` when the build can write to
+   managed scratch. For a verifier with fixed paths, pair its launch with a cleanup step and
+   record the same fields in the launch receipt.
    **Complete when:** the run has its scratch path, evidence destination, and applicable storage
    budget, and the preflight passes.
 
-3. **Retain what you need to resume or verify.** Check the original operation and its dependent
-   processes through terminal status. Keep exact source identity, a concise result or failure,
-   and only the logs, outputs, and rollback material required by policy or evidence. Read back the
-   retained bytes or confirm the exact revision in the authoritative remote. Keep unpublished
-   changes, unique originals, and active runs until their disposition is established. A time
-   limit expiring does not establish that a run ended.
-   **Complete when:** the verified evidence and any live or unresolved paths are recorded outside
-   the disposable run.
+3. **Retain what you need to resume or verify.** Verify terminal process status and any required
+   test-fixture cleanup or restoration. Write a compact record outside scratch with the source
+   identity, command, result or failure, and cleanup status. Keep extra captures, recovery
+   dumps, and generated deliverables only for an open diagnostic, pending consumer, or required
+   retention obligation. Record each retained path, its consumer or reason, and when to release
+   it. Read back the retained bytes or confirm the exact revision in the authoritative remote.
+   Keep unpublished changes and unique originals in durable storage.
+   **Complete when:** the compact record reads back and each retained bulk path has a specific
+   purpose and release condition.
 
 4. **Retire the run with a named scope.** Preview the owned scratch run, confirm it is closed and
-   its evidence is safe, and apply cleanup within the authorized paths. Use Git to remove linked
-   worktrees so their registrations are retired with the files. A legacy directory needs its
-   own inventory, ownership and recovery checks. Leave shared caches, other projects, and
-   ambiguous files in place while those checks are unresolved.
-   **Complete when:** the removed paths and any Git registrations are absent, retained evidence
-   still reads back, and volume free space is measured again.
+   its evidence is safe, and apply cleanup within the authorized paths. For an app-managed
+   worktree, use the workspace manager's supported archive or removal action after confirming
+   what it preserves. Use Git to retire a Git-only worktree. A legacy directory needs its own
+   inventory, ownership and recovery checks. Leave shared caches, other projects, and ambiguous
+   files in place while those checks are unresolved.
+   Run cleanup in the same closeout after the last consumer has finished. Recheck any retained
+   path when its release condition is reached. Before a rebuild, retire the previous
+   run's disposable output and use empty scratch. Keep a separate, exact scope for any input
+   still pinned by a pending run. Report cleanup as pending if ownership, closure, or required
+   approval is unresolved.
+   **Complete when:** authorized disposable paths and their retired registrations are gone,
+   retaining only the named exceptions, and retained evidence and free space have been
+   verified again.
 
 See [the guard and cleanup commands](references/commands.md) to wire the helper into a run.
 It can remove the scratch directory it creates. Existing workspaces require the scoped review
 above.
+
+Use `manage-rust-build-artifacts` for Cargo targets and compiler output. Use
+`manage-tauri-build-artifacts` for frontend output, generated bundles, and packaged app
+verification. Both use this skill's ownership, worktree, evidence, and closeout rules.
 
 ## Usage Examples
 
@@ -88,8 +117,9 @@ the measured before and after free bytes, and any paths that still need a decisi
 
 ## Pitfalls
 
-- A clean worktree can still contain ignored evidence or dependency links. Check both before
-  removing it.
+- A clean worktree can still have a saved session attachment, ignored evidence, or dependency
+  links. A dependency link can live in another clean worktree. Check known consumers before
+  removing its target.
 - A second copy can share blocks with the first. Directory size and newly available bytes
   measure different things.
 - A path being old, ignored, or named cache says little about whether another run depends on it.
@@ -101,4 +131,5 @@ the measured before and after free bytes, and any paths that still need a decisi
 - [ ] Context and volume budgets were checked against the paths receiving writes.
 - [ ] Required evidence is readable outside the disposable run.
 - [ ] Remaining or removed paths match the agreed scope.
+- [ ] Each retained bulk path has a named consumer or reason and a release condition.
 - [ ] The storage gain is reported as a measured difference in free bytes.

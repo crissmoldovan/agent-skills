@@ -1,5 +1,14 @@
 {
   "version": 1,
-  "kind": "requestOnly",
-  "useWhen": "a project needs to bound scratch storage, prevent context growth, or audit and retire local artifacts"
+  "kind": "signals",
+  "useWhen": "planning or closing heavy builds, browser tests, or packaged runs that write disposable outputs",
+  "anyOf": [
+    { "repo": { "exists": "**/Cargo.toml" } },
+    { "repo": { "exists": "**/tauri.conf.json" } },
+    { "repo": { "exists": "**/tauri.conf.json5" } },
+    { "repo": { "exists": "**/Tauri.toml" } },
+    { "repo": { "exists": "**/playwright.config.*" } },
+    { "repo": { "exists": "**/cypress.config.*" } },
+    { "repo": { "grep": "manage-workspace-storage", "globs": ["AGENTS.md", "CLAUDE.md"] } }
+  ]
 }

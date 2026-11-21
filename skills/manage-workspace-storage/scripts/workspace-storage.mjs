@@ -10,6 +10,7 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 
 const markerName = '.agent-scratch.json';
+const markerMaxBytes = 16_384n;
 const lockName = '.agent-storage-lock';
 const runName = /^run-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const defaultContextMiB = 128n;
@@ -19,6 +20,9 @@ const options = {
   project: { type: 'string' },
   volume: { type: 'string' },
   'scratch-root': { type: 'string' },
+  'artifact-root': { type: 'string' },
+  'owner-project': { type: 'string', multiple: true },
+  purpose: { type: 'string' },
   'context-max-mib': { type: 'string' },
   'context-max-entries': { type: 'string' },
   'min-free-mib': { type: 'string' },
@@ -29,7 +33,8 @@ const options = {
 const guardOptions = ['context-max-mib', 'context-max-entries', 'min-free-mib'];
 const actions = {
   guard: ['project', 'volume', ...guardOptions],
-  start: ['project', 'scratch-root', ...guardOptions],
+  start: ['project', 'scratch-root', 'purpose', ...guardOptions],
+  inventory: ['project', 'artifact-root', 'owner-project'],
   cleanup: ['project', 'run', 'apply', 'closed'],
 };
 
@@ -137,10 +142,10 @@ function start(project, values) {
   const rootStats = privateDirectory(root, 0o022n);
   requireValue(values, 'min-free-mib');
   const preflight = guard(project, root, values);
-  return reserve(root, () => createRun(project, root, rootStats, preflight));
+  return reserve(root, () => createRun(project, root, rootStats, preflight, values.purpose));
 }
 
-function createRun(project, root, rootStats, preflight) {
+function createRun(project, root, rootStats, preflight, purpose) {
   const existing = readdirSync(root).find((name) => runName.test(name));
   if (existing) throw new Error('Existing run at ' + path.join(root, existing) + '. Use or retire it before starting another run here.');
   const run = path.join(root, 'run-' + randomUUID());
@@ -153,11 +158,15 @@ function createRun(project, root, rootStats, preflight) {
     root,
     rootIdentity: identity(rootStats),
     runIdentity: identity(directory(run)),
+    createdAt: new Date().toISOString(),
+    ...(purpose ? { purpose } : {}),
   };
   const marker = path.join(run, markerName);
   const work = path.join(run, 'work');
   try {
-    writeFileSync(marker, JSON.stringify(owner) + '\n', { mode: 0o600, flag: 'wx' });
+    const record = JSON.stringify(owner) + '\n';
+    if (BigInt(Buffer.byteLength(record)) > markerMaxBytes) throw new Error('Run owner record is too large');
+    writeFileSync(marker, record, { mode: 0o600, flag: 'wx' });
     mkdirSync(work, { mode: 0o700 });
   } catch (error) {
     // Roll back only the entries created by an incomplete initialization.
@@ -185,12 +194,12 @@ function mountpoints() {
   });
 }
 
-function inspectRun(project, root, run) {
+function readRunOwner(project, root, run) {
   const runStats = privateDirectory(run, 0o077n);
   const rootStats = privateDirectory(root, 0o022n);
   const marker = path.join(run, markerName);
   const markerStats = lstatSync(marker, { bigint: true, throwIfNoEntry: false });
-  if (!markerStats?.isFile() || markerStats.uid !== runStats.uid || markerStats.size > 16_384n
+  if (!markerStats?.isFile() || markerStats.uid !== runStats.uid || markerStats.size > markerMaxBytes
       || markerStats.nlink !== 1n || (markerStats.mode & 0o077n) !== 0n) {
     throw new Error('Missing or unsafe run owner marker at ' + marker);
   }
@@ -206,6 +215,73 @@ function inspectRun(project, root, run) {
       || JSON.stringify(owner.runIdentity) !== JSON.stringify(identity(runStats))) {
     throw new Error('Run owner marker does not match this project and directory');
   }
+  return { owner, runStats };
+}
+
+function inventory(project, values) {
+  const root = realpathSync.native(requireValue(values, 'artifact-root'));
+  directory(root);
+  const projects = new Set([project, ...(values['owner-project'] ?? []).map((p) => realpathSync.native(p))]);
+  const checkouts = [];
+  const worktreeReadErrors = [];
+  for (const ownerProject of projects) {
+    directory(ownerProject);
+    try {
+      const records = execFileSync('git', ['--no-optional-locks', '-C', ownerProject,
+        'worktree', 'list', '--porcelain', '-z'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      for (const field of records.split('\0')) {
+        if (field.startsWith('worktree ')) {
+          const checkout = field.slice(9);
+          if (checkout !== root && within(checkout, root)
+              && lstatSync(checkout, { throwIfNoEntry: false })?.isDirectory()) {
+            checkouts.push({ kind: 'git-worktree', project: ownerProject, path: checkout });
+          }
+        }
+      }
+    } catch {
+      worktreeReadErrors.push(ownerProject);
+    }
+  }
+  const raw = execFileSync('du', ['-x', '-k', '-d', '1', root], {
+    encoding: 'utf8', timeout: 120_000, maxBuffer: 2 * 1024 * 1024,
+  });
+  let allocatedBytes = 0;
+  const folders = [];
+  for (const line of raw.trimEnd().split('\n')) {
+    const match = /^(\d+)\t(.+)$/.exec(line);
+    if (!match) throw new Error('Unexpected du output. Run inventory on a directory with ordinary path names.');
+    const [, kib, location] = match;
+    const size = Number(kib) * 1024;
+    if (!Number.isSafeInteger(size)) throw new Error('Directory size is outside the supported range');
+    if (location === root) {
+      allocatedBytes = size;
+      continue;
+    }
+    if (path.dirname(location) !== root) throw new Error('Unexpected inventory path ' + location);
+    const ownerEvidence = checkouts.filter((checkout) => within(checkout.path, location));
+    if (runName.test(path.basename(location))) {
+      for (const ownerProject of projects) {
+        let owner;
+        try {
+          ({ owner } = readRunOwner(ownerProject, root, location));
+        } catch {
+          continue;
+        }
+        ownerEvidence.push({ kind: 'managed-run', project: ownerProject, path: location,
+          purpose: owner.purpose ?? null, createdAt: owner.createdAt ?? null });
+        break;
+      }
+    }
+    folders.push({ path: location, allocatedBytes: size, ownerEvidence });
+  }
+  return {
+    root, availableBytes: String(availableBytes(root)), allocatedBytes, worktreeReadErrors,
+    folders: folders.sort((a, b) => b.allocatedBytes - a.allocatedBytes),
+  };
+}
+
+function inspectRun(project, root, run) {
+  const { runStats } = readRunOwner(project, root, run);
   const mounted = mountpoints().find((point) => within(point, run));
   if (mounted) throw new Error('Mount inside the run at ' + mounted);
   let bytes = 0n;
@@ -252,15 +328,27 @@ function retireRun(project, root, run) {
 
 try {
   const [action, ...args] = process.argv.slice(2);
-  if (!Object.hasOwn(actions, action)) throw new Error('Choose guard, start, or cleanup');
+  if (!Object.hasOwn(actions, action)) throw new Error('Choose guard, start, inventory, or cleanup');
   if (!['darwin', 'linux'].includes(process.platform)) throw new Error('Use this helper on macOS or Linux');
   const enabled = Object.fromEntries(actions[action].map((key) => [key, options[key]]));
   const { values } = parseArgs({ args, options: enabled });
   const project = realpathSync.native(requireValue(values, 'project'));
   directory(project);
-  const result = action === 'guard'
-    ? guard(project, realpathSync.native(values.volume ?? project), values)
-    : action === 'start' ? start(project, values) : cleanup(project, values);
+  let result;
+  switch (action) {
+    case 'guard':
+      result = guard(project, realpathSync.native(values.volume ?? project), values);
+      break;
+    case 'start':
+      result = start(project, values);
+      break;
+    case 'inventory':
+      result = inventory(project, values);
+      break;
+    case 'cleanup':
+      result = cleanup(project, values);
+      break;
+  }
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   console.error('workspace-storage: ' + error.message);

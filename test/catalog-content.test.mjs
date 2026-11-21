@@ -78,10 +78,10 @@ test('v0.32.0 release metadata, catalog, and review ownership cover the complete
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.equal(skillNames.length, 41);
+  assert.equal(skillNames.length, 43);
   for (const name of skillNames) assert.ok(releases.includes(`\`${name}\``), `release catalog missing: ${name}`);
-  assert.match(architecture, /now ships forty-one skills/i);
-  assert.match(composition, /catalog ships forty-one skills/i);
+  assert.match(architecture, /now ships forty-three skills/i);
+  assert.match(composition, /catalog ships forty-three skills/i);
 
   assert.match(codeowners, /@crissmoldovan/);
   assert.doesNotMatch(codeowners, /@cueplusplus\/maintainers/);
@@ -98,8 +98,8 @@ test('README carries the pack header and public-author footer, and no CUE++ bran
 });
 
 test('README presents the complete pack and human, agent, and update paths', () => {
-  assert.match(readme, /forty-one public, portable Agent Skills/i);
-  assert.match(readme, /^Forty-one skills\. Each one below/m);
+  assert.match(readme, /forty-three public, portable Agent Skills/i);
+  assert.match(readme, /^Forty-three skills\. Each one below/m);
   assert.match(readme, /Install — for humans/);
   assert.match(readme, /Install — for agents and LLMs/);
   assert.match(readme, /Update the pack/);
@@ -116,7 +116,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'manage-workspace-storage', 'onboard-project', 'mine-session-transcripts', 'resume-after-limit', 'coding-teacher', 'rotate-shared-secret', 'codex-review-loop', 'preregistered-model-study', 'track-in-linear', 'analyse-ticket', 'implement-ticket', 'promote-release', 'publish-to-linear']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'manage-workspace-storage', 'manage-rust-build-artifacts', 'manage-tauri-build-artifacts', 'onboard-project', 'mine-session-transcripts', 'resume-after-limit', 'coding-teacher', 'rotate-shared-secret', 'codex-review-loop', 'preregistered-model-study', 'track-in-linear', 'analyse-ticket', 'implement-ticket', 'promote-release', 'publish-to-linear']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });
@@ -327,6 +327,14 @@ test('frontmatter stays compatible with Agent Skills and skills.sh discovery', (
 
 // `lifecycle` in a skill's metadata is the skill's own maturity, not the stage of the work it serves
 // (CONTRIBUTING, "What every skill carries"), and every skill this catalogue publishes is released.
+function skillMetadataValue(source, key) {
+  const frontmatter = source.split('\n---\n', 1)[0];
+  const object = frontmatter.match(/^metadata: (\{[^\n]*\})$/m)?.[1];
+  if (object) return JSON.parse(object)[key];
+  const scalar = frontmatter.match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
+  return scalar.split(';').map(field => field.trim()).find(field => field.startsWith(key + '='))?.slice(key.length + 1);
+}
+
 // agent-lifecycle and workspace-governance keep the frontmatter of their own releases, which has no
 // lifecycle field.
 test("every skill's metadata lifecycle is its maturity, and every published skill's is release", async () => {
@@ -334,8 +342,7 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
   const wrong = [];
   for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
     if (!entry.isDirectory() || ownReleaseForm.has(entry.name)) continue;
-    const metadata = (await read(`skills/${entry.name}/SKILL.md`)).match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
-    const value = metadata.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]?.trim();
+    const value = skillMetadataValue(await read(`skills/${entry.name}/SKILL.md`), 'lifecycle');
     if (value !== 'release') wrong.push(`${entry.name}: ${value ?? 'no lifecycle'}`);
   }
   assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
@@ -354,7 +361,7 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
     t.skip('no catalogue tag in this checkout\'s history');
     return;
   }
-  const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+  const versionOf = (source) => skillMetadataValue(source, 'version')
     ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
   const newer = (now, before) => {
     const [a, b] = [now, before].map((version) => version.split('.').map(Number));
@@ -1279,7 +1286,7 @@ test('onboard-project counts an adapted copy as the skill it adapts, and routes 
 test("no skill's example ask tells the reader to use a different skill", () => {
   const entries = [...readme.matchAll(/^### `([a-z0-9-]+)`$([\s\S]*?)(?=^### |^## )/gm)];
   const names = entries.map(([, name]) => name);
-  assert.equal(names.length, 41, 'every skill has a catalog entry');
+  assert.equal(names.length, 43, 'every skill has a catalog entry');
   for (const [, name, entry] of entries) {
     const asks = entry.match(/^- \*".*"\*$/gm) ?? [];
     for (const ask of asks) {
@@ -1303,7 +1310,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
   const names = (await readdir(new URL('skills/', root), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  assert.equal(names.length, 41, 'the sweep must cover the whole pack');
+  assert.equal(names.length, 43, 'the sweep must cover the whole pack');
   for (const name of names) {
     const source = await read(`skills/${name}/SKILL.md`);
     assert.match(
@@ -1327,7 +1334,7 @@ test('every skill publishes a Usage Examples section, as the README promises', a
 // A severity number is a judgement; this is not. The list makes a claim about itself, so the
 // claim is what is tested.
 test('the flat skill list is in the catalog order it claims, and covers the pack', async () => {
-  const sentinel = readme.match(/^The forty-one, in the order they appear above:$/m);
+  const sentinel = readme.match(/^The forty-three, in the order they appear above:$/m);
   assert.ok(sentinel, 'the flat list no longer announces itself as catalog-ordered');
 
   const after = readme.slice(readme.indexOf(sentinel[0]) + sentinel[0].length);

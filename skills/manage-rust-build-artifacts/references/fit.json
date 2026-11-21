@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "building or testing Rust with Cargo and closing the run's compiler output",
+  "anyOf": [
+    { "repo": { "exists": "**/Cargo.toml" } }
+  ]
+}

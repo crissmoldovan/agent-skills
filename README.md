@@ -1,7 +1,7 @@
 <h1 align="center">Agent skills pack</h1>
 
 <p align="center">
-  Forty-one public, portable Agent Skills for agent operations, reviews, releases
+  Forty-three public, portable Agent Skills for agent operations, reviews, releases
   and the notes that carry them, codebase context, secure setup, change delivery,
   repository governance, progress reporting, work in other repositories,
   evidence-backed investigation of what a change would touch, sessions that
@@ -22,7 +22,7 @@ repository. It is generated from the skills, so it says what the pack says.
 
 ## What is in the pack
 
-Forty-one skills. Each one below carries its own install command and a couple of
+Forty-three skills. Each one below carries its own install command and a couple of
 example asks — invoke a skill by naming it, or let your agent pick it up from the
 description.
 
@@ -425,7 +425,9 @@ More: [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract]
 
 ### `manage-workspace-storage`
 
-Keep agent context small and retire disposable build and test files after verification. Check a context budget and volume headroom, give each run a project-owned scratch directory, preserve evidence, and reclaim disk space within a checked scope. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, or a large build needs a storage preflight and cleanup.
+Manage worktree and test artifact storage across projects and clients. Check disk and context headroom, give builds and test runs owned scratch space, and retire closed outputs after preserving compact evidence and pending inputs. Use for large builds, browser suites, repeated rebuilds, and investigations of growing .context, worktree or artifact storage.
+
+Project onboarding recommends this skill from build and test configuration or an explicit agent instruction.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage
@@ -437,6 +439,34 @@ Ask it:
 - *"Tell me what filled this project's disk and which files are safe to remove."*
 
 More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md)
+
+### `manage-rust-build-artifacts`
+
+Manage disposable Rust and Cargo build artifacts. Use before Cargo builds or tests, when target and incremental output grows, or when cleaning up a closed Rust verification run and preparing a clean rebuild.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-rust-build-artifacts manage-workspace-storage
+```
+
+Ask it:
+
+- *"Use manage-rust-build-artifacts for this Cargo test run. Keep the target in owned scratch and retire it at closeout."*
+
+More: [Skill](skills/manage-rust-build-artifacts/SKILL.md)
+
+### `manage-tauri-build-artifacts`
+
+Manage Tauri build and verification artifacts across frontend output, native builds, and desktop packages. Use when packaging or testing a Tauri app, investigating large bundle output, or preparing a clean Tauri rebuild.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-tauri-build-artifacts manage-workspace-storage manage-rust-build-artifacts
+```
+
+Ask it:
+
+- *"Use manage-tauri-build-artifacts for the packaged desktop check. Record the exact bundle and retire disposable outputs when the run closes."*
+
+More: [Skill](skills/manage-tauri-build-artifacts/SKILL.md)
 
 ### `onboard-project`
 
@@ -703,6 +733,23 @@ npx skills add crissmoldovan/agent-skills --skill request-answers
 npx skills add crissmoldovan/agent-skills --skill model-routing agent-lifecycle
 ```
 
+To install the core cleanup workflow in local Claude Code:
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage isolated-change-validation --agent claude-code --global
+```
+
+On a Rust project, add `manage-rust-build-artifacts`. For Tauri, install both specialised
+skills with the core workflow. Omit `--global` for a single project. Claude Code also loads an entire skill folder placed
+under `~/.claude/skills/` or a project's `.claude/skills/`. Run `/skills` to check discovery.
+For Claude on the web and Cowork, upload a ZIP of the skill folder through **Customize → Skills**.
+Use a host-local session for disk cleanup when the skill needs to inspect that machine's files.
+[Claude Code skill locations](https://code.claude.com/docs/en/skills) · [Claude skill uploads](https://support.claude.com/en/articles/12512180-use-skills-in-claude)
+
+Each skill's compatibility field lists its requirements. Skills that call a particular client's
+hooks, transcript files, or runtime tools need those features. A different client can install the
+portable skills without installing the pack's optional adapters.
+
 Three skills carry a second step, stated in their entry's install block:
 `decision-journal` puts its CLI on PATH, `update-agent-skills` can install a session
 hook that checks freshness and carries the composer that adapts a pack skill to one
@@ -728,7 +775,7 @@ copy/symlink form unless conversion is explicitly requested.
 ## Install — for agents and LLMs
 
 ```text
-Install or update the forty-one public skills from crissmoldovan/agent-skills.
+Install or update the forty-three public skills from crissmoldovan/agent-skills.
 Inventory project and global scopes in JSON first. Preserve source provenance,
 managed/unmanaged ownership, copy/symlink form, and private namespaced plugin
 skills. Install the requested scope for every supported agent, report unsupported
@@ -796,9 +843,9 @@ in [What is in the pack](#what-is-in-the-pack), with its install command; the fu
 examples, including the ones with flags and edge cases, are in each skill's own
 `Usage Examples` section.
 
-The forty-one, in the order they appear above:
+The forty-three, in the order they appear above:
 
-`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `manage-workspace-storage` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study` · `track-in-linear` · `analyse-ticket` · `implement-ticket` · `promote-release` · `publish-to-linear`
+`model-routing` · `agent-lifecycle` · `blocks` · `request-blocks-review` · `secure-credential-setup` · `derive-codebase-context` · `publish-agent-skill` · `update-agent-skills` · `release-ledger` · `github-webhooks` · `describe-changes` · `release-notes` · `investigate-codebase` · `blast-area` · `visualise-blast-area` · `decision-journal` · `delphi-ground` · `delphi-imagine` · `land-complex-change` · `resolve-problem-report` · `new-ux-discovery` · `workspace-governance` · `layer-repository-docs` · `report-progress` · `isolated-change-validation` · `manage-workspace-storage` · `manage-rust-build-artifacts` · `manage-tauri-build-artifacts` · `onboard-project` · `request-answers` · `handoff-prompt` · `work-in-external-repo` · `mine-session-transcripts` · `resume-after-limit` · `coding-teacher` · `rotate-shared-secret` · `codex-review-loop` · `preregistered-model-study` · `track-in-linear` · `analyse-ticket` · `implement-ticket` · `promote-release` · `publish-to-linear`
 
 A skill can also be picked up without being named: the `description` in its
 frontmatter is written as the triggering condition, which is what an agent reads when

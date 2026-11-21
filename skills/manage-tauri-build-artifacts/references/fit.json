@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "kind": "signals",
+  "useWhen": "building, bundling or verifying a Tauri app and closing its disposable outputs",
+  "anyOf": [
+    { "repo": { "exists": "**/tauri.conf.json" } },
+    { "repo": { "exists": "**/tauri.conf.json5" } },
+    { "repo": { "exists": "**/Tauri.toml" } }
+  ]
+}

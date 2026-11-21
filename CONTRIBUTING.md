@@ -11,8 +11,9 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
-`layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty-one in all. Routing
+`layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `manage-rust-build-artifacts`,
+`manage-tauri-build-artifacts`, `onboard-project`,
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty-three in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -40,7 +41,9 @@ decides whether a rewrite is fit to hand over; a request enters it through `audi
 the physically separate lane, the hash-pinned source identity, the gates the parent runs
 itself rather than believing a builder's report, and the handoff bundle the run is
 transferred in; and `manage-workspace-storage` owns local context budgets, scratch capacity,
-evidence retention and scoped cleanup after a run; and `onboard-project` owns which skills a repository uses and how they are put in
+evidence retention and scoped cleanup after a run. `manage-rust-build-artifacts` applies the
+shared closeout to Cargo targets and intermediates. `manage-tauri-build-artifacts` applies it
+to frontend output, bundled apps and installers; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
 Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, which names a
 project's adapted copy of a skill rather than the skill it adapts — while installing nothing
@@ -115,8 +118,11 @@ has the parts the others have. Those marked † are checked by `scripts/verify-s
 catalog and site tests; the rest is the shape the catalogue's skills already share.
 
 - **Frontmatter:** `name`† (the folder's name), `description`†, `license: MIT`, `compatibility`† (at
-  most 500 characters: what the skill needs and what it outputs), `metadata` as
-  `"group=workflow; lifecycle=release; version=<x.y.z>; author=<handle>"`, and `allowed-tools`. The
+  most 500 characters: what the skill needs and what it outputs), and `metadata` as a mapping of
+  string values for `group`, `lifecycle`, `version`, and `author`. Use an inline JSON object
+  for catalogue readers. The legacy `"group=workflow; lifecycle=release; version=<x.y.z>; author=<handle>"`
+  form remains readable for existing skills. Use `allowed-tools` only when a declared tool
+  list is appropriate for the target clients. The
   description is at most 1024 characters† and is what a runtime matches: what the skill does, then
   `Symptoms:` or `Use when` with the words a person would type, then which sibling skill owns the job
   next to it. `lifecycle`† is the skill's own maturity, not the stage of the work it serves, and
