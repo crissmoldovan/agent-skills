@@ -30,6 +30,12 @@ reported run path and direct disposable output into `work`. Keep durable evidenc
 the run. For dependency caches, Git worktrees, and other state with a manager, use the
 manager's own configuration and removal commands.
 
+Reuse the same project-owned scratch root for successive runs so `start` can detect an
+unretired attempt. For fixed output paths, run the named cleanup step during closeout after
+verifying process and fixture closure. If a later check needs one build ID, executable, or
+export, record that exact path and its consumer, and review the surrounding generated files
+as a separate cleanup scope. Use any already approved run-specific cleanup scope.
+
 For a shared directory of historical or mixed artifacts, pass the project checkouts
 you already know about. Supply `--owner-project` once per additional project.
 

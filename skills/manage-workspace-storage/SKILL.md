@@ -3,15 +3,15 @@ name: manage-workspace-storage
 description: "Plan storage before large builds and retire disposable outputs at closeout. Check context and disk headroom, give each run project-owned scratch, and preserve a small evidence record. Use for Tauri or Rust builds, full browser suites, packaged verification, repeated cold rebuilds, and investigations of growing .context, worktree or artifact storage."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files and disk usage. The bundled guard and scratch helper require Node.js 22 or newer on macOS or Linux. Git is needed only to inspect or retire Git worktrees. The helper makes no network requests."
-metadata: "group=workflow; lifecycle=release; version=1.2.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.3.0; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 
 # Manage workspace storage
 
-An interrupted run needs a checkpoint. A finished run needs evidence. Neither needs a second
-checkout sitting beside its logs for the rest of the project. Keep a compact record in context
-and give large, disposable outputs a location and an end of life before creating them.
+Give each run a place for temporary output and a place for its durable result. Retire generated
+output when verification closes after a pass, failure, or abandoned attempt. Keep recovery data
+for interrupted work until cleanup or restoration is verified.
 
 ## When to Use
 
@@ -50,20 +50,23 @@ Use this skill for the storage those workflows consume and leave behind.
    Pick the headroom from the actual build and its peak scratch usage. Invoke the guard before
    and after heavy stages on each volume they write to. Use it as a preflight command in a
    recurring workflow where it needs to stop a launch. Correct the storage plan if it refuses.
-   At launch, record the owning project, run purpose or ticket, disposable paths, and durable
-   evidence destination. Use `start --purpose` when the build can write to managed scratch.
-   For a verifier with fixed paths, record the same fields in its launch receipt.
+   At launch, record the owning project, run purpose or ticket, disposable paths, durable
+   evidence destination, and cleanup scope. Where the owner permits, include exact run-owned
+   cleanup in the launch authorization. Use `start --purpose` when the build can write to
+   managed scratch. For a verifier with fixed paths, pair its launch with a cleanup step and
+   record the same fields in the launch receipt.
    **Complete when:** the run has its scratch path, evidence destination, and applicable storage
    budget, and the preflight passes.
 
-3. **Retain what you need to resume or verify.** Check the original operation and its dependent
-   processes through terminal status. Keep exact source identity, a concise result or failure,
-   and only the logs, outputs, and rollback material required by policy or evidence. Read back the
-   retained bytes or confirm the exact revision in the authoritative remote. Keep unpublished
-   changes, unique originals, and active runs until their disposition is established. A time
-   limit expiring does not establish that a run ended.
-   **Complete when:** the verified evidence and any live or unresolved paths are recorded outside
-   the disposable run.
+3. **Retain what you need to resume or verify.** Verify terminal process status and any required
+   test-fixture cleanup or restoration. Write a compact record outside scratch with the source
+   identity, command, result or failure, and cleanup status. Keep extra captures, recovery
+   dumps, and generated deliverables only for an open diagnostic, pending consumer, or required
+   retention obligation. Record each retained path, its consumer or reason, and when to release
+   it. Read back the retained bytes or confirm the exact revision in the authoritative remote.
+   Keep unpublished changes and unique originals in durable storage.
+   **Complete when:** the compact record reads back and each retained bulk path has a specific
+   purpose and release condition.
 
 4. **Retire the run with a named scope.** Preview the owned scratch run, confirm it is closed and
    its evidence is safe, and apply cleanup within the authorized paths. For an app-managed
@@ -71,11 +74,14 @@ Use this skill for the storage those workflows consume and leave behind.
    what it preserves. Use Git to retire a Git-only worktree. A legacy directory needs its own
    inventory, ownership and recovery checks. Leave shared caches, other projects, and ambiguous
    files in place while those checks are unresolved.
-   Close each heavy run with either an authorized retirement receipt or an explicit reason
-   to retain its bulk paths and a condition for reviewing them. If a later run reuses an
-   executable or asset, record that exact path before reviewing the surrounding build tree.
-   **Complete when:** the intended paths and any active Git or workspace-manager registrations
-   are gone, retained evidence still reads back, and volume free space is measured again.
+   Run cleanup in the same closeout after the last consumer has finished. Recheck any retained
+   path when its release condition is reached. Before a rebuild, retire the previous
+   run's disposable output and use empty scratch. Keep a separate, exact scope for any input
+   still pinned by a pending run. Report cleanup as pending if ownership, closure, or required
+   approval is unresolved.
+   **Complete when:** authorized disposable paths and their retired registrations are gone,
+   retaining only the named exceptions, and retained evidence and free space have been
+   verified again.
 
 See [the guard and cleanup commands](references/commands.md) to wire the helper into a run.
 It can remove the scratch directory it creates. Existing workspaces require the scoped review
@@ -116,4 +122,5 @@ the measured before and after free bytes, and any paths that still need a decisi
 - [ ] Context and volume budgets were checked against the paths receiving writes.
 - [ ] Required evidence is readable outside the disposable run.
 - [ ] Remaining or removed paths match the agreed scope.
+- [ ] Each retained bulk path has a named consumer or reason and a release condition.
 - [ ] The storage gain is reported as a measured difference in free bytes.

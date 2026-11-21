@@ -3,7 +3,7 @@ name: isolated-change-validation
 description: "Validate a change in a sandbox physically separate from the trusted tree, and earn a verdict a reader can check rather than a builder's claim: freeze the source identity in a hash manifest before the first edit, declare the path budget, watch one RED per behaviour, run the gates yourself, review on independent axes, classify every scan hit, and hand the run over as runnable state. Symptoms: prove this works before it goes anywhere near main, the agent says the tests pass, validate this in a sandbox, the scratch tree has no git, an overnight unattended run someone else picks up, keep the accepted candidate somewhere it cannot be lost, the sandbox must not be able to reach the real repository. For a change you are landing in the repository itself, use a delivery skill; this is for work that stays outside it until it is accepted."
 license: MIT
 compatibility: "Any codebase that can be copied into a scratch directory and checked with deterministic commands. Git is optional: file-hash manifests replace revision identity in copied or no-git sandboxes. Uses the project's own package manager, typechecker and test runner; installs no framework. Subagents are optional; without them the implementer and reviewer roles are passes run in sequence. Output is a verdict, the evidence behind each of its claims, and a handoff bundle another agent can re-run."
-metadata: "group=workflow; lifecycle=release; version=1.0.2; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 
@@ -151,8 +151,8 @@ question belongs to `blast-area` and arrives here as an input.
    the candidate's dependency tree read-only, build there, and compare the consumed package or
    compiled output by hash. A green build that grew the lane is a side effect, not a clean gate.
    Before a heavy build or browser, native, or packaged gate, apply `manage-workspace-storage`.
-   Name the run's output paths, check disk capacity and record where the evidence and any
-   accepted output will be kept. At closure, retire the disposable output after either result.
+   Name the run's disposable paths and cleanup scope, check disk capacity, and record where
+   evidence and any accepted output will be kept. Link the cleanup to step 13.
    **Complete when:** the product lane's post-build hashes still match the declared budget, or
    the extra paths were declared before the build ran.
 
@@ -207,8 +207,12 @@ question belongs to `blast-area` and arrives here as an input.
     liveness — null exit metadata alone is not terminal proof. Reap only the sessions this run
     owns, update the task record, and write the run record outside the repository under test.
     Name the final artifact, and name what the run could not see.
+    For generated verification output, apply the closeout in `manage-workspace-storage`
+    after owned processes and test fixtures are closed. Preserve the verified handoff and
+    the exact files still needed by named consumers. Retire the remaining authorized output
+    from either result during closeout.
     **Complete when:** no child is left unreconciled, and the closing report names the final
-    artifact path and the run's blind spots.
+    artifact path, the run's blind spots, and the cleanup result or precise pending condition.
 
 ## Usage Examples
 
