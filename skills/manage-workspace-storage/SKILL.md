@@ -3,7 +3,7 @@ name: manage-workspace-storage
 description: "Plan storage before large builds and retire disposable outputs at closeout. Check context and disk headroom, give each run project-owned scratch, and preserve a small evidence record. Use for Tauri or Rust builds, full browser suites, packaged verification, repeated cold rebuilds, and investigations of growing .context, worktree or artifact storage."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files and disk usage. The bundled guard and scratch helper require Node.js 22 or newer on macOS or Linux. Git is needed only to inspect or retire Git worktrees. The helper makes no network requests."
-metadata: "group=workflow; lifecycle=release; version=1.3.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.3.1; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 
@@ -39,7 +39,10 @@ Use this skill for the storage those workflows consume and leave behind.
    links and mounts, and open or known in-flight operations. Check links into the candidate
    from the known consumers, including ignored dependency directories. A folder name is a
    lead about ownership. Resolve the owner for files kept by another checkout, a container,
-   or a running job.
+   or a running job. For pending runs, follow the launch entrypoint through linked helpers,
+   imports and file paths built at runtime. Check the resolved inputs against the proposed
+   removals. Use a read-only dependency preflight when the runner can resolve inputs without
+   provisioning or starting the job.
    **Complete when:** the baseline and largest contributors are recorded, with uncertainties
    where the evidence does not establish ownership or recoverability.
 
