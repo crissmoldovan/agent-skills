@@ -11,8 +11,9 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
-`layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `onboard-project`,
-`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty-one in all. Routing
+`layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `manage-rust-build-artifacts`,
+`manage-tauri-build-artifacts`, `onboard-project`,
+`request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty-three in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
 `derive-codebase-context` owns generated repository context and its CI gates;
@@ -40,7 +41,9 @@ decides whether a rewrite is fit to hand over; a request enters it through `audi
 the physically separate lane, the hash-pinned source identity, the gates the parent runs
 itself rather than believing a builder's report, and the handoff bundle the run is
 transferred in; and `manage-workspace-storage` owns local context budgets, scratch capacity,
-evidence retention and scoped cleanup after a run; and `onboard-project` owns which skills a repository uses and how they are put in
+evidence retention and scoped cleanup after a run. `manage-rust-build-artifacts` applies the
+shared closeout to Cargo targets and intermediates. `manage-tauri-build-artifacts` applies it
+to frontend output, bundled apps and installers; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
 Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, which names a
 project's adapted copy of a skill rather than the skill it adapts — while installing nothing

@@ -32,7 +32,7 @@ test('the site carries every skill in the pack, and invents none', () => {
     skillNames,
     'the manifest and the skills directory must name the same skills',
   );
-  assert.equal(manifest.skills.length, 41);
+  assert.equal(manifest.skills.length, 43);
 });
 
 test("each entry states the description a runtime matches, copied from the skill's own frontmatter", async () => {

@@ -1,6 +1,6 @@
 ---
 name: manage-workspace-storage
-description: "Plan storage before large builds and retire disposable outputs at closeout. Check context and disk headroom, give each run project-owned scratch, and preserve a small evidence record. Use for Tauri or Rust builds, full browser suites, packaged verification, repeated cold rebuilds, and investigations of growing .context, worktree or artifact storage."
+description: "Manage worktree and test artifact storage across projects and clients. Check disk and context headroom, give builds and test runs owned scratch space, and retire closed outputs after preserving compact evidence and pending inputs. Use for large builds, browser suites, repeated rebuilds, and investigations of growing .context, worktree or artifact storage."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files and disk usage. The bundled guard and scratch helper require Node.js 22 or newer on macOS or Linux. Git is needed only to inspect or retire Git worktrees. The helper makes no network requests."
 metadata: { "group": "workflow", "lifecycle": "release", "version": "1.3.1", "author": "crissmoldovan" }
@@ -96,9 +96,9 @@ See [the guard and cleanup commands](references/commands.md) to wire the helper 
 It can remove the scratch directory it creates. Existing workspaces require the scoped review
 above.
 
-For Cargo or Tauri, apply [the clean-build and retirement workflow](references/tauri-rust.md).
-Retire disposable outputs after either a passing or failing run. Close and retire the previous
-run before starting a clean rebuild.
+Use `manage-rust-build-artifacts` for Cargo targets and compiler output. Use
+`manage-tauri-build-artifacts` for frontend output, generated bundles, and packaged app
+verification. Both use this skill's ownership, worktree, evidence, and closeout rules.
 
 ## Usage Examples
 

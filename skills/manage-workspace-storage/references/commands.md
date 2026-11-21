@@ -11,7 +11,7 @@ node scripts/workspace-storage.mjs guard --project "$PROJECT" \
   --volume "$SCRATCH_ROOT" --min-free-mib "$REQUIRED_FREE_MIB"
 node scripts/workspace-storage.mjs start --project "$PROJECT" \
   --scratch-root "$SCRATCH_ROOT" --min-free-mib "$REQUIRED_FREE_MIB" \
-  --purpose "Tauri packaged verification"
+  --purpose "Packaged desktop verification"
 ```
 
 `guard` is read-only. It fails with exit status 1 if available bytes are below the supplied
@@ -98,5 +98,5 @@ authorized, use that operation. Read back both registries. The checkout and its 
 registration should be gone, and any retained session should still be reachable as the
 app documents.
 
-Onboarding recommends this skill when a project has Cargo, Tauri or browser-test
-configuration, or its agent instructions refer to the skill.
+Onboarding recommends this skill when a project has build or browser-test signals
+or its agent instructions refer to the skill.

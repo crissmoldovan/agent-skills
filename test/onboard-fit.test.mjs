@@ -182,6 +182,22 @@ test('the shipped fit.json files match the repositories they should, and not the
   }
 });
 
+test('the core storage skill and the build-specific skills fit their own toolchain', async () => {
+  const catalogue = loadCatalogue(packRoot);
+  const tauri = await tempDir('onboard-tauri-');
+  const native = path.join(tauri, 'src-tauri');
+  await mkdir(native);
+  await writeFile(path.join(native, 'tauri.conf.json5'), '{}\n');
+  await writeFile(path.join(native, 'Cargo.toml'), '[package]\nname = "desktop"\n');
+  const matched = (name, checkout) => evaluateRepoSignals(catalogue.get(name), checkout).matched;
+  for (const name of ['manage-workspace-storage', 'manage-rust-build-artifacts', 'manage-tauri-build-artifacts']) {
+    assert.equal(matched(name, tauri), true, `${name} did not match a Tauri and Cargo project`);
+    assert.equal(matched(name, fixture('bare')), false);
+  }
+  assert.equal(matched('manage-rust-build-artifacts', fixture('rust-crate')), true);
+  assert.equal(matched('manage-tauri-build-artifacts', fixture('rust-crate')), false);
+});
+
 test('every shipped signals fit is readable by the evaluator, and every skill declares a kind', () => {
   const catalogue = loadCatalogue(packRoot);
   assert.ok(catalogue.size >= 26, `only ${catalogue.size} fit.json files found`);
