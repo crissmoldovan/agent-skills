@@ -5,6 +5,53 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.33.0
+
+### Clean-up after every task, for Claude Code and Codex
+
+**What.** `manage-workspace-storage` (1.1.0) now covers everything an agent leaves behind, not
+only scratch folders. It tells the agent to note each item it creates outside the repository
+(path, size, purpose, when it can go), keep the evidence in the project's durable record first,
+and then remove it: worktrees once their branch is merged or dropped (`git worktree remove`, then
+`git worktree prune`), containers and virtual machines when their step ends, caches and copies in
+temporary and shared folders, and signed-in configurations, which are credentials. Every task ends
+with what was left and what was removed, and nothing another session or project owns, or anything
+unpublished, running or needed later, is deleted.
+
+A new setup script, `scripts/setup-enforcement.mjs`, makes that a standing rule. For Claude Code
+and Codex, whichever are present, it installs a `SessionStart` hook that puts the policy in every
+new session, and a `Stop` hook that checks what this session created and still left (worktrees,
+named containers, Tart VMs, new folders and files in temporary, shared and cache locations). The
+check reads the session's own transcript and notes and never scans the machine, so another
+session's items are not flagged; it is fast and silent when nothing is left. By default it shows a
+reminder to the person. `mode block` makes the agent remove each item or record a reason before the
+turn can end, once per set of leftovers. The script previews by default, applies with `--yes`,
+backs up each file it edits, merges without touching existing hooks, is idempotent, and has an
+uninstall.
+
+**Why.** A rule an agent only reads is forgotten in a long session, and worktrees, containers,
+VMs and disk images are the leftovers that cost a shared machine the most.
+
+**Impact.** Nothing changes until someone runs the setup script. It edits `settings.json` in
+`~/.claude` and `hooks.json` in `~/.codex`, copies one script to `~/.local/share`, and keeps
+per-session state in `~/.local/state`. Codex runs a new hook only after it has been reviewed in
+`/hooks`. The check reads commands the session ran: items made by a script, containers started
+without a name, and signed-in configurations are invisible to it unless the agent records them with
+the `note` command. In the default mode the reminder is shown to the person, not the model. Both
+hooks make no network calls and exit 0 on any failure.
+
+**Compatibility.** Minor. No migration. Node.js 22 or newer for the helpers, as before.
+
+**Who should update.** Anyone running agents that create worktrees, containers, VMs or large
+temporary output on a machine they share, and anyone who wants clean-up enforced rather than
+remembered.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --global --agent claude-code --yes
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --global --agent codex --yes
+node scripts/setup-enforcement.mjs         # from the installed skill folder: preview, then add --yes
+```
+
 ## 0.32.0
 
 ### Keep agent workspaces within a storage budget

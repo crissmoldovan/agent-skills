@@ -40,7 +40,9 @@ decides whether a rewrite is fit to hand over; a request enters it through `audi
 the physically separate lane, the hash-pinned source identity, the gates the parent runs
 itself rather than believing a builder's report, and the handoff bundle the run is
 transferred in; and `manage-workspace-storage` owns local context budgets, scratch capacity,
-evidence retention and scoped cleanup after a run; and `onboard-project` owns which skills a repository uses and how they are put in
+evidence retention and scoped cleanup after a run, and the clean-up of what an agent leaves behind —
+noted when created, evidenced, then removed — with an optional off-until-run setup script for the
+session-start policy and end-of-turn leftover hooks in Claude Code and Codex; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
 Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, which names a
 project's adapted copy of a skill rather than the skill it adapts — while installing nothing

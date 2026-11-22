@@ -55,3 +55,6 @@ remove unmarked files from a shared directory.
 
 The onboarding metadata marks this skill as request-only for project recommendations.
 The installed skill remains discoverable by its description.
+
+The enforcement hooks, their `note`, `keep` and `done` commands, and the setup script's preview,
+install and uninstall are described in [the enforcement guide](enforcement.md).

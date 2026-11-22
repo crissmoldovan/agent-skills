@@ -61,6 +61,12 @@ verdict it produces authorizes nothing beyond itself.
 `manage-workspace-storage` owns project-local context budgets, workspace headroom, and
 retiring disposable scratch after preserving required evidence. Its guard reports and blocks
 on the measured limits. Its cleanup helper previews and accepts only its own closed runs.
+It also owns clean-up after a task: noting what an agent creates outside the repository, keeping
+the evidence, then removing worktrees, containers, virtual machines, caches and signed-in
+configurations. An optional setup script installs a session-start policy and an end-of-turn
+leftover check for Claude Code and Codex, off until a person runs it, as with every hook in this
+pack; it reads only the session's own transcript and notes and ships non-blocking, with a switch
+to block.
 
 `update-agent-skills` moves installed copies wherever they live, and owns the adapted copy a
 project makes of a pack skill: it composes the copy from a pinned release and the project's
