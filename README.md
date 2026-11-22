@@ -425,18 +425,49 @@ More: [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract]
 
 ### `manage-workspace-storage`
 
-Keep agent context small and retire disposable build and test files after verification. Check a context budget and volume headroom, give each run a project-owned scratch directory, preserve evidence, and reclaim disk space within a checked scope. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, or a large build needs a storage preflight and cleanup.
+Clean up after every task and keep agent context small: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget and volume headroom, give each run a project-owned scratch directory, and end by listing what was left and removed. An optional setup script makes it a standing rule in Claude Code and Codex with a session-start policy and an end-of-turn leftover check. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, a large build needs a storage preflight, or clean-up should be enforced.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage
 ```
 
+Install it, or update it, for each agent you use. Claude Code is `claude-code` and Codex is `codex`; `--global` is the user-level install for the machine and leaving it off installs into the current project:
+
+```bash
+# Claude Code, user level
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --global --agent claude-code --yes
+# Codex, user level
+npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --global --agent codex --yes
+# update what is installed, either agent
+npx skills update manage-workspace-storage --global --yes
+```
+
+What it does: it makes clean-up a step of every task. Note each item you create outside the repository (path, size, purpose, when it can go), keep the evidence in the project's durable record, then remove it: worktrees once their branch is merged or dropped, containers and virtual machines when their step ends, caches, temporary and shared-folder copies, and signed-in configurations. It also keeps `.context` small, checks volume headroom, gives each run a scratch directory, and ends every task by listing what was left and what was removed. It never deletes what another session or project owns, or anything unpublished, running or needed later.
+
+To make that a standing rule, run its setup script once. It installs two hooks for Claude Code and for Codex, whichever are present, and is off until you run it:
+
+```bash
+# from the installed skill folder
+node scripts/setup-enforcement.mjs            # preview what would change; writes nothing
+node scripts/setup-enforcement.mjs --yes      # install, with a backup of each file it edits
+node scripts/setup-enforcement.mjs mode block --yes   # the blocking switch (default: warn)
+node scripts/setup-enforcement.mjs uninstall --yes    # remove exactly what it added
+```
+
+- A **session-start hook** puts a short clean-up policy in every new session, with the commands to record what the session creates.
+- An **end-of-turn hook** checks what this session created and still left: worktrees, named containers, Tart VMs, and new folders or files in temporary, shared and cache locations. It reads the session's own transcript and notes, never the whole machine, so other sessions' items are never flagged. It stays well under two seconds and prints nothing when nothing is left.
+- **Warn mode** (the default) shows a reminder to the person, once per set of leftovers. **Block mode** makes the agent remove each item or record a reason before the turn can end, once per set so it cannot loop. `off` silences both hooks.
+- It edits `settings.json` in `~/.claude` and `hooks.json` in `~/.codex`, only adds its own entries, and uninstall removes only those. Codex asks you to review new hooks once with `/hooks`. Running sessions keep the hooks they started with. After updating the skill, run the setup script again to refresh its copy.
+
+Limits: it reads the commands a session ran, so a folder a script creates or a container started without a name goes unseen unless the agent records it. See [the enforcement guide](skills/manage-workspace-storage/references/enforcement.md).
+
 Ask it:
 
 - *"Use manage-workspace-storage before the browser suite. Check the target volume, keep .context small, and clean up this run's scratch after retaining its result."*
 - *"Tell me what filled this project's disk and which files are safe to remove."*
+- *"Use manage-workspace-storage: end this task by listing what you left behind and what you removed, and remove the worktree and containers you created."*
 
-More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md)
+More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md) · [Enforcement guide](skills/manage-workspace-storage/references/enforcement.md)
 
 ### `onboard-project`
 
