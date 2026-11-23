@@ -489,3 +489,28 @@ test('round five: a hook with extra fields is a person\'s, a cd then a relative 
   assert.ok(!existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'its own scripts are removed');
   assert.match(r.stdout, /holds files this skill did not write/);
 });
+
+test('round six: ownership needs the matching event and a timeout, a ; boundary counts, purge removes only its own files', async () => {
+  const { home, cli, env } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  assert.equal(cli('--yes').status, 0);
+  const c = JSON.parse(readFileSync(claude, 'utf8'));
+  const endUnderStop = { hooks: [{ ...c.hooks.SessionEnd[0].hooks[0] }] };
+  const noTimeout = { hooks: [{ type: 'command', command: c.hooks.Stop[0].hooks[0].command }] };
+  const semicolon = { hooks: [{ type: 'command', command: `cd ${path.join(home, 'data', 'manage-workspace')}; exec node ./leftovers.mjs list` }] };
+  c.hooks.Stop.push(endUnderStop, noTimeout); c.hooks.UserPromptSubmit = [semicolon];
+  writeFileSync(claude, `${JSON.stringify(c, null, 2)}\n`);
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  const after = JSON.parse(readFileSync(claude, 'utf8'));
+  assert.deepEqual(after.hooks.Stop, [endUnderStop, noTimeout], 'a session-end command under Stop, and a copy without a timeout, are a person\'s');
+  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'a ; after the folder still counts as a user');
+
+  const shared = path.join(home, 'shared-config'); mkdirSync(shared);
+  writeFileSync(path.join(shared, 'settings.json'), '{"keep":true}\n'); writeFileSync(path.join(shared, 'mode'), 'block\n');
+  writeFileSync(claude, '{}\n');
+  const purge = spawnSync(process.execPath, [setup, 'uninstall', '--purge', '--yes'], { encoding: 'utf8', env: { ...env, MWS_CONFIG_DIR: shared } });
+  assert.equal(purge.status, 0, purge.stderr);
+  assert.equal(readFileSync(path.join(shared, 'settings.json'), 'utf8'), '{"keep":true}\n', 'a folder MWS_CONFIG_DIR names keeps what is not ours');
+  assert.ok(!existsSync(path.join(shared, 'mode')), 'only the mode file went');
+});

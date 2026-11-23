@@ -236,6 +236,11 @@ the repository's hook notes; Codex's is DOCUMENTED in its binary only. Re-check 
   does not recognise and a hook failure never fails the session (every path exits 0).
 - The hook commands are POSIX shell (`if … then … fi`). A harness that runs hooks through a shell of
   another family, Fish for example, cannot start them; point its hook shell at `sh`.
+- Uninstall removes the scripts while running sessions may still hold the hook commands they started
+  with; restart those sessions after an uninstall, or their next hook reports a missing script (a hook's
+  failure never fails the session). `--purge` removes only this skill's own files from the state and
+  settings folders (`sessions/`, `ledger/`, `mode`, `helpers`), never a folder `MWS_STATE_DIR` or
+  `MWS_CONFIG_DIR` names wholesale.
 - Run setup once at a time: two setups at once (an install for one agent while another uninstalls the
   last other agent) can remove the shared scripts after the installer has checked them.
 - Codex hook timeouts are in seconds, as are Claude Code's; the entries use 10 for `SessionStart` and 30 for `Stop` and

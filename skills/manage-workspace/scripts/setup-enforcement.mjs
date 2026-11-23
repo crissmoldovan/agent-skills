@@ -70,21 +70,23 @@ const wanted = (agent) => ({
 // person wrote that merely runs the script, or does more besides, is never claimed.
 const Q = '"((?:[^"\\\\]|\\\\.)*)"';
 const OURS = new RegExp(`^if \\[ -x ${Q} \\]; then exec ${Q} ${Q} (session-start|stop|session-end); else exec node ${Q} \\4; fi$`);
-export function oursScript(h) {
-  // exactly the fields setup writes; a hook with async, args or anything else is a person's
-  if (typeof h?.command !== 'string' || h.type !== 'command' || Object.keys(h).some((k) => !['type', 'command', 'timeout'].includes(k))) return null;
+const EVENT_ARG = { SessionStart: 'session-start', Stop: 'stop', SessionEnd: 'session-end' };
+export function oursScript(h, event) {
+  // exactly the fields setup writes, timeout included; a hook with async, args or anything else is a person's
+  if (typeof h?.command !== 'string' || h.type !== 'command' || typeof h.timeout !== 'number' || Object.keys(h).some((k) => !['type', 'command', 'timeout'].includes(k))) return null;
   const m = OURS.exec(h.command); if (!m || m[1] !== m[2]) return null;
+  if (event !== undefined && m[4] !== EVENT_ARG[event]) return null;
   const script = undq(m[3]);
   if (undq(m[5]) !== script || !new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs$`).test(script)) return null;
   return script;
 }
-const ours = (h) => oursScript(h) !== null;
+const ours = (h, event) => oursScript(h, event) !== null;
 // Setup writes only these events; the same command copied into another event is a person's hook.
 const OUR_EVENTS = ['SessionStart', 'Stop', 'SessionEnd'];
 // Any hook, ours or a person's, that may run one of this skill's script copies: one that names the
 // skill's data folder and the script anywhere in it (command, args, a cd then a relative path).
 const usesScripts = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? [])
-  .some((h) => { const t = JSON.stringify(h ?? {}); return new RegExp(`/(${NAME}|${LEGACY})(/|"|\\\\"|\\s|$)`).test(t) && t.includes('leftovers.mjs'); });
+  .some((h) => { const t = JSON.stringify(h ?? {}); return new RegExp(`/(${NAME}|${LEGACY})(?![\\w-])`).test(t) && /(leftovers|machine)\.mjs/.test(t); });
 
 function readJson(file) {
   if (!existsSync(file)) return { json: {}, text: null };
@@ -106,7 +108,7 @@ function planInstall(json, agent, notes = []) {
     for (const g of list) {
       if (!Array.isArray(g.hooks) || !ourGroup(event, g)) continue;
       g.hooks = g.hooks.filter((h) => {
-        if (!ours(h)) return true;
+        if (!ours(h, event)) return true;
         if (done) { changes.push(`remove duplicate ${event} entry`); return false; }
         done = true;
         if (h.command !== group.hooks[0].command || h.timeout !== group.hooks[0].timeout) { h.command = group.hooks[0].command; h.timeout = group.hooks[0].timeout; changes.push(`update ${event} entry`); }
@@ -129,7 +131,7 @@ function planRemove(json) {
     for (const g of list) {
       if (!ourGroup(event, g)) continue;
       const before = g.hooks?.length ?? 0;
-      if (g.hooks) g.hooks = g.hooks.filter((h) => !ours(h));
+      if (g.hooks) g.hooks = g.hooks.filter((h) => !ours(h, event));
       if (before !== (g.hooks?.length ?? 0)) changes.push(`remove ${event} entry`);
     }
     next.hooks[event] = list.filter((g) => !(Array.isArray(g.hooks) && g.hooks.length === 0));
@@ -138,7 +140,7 @@ function planRemove(json) {
   return { next, changes };
 }
 const scriptsIn = (json) => Object.entries(json.hooks ?? {}).filter(([e]) => OUR_EVENTS.includes(e))
-  .flatMap(([e, l]) => (Array.isArray(l) ? l : []).filter((g) => ourGroup(e, g))).flatMap((g) => g.hooks ?? []).map(oursScript).filter(Boolean);
+  .flatMap(([e, l]) => (Array.isArray(l) ? l : []).filter((g) => ourGroup(e, g)).flatMap((g) => (g.hooks ?? []).map((h) => oursScript(h, e)))).filter(Boolean);
 
 // Codex keeps trust in config.toml as [hooks.state."<hooks.json>:<event>:<group>:<hook>"] with a
 // trusted_hash once a person has reviewed the hook in /hooks. Presence of a hash is all this can
@@ -149,7 +151,7 @@ function codexTrust(hooksFile, json) {
   for (const [event, list] of Object.entries(json.hooks ?? {})) {
     if (!Array.isArray(list)) continue;
     list.forEach((g, gi) => (g.hooks ?? []).forEach((h, hi) => {
-      if (!ours(h) || !ourGroup(event, g)) return;
+      if (!ours(h, event) || !ourGroup(event, g)) return;
       const header = `[hooks.state."${hooksFile}:${event.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}:${gi}:${hi}"]`;
       const at = toml.indexOf(header);
       const body = at < 0 ? '' : toml.slice(at + header.length).split(/^\[/m)[0];
@@ -256,7 +258,7 @@ function main(argv) {
     for (const a of which) {
       const f = agentFile(a);
       let has = [];
-      try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([e, l]) => OUR_EVENTS.includes(e) && Array.isArray(l) && l.some((g) => ourGroup(e, g) && g.hooks?.some(ours))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
+      try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([e, l]) => OUR_EVENTS.includes(e) && Array.isArray(l) && l.some((g) => ourGroup(e, g) && g.hooks?.some((h) => ours(h, e)))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
       out(`${AGENTS[a].label}: ${existsSync(AGENTS[a].dir()) ? f : 'not present'}: ${has.length ? has.join(', ') : 'no clean-up hooks'}`);
       if (a === 'codex' && has.length) {
         try { out(`Codex trust: ${codexTrust(f, readJson(f).json).join('; ')} (a stored hash only; /hooks in Codex is the authority, and a changed command needs trusting again)`); } catch { /* unreadable: reported above */ }
@@ -325,7 +327,7 @@ function main(argv) {
     // the copies under this data folder, and an old-name copy under another one that a removed entry named,
     // when that folder holds nothing but this skill's scripts
     const named = plans.flatMap((p) => scriptsIn(p.read.json)).map((s) => path.dirname(s))
-      .filter((d) => [NAME, LEGACY].includes(path.basename(d)) && existsSync(d) && readdirSync(d).every((f) => SCRIPTS.includes(f)));
+      .filter((d) => [NAME, LEGACY].includes(path.basename(d)) && existsSync(d));
     const dirs = [...new Set([dataDir(), legacyDataDir(), ...named])].filter(existsSync);
     if (stillUsed.length) notes.push(`${stillUsed.join(' and ')} still ${stillUsed.length === 1 ? 'has' : 'have'} clean-up hooks, so the shared scripts${flags.has('--purge') ? ', state and settings' : ''} stay; uninstall for ${stillUsed.length === 1 ? 'it' : 'them'} too to remove them`);
     else if (apply) {
@@ -335,8 +337,12 @@ function main(argv) {
         try { rmdirSync(d); out(`removed ${d}`); } catch { notes.push(`${d} holds files this skill did not write, so it was left; its scripts were removed`); }
       }
       if (flags.has('--purge')) {
-        for (const d of [stateDir(), configDir(), path.join(stateRoot(), LEGACY), path.join(configRoot(), LEGACY)]) rmSync(d, { recursive: true, force: true });
-        out('purged state and settings');
+        // only what this skill writes there, never the folder wholesale: MWS_STATE_DIR or MWS_CONFIG_DIR may
+        // name a folder that holds other things
+        for (const d of [stateDir(), path.join(stateRoot(), LEGACY)]) for (const sub of ['sessions', 'ledger']) rmSync(path.join(d, sub), { recursive: true, force: true });
+        for (const d of [configDir(), path.join(configRoot(), LEGACY)]) for (const f of ['mode', 'helpers']) rmSync(path.join(d, f), { force: true });
+        for (const d of [stateDir(), configDir(), path.join(stateRoot(), LEGACY), path.join(configRoot(), LEGACY)]) { try { rmdirSync(d); } catch { /* holds other things, or is gone */ } }
+        out('purged this skill\'s state and settings');
       }
     } else if (dirs.length || flags.has('--purge')) { any = true; out(`would remove ${dirs.join(' and ') || 'nothing more'}${flags.has('--purge') ? ', the session state and the settings' : ''}`); }
   }

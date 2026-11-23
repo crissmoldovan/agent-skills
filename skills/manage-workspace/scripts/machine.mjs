@@ -281,17 +281,19 @@ function probeThenShutdown(socketPath, probe, shutdown, busy, ms) {
     sock.setEncoding('utf8');
     sock.on('connect', () => sock.write(`${JSON.stringify(probe)}\n`));
     sock.on('data', (chunk) => {
-      buffer += chunk;
-      for (let i = buffer.indexOf('\n'); i !== -1; i = buffer.indexOf('\n')) {
-        const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
-        let msg; try { msg = JSON.parse(line); } catch { continue; }
-        if (!msg || typeof msg !== 'object') continue;
-        if (msg.id === probe.id && !got.probe) {
-          got.probe = msg;
-          if (msg.error && busy.test(String(msg.error.message || ''))) return finish();
-          sock.write(`${JSON.stringify(shutdown)}\n`);
-        } else if (msg.id === shutdown.id) { got.reply = msg; return finish(); }
-      }
+      try {
+        buffer += chunk;
+        for (let i = buffer.indexOf('\n'); i !== -1; i = buffer.indexOf('\n')) {
+          const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
+          let msg; try { msg = JSON.parse(line); } catch { continue; }
+          if (!msg || typeof msg !== 'object') continue;
+          if (msg.id === probe.id && !got.probe) {
+            got.probe = msg;
+            if (msg.error && busy.test(typeof msg.error.message === 'string' ? msg.error.message : '')) return finish();
+            sock.write(`${JSON.stringify(shutdown)}\n`);
+          } else if (msg.id === shutdown.id) { got.reply = msg; return finish(); }
+        }
+      } catch { got.probe = got.probe || null; got.reply = null; finish(); }
     });
     sock.on('error', finish);
     sock.on('close', finish);
@@ -319,7 +321,7 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
     if (!endpoint || !isSocket(endpoint)) { skipped.push({ pid: h.pid, why: `it has no socket to ask, so it cannot shut itself down; to stop it: ${killHint(h)}` }); return; }
     const { probe, reply } = await probeThenShutdown(endpoint, { id: 'manage-workspace-probe', method: 'manage-workspace/probe', params: {} }, { id: 'manage-workspace-shutdown', method: def.shutdown.method, params: {} }, def.shutdown.busy, timeoutMs);
     if (!probe) { skipped.push({ pid: h.pid, why: `it did not answer on its socket; to stop it: ${killHint(h)}` }); return; }
-    if (probe.error && def.shutdown.busy.test(String(probe.error.message || ''))) { skipped.push({ pid: h.pid, why: 'it is busy serving a request, so it is left running' }); return; }
+    if (probe.error && def.shutdown.busy.test(typeof probe.error.message === 'string' ? probe.error.message : '')) { skipped.push({ pid: h.pid, why: 'it is busy serving a request, so it is left running' }); return; }
     if (reply && !reply.error) stopped.push(h.pid); else skipped.push({ pid: h.pid, why: `it did not accept the shutdown request; to stop it: ${killHint(h)}` });
   }));
   return { stopped, skipped };

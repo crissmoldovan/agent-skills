@@ -93,7 +93,7 @@ exits. Before asking, a harmless request checks it is not busy: a broker serving
 | When | What is asked to shut down | Scope |
 | --- | --- | --- |
 | `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the nearest folder above it with `.git`, which is how the plugin keys a broker), and, without the session files, except any whose folder still exists | any folder |
-| `Stop` hook (each turn) | this session's helpers whose folder no longer exists | this session only |
+| `Stop` hook (each turn) | this session's helpers whose folder no longer exists, unless another live session works in their workspace; without the session files, none | this session only |
 | `processes --stop-helpers --yes`, on a person's word | helpers of a known session whose folder is gone, and helpers whose session is known to have ended unless another live session works in their workspace | machine-wide, or one `--session` |
 | never | a busy helper, a helper whose session is unknown, a live session's helper in an existing folder, agent CLIs, virtual machines, containers | |
 
@@ -146,6 +146,9 @@ that names its folder. Without a session variable it can be reported but never s
 - The busy check and the shutdown request go on one connection, the second the moment the first is
   answered, but the protocol has no "shut down only if idle": a request another client starts in that
   instant is cut off. The plugin's own session-end hook does not check at all.
+- The busy check sees only what the broker knows: when a client that started a Codex turn crashes or
+  disconnects, the broker forgets it was busy while its app server may still be running that turn, and a
+  shutdown then cuts the turn off, as the plugin's own session-end hook would.
 - The workspace guard walks up from a helper's folder, deleted or not, to the nearest `.git`; a
   deleted folder inside a repository another live session works in keeps its broker.
 - The machine check at session start reports at most twelve items, and a process table that cannot be

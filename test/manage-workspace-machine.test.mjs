@@ -140,6 +140,7 @@ async function decoys(t) {
     "    const server = net.createServer((s) => { s.setEncoding('utf8'); let b = ''; s.on('data', (c) => { b += c; for (let i = b.indexOf('\\n'); i !== -1; i = b.indexOf('\\n')) { const m = JSON.parse(b.slice(0, i)); b = b.slice(i + 1);",
     "      if (m.method === 'broker/shutdown') { s.write(JSON.stringify({ id: m.id, result: {} }) + '\\n'); child.kill(); server.close(); try { fs.unlinkSync(sock); } catch {} setTimeout(() => process.exit(0), 20); }",
     "      else if (process.env.DECOY_NULL) s.write('null\\n');",
+    "      else if (process.env.DECOY_ODD) s.write(JSON.stringify({ id: m.id, error: { message: { toString: null, valueOf: null } } }) + '\\n');",
     "      else s.write(JSON.stringify({ id: m.id, error: process.env.DECOY_BUSY ? { code: -32001, message: 'Shared Codex broker is busy.' } : { code: -32601, message: 'Method not found' } }) + '\\n'); } }); });",
     "    server.listen(sock);",
     "  }",
@@ -399,4 +400,16 @@ test('a broker that answers with something other than a JSON object does not fai
   assert.equal(out.status, 0, out.stderr);
   assert.match(JSON.parse(out.stdout).systemMessage, /did not answer on its socket/);
   assert.ok(alive(pid));
+});
+
+test('a reply whose error message is not a string does not fail the hook', async (t) => {
+  const { root, start, hook } = await decoys(t);
+  const sid = `mw-test-${randomUUID()}`;
+  const lane = path.join(root, 'lane-odd'); mkdirSync(lane);
+  const pid = start(sid, lane, { DECOY_ODD: '1' });
+  assert.ok(await until(() => childrenOf(pid).length && existsSync(path.join(root, 's1.sock'))));
+  rmSync(lane, { recursive: true });
+  const transcript = path.join(root, 'o.jsonl'); writeFileSync(transcript, '');
+  const out = hook('stop', { session_id: sid, transcript_path: transcript, hook_event_name: 'Stop' });
+  assert.equal(out.status, 0, out.stderr);
 });
