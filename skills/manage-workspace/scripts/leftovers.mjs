@@ -443,7 +443,8 @@ async function sessionEnd() {
   const input = readStdin();
   if (readMode() === 'off' || readHelpers() === 'report' || !input.session_id) return;
   const scan = scanProcesses();
-  const mine = scan.helpers.filter((h) => h.session === input.session_id && (h.folderGone === true || !sharedWithLiveSession(h, scan.sessions, input.session_id)));
+  // the same workspace guard as the end-of-turn check, deleted folder or not
+  const mine = scan.helpers.filter((h) => h.session === input.session_id && !sharedWithLiveSession(h, scan.sessions, input.session_id));
   if (mine.length) await shutdownHelpers(mine);
 }
 

@@ -285,6 +285,7 @@ function probeThenShutdown(socketPath, probe, shutdown, busy, ms) {
       for (let i = buffer.indexOf('\n'); i !== -1; i = buffer.indexOf('\n')) {
         const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
         let msg; try { msg = JSON.parse(line); } catch { continue; }
+        if (!msg || typeof msg !== 'object') continue;
         if (msg.id === probe.id && !got.probe) {
           got.probe = msg;
           if (msg.error && busy.test(String(msg.error.message || ''))) return finish();

@@ -463,3 +463,29 @@ test('round four: the matcher covers Codex forks, a personal group is never clai
   assert.deepEqual(c.hooks.SessionStart, [personal], 'only the stock entry was removed');
   assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'scripts stay while a hook runs them by args or command');
 });
+
+test('round five: a hook with extra fields is a person\'s, a cd then a relative path keeps the scripts, and a user file survives uninstall', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  assert.equal(cli('--yes').status, 0);
+  const c = JSON.parse(readFileSync(claude, 'utf8'));
+  const asyncCopy = { hooks: [{ ...c.hooks.Stop[0].hooks[0], async: true, timeout: 45 }] };
+  writeFileSync(claude, `${JSON.stringify({ hooks: { ...c.hooks, Stop: [asyncCopy, ...c.hooks.Stop] } }, null, 2)}\n`);
+  assert.match(cli('--yes').stdout, /already up to date/, 'the async copy is not taken for ours');
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).hooks.Stop, [asyncCopy], 'and uninstall leaves it');
+  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'it runs the script, so the script stays');
+
+  writeFileSync(claude, `${JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: `cd "${path.join(home, 'data', 'manage-workspace')}" && node leftovers.mjs list` }] }] } }, null, 2)}\n`);
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'a cd then a relative path still counts as a user');
+
+  writeFileSync(claude, '{}\n');
+  writeFileSync(path.join(home, 'data', 'manage-workspace', 'my-wrapper.sh'), 'echo mine\n');
+  const r = cli('uninstall', '--yes');
+  assert.equal(r.status, 0);
+  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'my-wrapper.sh')), 'a file the skill did not write is kept');
+  assert.ok(!existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'its own scripts are removed');
+  assert.match(r.stdout, /holds files this skill did not write/);
+});

@@ -30,8 +30,9 @@ skill's [Install or update (agents)](../SKILL.md#install-or-update-agents) secti
 Existing hooks are never removed, reordered or rewritten: the entries are appended, and an
 uninstall removes only its own. An entry counts as its own only in the exact shape setup writes,
 `if [ -x "<node>" ]; then exec "<node>" "<data>/manage-workspace/leftovers.mjs" <event>; else exec node
-"<same script>" <event>; fi` (or the same with `manage-workspace-storage`); a hook a person wrote that runs
-the script some other way is left alone. Every agent's file is read and checked first, and nothing at all
+"<same script>" <event>; fi` (or the same with `manage-workspace-storage`), with no field besides `type`,
+`command` and `timeout`, inside a group with setup's own matcher (none for `Stop` and `SessionEnd`); a hook
+a person wrote that runs the script some other way, or adds `async` or `args`, is left alone. Every agent's file is read and checked first, and nothing at all
 is written if one is not valid JSON; the scripts are copied before any hook is pointed at them. Uninstall
 for one agent leaves the shared scripts, state and settings while any hook, its own or one a person
 wrote, still runs them, in the selected agent folders or the default ones; a second profile in another
@@ -56,7 +57,8 @@ The skill was called `manage-workspace-storage` until 2.0.0. Setup recognises th
   another data folder) with the new scripts, so a session that started before the rename, and still
   runs the old hook command or was told the old path in its policy, keeps working. `status` says it is
   there. Uninstall removes the copies under the current data folder, and an old-name copy under another
-  one that a removed entry named, when its folder holds nothing but this skill's scripts.
+  one that a removed entry named: only this skill's own script files, and the folder only when nothing
+  else is left in it.
 
 A rewritten command is a changed command, so Codex asks for trust again (below). The environment
 variables keep their names: `MWS_CLEANUP_MODE`, `MWS_HELPERS`, `MWS_STATE_DIR`, `MWS_CONFIG_DIR`.

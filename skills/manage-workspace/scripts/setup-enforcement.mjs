@@ -71,7 +71,8 @@ const wanted = (agent) => ({
 const Q = '"((?:[^"\\\\]|\\\\.)*)"';
 const OURS = new RegExp(`^if \\[ -x ${Q} \\]; then exec ${Q} ${Q} (session-start|stop|session-end); else exec node ${Q} \\4; fi$`);
 export function oursScript(h) {
-  if (typeof h?.command !== 'string') return null;
+  // exactly the fields setup writes; a hook with async, args or anything else is a person's
+  if (typeof h?.command !== 'string' || h.type !== 'command' || Object.keys(h).some((k) => !['type', 'command', 'timeout'].includes(k))) return null;
   const m = OURS.exec(h.command); if (!m || m[1] !== m[2]) return null;
   const script = undq(m[3]);
   if (undq(m[5]) !== script || !new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs$`).test(script)) return null;
@@ -80,9 +81,10 @@ export function oursScript(h) {
 const ours = (h) => oursScript(h) !== null;
 // Setup writes only these events; the same command copied into another event is a person's hook.
 const OUR_EVENTS = ['SessionStart', 'Stop', 'SessionEnd'];
-// Any hook, ours or a person's, that runs one of this skill's script copies, in its command or its args.
+// Any hook, ours or a person's, that may run one of this skill's script copies: one that names the
+// skill's data folder and the script anywhere in it (command, args, a cd then a relative path).
 const usesScripts = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? [])
-  .some((h) => new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs`).test(JSON.stringify(h ?? {})));
+  .some((h) => { const t = JSON.stringify(h ?? {}); return new RegExp(`/(${NAME}|${LEGACY})(/|"|\\\\"|\\s|$)`).test(t) && t.includes('leftovers.mjs'); });
 
 function readJson(file) {
   if (!existsSync(file)) return { json: {}, text: null };
@@ -95,7 +97,7 @@ function readJson(file) {
 }
 
 // Returns {next, changes[]} without writing.
-function planInstall(json, agent) {
+function planInstall(json, agent, notes = []) {
   const next = structuredClone(json); const changes = [];
   next.hooks ??= {};
   for (const [event, group] of Object.entries(wanted(agent))) {
@@ -108,7 +110,10 @@ function planInstall(json, agent) {
         if (done) { changes.push(`remove duplicate ${event} entry`); return false; }
         done = true;
         if (h.command !== group.hooks[0].command || h.timeout !== group.hooks[0].timeout) { h.command = group.hooks[0].command; h.timeout = group.hooks[0].timeout; changes.push(`update ${event} entry`); }
-        if (group.matcher && g.matcher !== group.matcher && g.hooks.length === 1) { g.matcher = group.matcher; changes.push(`update ${event} matcher`); }
+        if (group.matcher && g.matcher !== group.matcher) {
+          if (g.hooks.length === 1) { g.matcher = group.matcher; changes.push(`update ${event} matcher`); }
+          else notes.push(`${event}: the group holding this entry also holds another hook, so its matcher (${g.matcher}) is left as it is; add |fork to it for Codex forks`);
+        }
         return true;
       });
     }
@@ -261,17 +266,17 @@ function main(argv) {
   }
 
   // 1. Read and plan every agent first; an invalid file stops the run before anything is written.
-  const plans = [];
+  const plans = []; const earlyNotes = [];
   for (const a of which) {
     const { label, dir } = AGENTS[a]; const f = agentFile(a);
     if (!existsSync(dir())) { out(`${label}: not present (${dir()} does not exist); skipped`); continue; }
     let read; try { read = readJson(f); } catch (e) { out(`${label}: ${e.message}`); out('nothing was written'); return 1; }
-    const { next, changes } = action === 'uninstall' ? planRemove(read.json) : planInstall(read.json, a);
+    const { next, changes } = action === 'uninstall' ? planRemove(read.json) : planInstall(read.json, a, earlyNotes);
     plans.push({ a, label, f, read, next, changes });
   }
   const legacyScripts = plans.flatMap((p) => scriptsIn(p.read.json)).filter((s) => s.includes(`/${LEGACY}/`));
 
-  let any = plans.some((p) => p.changes.length); const notes = [];
+  let any = plans.some((p) => p.changes.length); const notes = [...new Set(earlyNotes)];
   for (const p of plans) {
     if (!p.changes.length) { out(`${p.label}: ${p.f}: already ${action === 'uninstall' ? 'clean' : 'up to date'}`); continue; }
     if (p.read.text !== null && JSON.stringify(p.read.json, null, 2) + '\n' !== p.read.text) notes.push(`${p.label}: ${p.f} is not formatted as 2-space JSON; the write re-indents it (content and key order unchanged)`);
@@ -324,7 +329,11 @@ function main(argv) {
     const dirs = [...new Set([dataDir(), legacyDataDir(), ...named])].filter(existsSync);
     if (stillUsed.length) notes.push(`${stillUsed.join(' and ')} still ${stillUsed.length === 1 ? 'has' : 'have'} clean-up hooks, so the shared scripts${flags.has('--purge') ? ', state and settings' : ''} stay; uninstall for ${stillUsed.length === 1 ? 'it' : 'them'} too to remove them`);
     else if (apply) {
-      for (const d of dirs) { rmSync(d, { recursive: true, force: true }); out(`removed ${d}`); }
+      // only this skill's own files; a folder that still holds anything else is left, and said so
+      for (const d of dirs) {
+        for (const f of readdirSync(d)) if (SCRIPTS.includes(f) || /^(leftovers|machine)\.mjs\.\d+\.tmp$/.test(f)) rmSync(path.join(d, f), { force: true });
+        try { rmdirSync(d); out(`removed ${d}`); } catch { notes.push(`${d} holds files this skill did not write, so it was left; its scripts were removed`); }
+      }
       if (flags.has('--purge')) {
         for (const d of [stateDir(), configDir(), path.join(stateRoot(), LEGACY), path.join(configRoot(), LEGACY)]) rmSync(d, { recursive: true, force: true });
         out('purged state and settings');
