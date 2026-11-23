@@ -193,13 +193,6 @@ export function folderState(p) {
   try { return statSync(p).isDirectory() ? 'present' : 'unknown'; } catch (e) { return e.code === 'ENOENT' ? 'gone' : 'unknown'; }
 }
 
-// The nearest folder at or above p that holds a .git entry: the plugin keys a broker by workspace root.
-export function workspaceRoot(p) {
-  for (let d = path.resolve(p); ; d = path.dirname(d)) {
-    try { statSync(path.join(d, '.git')); return d; } catch { /* keep going */ }
-    if (path.dirname(d) === d) return path.resolve(p);
-  }
-}
 
 const firstWord = (args) => path.basename(args.split(/\s+/)[0] || '');
 const isClaudeCli = (p) => firstWord(p.args) === 'claude' && !/--chrome-native-host/.test(p.args);
@@ -329,20 +322,51 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
   return { stopped, skipped };
 }
 
-// Another live session works in this helper's workspace (the nearest folder above it with .git, which
-// is how the plugin keys and reuses a broker), so that session may be using it now. Without the session
+// Another live session works in this helper's workspace (the folder the plugin keys and reuses a broker
+// by), so that session may be using it now. Without the session
 // files this cannot be known, and the answer is yes.
-// A folder is keyed as the plugin keys it: the nearest folder with .git above its real path (symlinks
-// resolved, and on a case-insensitive volume the case the disk holds), itself when there is none. Two
-// folders share a broker exactly when their keys are equal, so a repository nested inside another has
-// its own. A deleted folder cannot be resolved, so it is walked up as written and its key resolved.
+// A folder is keyed as the plugin keys it, by asking git rather than imitating it: git's top level for
+// the folder, or the folder itself when git says it is not in a repository or git is not installed,
+// then the real path (symlinks resolved, and on a case-insensitive volume the case the disk holds). Two
+// folders share a broker exactly when their keys are equal. Git cannot be asked about a deleted folder,
+// so it is asked about the nearest folder that still exists: inside a repository the key is that
+// repository's, outside one it is the deleted path itself. A key that cannot be known (git timed out or
+// did not start) counts as shared.
 const canonical = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
-const brokerKey = (p) => canonical(workspaceRoot(canonical(p)));
+const isDir = (d) => { try { return statSync(d).isDirectory(); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; } };
+function gitTop(dir) {
+  const env = { ...process.env }; delete env.GIT_DIR; delete env.GIT_WORK_TREE;
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, env, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] });
+  if (r.error) return r.error.code === 'ENOENT' ? { top: dir, repo: false } : undefined;
+  if (r.signal) return undefined;
+  const top = r.status === 0 ? r.stdout.trim() : '';
+  return top ? { top, repo: true } : { top: dir, repo: false };
+}
+const keys = new Map();
+function brokerKey(p) {
+  const abs = path.resolve(p);
+  if (!keys.has(abs)) {
+    let key;
+    try {
+      let dir = abs; const rest = [];
+      while (!isDir(dir) && path.dirname(dir) !== dir) { rest.unshift(path.basename(dir)); dir = path.dirname(dir); }
+      const got = gitTop(dir);
+      if (got) key = got.repo || !rest.length ? canonical(got.top) : path.join(canonical(dir), ...rest);
+    } catch { key = undefined; }
+    keys.set(abs, key);
+  }
+  return keys.get(abs);
+}
 export function sharedWithLiveSession(h, sessions, session) {
   if (!h.folder) return false;
   if (!sessions) return true;
   const key = brokerKey(h.folder);
-  return sessions.some((s) => s.sessionId !== session && Boolean(s.cwd) && brokerKey(s.cwd) === key);
+  if (key === undefined) return true;
+  return sessions.some((s) => {
+    if (s.sessionId === session || !s.cwd) return false;
+    const k = brokerKey(s.cwd);
+    return k === undefined || k === key;
+  });
 }
 
 // ---- wording -----------------------------------------------------------------------------------

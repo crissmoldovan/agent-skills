@@ -7,6 +7,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 
+const gitInit = (dir) => { mkdirSync(dir, { recursive: true }); const r = spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+
 const dir = fileURLToPath(new URL('../skills/manage-workspace/scripts/', import.meta.url));
 const leftovers = path.join(dir, 'leftovers.mjs');
 const machine = await import(path.join(dir, 'machine.mjs'));
@@ -334,7 +336,7 @@ test('round three: an unreadable or malformed memory reading refuses, and an emp
 
 test('session end leaves a broker in a workspace another live session works in, even from another subfolder', async (t) => {
   const { root, start, hook } = await decoys(t);
-  const repo = path.join(root, 'repo'); mkdirSync(path.join(repo, 'one'), { recursive: true }); mkdirSync(path.join(repo, 'two')); mkdirSync(path.join(repo, '.git'));
+  const repo = path.join(root, 'repo'); mkdirSync(path.join(repo, 'one'), { recursive: true }); mkdirSync(path.join(repo, 'two')); gitInit(repo);
   const sid = `mw-test-${randomUUID()}`;
   const pid = start(sid, path.join(repo, 'one'));
   assert.ok(await until(() => childrenOf(pid).length));
@@ -373,7 +375,7 @@ test('no signal is sent: a busy helper and one without a socket are left running
 
 test('the end-of-turn check leaves a deleted subfolder\'s broker that another live session uses from the repository', async (t) => {
   const { root, start, hook } = await decoys(t);
-  const repo = path.join(root, 'repo2'); const sub = path.join(repo, 'tmp-sub'); mkdirSync(sub, { recursive: true }); mkdirSync(path.join(repo, '.git'));
+  const repo = path.join(root, 'repo2'); const sub = path.join(repo, 'tmp-sub'); mkdirSync(sub, { recursive: true }); gitInit(repo);
   const sid = `mw-test-${randomUUID()}`;
   const pid = start(sid, sub);
   assert.ok(await until(() => childrenOf(pid).length && existsSync(path.join(root, 's1.sock'))));
@@ -416,7 +418,7 @@ test('a reply whose error message is not a string does not fail the hook', async
 
 test('the workspace guard compares canonical paths, as the plugin does', async () => {
   const root = await tempDir('mw-canon-');
-  const repo = path.join(root, 'Repo'); mkdirSync(path.join(repo, '.git'), { recursive: true }); mkdirSync(path.join(repo, 'one'));
+  const repo = path.join(root, 'Repo'); gitInit(repo); mkdirSync(path.join(repo, 'one'));
   const link = path.join(root, 'repo-link'); symlinkSync(repo, link);
   const h = { folder: path.join(repo, 'one') };
   assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: link }], 'a'), true, 'another session in the same repository through a symlink');
@@ -424,17 +426,22 @@ test('the workspace guard compares canonical paths, as the plugin does', async (
   assert.equal(machine.sharedWithLiveSession(h, null, 'a'), true, 'without the session files, sharing cannot be ruled out');
 });
 
-test('the workspace guard keys a folder as the plugin does: the nearest .git above its real path', async () => {
+test('the workspace guard keys a folder as the plugin does: git\'s top level for its real path', async () => {
   const root = await tempDir('mw-key-');
-  const outer = path.join(root, 'outer'); mkdirSync(path.join(outer, '.git'), { recursive: true });
-  const inner = path.join(outer, 'vendor', 'inner'); mkdirSync(path.join(inner, '.git'), { recursive: true });
+  const outer = path.join(root, 'outer'); gitInit(outer);
+  const inner = path.join(outer, 'vendor', 'inner'); gitInit(inner);
   const sub = path.join(outer, 'sub'); mkdirSync(sub);
+  const fake = path.join(outer, 'generated'); mkdirSync(path.join(fake, '.git'), { recursive: true });
   const aliases = path.join(root, 'aliases'); mkdirSync(aliases);
   symlinkSync(inner, path.join(aliases, 'inner')); symlinkSync(sub, path.join(aliases, 'sub'));
+  const plain = path.join(root, 'plain'); mkdirSync(path.join(plain, 'below'), { recursive: true });
   const h = { folder: outer };
   assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: inner }], 'a'), false, 'a nested repository has its own broker');
   assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: path.join(aliases, 'inner') }], 'a'), false, 'a nested repository reached through a symlink has its own broker');
   assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: path.join(aliases, 'sub') }], 'a'), true, 'a symlink to a folder inside the repository shares its broker');
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: fake }], 'a'), true, 'a .git folder that is not a repository does not make a new workspace, as git skips it');
   assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: path.join(sub, 'deleted') }], 'a'), true, 'a deleted folder inside the repository still keys to it');
   assert.equal(machine.sharedWithLiveSession({ folder: inner }, [{ sessionId: 'b', cwd: outer }], 'a'), false, 'the outer repository does not share the nested one');
+  assert.equal(machine.sharedWithLiveSession({ folder: plain }, [{ sessionId: 'b', cwd: path.join(plain, 'below') }], 'a'), false, 'outside a repository each folder is its own workspace');
+  assert.equal(machine.sharedWithLiveSession({ folder: path.join(plain, 'gone') }, [{ sessionId: 'b', cwd: plain }], 'a'), false, 'a deleted folder outside a repository is its own workspace');
 });

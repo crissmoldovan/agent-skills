@@ -92,7 +92,7 @@ exits. Before asking, a harmless request checks it is not busy: a broker serving
 
 | When | What is asked to shut down | Scope |
 | --- | --- | --- |
-| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the nearest folder above it with `.git`, which is how the plugin keys a broker, paths compared canonical as the plugin does); without the session files, none, since sharing cannot be ruled out | any folder |
+| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the folder the plugin keys a broker by: git's top level, or the folder itself outside a repository, real path resolved); without the session files, none, since sharing cannot be ruled out | any folder |
 | `Stop` hook (each turn) | this session's helpers whose folder no longer exists, unless another live session works in their workspace; without the session files, none | this session only |
 | `processes --stop-helpers --yes`, on a person's word | helpers of a known session whose folder is gone, and helpers whose session is known to have ended unless another live session works in their workspace | machine-wide, or one `--session` |
 | never | a busy helper, a helper whose session is unknown, a live session's helper in an existing folder, agent CLIs, virtual machines, containers | |
@@ -149,10 +149,13 @@ that names its folder. Without a session variable it can be reported but never s
 - The busy check sees only what the broker knows: when a client that started a Codex turn crashes or
   disconnects, the broker forgets it was busy while its app server may still be running that turn, and a
   shutdown then cuts the turn off, as the plugin's own session-end hook would.
-- The workspace guard keys each folder as the plugin does: the nearest folder with `.git` above its real
-  path, or the folder itself when there is none. A deleted folder is walked up as written, so one
-  inside a repository another live session works in keeps its broker. A repository nested inside
-  another has its own key, and a session in one does not keep the other's broker.
+- The workspace guard keys each folder as the plugin does, by asking git: `git rev-parse
+  --show-toplevel` in the folder, or the folder itself when git says it is not in a repository or git
+  is not installed, then the real path. So a repository nested inside another has its own key, and a
+  `.git` folder git does not accept as a repository makes no new one. Git cannot be asked about a
+  deleted folder, so it is asked about the nearest folder that still exists: a deleted folder inside a
+  repository another live session works in keeps its broker, even when it was a worktree with a broker
+  of its own. When git times out or does not start, the helper is kept.
 - The machine check at session start reports at most twelve items, and a process table that cannot be
   read within its time budget yields no report rather than a wrong one.
 - A process started under a name the check does not know is not reported. Note what you start.
