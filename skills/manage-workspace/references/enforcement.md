@@ -1,9 +1,9 @@
 # Enforcing clean-up in Claude Code and Codex
 
-`scripts/setup-enforcement.mjs` installs two hooks. Both call one script, `leftovers.mjs`, which
-setup copies to `$XDG_DATA_HOME/manage-workspace-storage/` (default `~/.local/share/...`) so the
-hook entries keep working wherever the skill itself is installed or updated. Needs Node.js 22 or
-newer. Makes no network request.
+`scripts/setup-enforcement.mjs` installs three hooks in Claude Code and two in Codex. All call one
+script, `leftovers.mjs`, which setup copies with `machine.mjs` to `$XDG_DATA_HOME/manage-workspace/`
+(default `~/.local/share/...`) so the hook entries keep working wherever the skill itself is installed
+or updated. Needs Node.js 22 or newer. Makes no network request.
 
 ## Install, preview, remove
 
@@ -27,10 +27,27 @@ skill's [Install or update (agents)](../SKILL.md#install-or-update-agents) secti
 | Claude Code | `settings.json` in `$CLAUDE_CONFIG_DIR` or `~/.claude` | the folder exists |
 | Codex | `hooks.json` in `$CODEX_HOME` or `~/.codex` | the folder exists |
 
-Existing hooks are never removed, reordered or rewritten: the two entries are appended, and an
+Existing hooks are never removed, reordered or rewritten: the entries are appended, and an
 uninstall removes only entries whose command runs this script. Before the first write to a file,
-the previous bytes are copied beside it as `<file>.bak-manage-workspace-storage` (a timestamp is
-added if that name exists). A file that is not valid JSON is left alone and setup stops.
+the previous bytes are copied beside it as `<file>.bak-manage-workspace` (a timestamp is added if
+that name exists). A file that is not valid JSON is left alone and setup stops.
+
+## Migrating from the old name
+
+The skill was called `manage-workspace-storage` until 2.0.0. Setup recognises the entries that name
+`manage-workspace-storage/leftovers.mjs` as its own and, on install:
+
+- rewrites each in place to the new command, so it keeps its position and is never doubled (a second
+  entry of its own in one event is removed);
+- moves the session state (`$XDG_STATE_HOME/manage-workspace-storage`) and the settings
+  (`$XDG_CONFIG_HOME/manage-workspace-storage`) to the new name, unless the new folder already exists
+  or `MWS_STATE_DIR` or `MWS_CONFIG_DIR` names one;
+- refreshes the old script path with the new scripts, so a session that started before the rename,
+  and still runs the old hook command or was told the old path in its policy, keeps working. `status`
+  says it is there; uninstall removes it.
+
+A rewritten command is a changed command, so Codex asks for trust again (below). The environment
+variables keep their names: `MWS_CLEANUP_MODE`, `MWS_HELPERS`, `MWS_STATE_DIR`, `MWS_CONFIG_DIR`.
 
 Claude Code runs the hooks from the next session; running sessions keep the hooks they started with.
 Codex runs a hook only after it has been reviewed and trusted, which is a separate step: see
@@ -62,7 +79,7 @@ the current command, so after a command change `/hooks` is the authority.
 ### Default: the person reviews in `/hooks`
 
 1. Ask the person to open Codex and run `/hooks`.
-2. They press `t` on the new `manage-workspace-storage` entries: one `SessionStart`, one `Stop`.
+2. They press `t` on the new `manage-workspace` entries: one `SessionStart`, one `Stop`.
 3. Verify by reading back: `setup-enforcement.mjs status` shows both as trusted, and
    `~/.codex/config.toml` has a `trusted_hash` under each of the two hook keys.
 
@@ -81,7 +98,7 @@ Codex update can break it**, and a wrong write would make Codex list the hooks a
 (the safe failure) or, worse, trust something it should not. That is why every step below can stop
 the procedure and hand back to `/hooks`.
 
-1. **Scope.** Find exactly the two manage-workspace-storage hooks in `hooks.json`: `SessionStart`
+1. **Scope.** Find exactly the two manage-workspace hooks in `hooks.json`: `SessionStart`
    running `leftovers.mjs session-start`, and `Stop` running `leftovers.mjs stop`. Nothing else. Stop
    if either is missing, or does more than run that script.
 2. **Back up** `config.toml` beside itself. Never read `auth.json` or any credential.
@@ -102,12 +119,18 @@ the procedure and hand back to `/hooks`.
 Never use `--dangerously-bypass-hook-trust`, never edit `hooks.json` to make a hook look trusted, and
 never trust any other hook, whatever it is.
 
-## The two hooks
+## The hooks
 
-| Event | Matcher | What it does |
-| --- | --- | --- |
-| `SessionStart` | `startup\|resume\|clear\|compact` | Adds the clean-up policy to the session's context, with the session id and the `note`, `keep` and `done` commands. |
-| `Stop` | none (ends each agent turn) | Lists what this session created and still left. Silent when nothing is. |
+| Event | Agents | Matcher | What it does |
+| --- | --- | --- | --- |
+| `SessionStart` | both | `startup\|resume\|clear\|compact` | Adds the clean-up policy to the session's context, with the session id, the `note`, `keep` and `done` commands and the memory check; then a machine check, when it finds anything: helpers of ended sessions or deleted folders, agent CLIs with no parent, a session served by two processes, low memory. The agent is told to tell the user and never to stop another live session's processes. |
+| `Stop` | both | none (ends each agent turn) | Lists what this session created and still left; stops this session's own helpers whose folder is gone and says so; says when memory is low. Silent when there is nothing. |
+| `SessionEnd` | Claude Code only | none | Stops every helper whose environment names the ending session, in any folder. Prints nothing. |
+
+Codex 0.171.0 carries an input schema for `SessionEnd` (`session-end.command.input`: `session_id`,
+`transcript_path`, `cwd`, `hook_event_name`, `reason`), but it has not been observed firing there, so
+setup does not install it for Codex yet. What stops and when, and why, is in
+[the process and memory guide](processes.md).
 
 ### What the end-of-turn check looks at
 
@@ -134,13 +157,15 @@ items are skipped.
 
 Limits, stated plainly: this reads commands, not effects. A script that creates a folder, a
 container started without `--name`, a cache folder a tool picks for itself, and a signed-in
-configuration are invisible to it unless the agent runs `note`. It shows a reminder; it does not
-remove anything.
+configuration are invisible to it unless the agent runs `note`. It shows a reminder; it removes no
+file. The only processes the hooks stop are helpers whose environment names this session (see
+[the process and memory guide](processes.md)); an editor that dies does not end its sessions, so no
+`SessionEnd` runs for them, and the next session's machine check reports what they left.
 
 ### The ledger
 
 ```bash
-node "$XDG_DATA_HOME/manage-workspace-storage/leftovers.mjs" note --session <id> --kind worktree --path <path> --purpose "<why>" --until "<when>"
+node "$XDG_DATA_HOME/manage-workspace/leftovers.mjs" note --session <id> --kind worktree --path <path> --purpose "<why>" --until "<when>"
 node ".../leftovers.mjs" keep --session <id> --path <path> --reason "<why it stays>"
 node ".../leftovers.mjs" done --session <id> --path <path>
 node ".../leftovers.mjs" list --session <id> --transcript <file>
@@ -159,16 +184,29 @@ or `keep`. A kept item is not flagged again.
 | `off` | nothing | Both hooks are silent. |
 
 ```bash
-node scripts/setup-enforcement.mjs mode block --yes     # persists in $XDG_CONFIG_HOME/manage-workspace-storage/mode
+node scripts/setup-enforcement.mjs mode block --yes     # persists in $XDG_CONFIG_HOME/manage-workspace/mode
 MWS_CLEANUP_MODE=block                                  # the environment overrides the file for one process
+```
+
+`off` also turns off every process stop. The helper switch is separate:
+
+| `helpers` | Effect |
+| --- | --- |
+| `stop` (default) | `SessionEnd` stops this session's helpers; `Stop` stops its helpers in deleted folders. |
+| `report` | Both only list them; nothing is stopped. |
+
+```bash
+node scripts/setup-enforcement.mjs helpers report --yes  # persists in $XDG_CONFIG_HOME/manage-workspace/helpers
+MWS_HELPERS=report                                      # for one process
 ```
 
 ## Contracts relied on
 
 Taken from the Codex hooks documentation (read 2026-11-22), with the field names checked against the
 `codex-cli 0.171.0` binary, and from the Claude Code hooks contract. Not yet observed end to end in a
-live Stop turn: the tests drive both hooks with synthetic payloads in each harness's shape. Re-check
-if a harness changes.
+live Stop turn: the tests drive the hooks with synthetic payloads in each harness's shape. Claude Code's
+`SessionEnd` payload (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `reason`) is OBSERVED in
+the repository's hook notes; Codex's is DOCUMENTED in its binary only. Re-check if a harness changes.
 
 - Both pass one JSON object on stdin with `session_id`, `transcript_path`, `cwd` and
   `hook_event_name`; `Stop` adds `stop_hook_active`.

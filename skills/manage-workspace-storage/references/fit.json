@@ -1,5 +1,0 @@
-{
-  "version": 1,
-  "kind": "requestOnly",
-  "useWhen": "a project needs to bound scratch storage, prevent context growth, or audit and retire local artifacts"
-}

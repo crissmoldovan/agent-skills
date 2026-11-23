@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Clean-up enforcement for agent sessions: a SessionStart policy and an end-of-turn (Stop) check
-// of what THIS session created and still left. Used by Claude Code and Codex hooks. No network.
+// Clean-up enforcement for agent sessions: a SessionStart policy with a machine check, an end-of-turn
+// (Stop) check of what THIS session created and still left, and a SessionEnd stop of the helpers THIS
+// session started. Used by Claude Code and Codex hooks (SessionEnd: Claude Code only). No network.
 //
 // Contracts relied on (see references/enforcement.md for sources):
 //   input   one JSON object on stdin: session_id, transcript_path, cwd, hook_event_name, and on Stop
@@ -8,7 +9,10 @@
 //   output  SessionStart: {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":...}}
 //           Stop, warn:  {"systemMessage": ...}   (shown to the person; the model does not see it)
 //           Stop, block: {"decision":"block","reason": ...} (the model sees the reason and continues)
+//           SessionEnd: nothing (its output is not read)
 // Every failure path exits 0 and prints nothing: a hook's own failure is never the session's.
+// It stops processes in two cases only, both limited to helpers whose environment names THIS session:
+// at SessionEnd all of them, and at Stop those whose folder is gone. MWS_HELPERS=report turns that off.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -18,8 +22,14 @@ import {
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  describeAgent, describeDuplicate, describeHelper, describeMemory, describeVm, memoryVerdict, readMemory, scanProcesses,
+  stopHelpers, stoppable,
+} from './machine.mjs';
 
-export const VERSION = '1.2.0';
+export const VERSION = '2.0.0';
+const NAME = 'manage-workspace';
+const LEGACY = 'manage-workspace-storage';
 const HOME = () => process.env.HOME || homedir();
 const ROOTS = () => [
   '/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp', '/var/folders', '/private/var/folders',
@@ -30,17 +40,21 @@ const MAX_LISTED = 12;
 const BUDGET_MS = 1200;
 
 export const stateDir = () => process.env.MWS_STATE_DIR
-  || path.join(process.env.XDG_STATE_HOME || path.join(HOME(), '.local/state'), 'manage-workspace-storage');
-const configDir = () => process.env.MWS_CONFIG_DIR
-  || path.join(process.env.XDG_CONFIG_HOME || path.join(HOME(), '.config'), 'manage-workspace-storage');
+  || path.join(process.env.XDG_STATE_HOME || path.join(HOME(), '.local/state'), NAME);
+const configRoot = () => process.env.XDG_CONFIG_HOME || path.join(HOME(), '.config');
+const configDir = () => process.env.MWS_CONFIG_DIR || path.join(configRoot(), NAME);
 export const modeFile = () => path.join(configDir(), 'mode');
 
-export function readMode() {
-  const fromEnv = (process.env.MWS_CLEANUP_MODE || '').trim().toLowerCase();
-  let value = fromEnv;
-  if (!value) { try { value = readFileSync(modeFile(), 'utf8').trim().toLowerCase(); } catch { value = ''; } }
-  return ['off', 'warn', 'block'].includes(value) ? value : 'warn';
+function setting(name, env, allowed, fallback) {
+  let value = (process.env[env] || '').trim().toLowerCase();
+  const files = [path.join(configDir(), name)];
+  if (!process.env.MWS_CONFIG_DIR) files.push(path.join(configRoot(), LEGACY, name)); // before setup moved it
+  for (const f of files) { if (value) break; try { value = readFileSync(f, 'utf8').trim().toLowerCase(); } catch { value = ''; } }
+  return allowed.includes(value) ? value : fallback;
 }
+export const readMode = () => setting('mode', 'MWS_CLEANUP_MODE', ['off', 'warn', 'block'], 'warn');
+// stop: the hooks stop this session's own helpers (all at SessionEnd, deleted-folder ones at Stop); report: list only
+export const readHelpers = () => setting('helpers', 'MWS_HELPERS', ['stop', 'report'], 'stop');
 
 // ---- command parsing -------------------------------------------------------------------------
 
@@ -333,49 +347,100 @@ const self = () => path.resolve(fileURLToPath(import.meta.url));
 
 export function policyText(sid, mode) {
   return [
-    'Standing clean-up policy for this session. It is the user\'s instruction. Agents leave things behind on this machine: worktrees, containers, VMs, disk images, cache folders, /tmp and shared-folder copies, screenshots, signed-in configurations.',
+    'Standing clean-up policy for this session. It is the user\'s instruction. Agents leave things behind on this machine: worktrees, containers, VMs, disk images, cache folders, /tmp and shared-folder copies, screenshots, signed-in configurations, and processes that keep running after their session or window is gone.',
     '- When you create anything outside the repository, or a large git-ignored output inside it, note it at once: path, size, purpose, when it can go.',
     `  node "${self()}" note --session ${sid || '<session id>'} --kind path|worktree|container|vm|credential --path <path or name> --purpose "<why>" --until "<when it can go>"`,
     '- When its work is done, keep the evidence in the project\'s durable record first, then remove it. Remove worktrees you created once their branch is merged or dropped (git worktree remove, then git worktree prune). Stop containers and VMs when their step ends. A signed-in configuration is a credential: sign out and delete it when done.',
-    '- Never delete what another session or project owns, or anything unpublished, running, or needed later. Ask instead.',
+    `- Before a heavy command or a VM start, check memory; it counts swap, which the free percentage does not: node "${self()}" memory --need-mib <MiB the job needs>. If it refuses, stop what you started that is no longer needed, or wait.`,
+    '- Never delete or stop what another session or project owns, or anything unpublished, running, or needed later. Ask instead.',
     '- End each task by listing what you left behind and what you removed.',
     `  An item you decide to keep: node "${self()}" keep --session ${sid || '<session id>'} --path <path or name> --reason "<why>"   (an item you removed needs no command; one you noted and removed: ... done --path <path>)`,
     `At the end of each turn a hook checks what this session created and still left (mode: ${mode}${mode === 'block' ? '; the turn cannot end until each is removed or kept with a reason' : ''}).`,
   ].join('\n');
 }
 
+// Machine-wide, read-only: what another session left is reported, never stopped, from here.
+export function machineCheck({ memory = memoryVerdict(readMemory()), scan = scanProcesses() } = {}) {
+  const lines = [];
+  for (const h of stoppable(scan)) lines.push(describeHelper(h));
+  for (const a of scan.agents) lines.push(describeAgent(a));
+  for (const d of scan.duplicates) lines.push(describeDuplicate(d));
+  if (!memory.ok) lines.push(`memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)})`);
+  return lines;
+}
+
 function sessionStart() {
   const input = readStdin(); const mode = readMode();
   if (mode === 'off') return;
-  process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: policyText(input.session_id, mode) } })}\n`);
+  let context = policyText(input.session_id, mode);
+  try {
+    const found = machineCheck();
+    if (found.length) {
+      context += `\n\nMachine check at session start (${found.length}):\n${found.slice(0, MAX_LISTED).map((l) => `- ${l}`).join('\n')}${found.length > MAX_LISTED ? `\n- and ${found.length - MAX_LISTED} more` : ''}\n`
+        + `Tell the user about these before heavy work. Never stop another live session's processes. With the user's word, stop the helpers of ended sessions and deleted folders: node "${self()}" processes --stop-helpers --yes`;
+    }
+  } catch { /* the policy still goes out */ }
+  process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } })}\n`);
+}
+
+// This session's own helpers whose folder is gone can never be reused: stop them (or list them).
+function ownHelpers(sid) {
+  try {
+    const scan = scanProcesses();
+    const mine = scan.helpers.filter((h) => h.session === sid && h.folderGone === true);
+    if (!mine.length) return { lines: [], items: [] };
+    if (readHelpers() === 'report') return { lines: [], items: mine.map((h) => ({ what: 'helper', where: describeHelper(h), id: `helper:${h.pid}` })) };
+    const { stopped } = stopHelpers(mine);
+    return { lines: stopped.length ? [`Stopped ${stopped.length} helper${stopped.length === 1 ? '' : 's'} this session left in deleted folders: ${mine.filter((h) => stopped.includes(h.pid)).map(describeHelper).join('; ')}.`] : [], items: [], stopped };
+  } catch { return { lines: [], items: [] }; }
 }
 
 function stop() {
   const input = readStdin(); const mode = readMode();
   if (mode === 'off' || !input.session_id) return;
-  const { state, items } = findLeftovers(input.session_id, input.transcript_path);
-  const sig = createHash('sha256').update(items.map((i) => i.id).sort().join('\n')).digest('hex').slice(0, 16);
-  if (!items.length) { if (state.reported || state.blocked) { state.reported = ''; state.blocked = ''; saveState(input.session_id, state); } return; }
-  const body = `This session created these and they still exist (${items.length}):\n${describe(items)}`;
-  if (mode === 'block' && !input.stop_hook_active && state.blocked !== sig) {
+  const { state, items: found } = findLeftovers(input.session_id, input.transcript_path);
+  const helpers = ownHelpers(input.session_id);
+  const items = [...found, ...helpers.items];
+  let memory; try { memory = memoryVerdict(readMemory()); } catch { memory = { ok: true }; }
+  const memoryLine = memory.ok ? '' : `Memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)}). Stop VMs, containers and helpers that are no longer needed before more heavy work.`;
+  const sig = createHash('sha256').update([...items.map((i) => i.id).sort(), ...(helpers.stopped || []).map((p) => `stopped:${p}`), memory.ok ? '' : 'memory-low'].join('\n')).digest('hex').slice(0, 16);
+  const extra = [...helpers.lines, memoryLine].filter(Boolean).join('\n');
+  if (!items.length && !extra) { if (state.reported || state.blocked) { state.reported = ''; state.blocked = ''; saveState(input.session_id, state); } return; }
+  const body = items.length ? `This session created these and they still exist (${items.length}):\n${describe(items)}` : '';
+  if (items.length && mode === 'block' && !input.stop_hook_active && state.blocked !== sig) {
     state.blocked = sig; state.reported = sig; saveState(input.session_id, state);
     const howto = `node "${self()}" keep --session ${input.session_id} --path <path or name> --reason "<why>"`;
-    process.stdout.write(`${JSON.stringify({ decision: 'block', reason: `${body}\nBefore you finish: for each, keep the evidence in the project's durable record and remove it, or, if it must stay (another session owns it, it is unpublished, running, or needed later), run ${howto}. Then end with what you left behind and what you removed.` })}\n`);
+    process.stdout.write(`${JSON.stringify({ decision: 'block', reason: `${body}\nBefore you finish: for each, keep the evidence in the project's durable record and remove it, or, if it must stay (another session owns it, it is unpublished, running, or needed later), run ${howto}. Then end with what you left behind and what you removed.${extra ? `\n${extra}` : ''}` })}\n`);
     return;
   }
   if (state.reported === sig) return;
   state.reported = sig; saveState(input.session_id, state);
-  process.stdout.write(`${JSON.stringify({ systemMessage: `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` })}\n`);
+  const reminder = body ? `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` : '';
+  process.stdout.write(`${JSON.stringify({ systemMessage: [reminder, extra].filter(Boolean).join('\n') })}\n`);
+}
+
+// At session end every helper this session started is done with, wherever its folder is.
+function sessionEnd() {
+  const input = readStdin();
+  if (readMode() === 'off' || readHelpers() === 'report' || !input.session_id) return;
+  const mine = scanProcesses().helpers.filter((h) => h.session === input.session_id);
+  if (mine.length) stopHelpers(mine);
 }
 
 function parseFlags(argv) {
-  const f = {}; for (let i = 0; i < argv.length; i += 1) if (argv[i].startsWith('--')) { f[argv[i].slice(2)] = argv[i + 1]; i += 1; } return f;
+  const f = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    if (!argv[i].startsWith('--')) continue;
+    if (argv[i + 1] === undefined || argv[i + 1].startsWith('--')) f[argv[i].slice(2)] = true;
+    else { f[argv[i].slice(2)] = argv[i + 1]; i += 1; }
+  }
+  return f;
 }
 
 function ledgerCommand(op, argv) {
   const f = parseFlags(argv);
   const sid = f.session || process.env.MWS_SESSION;
-  if (!sid || !f.path) { process.stderr.write(`usage: leftovers.mjs ${op} --session <id> --path <path or name>${op === 'note' ? ' --kind <kind> --purpose <text> --until <text>' : op === 'keep' ? ' --reason <text>' : ''}\n`); process.exitCode = 2; return; }
+  if (!sid || typeof f.path !== 'string') { process.stderr.write(`usage: leftovers.mjs ${op} --session <id> --path <path or name>${op === 'note' ? ' --kind <kind> --purpose <text> --until <text>' : op === 'keep' ? ' --reason <text>' : ''}\n`); process.exitCode = 2; return; }
   let p = f.path; if (/^[~./]/.test(p)) p = resolvePath(p, process.cwd()) || p;
   const kinds = op === 'note' ? [f.kind || 'path'] : ['path', 'worktree', 'container', 'compose', 'vm', 'credential', 'other', 'image'];
   for (const kind of kinds) appendLedger(sid, { op, kind, path: p, size: f.size, purpose: f.purpose, until: f.until, reason: f.reason });
@@ -383,9 +448,43 @@ function ledgerCommand(op, argv) {
 }
 
 function list(argv) {
-  const f = parseFlags(argv); const sid = f.session; if (!sid) { process.stderr.write('usage: leftovers.mjs list --session <id> [--transcript <file>]\n'); process.exitCode = 2; return; }
+  const f = parseFlags(argv); const sid = f.session; if (typeof sid !== 'string') { process.stderr.write('usage: leftovers.mjs list --session <id> [--transcript <file>]\n'); process.exitCode = 2; return; }
   const { items } = findLeftovers(sid, f.transcript, { persist: false });
   process.stdout.write(items.length ? `${describe(items)}\n` : 'nothing left by this session\n');
+}
+
+const number = (v, name) => { if (v === undefined) return undefined; if (typeof v !== 'string' || !/^\d+$/.test(v)) throw new UsageError(`--${name} must be a whole number`); return Number(v); };
+class UsageError extends Error {}
+
+function memoryCommand(argv) {
+  const f = parseFlags(argv);
+  let limits; try { limits = { needMiB: number(f['need-mib'], 'need-mib') || 0, maxSwapMiB: number(f['max-swap-mib'], 'max-swap-mib'), minFreePct: number(f['min-free-pct'], 'min-free-pct') ?? 20 }; } catch (e) { process.stderr.write(`usage: leftovers.mjs memory [--need-mib N] [--max-swap-mib N] [--min-free-pct N]: ${e.message}\n`); process.exitCode = 2; return; }
+  const v = memoryVerdict(readMemory(), limits);
+  process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
+  if (!v.ok) process.exitCode = 1;
+}
+
+function processesCommand(argv) {
+  const f = parseFlags(argv);
+  const session = typeof f.session === 'string' ? f.session : undefined;
+  const scan = scanProcesses();
+  const keep = (x) => !session || x.session === session;
+  const report = { helpers: scan.helpers.filter(keep), agents: scan.agents.filter(keep), duplicates: scan.duplicates.filter(keep), vms: session ? [] : scan.vms, memory: memoryVerdict(readMemory()) };
+  if (f['stop-helpers']) {
+    const targets = stoppable(scan, { session });
+    if (!targets.length) { process.stdout.write('no helper of an ended session or a deleted folder is running\n'); return; }
+    if (f.yes !== true) { process.stdout.write(`would stop ${targets.length}:\n${targets.map((h) => `- ${describeHelper(h)}`).join('\n')}\npreview only: re-run with --yes to stop them\n`); return; }
+    const { stopped, skipped } = stopHelpers(targets);
+    process.stdout.write(`stopped ${stopped.length}${stopped.length ? `: pids ${stopped.join(', ')}` : ''}${skipped.length ? `; skipped ${skipped.map((x) => `${x.pid} (${x.why})`).join(', ')}` : ''}\n`);
+    return;
+  }
+  if (f.json) { process.stdout.write(`${JSON.stringify(report, null, 2)}\n`); return; }
+  const lines = [
+    ...report.helpers.map((h) => `- ${describeHelper(h)}`), ...report.agents.map((a) => `- ${describeAgent(a)}`),
+    ...report.duplicates.map((d) => `- ${describeDuplicate(d)}`), ...report.vms.map((v) => `- ${describeVm(v)}`),
+  ];
+  process.stdout.write(`${lines.length ? `Processes agents left running${session ? ` for session ${session}` : ''}:\n${lines.join('\n')}` : 'no helper, parentless agent, doubled session or virtual machine process found'}\nMemory: ${describeMemory(report.memory)}${report.memory.ok ? '' : ` - low: ${report.memory.reasons.join('; ')}`}\n`);
+  if (stoppable(scan, { session }).length) process.stdout.write(`Stop the helpers of ended sessions and deleted folders: node "${self()}" processes${session ? ` --session ${session}` : ''} --stop-helpers --yes\n`);
 }
 
 const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
@@ -395,10 +494,14 @@ if (invoked) {
   try {
     if (event === 'session-start') sessionStart();
     else if (event === 'stop') stop();
+    else if (event === 'session-end') sessionEnd();
     else if (['note', 'keep', 'done'].includes(event)) ledgerCommand(event, rest);
     else if (event === 'list') list(rest);
+    else if (event === 'processes') processesCommand(rest);
+    else if (event === 'memory') memoryCommand(rest);
     else if (event === 'mode') process.stdout.write(`${readMode()}\n`);
+    else if (event === 'helpers') process.stdout.write(`${readHelpers()}\n`);
     else if (event === 'version') process.stdout.write(`${VERSION}\n`);
-    else { process.stderr.write('usage: leftovers.mjs session-start|stop|note|keep|done|list|mode|version\n'); process.exitCode = 2; }
+    else { process.stderr.write('usage: leftovers.mjs session-start|stop|session-end|note|keep|done|list|processes|memory|mode|helpers|version\n'); process.exitCode = 2; }
   } catch { /* a hook's own failure is never the session's */ }
 }

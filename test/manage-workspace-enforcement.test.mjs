@@ -6,7 +6,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 
-const dir = fileURLToPath(new URL('../skills/manage-workspace-storage/scripts/', import.meta.url));
+const dir = fileURLToPath(new URL('../skills/manage-workspace/scripts/', import.meta.url));
 const leftovers = path.join(dir, 'leftovers.mjs');
 const setup = path.join(dir, 'setup-enforcement.mjs');
 const { extract, tokenize } = await import(leftovers);
@@ -14,9 +14,12 @@ const { extract, tokenize } = await import(leftovers);
 async function sandbox() {
   const root = await tempDir('mws-enforce-');
   const home = path.join(root, 'home dir');
-  const env = { ...process.env, HOME: home, MWS_STATE_DIR: path.join(home, 'state'), MWS_CONFIG_DIR: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'data') };
-  delete env.MWS_CLEANUP_MODE; delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
   mkdirSync(home, { recursive: true });
+  // a fixed, healthy memory reading, so a test never depends on how full the machine running it is
+  const fixture = path.join(root, 'machine.json');
+  writeFileSync(fixture, JSON.stringify({ memory: { platform: 'darwin', ramMiB: 36864, freePct: 55, swapUsedMiB: 900, swapTotalMiB: 2048 } }));
+  const env = { ...process.env, HOME: home, MWS_STATE_DIR: path.join(home, 'state'), MWS_CONFIG_DIR: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'data'), MWS_MACHINE_FIXTURE: fixture };
+  delete env.MWS_CLEANUP_MODE; delete env.MWS_HELPERS; delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
   const hook = (event, input, extra = {}) => spawnSync(process.execPath, [leftovers, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...env, ...extra } });
   const cli = (...args) => spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8', env });
   return { root, home, env, hook, cli };
@@ -125,12 +128,14 @@ test('setup previews by default, merges without touching existing hooks, and rem
   assert.deepEqual(c.hooks.Stop[0], existing.hooks.Stop[0], 'existing entries keep their place');
   assert.equal(c.hooks.Stop.length, 2);
   assert.equal(c.hooks.SessionStart.length, 2);
+  assert.equal(c.hooks.SessionEnd.length, 1, 'Claude Code also gets the end-of-session helper stop');
+  assert.match(c.hooks.SessionEnd[0].hooks[0].command, /manage-workspace\/leftovers\.mjs" session-end/);
   assert.deepEqual(c.env, existing.env);
   const x = JSON.parse(readFileSync(codex, 'utf8'));
-  assert.deepEqual(Object.keys(x.hooks).sort(), ['PreToolUse', 'SessionStart', 'Stop']);
-  assert.equal(readFileSync(`${claude}.bak-manage-workspace-storage`, 'utf8'), before[0]);
-  assert.equal(readFileSync(`${codex}.bak-manage-workspace-storage`, 'utf8'), before[1]);
-  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace-storage', 'leftovers.mjs')));
+  assert.deepEqual(Object.keys(x.hooks).sort(), ['PreToolUse', 'SessionStart', 'Stop'], 'Codex gets no SessionEnd entry: not observed there yet');
+  assert.equal(readFileSync(`${claude}.bak-manage-workspace`, 'utf8'), before[0]);
+  assert.equal(readFileSync(`${codex}.bak-manage-workspace`, 'utf8'), before[1]);
+  for (const f of ['leftovers.mjs', 'machine.mjs']) assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', f)), f);
   assert.match(applied.stdout, /\/hooks in Codex/);
 
   const afterApply = [readFileSync(claude, 'utf8'), readFileSync(codex, 'utf8')];
@@ -147,7 +152,7 @@ test('setup previews by default, merges without touching existing hooks, and rem
   assert.equal(removed.status, 0, removed.stderr);
   assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')), existing);
   assert.deepEqual(JSON.parse(readFileSync(codex, 'utf8')), { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'guard' }] }] } });
-  assert.ok(!existsSync(path.join(home, 'data', 'manage-workspace-storage')));
+  assert.ok(!existsSync(path.join(home, 'data', 'manage-workspace')));
 });
 
 test('setup skips an agent that is not installed, refuses invalid JSON, and sets the mode on request', async () => {
@@ -194,15 +199,16 @@ test('the Codex note says trust is per machine and needed again when a command c
   assert.match(out, /again whenever a hook command changes/);
 });
 
-const skillDir = fileURLToPath(new URL('../skills/manage-workspace-storage/', import.meta.url));
+const skillDir = fileURLToPath(new URL('../skills/manage-workspace/', import.meta.url));
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const skillText = readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
 const guide = readFileSync(path.join(skillDir, 'references/enforcement.md'), 'utf8').replace(/\s+/g, ' ');
 const readme = read('../README.md');
-const readmeEntry = readme.slice(readme.indexOf('### `manage-workspace-storage`'), readme.indexOf('### `onboard-project`'));
+const readmeEntry = readme.slice(readme.indexOf('### `manage-workspace`'), readme.indexOf('### `onboard-project`'));
 
 test('SKILL.md carries the install-or-update procedure an agent follows end to end', () => {
-  assert.match(skillText, /version=1\.2\.0/);
+  assert.match(skillText, /^name: manage-workspace$/m);
+  assert.match(skillText, /version=2\.0\.0/);
   const s = skillText.slice(skillText.indexOf('## Install or update (agents)'), skillText.indexOf('## Usage Examples'));
   assert.ok(s.length > 300, 'section present');
   for (const re of [/--agent claude-code/, /--agent codex/, /--global/, /setup-enforcement\.mjs/, /--yes/, /\/hooks/, /trusted_hash/, /already up to date/, /explicit/i, /references\/enforcement\.md/]) assert.match(s, re);
@@ -225,18 +231,83 @@ test('the README entry has a pasteable, machine-agnostic bootstrap prompt pinned
   assert.match(readmeEntry, /#### Install or update with an agent/);
   const prompt = readmeEntry.slice(readmeEntry.indexOf('#### Install or update with an agent'), readmeEntry.indexOf('More:'));
   assert.match(prompt, /```text/);
-  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.34\.0|v0\.34\.0/);
+  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.35\.0/);
   for (const re of [/codex --version/, /codex features list/, /--agent codex/, /--agent claude-code/, /--global/, /--copy/, /setup-enforcement\.mjs/, /status/, /already up to date/, /session-start/, /\/hooks/]) assert.match(prompt, re);
   assert.doesNotMatch(prompt, /\/Users\/|linear|@[a-z0-9-]+\.(com|dev)|token|secret/i);
   assert.doesNotMatch(readmeEntry, /review the new hooks once|trust .* once/i, 'trust is not "once"');
   assert.match(readmeEntry, /per machine/);
-  assert.match(readmeEntry, /npx skills update manage-workspace-storage --global --yes/, 'the human commands stay');
+  assert.match(readmeEntry, /npx skills update manage-workspace --global --yes/, 'the human commands stay');
+  assert.match(readmeEntry, /npx skills remove manage-workspace-storage --global --yes/, 'the switch from the old name is spelled out');
+  assert.match(prompt, /manage-workspace-storage/, 'the bootstrap prompt retires the old name');
 });
 
 test('CONTRIBUTING lets the setup script run on request and self-approval only with the owner explicit authorisation', () => {
   const c = read('../CONTRIBUTING.md');
   assert.match(c, /No skill installs one/);
-  assert.match(c, /manage-workspace-storage/);
+  assert.match(c, /`manage-workspace` alone/);
+  assert.doesNotMatch(c, /manage-workspace-storage/, 'CONTRIBUTING names the skill by its new name only');
   assert.match(c, /explicitly asks to install or update (that|the) skill/);
   assert.match(c, /explicit authorisation in the request/);
+});
+
+test('setup migrates an install made under the old name, without duplicating a hook', async () => {
+  const { home, cli, env } = await sandbox();
+  mkdirSync(path.join(home, '.claude')); mkdirSync(path.join(home, '.codex'));
+  const claude = path.join(home, '.claude', 'settings.json'); const codex = path.join(home, '.codex', 'hooks.json');
+  const legacy = (event) => ({ type: 'command', command: `exec node "${path.join(home, 'data', 'manage-workspace-storage', 'leftovers.mjs')}" ${event}`, timeout: 10 });
+  writeFileSync(claude, `${JSON.stringify({ hooks: { SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [legacy('session-start')] }], Stop: [{ hooks: [{ type: 'command', command: 'other-stop' }] }, { hooks: [legacy('stop')] }] } }, null, 2)}\n`);
+  writeFileSync(codex, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [legacy('session-start')] }], Stop: [{ hooks: [legacy('stop')] }] } }, null, 2)}\n`);
+  const oldData = path.join(home, 'data', 'manage-workspace-storage'); mkdirSync(oldData, { recursive: true });
+  writeFileSync(path.join(oldData, 'leftovers.mjs'), '// 1.2.0\n');
+  const oldState = path.join(home, 'old-state', 'manage-workspace-storage'); mkdirSync(path.join(oldState, 'ledger'), { recursive: true });
+  writeFileSync(path.join(oldState, 'ledger', 's1.jsonl'), '{"op":"note","kind":"path","path":"/tmp/x"}\n');
+  const oldConfig = path.join(home, 'old-config', 'manage-workspace-storage'); mkdirSync(oldConfig, { recursive: true });
+  writeFileSync(path.join(oldConfig, 'mode'), 'block\n');
+  const migrateEnv = { ...env, XDG_STATE_HOME: path.join(home, 'old-state'), XDG_CONFIG_HOME: path.join(home, 'old-config') };
+  delete migrateEnv.MWS_STATE_DIR; delete migrateEnv.MWS_CONFIG_DIR;
+  const run = (...args) => spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8', env: migrateEnv });
+
+  const preview = run();
+  assert.match(preview.stdout, /update SessionStart entry/);
+  assert.match(preview.stdout, /would move/);
+  const applied = run('--yes');
+  assert.equal(applied.status, 0, applied.stderr);
+  const c = JSON.parse(readFileSync(claude, 'utf8'));
+  assert.equal(c.hooks.SessionStart.length, 1, 'the old entry is rewritten in place, not added beside');
+  assert.equal(c.hooks.Stop.length, 2);
+  assert.equal(c.hooks.Stop[0].hooks[0].command, 'other-stop', 'other hooks keep their place');
+  for (const e of ['SessionStart', 'Stop', 'SessionEnd']) assert.match(JSON.stringify(c.hooks[e]), /manage-workspace\/leftovers\.mjs/);
+  assert.doesNotMatch(JSON.stringify(c.hooks), /manage-workspace-storage/);
+  assert.doesNotMatch(readFileSync(codex, 'utf8'), /manage-workspace-storage/);
+  assert.match(applied.stdout, /trust .* again|again whenever a hook command changes/i);
+  // state and mode move to the new name; the old script path keeps working for sessions that started before
+  assert.ok(existsSync(path.join(home, 'old-state', 'manage-workspace', 'ledger', 's1.jsonl')));
+  assert.ok(!existsSync(oldState));
+  assert.equal(readFileSync(path.join(home, 'old-config', 'manage-workspace', 'mode'), 'utf8').trim(), 'block');
+  const shim = spawnSync(process.execPath, [path.join(oldData, 'leftovers.mjs'), 'version'], { encoding: 'utf8', env: migrateEnv });
+  assert.equal(shim.stdout.trim(), '2.0.0', 'the old path now runs the new script');
+  assert.match(run('status').stdout, /old path kept for sessions started before the rename/);
+  assert.match(run('--yes').stdout, /already up to date/);
+
+  assert.equal(run('uninstall', '--yes').status, 0);
+  assert.ok(!existsSync(oldData) && !existsSync(path.join(home, 'data', 'manage-workspace')));
+  assert.doesNotMatch(readFileSync(claude, 'utf8'), /leftovers\.mjs/);
+});
+
+test('the helpers switch is set by setup and read by the hooks', async () => {
+  const { cli, hook } = await sandbox();
+  assert.match(cli('helpers', 'report').stdout, /preview only/);
+  assert.equal(cli('helpers', 'report', '--yes').status, 0);
+  assert.equal(hook('helpers', {}).stdout.trim(), 'report');
+  assert.equal(cli('helpers', 'sometimes').status, 2);
+});
+
+test('the skill documents processes and memory, and says free percentage ignores swap', () => {
+  const procs = readFileSync(path.join(skillDir, 'references/processes.md'), 'utf8').replace(/\s+/g, ' ');
+  for (const re of [/kern\.memorystatus_level/, /swap/, /quarter of (physical memory|RAM)/, /CODEX_COMPANION_SESSION_ID/, /SessionEnd/, /never stop/i, /resident/i]) assert.match(procs, re);
+  assert.match(skillText, /\[the process and memory guide\]\(references\/processes\.md\)/);
+  assert.match(skillText, /memory --need-mib/);
+  assert.match(guide, /SessionEnd/);
+  assert.match(guide, /Claude Code only/i);
+  assert.match(skillText, /formerly `manage-workspace-storage`|Formerly manage-workspace-storage/i);
 });

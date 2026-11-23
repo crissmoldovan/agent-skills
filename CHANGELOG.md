@@ -5,6 +5,68 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.35.0
+
+### `manage-workspace`: the clean-up skill now watches memory and the processes agents leave running (breaking: renamed)
+
+**What.** `manage-workspace-storage` is now **`manage-workspace`** (2.0.0). It keeps everything it did
+and adds two things a machine running several agent sessions needs:
+
+- **A memory check that counts swap.** `leftovers.mjs memory --need-mib <MiB>` exits 1 when a job would
+  not fit above a 20% floor, or when swap in use is over a quarter of physical memory. On macOS the free
+  percentage (`kern.memorystatus_level`) was observed at 37 to 42 while more than 19 GB sat in swap and
+  the window server was about to stall, so a gate on that number alone passes when it should refuse.
+  Use it as the preflight of a heavy-command queue or a VM harness.
+- **A report of what agents left running.** `leftovers.mjs processes` lists plugin helpers whose
+  session ended or whose folder was deleted, agent CLIs whose editor died, a session served by two
+  processes, and virtual machine processes, each with its tree's resident size. The one helper it knows
+  today is the Codex plugin's companion broker: it is keyed to the folder of each Codex call and its
+  plugin stops only the session folder's broker at session end, so a session that runs Codex in many
+  worktrees leaves one broker per worktree until reboot. One long session had left seventeen, about
+  three hundred processes and 14 GB. `--stop-helpers --yes` stops the ones whose session ended or whose
+  folder is gone, on a person's word.
+
+The setup script's hooks use both. The **session-start** hook adds a machine check to the policy, so the
+agent tells the user about leftovers and low memory before heavy work. The **end-of-turn** hook stops
+the session's own helpers whose folder is gone and says when memory is low. A new **end-of-session**
+hook, in Claude Code, stops every helper the ending session started, in any folder. Codex gets the first
+two: its `SessionEnd` input is in its binary's schema but has not been observed firing.
+
+**Why.** On a 36 GB Mac running several agent sessions, the window server's watchdog fired three times
+in two weeks: twice the kernel panicked, once it ended the login session, which looks like a reboot.
+The last time, earlier agent work had left the memory full (helpers from finished worktrees, two
+virtual machines, the CLIs of sessions whose editor had died) while the free-memory gates in front of
+the heavy jobs passed.
+
+**Impact.** The hooks stop processes in two cases only, both limited to helpers whose environment names
+the hook's own session: at session end all of them, and at the end of a turn those whose folder is gone.
+Another session's processes are reported, never stopped, by a hook. `setup-enforcement.mjs helpers
+report --yes` (or `MWS_HELPERS=report`) makes the hooks list helpers instead; `mode off` turns
+everything off. Sizes are resident memory, so under pressure a process's real share is larger.
+Liveness of a Claude Code session is read from Claude Code's own session files, which are not a
+documented interface; without them it is "unknown", which never counts as ended. `CONTRIBUTING.md`'s
+exception for this skill's setup script now names it `manage-workspace` and says what its hooks stop.
+
+**Compatibility.** Breaking: the skill's name, its folder and its data, state and settings folders
+change from `manage-workspace-storage` to `manage-workspace`. `npx skills update manage-workspace-storage`
+no longer finds it. Setup migrates a machine: it rewrites the old hook entries in place (so Codex asks
+for trust again), moves the old state and mode, and refreshes the old script path with the new scripts
+so sessions started before the rename keep working; uninstall removes both. The environment variables
+keep their names. Node.js 22 or newer, as before.
+
+**Who should update.** Everyone with `manage-workspace-storage` installed, and anyone who runs several
+agent sessions, Codex reviews in worktrees, or virtual machines on one machine.
+
+```bash
+npx skills add crissmoldovan/agent-skills --skill manage-workspace --global --agent claude-code --yes
+npx skills add crissmoldovan/agent-skills --skill manage-workspace --global --agent codex --yes
+npx skills remove manage-workspace-storage --global --yes
+node scripts/setup-enforcement.mjs --yes     # from the installed manage-workspace folder
+```
+
+Then trust the two rewritten Codex hooks in `/hooks`. Or tell an agent: "Update manage-workspace." On a
+machine without the skill, paste the prompt under "Install or update with an agent" in the README.
+
 ## 0.34.0
 
 ### Tell any agent "install manage-workspace-storage" and it does the whole setup

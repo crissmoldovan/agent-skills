@@ -6,7 +6,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './helpers/temp-dir.mjs';
 
-const script = fileURLToPath(new URL('../skills/manage-workspace-storage/scripts/workspace-storage.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../skills/manage-workspace/scripts/workspace-storage.mjs', import.meta.url));
 
 async function fixture() {
   const root = await tempDir('workspace-storage-');

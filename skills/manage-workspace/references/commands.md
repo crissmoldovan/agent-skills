@@ -1,4 +1,4 @@
-# Guard and cleanup commands
+# Guard, cleanup, memory and process commands
 
 Run the bundled helper from the installed skill directory with Node.js 22 or newer. Set
 `PROJECT` to the project directory. Set `SCRATCH_ROOT` to a dedicated, existing directory
@@ -55,6 +55,20 @@ remove unmarked files from a shared directory.
 
 The onboarding metadata marks this skill as request-only for project recommendations.
 The installed skill remains discoverable by its description.
+
+## Memory and processes
+
+```bash
+node scripts/leftovers.mjs memory --need-mib "$JOB_MIB"   # exit 0: start; 1: do not; 2: usage
+node scripts/leftovers.mjs processes                      # what agents left running, read-only
+node scripts/leftovers.mjs processes --stop-helpers       # preview; add --yes, on the user's word
+```
+
+Set `JOB_MIB` to the job's peak memory: a virtual machine's configured memory, or a build's measured
+peak. `memory` counts swap as well as the free percentage, so call it before a heavy command or a VM
+start, and put it in front of a heavy-command queue or a VM harness as its preflight. `--min-free-pct`
+and `--max-swap-mib` change the floor (20%) and the swap limit (a quarter of RAM). What `processes`
+finds, what may be stopped and the limits are in [the process and memory guide](processes.md).
 
 The enforcement hooks, their `note`, `keep` and `done` commands, and the setup script's preview,
 install and uninstall are described in [the enforcement guide](enforcement.md).
