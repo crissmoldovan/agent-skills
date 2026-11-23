@@ -462,13 +462,13 @@ To make that a standing rule, run its setup script once. It installs hooks for C
 node scripts/setup-enforcement.mjs            # preview what would change; writes nothing
 node scripts/setup-enforcement.mjs --yes      # install, with a backup of each file it edits
 node scripts/setup-enforcement.mjs mode block --yes      # the blocking switch (default: warn)
-node scripts/setup-enforcement.mjs helpers report --yes  # list helpers instead of stopping them (default: stop)
+node scripts/setup-enforcement.mjs helpers report --yes  # the hooks stop nothing (default: stop)
 node scripts/setup-enforcement.mjs uninstall --yes       # remove exactly what it added
 ```
 
 - A **session-start hook** puts a short clean-up policy in every new session, with the commands to record what the session creates, and a machine check: helpers of ended sessions or deleted folders, agent CLIs with no parent, a session served by two processes, and low memory, so the agent tells you before heavy work.
 - An **end-of-turn hook** checks what this session created and still left: worktrees, named containers, Tart VMs, and new folders or files in temporary, shared and cache locations. It reads the session's own transcript and notes, never the whole machine, so other sessions' items are never flagged as this session's. It also stops this session's own helpers whose folder is gone, and says when memory is low. It stays well under two seconds and prints nothing when there is nothing to say.
-- In Claude Code, an **end-of-session hook** stops every helper this session started, in any folder. Codex gets the other two hooks until its end-of-session event has been observed.
+- In Claude Code, an **end-of-session hook** stops every helper this session started, in any folder, except one in a folder another live session works in (the plugin reuses a broker by folder). Codex gets the other two hooks until its end-of-session event has been observed.
 - **Warn mode** (the default) shows a reminder to the person, once per set of leftovers. **Block mode** makes the agent remove each item or record a reason before the turn can end, once per set so it cannot loop. `off` silences the hooks and stops nothing.
 - It edits `settings.json` in `~/.claude` and `hooks.json` in `~/.codex`, only adds its own entries, and uninstall removes only those. Codex runs a new hook only after you trust it: open `/hooks` in Codex and press `t` on the two `manage-workspace` entries. That trust is per machine, and is needed again whenever a hook's command changes, which the move from the old name does. Running sessions keep the hooks they started with. After updating the skill, run the setup script again to refresh its copy.
 

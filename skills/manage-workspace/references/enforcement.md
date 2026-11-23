@@ -28,7 +28,12 @@ skill's [Install or update (agents)](../SKILL.md#install-or-update-agents) secti
 | Codex | `hooks.json` in `$CODEX_HOME` or `~/.codex` | the folder exists |
 
 Existing hooks are never removed, reordered or rewritten: the entries are appended, and an
-uninstall removes only entries whose command runs this script. Before the first write to a file,
+uninstall removes only its own. An entry counts as its own only in the exact shape setup writes,
+`if [ -x "<node>" ]; then exec "<node>" "<data>/manage-workspace/leftovers.mjs" <event>; else exec node
+"<same script>" <event>; fi` (or the same with `manage-workspace-storage`); a hook a person wrote that runs
+the script some other way is left alone. Every agent's file is read and checked first, and nothing at all
+is written if one is not valid JSON; the scripts are copied before any hook is pointed at them. Uninstall
+for one agent leaves the shared scripts, state and settings while another agent's hooks still use them. Before the first write to a file,
 the previous bytes are copied beside it as `<file>.bak-manage-workspace` (a timestamp is added if
 that name exists). A file that is not valid JSON is left alone and setup stops.
 
@@ -40,11 +45,13 @@ The skill was called `manage-workspace-storage` until 2.0.0. Setup recognises th
 - rewrites each in place to the new command, so it keeps its position and is never doubled (a second
   entry of its own in one event is removed);
 - moves the session state (`$XDG_STATE_HOME/manage-workspace-storage`) and the settings
-  (`$XDG_CONFIG_HOME/manage-workspace-storage`) to the new name, unless the new folder already exists
-  or `MWS_STATE_DIR` or `MWS_CONFIG_DIR` names one;
-- refreshes the old script path with the new scripts, so a session that started before the rename,
-  and still runs the old hook command or was told the old path in its policy, keeps working. `status`
-  says it is there; uninstall removes it.
+  (`$XDG_CONFIG_HOME/manage-workspace-storage`) to the new name, file by file, unless `MWS_STATE_DIR` or
+  `MWS_CONFIG_DIR` names a folder; where a ledger exists under both names they are joined, the older
+  entries first, and any other file keeps its new copy;
+- refreshes every old script path still in use (the default one, and any an old entry names under
+  another data folder) with the new scripts, so a session that started before the rename, and still
+  runs the old hook command or was told the old path in its policy, keeps working. `status` says it is
+  there; uninstall removes it.
 
 A rewritten command is a changed command, so Codex asks for trust again (below). The environment
 variables keep their names: `MWS_CLEANUP_MODE`, `MWS_HELPERS`, `MWS_STATE_DIR`, `MWS_CONFIG_DIR`.
@@ -125,7 +132,7 @@ never trust any other hook, whatever it is.
 | --- | --- | --- | --- |
 | `SessionStart` | both | `startup\|resume\|clear\|compact` | Adds the clean-up policy to the session's context, with the session id, the `note`, `keep` and `done` commands and the memory check; then a machine check, when it finds anything: helpers of ended sessions or deleted folders, agent CLIs with no parent, a session served by two processes, low memory. The agent is told to tell the user and never to stop another live session's processes. |
 | `Stop` | both | none (ends each agent turn) | Lists what this session created and still left; stops this session's own helpers whose folder is gone and says so; says when memory is low. Silent when there is nothing. |
-| `SessionEnd` | Claude Code only | none | Stops every helper whose environment names the ending session, in any folder. Prints nothing. |
+| `SessionEnd` | Claude Code only | none | Stops every helper whose environment names the ending session, in any folder, except one in a folder another live session works in, since the plugin reuses a broker by folder. Prints nothing. |
 
 Codex 0.171.0 carries an input schema for `SessionEnd` (`session-end.command.input`: `session_id`,
 `transcript_path`, `cwd`, `hook_event_name`, `reason`), but it has not been observed firing there, so
@@ -193,7 +200,7 @@ MWS_CLEANUP_MODE=block                                  # the environment overri
 | `helpers` | Effect |
 | --- | --- |
 | `stop` (default) | `SessionEnd` stops this session's helpers; `Stop` stops its helpers in deleted folders. |
-| `report` | Both only list them; nothing is stopped. |
+| `report` | The hooks stop nothing: `SessionEnd` does nothing, and `Stop` lists this session's helpers in deleted folders instead. The session-start check reports helpers of ended sessions in either mode. |
 
 ```bash
 node scripts/setup-enforcement.mjs helpers report --yes  # persists in $XDG_CONFIG_HOME/manage-workspace/helpers

@@ -120,7 +120,8 @@ installs hooks for Claude Code and for Codex, whichever are present:
 - an **end-of-turn** hook that checks what this session created and still left, and stops this
   session's own helpers whose folder is gone;
 - in Claude Code, an **end-of-session** hook that stops every helper this session started, in any
-  folder. Codex gets the other two until its `SessionEnd` has been observed.
+  folder, except one in a folder another live session works in. Codex gets the other two until its
+  `SessionEnd` has been observed.
 
 It reads the session's own transcript and notes, so another session's or project's items are never
 flagged as this session's, and it stops only processes whose environment names this session. It

@@ -40,9 +40,13 @@ the heavy jobs passed.
 
 **Impact.** The hooks stop processes in two cases only, both limited to helpers whose environment names
 the hook's own session: at session end all of them, and at the end of a turn those whose folder is gone.
-Another session's processes are reported, never stopped, by a hook. `setup-enforcement.mjs helpers
-report --yes` (or `MWS_HELPERS=report`) makes the hooks list helpers instead; `mode off` turns
-everything off. Sizes are resident memory, so under pressure a process's real share is larger.
+Another session's processes are reported, never stopped, by a hook, and session end leaves a broker
+whose folder another live session works in, since the plugin reuses a broker by folder. Before any signal
+the process table is read again: a helper must still have the same command line and session, and a pid
+whose command line changed is never signalled. `setup-enforcement.mjs helpers report --yes` (or
+`MWS_HELPERS=report`) makes the hooks stop nothing; `mode off` turns everything off. Setup checks every
+agent's file before writing any, copies the scripts before pointing a hook at them, claims only entries
+in the exact shape it writes, and leaves the shared scripts in place while another agent still uses them. Sizes are resident memory, so under pressure a process's real share is larger.
 Liveness of a Claude Code session is read from Claude Code's own session files, which are not a
 documented interface; without them it is "unknown", which never counts as ended. `CONTRIBUTING.md`'s
 exception for this skill's setup script now names it `manage-workspace` and says what its hooks stop.

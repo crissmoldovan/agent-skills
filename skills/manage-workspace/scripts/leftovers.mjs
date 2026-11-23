@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   describeAgent, describeDuplicate, describeHelper, describeMemory, describeVm, memoryVerdict, readMemory, scanProcesses,
-  stopHelpers, stoppable,
+  sharedWithLiveSession, stopHelpers, stoppable,
 } from './machine.mjs';
 
 export const VERSION = '2.0.0';
@@ -365,7 +365,7 @@ export function machineCheck({ memory = memoryVerdict(readMemory()), scan = scan
   for (const h of stoppable(scan)) lines.push(describeHelper(h));
   for (const a of scan.agents) lines.push(describeAgent(a));
   for (const d of scan.duplicates) lines.push(describeDuplicate(d));
-  if (!memory.ok) lines.push(`memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)})`);
+  if (!memory.ok && !memory.unknown) lines.push(`memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)})`);
   return lines;
 }
 
@@ -391,39 +391,46 @@ function ownHelpers(sid) {
     if (!mine.length) return { lines: [], items: [] };
     if (readHelpers() === 'report') return { lines: [], items: mine.map((h) => ({ what: 'helper', where: describeHelper(h), id: `helper:${h.pid}` })) };
     const { stopped } = stopHelpers(mine);
-    return { lines: stopped.length ? [`Stopped ${stopped.length} helper${stopped.length === 1 ? '' : 's'} this session left in deleted folders: ${mine.filter((h) => stopped.includes(h.pid)).map(describeHelper).join('; ')}.`] : [], items: [], stopped };
+    return { lines: stopped.length ? [`Stopped ${stopped.length} helper${stopped.length === 1 ? '' : 's'} this session left in deleted folders: ${mine.filter((h) => stopped.includes(h.pid)).map(describeHelper).join('; ')}.`] : [], items: [] };
   } catch { return { lines: [], items: [] }; }
 }
 
+// Leftovers are announced once per distinct set, and only they can block a turn. A helper this turn
+// stopped is announced once, as is memory falling low; neither repeats or re-blocks the leftovers.
 function stop() {
   const input = readStdin(); const mode = readMode();
   if (mode === 'off' || !input.session_id) return;
   const { state, items: found } = findLeftovers(input.session_id, input.transcript_path);
   const helpers = ownHelpers(input.session_id);
   const items = [...found, ...helpers.items];
-  let memory; try { memory = memoryVerdict(readMemory()); } catch { memory = { ok: true }; }
-  const memoryLine = memory.ok ? '' : `Memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)}). Stop VMs, containers and helpers that are no longer needed before more heavy work.`;
-  const sig = createHash('sha256').update([...items.map((i) => i.id).sort(), ...(helpers.stopped || []).map((p) => `stopped:${p}`), memory.ok ? '' : 'memory-low'].join('\n')).digest('hex').slice(0, 16);
-  const extra = [...helpers.lines, memoryLine].filter(Boolean).join('\n');
-  if (!items.length && !extra) { if (state.reported || state.blocked) { state.reported = ''; state.blocked = ''; saveState(input.session_id, state); } return; }
+  let memory; try { memory = memoryVerdict(readMemory()); } catch { memory = { ok: false, unknown: true }; }
+  const low = !memory.ok && !memory.unknown;
+  const extra = [...helpers.lines];
+  if (low && !state.memoryLow) extra.push(`Memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)}). Stop VMs, containers and helpers that are no longer needed before more heavy work.`);
+  const memoryChanged = Boolean(state.memoryLow) !== low; state.memoryLow = low;
+  const sig = items.length ? createHash('sha256').update(items.map((i) => i.id).sort().join('\n')).digest('hex').slice(0, 16) : '';
+  if (!items.length) { state.reported = ''; state.blocked = ''; }
   const body = items.length ? `This session created these and they still exist (${items.length}):\n${describe(items)}` : '';
   if (items.length && mode === 'block' && !input.stop_hook_active && state.blocked !== sig) {
     state.blocked = sig; state.reported = sig; saveState(input.session_id, state);
     const howto = `node "${self()}" keep --session ${input.session_id} --path <path or name> --reason "<why>"`;
-    process.stdout.write(`${JSON.stringify({ decision: 'block', reason: `${body}\nBefore you finish: for each, keep the evidence in the project's durable record and remove it, or, if it must stay (another session owns it, it is unpublished, running, or needed later), run ${howto}. Then end with what you left behind and what you removed.${extra ? `\n${extra}` : ''}` })}\n`);
+    process.stdout.write(`${JSON.stringify({ decision: 'block', reason: `${body}\nBefore you finish: for each, keep the evidence in the project's durable record and remove it, or, if it must stay (another session owns it, it is unpublished, running, or needed later), run ${howto}. Then end with what you left behind and what you removed.${extra.length ? `\n${extra.join('\n')}` : ''}` })}\n`);
     return;
   }
-  if (state.reported === sig) return;
-  state.reported = sig; saveState(input.session_id, state);
-  const reminder = body ? `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` : '';
-  process.stdout.write(`${JSON.stringify({ systemMessage: [reminder, extra].filter(Boolean).join('\n') })}\n`);
+  const reminder = items.length && state.reported !== sig ? `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` : '';
+  if (reminder) state.reported = sig;
+  if (reminder || extra.length || memoryChanged || !items.length) saveState(input.session_id, state);
+  const message = [reminder, ...extra].filter(Boolean).join('\n');
+  if (message) process.stdout.write(`${JSON.stringify({ systemMessage: message })}\n`);
 }
 
-// At session end every helper this session started is done with, wherever its folder is.
+// At session end every helper this session started is done with, wherever its folder is, unless
+// another live session works in that folder and may be reusing it.
 function sessionEnd() {
   const input = readStdin();
   if (readMode() === 'off' || readHelpers() === 'report' || !input.session_id) return;
-  const mine = scanProcesses().helpers.filter((h) => h.session === input.session_id);
+  const scan = scanProcesses();
+  const mine = scan.helpers.filter((h) => h.session === input.session_id && (h.folderGone === true || !sharedWithLiveSession(h, scan.sessions, input.session_id)));
   if (mine.length) stopHelpers(mine);
 }
 
@@ -466,6 +473,7 @@ function memoryCommand(argv) {
 
 function processesCommand(argv) {
   const f = parseFlags(argv);
+  if (Object.hasOwn(f, 'session') && typeof f.session !== 'string') { process.stderr.write('usage: leftovers.mjs processes [--session <id>] [--json] [--stop-helpers [--yes]]: --session needs a session id\n'); process.exitCode = 2; return; }
   const session = typeof f.session === 'string' ? f.session : undefined;
   const scan = scanProcesses();
   const keep = (x) => !session || x.session === session;
@@ -483,7 +491,7 @@ function processesCommand(argv) {
     ...report.helpers.map((h) => `- ${describeHelper(h)}`), ...report.agents.map((a) => `- ${describeAgent(a)}`),
     ...report.duplicates.map((d) => `- ${describeDuplicate(d)}`), ...report.vms.map((v) => `- ${describeVm(v)}`),
   ];
-  process.stdout.write(`${lines.length ? `Processes agents left running${session ? ` for session ${session}` : ''}:\n${lines.join('\n')}` : 'no helper, parentless agent, doubled session or virtual machine process found'}\nMemory: ${describeMemory(report.memory)}${report.memory.ok ? '' : ` - low: ${report.memory.reasons.join('; ')}`}\n`);
+  process.stdout.write(`${lines.length ? `Processes agents left running${session ? ` for session ${session}` : ''}:\n${lines.join('\n')}` : 'no helper, parentless agent, doubled session or virtual machine process found'}\nMemory: ${describeMemory(report.memory)}${report.memory.ok || report.memory.unknown ? '' : ` - low: ${report.memory.reasons.join('; ')}`}\n`);
   if (stoppable(scan, { session }).length) process.stdout.write(`Stop the helpers of ended sessions and deleted folders: node "${self()}" processes${session ? ` --session ${session}` : ''} --stop-helpers --yes\n`);
 }
 

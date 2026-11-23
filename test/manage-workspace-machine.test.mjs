@@ -42,6 +42,11 @@ test('the memory verdict refuses on swap even when the free percentage looks fin
   assert.equal(tight.ok, false, '9000 MiB does not fit in 21% of 36 GiB');
   assert.match(tight.reasons.join(' '), /needs 9000 MiB/);
   assert.equal(machine.memoryVerdict(swapFull, { maxSwapMiB: 30000 }).ok, true, 'the swap limit is the caller\'s to set');
+  assert.equal(machine.memoryVerdict({ ...healthy, ramMiB: 4000, freePct: 44.99 }, { needMiB: 1000 }).ok, false, '999.6 MiB above the floor is not 1000');
+  assert.equal(machine.memoryVerdict({ ...healthy, ramMiB: 4003, swapUsedMiB: 1000.9 }).ok, false, 'over a quarter of 4003 MiB, unrounded');
+  const unread = machine.memoryVerdict(null);
+  assert.equal(unread.ok, false, 'a reading that could not be taken is not a pass');
+  assert.equal(unread.unknown, true);
 });
 
 const psLine = (pid, ppid, etime, rss, args) => `${pid} ${ppid} ${etime} ${rss} ${args}`;
@@ -68,7 +73,7 @@ test('the process scan finds helpers, parentless agents and sessions served twic
     { pid: 201, sessionId: 'twice', name: 'lane work', cwd: '/work/main' },
     { pid: 202, sessionId: 'live', name: 'main', cwd: '/work/main' },
   ];
-  const scan = machine.scanProcesses({ ps, envOf: (pid) => env[pid] ?? {}, sessions, exists: (p) => p !== '/work/lane-gone' });
+  const scan = machine.scanProcesses({ ps, envs: env, sessions, exists: (p) => p !== '/work/lane-gone' });
 
   assert.deepEqual(scan.helpers.map((h) => [h.pid, h.session, h.folderGone, h.sessionLive]), [[100, 'ended', true, false], [110, 'live', false, true], [120, 'live', false, true]]);
   assert.deepEqual(scan.helpers[0].tree, [100, 101, 102], 'a helper carries its whole tree');
@@ -79,9 +84,42 @@ test('the process scan finds helpers, parentless agents and sessions served twic
   assert.deepEqual(machine.stoppable(scan).map((h) => h.pid), [100], 'only a helper whose session ended or whose folder is gone');
   assert.deepEqual(machine.stoppable(scan, { session: 'live' }).map((h) => h.pid), [], 'a live session\'s helper in an existing folder stays');
 
-  const unknown = machine.scanProcesses({ ps, envOf: (pid) => env[pid] ?? {}, sessions: null, exists: () => true });
+  const unknown = machine.scanProcesses({ ps, envs: env, sessions: null, exists: () => true });
   assert.equal(unknown.helpers[0].sessionLive, null, 'without the session registry, liveness is unknown');
   assert.deepEqual(machine.stoppable(unknown).map((h) => h.pid), [], 'and unknown never counts as ended');
+
+  // a Claude Code process missing from the session files (another config folder, a headless run) makes absence unknown
+  const partial = machine.scanProcesses({ ps: `${ps}\n${psLine(500, 77, '01:00', 1000, '/usr/local/bin/claude -p hello')}`, envs: env, sessions, exists: () => true });
+  assert.equal(partial.helpers[0].sessionLive, null);
+  assert.deepEqual(machine.stoppable(partial).map((h) => h.pid), []);
+});
+
+test('a helper is matched by its exact command shape, with spaces in paths, and never through a wrapper', () => {
+  const ps = [
+    psLine(1, 0, '1-00:00:00', 1, 'launchd'),
+    psLine(10, 1, '1:00', 1, '/opt/tool chain/node/v24/bin/node /srv/plugin cache/codex/scripts/app-server-broker.mjs serve --endpoint unix:/t/x.sock --cwd /work/Project One --pid-file /t/x.pid'),
+    psLine(11, 1, '1:00', 1, '/bin/sh -c node /p/app-server-broker.mjs serve --endpoint unix:/t/y.sock --cwd /work/y --pid-file /t/y.pid; other-worker'),
+    psLine(12, 1, '1:00', 1, 'grep app-server-broker.mjs serve --endpoint'),
+  ].join('\n');
+  const scan = machine.scanProcesses({ ps, envs: { 10: { CODEX_COMPANION_SESSION_ID: 's' }, 11: { CODEX_COMPANION_SESSION_ID: 's' } }, sessions: [], exists: (p) => p === '/work/Project One' });
+  assert.deepEqual(scan.helpers.map((h) => [h.pid, h.folder, h.folderGone]), [[10, '/work/Project One', false]], 'the whole folder, so an existing one is not taken for deleted');
+  assert.equal(machine.folderState(path.join(fileURLToPath(new URL('.', import.meta.url)), 'no-such-folder')), 'gone');
+});
+
+test('on macOS the environment is read only after the arguments ps printed', () => {
+  const args = 'node /p/app-server-broker.mjs serve --endpoint unix:/t/CODEX_COMPANION_SESSION_ID=fake.sock --cwd /w --pid-file /t/p';
+  assert.deepEqual(machine.envFromPsE(`${args} HOME=/h CODEX_COMPANION_SESSION_ID=real PATH=/bin`, args), { CODEX_COMPANION_SESSION_ID: 'real' });
+  assert.deepEqual(machine.envFromPsE('something else entirely CODEX_COMPANION_SESSION_ID=x', args), {}, 'a line that does not start with the arguments gives nothing');
+});
+
+test('a fixture that speaks for processes never lets anything be signalled', async () => {
+  const root = await tempDir('mw-fixture-');
+  const probe = (fixture) => {
+    const f = path.join(root, `${randomUUID()}.json`); writeFileSync(f, JSON.stringify(fixture));
+    return spawnSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(path.join(dir, 'machine.mjs'))}); console.log(m.usingFixture());`], { encoding: 'utf8', env: { ...process.env, MWS_MACHINE_FIXTURE: f } }).stdout.trim();
+  };
+  assert.equal(probe({ memory: healthy }), 'false', 'a memory reading alone is safe');
+  for (const key of ['ps', 'env', 'sessions']) assert.equal(probe({ [key]: key === 'ps' ? '' : key === 'env' ? {} : [] }), 'true', key);
 });
 
 // ---- real processes: a decoy broker, scoped by a session id nobody else uses ---------------------
@@ -197,6 +235,25 @@ test('memory is a preflight: JSON on stdout, exit 1 when it refuses', async () =
   assert.match(out.reasons.join(' '), /swap/);
   assert.equal(run(healthy, '--need-mib', '6144').status, 0);
   assert.equal(run(healthy, '--need-mib', 'lots').status, 2, 'a bad number is a usage error');
+  assert.equal(run('unreadable').status, 1, 'an unreadable machine refuses');
+  const bare = spawnSync(process.execPath, [leftovers, 'processes', '--session', '--stop-helpers', '--yes'], { encoding: 'utf8', env: { ...process.env, MWS_MACHINE_FIXTURE: path.join(root, 'none.json') } });
+  assert.equal(bare.status, 2, 'a --session with no id is a usage error, never machine-wide');
+});
+
+test('session end leaves a helper whose folder another live session works in', async (t) => {
+  const { root, start, hook } = await decoys(t);
+  const sid = `mw-test-${randomUUID()}`;
+  const shared = path.join(root, 'shared-lane'); mkdirSync(shared);
+  const pid = start(sid, shared);
+  assert.ok(await until(() => childrenOf(pid).length));
+  const home = path.join(root, 'home'); mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  writeFileSync(path.join(home, '.claude', 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'other-live', cwd: shared }));
+  assert.equal(hook('session-end', { session_id: sid }).status, 0);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(alive(pid), 'another live session works in that folder, so it may be reusing the broker');
+  rmSync(path.join(home, '.claude', 'sessions', `${process.pid}.json`));
+  hook('session-end', { session_id: sid });
+  assert.ok(await until(() => !alive(pid)), 'once no one else works there, session end stops it');
 });
 
 test('session start adds a machine check when helpers of ended sessions, parentless agents or low memory are found', async () => {
@@ -206,7 +263,7 @@ test('session start adds a machine check when helpers of ended sessions, parentl
   const fixture = path.join(root, 'f.json');
   const write = (memory) => writeFileSync(fixture, JSON.stringify({
     memory,
-    ps: [psLine(1, 0, '1-00:00:00', 1, 'launchd'), psLine(100, 1, '3-00:00:00', 2000000, 'node /p/app-server-broker.mjs serve --cwd /work/gone'), psLine(200, 1, '12:00', 400000, '/ext/claude --output-format stream-json')].join('\n'),
+    ps: [psLine(1, 0, '1-00:00:00', 1, 'launchd'), psLine(100, 1, '3-00:00:00', 2000000, 'node /p/app-server-broker.mjs serve --endpoint unix:/t/a.sock --cwd /work/gone --pid-file /t/a.pid'), psLine(200, 1, '12:00', 400000, '/ext/claude --output-format stream-json')].join('\n'),
     env: { 100: { CODEX_COMPANION_SESSION_ID: 'ended' } },
   }));
   const env = { ...process.env, HOME: home, MWS_STATE_DIR: path.join(home, 'state'), MWS_CONFIG_DIR: path.join(home, 'config'), MWS_MACHINE_FIXTURE: fixture };

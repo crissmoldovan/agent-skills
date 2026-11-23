@@ -14,8 +14,9 @@ node scripts/leftovers.mjs memory --need-mib 6144     # before a 6 GiB virtual m
 node scripts/leftovers.mjs memory                     # before a test suite or a build
 ```
 
-It prints its readings and verdict as JSON and exits 0 when the job may start, 1 when it should not,
-and 2 on a usage error, so it works as a preflight in a heavy-command queue or a VM harness.
+It prints its readings and verdict as JSON and exits 0 when the job may start, 1 when it should not
+or when memory could not be read (an unknown is never a pass), and 2 on a usage error, so it works as a
+preflight in a heavy-command queue or a VM harness.
 
 | Reading | macOS | Linux |
 | --- | --- | --- |
@@ -57,7 +58,7 @@ It reads the process table once (`ps -A -ww -o pid=,ppid=,etime=,rss=,args=`) an
 
   | Helper | Recognised by | Its session | Its folder |
   | --- | --- | --- | --- |
-  | Codex companion broker (the Codex plugin for Claude Code) | `app-server-broker.mjs serve` | `CODEX_COMPANION_SESSION_ID` in its environment | its `--cwd` |
+  | Codex companion broker (the Codex plugin for Claude Code) | a `node` binary running `app-server-broker.mjs serve --endpoint … --cwd … --pid-file …`, exactly; paths may contain spaces, and a shell or anything else that merely names the script is not it | `CODEX_COMPANION_SESSION_ID` in its environment | its `--cwd`, whole |
 
   That broker is keyed to the folder a Codex call runs in, and the plugin's own session-end hook
   stops only the broker of the session's own folder. A session that runs Codex inside other folders,
@@ -75,16 +76,17 @@ It reads the process table once (`ps -A -ww -o pid=,ppid=,etime=,rss=,args=`) an
 
 Whether a Claude Code session is still running comes from Claude Code's session files
 (`~/.claude/sessions/<pid>.json`, or under `$CLAUDE_CONFIG_DIR`), each naming a process and its
-`sessionId`. Those files are not a documented interface. When the folder is missing or unreadable,
-liveness is reported as unknown, and unknown never counts as ended. When the folder is there, a
-session without a file counts as not running: every session an editor started was seen to write one,
-but a headless run has not been checked, so read the preview before stopping anything it lists.
+`sessionId`. Those files are not a documented interface. A session without a file counts as not
+running only when every running Claude Code process has a file in that folder; a process that has none
+(one from another `CLAUDE_CONFIG_DIR`, or a headless run, which has not been checked) makes absence
+unknown. When the folder is missing or unreadable, liveness is unknown too, and unknown never counts as
+ended. A folder counts as deleted only when it does not exist; one that cannot be read is unknown.
 
 ## What is stopped, and when
 
 | When | What is stopped | Scope |
 | --- | --- | --- |
-| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session | any folder |
+| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one whose folder another live session works in | any folder |
 | `Stop` hook (each turn) | this session's helpers whose folder no longer exists | this session only |
 | `processes --stop-helpers --yes`, on a person's word | helpers whose session is known to have ended, or whose folder is gone | machine-wide, or one `--session` |
 | never | agent CLIs, virtual machines, containers, a live session's helper in an existing folder, a helper whose liveness is unknown | |
@@ -93,9 +95,13 @@ The hooks never stop another session's process: another session's leftovers are 
 start so the agent tells the user, and stopping them is the user's call. `--stop-helpers` without
 `--yes` only previews.
 
-Stopping re-reads each helper first and skips it unless the pid still runs the same helper for the
-same session (a pid can be reused), then sends `SIGTERM` to the helper's tree and `SIGKILL` to what is
-left after 1.5 seconds. To have the hooks list helpers instead of stopping them:
+Stopping reads the process table again first and skips a helper unless its pid still has the same
+command line and its environment still names the same session; its tree is taken from that fresh
+table, and a tree that holds the process doing the stopping, or one of its ancestors, is skipped. Then
+`SIGTERM` goes to the tree, and after 1.5 seconds `SIGKILL` goes to each pid that is still there with an
+unchanged command line, so a pid reused in between is left alone. To have the hooks stop nothing (the
+end-of-turn check then lists this session's helpers in deleted folders instead, and session end does
+nothing):
 
 ```bash
 node scripts/setup-enforcement.mjs helpers report --yes   # or MWS_HELPERS=report for one process
@@ -104,7 +110,9 @@ node scripts/setup-enforcement.mjs helpers report --yes   # or MWS_HELPERS=repor
 ## When the editor dies
 
 A session whose editor dies does not end: no `SessionEnd` hook runs while its CLI is still alive, so
-its helpers are not stopped then. On the night this was written six such CLIs kept running for about
+its helpers are not stopped then. Two sessions working in one folder share its broker; the first to end
+leaves it to the other, and a session that works in a folder only by changing into it from elsewhere is
+not seen as working there. On the night this was written six such CLIs kept running for about
 ten minutes after the window server was killed and then exited on their own, while the editor reopened
 three of their sessions in new processes. Treat a parentless agent CLI as possibly mid-work: report it,
 let the user decide, and expect it to exit. The time it took to exit was observed once, not documented.

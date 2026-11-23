@@ -6,13 +6,18 @@
 // the skill's old name, manage-workspace-storage: its entries are rewritten in place, its state and mode
 // move, and its script path is refreshed so sessions started before the rename keep working.
 //
+// Order of work, so a failure part-way never leaves a hook pointing at nothing: every agent's file is
+// read and validated first, and nothing is written if one is invalid; then the scripts are copied; then
+// state and settings move; then the hook files are written, each with a backup.
+//
 //   node setup-enforcement.mjs [install] [--agent claude|codex|all] [--yes]
 //   node setup-enforcement.mjs uninstall [--agent ...] [--purge] [--yes]
 //   node setup-enforcement.mjs mode warn|block|off [--yes]
 //   node setup-enforcement.mjs helpers stop|report [--yes]
 //   node setup-enforcement.mjs status
 import {
-  chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
+  chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync,
+  statSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -32,11 +37,13 @@ const stateDir = () => process.env.MWS_STATE_DIR || path.join(stateRoot(), NAME)
 const configDir = () => process.env.MWS_CONFIG_DIR || path.join(configRoot(), NAME);
 const installed = () => path.join(dataDir(), 'leftovers.mjs');
 const dq = (s) => `"${String(s).replace(/(["\\$`])/g, '\\$1')}"`;
+const undq = (s) => s.replace(/\\(["\\$`])/g, '$1');
 
 const AGENTS = {
   claude: { label: 'Claude Code', dir: () => process.env.CLAUDE_CONFIG_DIR || path.join(HOME(), '.claude'), file: 'settings.json' },
   codex: { label: 'Codex', dir: () => process.env.CODEX_HOME || path.join(HOME(), '.codex'), file: 'hooks.json' },
 };
+const agentFile = (a) => path.join(AGENTS[a].dir(), AGENTS[a].file);
 
 function command(event) {
   const node = process.execPath;
@@ -50,7 +57,19 @@ const wanted = (agent) => ({
   Stop: { hooks: [{ type: 'command', command: command('stop'), timeout: 10 }] },
   ...(agent === 'claude' ? { SessionEnd: { hooks: [{ type: 'command', command: command('session-end'), timeout: 10 }] } } : {}),
 });
-const ours = (h) => typeof h?.command === 'string' && (h.command.includes(`${NAME}/leftovers.mjs`) || h.command.includes(`${LEGACY}/leftovers.mjs`));
+
+// An entry is ours only in the exact shape command() writes, under the new or the old name. A hook a
+// person wrote that merely runs the script, or does more besides, is never claimed.
+const Q = '"((?:[^"\\\\]|\\\\.)*)"';
+const OURS = new RegExp(`^if \\[ -x ${Q} \\]; then exec ${Q} ${Q} (session-start|stop|session-end); else exec node ${Q} \\4; fi$`);
+export function oursScript(h) {
+  if (typeof h?.command !== 'string') return null;
+  const m = OURS.exec(h.command); if (!m) return null;
+  const script = undq(m[3]);
+  if (undq(m[5]) !== script || !new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs$`).test(script)) return null;
+  return script;
+}
+const ours = (h) => oursScript(h) !== null;
 
 function readJson(file) {
   if (!existsSync(file)) return { json: {}, text: null };
@@ -94,6 +113,7 @@ function planRemove(json) {
   }
   return { next, changes };
 }
+const scriptsIn = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? []).map(oursScript).filter(Boolean);
 
 // Codex keeps trust in config.toml as [hooks.state."<hooks.json>:<event>:<group>:<hook>"] with a
 // trusted_hash once a person has reviewed the hook in /hooks. Presence of a hash is all this can
@@ -115,11 +135,12 @@ function codexTrust(hooksFile, json) {
 }
 
 function backupAndWrite(file, json, original) {
+  let backup;
   if (original !== null) {
     let b = `${file}.bak-${NAME}`;
     if (existsSync(b)) b = `${b}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
     copyFileSync(file, b); try { chmodSync(b, statSync(file).mode & 0o777); } catch { /* keep default */ }
-    var backup = b;
+    backup = b;
   } else mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.mw-${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(json, null, 2)}\n`, original !== null ? { mode: statSync(file).mode & 0o777 } : {});
@@ -127,25 +148,52 @@ function backupAndWrite(file, json, original) {
   return backup;
 }
 
-// State and mode written under the old name move to the new one, unless the new one already exists
-// or a folder was given explicitly (MWS_STATE_DIR, MWS_CONFIG_DIR).
+// State and settings written under the old name move to the new one, file by file, unless a folder
+// was given explicitly (MWS_STATE_DIR, MWS_CONFIG_DIR). Where a file exists on both sides, a ledger is
+// joined (the old entries first, since they are older) and anything else keeps the new copy.
 function migrations() {
   const out = [];
   if (!process.env.MWS_STATE_DIR) out.push({ what: 'session state', from: path.join(stateRoot(), LEGACY), to: stateDir() });
-  if (!process.env.MWS_CONFIG_DIR) out.push({ what: 'mode setting', from: path.join(configRoot(), LEGACY), to: configDir() });
+  if (!process.env.MWS_CONFIG_DIR) out.push({ what: 'settings', from: path.join(configRoot(), LEGACY), to: configDir() });
   return out.filter((m) => existsSync(m.from));
 }
-
-// The script copy the hooks call, and the old path refreshed with the same bytes for sessions that
-// started before the rename and still run the old hook command or were told the old path.
-function copies() {
-  const targets = [dataDir()];
-  if (existsSync(legacyDataDir())) targets.push(legacyDataDir());
+function walkFiles(dir, base = dir) {
   const out = [];
-  for (const dir of targets) for (const f of SCRIPTS) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walkFiles(p, base)); else out.push(path.relative(base, p));
+  }
+  return out;
+}
+function mergeInto(from, to) {
+  let moved = 0; let joined = 0;
+  for (const rel of walkFiles(from)) {
+    const src = path.join(from, rel); const dst = path.join(to, rel);
+    mkdirSync(path.dirname(dst), { recursive: true });
+    if (!existsSync(dst)) { renameSync(src, dst); moved += 1; continue; }
+    if (rel.startsWith(`ledger${path.sep}`) && rel.endsWith('.jsonl')) {
+      const both = readFileSync(src, 'utf8') + readFileSync(dst, 'utf8');
+      const tmp = `${dst}.mw-${process.pid}.tmp`; writeFileSync(tmp, both); renameSync(tmp, dst); joined += 1;
+    }
+    rmSync(src, { force: true });
+  }
+  const prune = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) if (e.isDirectory()) prune(path.join(d, e.name)); try { rmdirSync(d); } catch { /* not empty */ } };
+  prune(from);
+  return { moved, joined };
+}
+
+// The script copy the hooks call, and every old-name script path still in use (the default one, and
+// any an old hook entry names under another data folder) refreshed with the same bytes, for sessions
+// that started before the rename and still run the old command or were told the old path.
+function copies(legacyScripts) {
+  const dirs = new Set([dataDir()]);
+  if (existsSync(legacyDataDir())) dirs.add(legacyDataDir());
+  for (const s of legacyScripts) if (existsSync(path.dirname(s))) dirs.add(path.dirname(s));
+  const out = [];
+  for (const dir of dirs) for (const f of SCRIPTS) {
     const src = path.join(HERE, f); const dst = path.join(dir, f);
     const same = existsSync(dst) && readFileSync(dst, 'utf8') === readFileSync(src, 'utf8');
-    out.push({ src, dst, dir, same, legacy: dir === legacyDataDir() });
+    out.push({ src, dst, dir, same, legacy: dir !== dataDir() });
   }
   return out;
 }
@@ -167,7 +215,7 @@ function main(argv) {
     const allowed = action === 'mode' ? ['warn', 'block', 'off'] : ['stop', 'report'];
     if (!allowed.includes(m)) { out(`usage: setup-enforcement.mjs ${action} ${allowed.join('|')} [--yes]`); return 2; }
     const f = path.join(configDir(), action);
-    const what = action === 'mode' ? 'end-of-turn check mode' : 'helper handling (stop: the hooks stop this session\'s own helpers; report: they only list them)';
+    const what = action === 'mode' ? 'end-of-turn check mode' : 'helper handling (stop: the hooks stop this session\'s own helpers; report: they stop nothing)';
     out(`${apply ? 'set' : 'would set'} ${what} to ${m} (${f}); the environment variable ${action === 'mode' ? 'MWS_CLEANUP_MODE' : 'MWS_HELPERS'} overrides it for one process`);
     if (apply) { mkdirSync(configDir(), { recursive: true }); writeFileSync(f, `${m}\n`); } else out('preview only: re-run with --yes to apply');
     return 0;
@@ -178,7 +226,7 @@ function main(argv) {
     if (existsSync(path.join(legacyDataDir(), 'leftovers.mjs'))) out(`old path kept for sessions started before the rename: ${path.join(legacyDataDir(), 'leftovers.mjs')} (uninstall removes it)`);
     for (const m of migrations()) out(`${m.what} still under the old name: ${m.from} (install moves it)`);
     for (const a of which) {
-      const f = path.join(AGENTS[a].dir(), AGENTS[a].file);
+      const f = agentFile(a);
       let has = [];
       try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([, l]) => Array.isArray(l) && l.some((g) => g.hooks?.some(ours))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
       out(`${AGENTS[a].label}: ${existsSync(AGENTS[a].dir()) ? f : 'not present'}: ${has.length ? has.join(', ') : 'no clean-up hooks'}`);
@@ -189,44 +237,69 @@ function main(argv) {
     return 0;
   }
 
-  let any = false; const notes = [];
+  // 1. Read and plan every agent first; an invalid file stops the run before anything is written.
+  const plans = [];
   for (const a of which) {
-    const { label, file, dir } = AGENTS[a]; const f = path.join(dir(), file);
+    const { label, dir } = AGENTS[a]; const f = agentFile(a);
     if (!existsSync(dir())) { out(`${label}: not present (${dir()} does not exist); skipped`); continue; }
-    let read; try { read = readJson(f); } catch (e) { out(`${label}: ${e.message}`); return 1; }
+    let read; try { read = readJson(f); } catch (e) { out(`${label}: ${e.message}`); out('nothing was written'); return 1; }
     const { next, changes } = action === 'uninstall' ? planRemove(read.json) : planInstall(read.json, a);
-    if (!changes.length) { out(`${label}: ${f}: already ${action === 'uninstall' ? 'clean' : 'up to date'}`); continue; }
-    any = true;
-    if (read.text !== null && JSON.stringify(read.json, null, 2) + '\n' !== read.text) notes.push(`${label}: ${f} is not formatted as 2-space JSON; the write re-indents it (content and key order unchanged)`);
-    if (!apply) { out(`${label}: ${f}: would ${changes.join('; ')}`); continue; }
-    const backup = backupAndWrite(f, next, read.text);
-    out(`${label}: ${f}: ${changes.join('; ')}${backup ? `; backup ${backup}` : ''}`);
-    if (a === 'codex' && action === 'install') notes.push(`Codex: trust the hooks with /hooks in Codex (press t on each ${NAME} entry); non-managed hooks do not run until trusted. Trust is per machine, and needed again whenever a hook command changes${changes.some((c) => c.startsWith('update')) ? ', as it just did' : ''}.`);
+    plans.push({ a, label, f, read, next, changes });
+  }
+  const legacyScripts = plans.flatMap((p) => scriptsIn(p.read.json)).filter((s) => s.includes(`/${LEGACY}/`));
+
+  let any = plans.some((p) => p.changes.length); const notes = [];
+  for (const p of plans) {
+    if (!p.changes.length) { out(`${p.label}: ${p.f}: already ${action === 'uninstall' ? 'clean' : 'up to date'}`); continue; }
+    if (p.read.text !== null && JSON.stringify(p.read.json, null, 2) + '\n' !== p.read.text) notes.push(`${p.label}: ${p.f} is not formatted as 2-space JSON; the write re-indents it (content and key order unchanged)`);
+    if (!apply) out(`${p.label}: ${p.f}: would ${p.changes.join('; ')}`);
   }
 
   if (action === 'install') {
-    for (const m of migrations()) {
-      if (existsSync(m.to)) { notes.push(`${m.what}: both ${m.from} and ${m.to} exist; the old one is left as it is`); continue; }
-      any = true;
-      if (!apply) { out(`${m.what}: would move ${m.from} to ${m.to}`); continue; }
-      mkdirSync(path.dirname(m.to), { recursive: true }); renameSync(m.from, m.to); out(`${m.what}: moved ${m.from} to ${m.to}`);
-    }
-    for (const c of copies()) {
+    // 2. Scripts first, so no hook ever points at a file that is not there yet.
+    for (const c of copies(legacyScripts)) {
       const where = `${c.legacy ? 'old path, for sessions started before the rename' : 'script copy'}: ${c.dst}`;
       if (c.same) { out(`${where}: up to date`); continue; }
       any = true;
       if (!apply) { out(`${where}: would write`); continue; }
       mkdirSync(c.dir, { recursive: true }); const tmp = `${c.dst}.${process.pid}.tmp`; copyFileSync(c.src, tmp); renameSync(tmp, c.dst); out(`${where}: wrote`);
     }
-  } else if (apply) {
-    for (const d of [dataDir(), legacyDataDir()]) if (existsSync(d)) { rmSync(d, { recursive: true, force: true }); out(`removed ${d}`); }
-    if (flags.has('--purge')) {
-      for (const d of [stateDir(), configDir(), path.join(stateRoot(), LEGACY), path.join(configRoot(), LEGACY)]) rmSync(d, { recursive: true, force: true });
-      out('purged state and settings');
+    // 3. State and settings.
+    for (const m of migrations()) {
+      any = true;
+      if (!apply) { out(`${m.what}: would move ${m.from} to ${m.to}${existsSync(m.to) ? ' (joining ledgers that exist on both sides)' : ''}`); continue; }
+      const r = mergeInto(m.from, m.to); out(`${m.what}: moved ${m.from} to ${m.to} (${r.moved} files moved${r.joined ? `, ${r.joined} ledgers joined` : ''})`);
     }
-  } else out(`would remove ${dataDir()}${existsSync(legacyDataDir()) ? ` and ${legacyDataDir()}` : ''}${flags.has('--purge') ? ', the session state and the settings' : ''}`);
+  }
+
+  // 4. The hook files.
+  if (apply) {
+    for (const p of plans) {
+      if (!p.changes.length) continue;
+      const backup = backupAndWrite(p.f, p.next, p.read.text);
+      out(`${p.label}: ${p.f}: ${p.changes.join('; ')}${backup ? `; backup ${backup}` : ''}`);
+      if (p.a === 'codex' && action === 'install') notes.push(`Codex: trust the hooks with /hooks in Codex (press t on each ${NAME} entry); non-managed hooks do not run until trusted. Trust is per machine, and needed again whenever a hook command changes${p.changes.some((c) => c.startsWith('update')) ? ', as it just did' : ''}.`);
+    }
+  }
+
+  if (action === 'uninstall') {
+    // The scripts and state are shared: they go only when no agent's file still has an entry of ours.
+    const stillUsed = Object.keys(AGENTS).filter((a) => {
+      const planned = plans.find((p) => p.a === a); if (planned) return scriptsIn(planned.next).length > 0;
+      try { return scriptsIn(readJson(agentFile(a)).json).length > 0; } catch { return true; }
+    });
+    const dirs = [dataDir(), legacyDataDir()].filter(existsSync);
+    if (stillUsed.length) notes.push(`${stillUsed.map((a) => AGENTS[a].label).join(' and ')} still ${stillUsed.length === 1 ? 'has' : 'have'} clean-up hooks, so the shared scripts${flags.has('--purge') ? ', state and settings' : ''} stay; uninstall for ${stillUsed.length === 1 ? 'it' : 'them'} too to remove them`);
+    else if (apply) {
+      for (const d of dirs) { rmSync(d, { recursive: true, force: true }); out(`removed ${d}`); }
+      if (flags.has('--purge')) {
+        for (const d of [stateDir(), configDir(), path.join(stateRoot(), LEGACY), path.join(configRoot(), LEGACY)]) rmSync(d, { recursive: true, force: true });
+        out('purged state and settings');
+      }
+    } else if (dirs.length || flags.has('--purge')) { any = true; out(`would remove ${dirs.join(' and ') || 'nothing more'}${flags.has('--purge') ? ', the session state and the settings' : ''}`); }
+  }
   for (const n of notes) out(`note: ${n}`);
-  if (!apply) out(any || action === 'uninstall' ? 'preview only: re-run with --yes to apply' : 'nothing to do');
+  if (!apply) out(any ? 'preview only: re-run with --yes to apply' : 'nothing to do');
   return 0;
 }
 

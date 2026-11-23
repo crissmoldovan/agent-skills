@@ -254,7 +254,9 @@ test('setup migrates an install made under the old name, without duplicating a h
   const { home, cli, env } = await sandbox();
   mkdirSync(path.join(home, '.claude')); mkdirSync(path.join(home, '.codex'));
   const claude = path.join(home, '.claude', 'settings.json'); const codex = path.join(home, '.codex', 'hooks.json');
-  const legacy = (event) => ({ type: 'command', command: `exec node "${path.join(home, 'data', 'manage-workspace-storage', 'leftovers.mjs')}" ${event}`, timeout: 10 });
+  // the exact command 1.1.0 and 1.2.0 wrote
+  const legacyCommand = (script, event) => `if [ -x "${process.execPath}" ]; then exec "${process.execPath}" "${script}" ${event}; else exec node "${script}" ${event}; fi`;
+  const legacy = (event) => ({ type: 'command', command: legacyCommand(path.join(home, 'data', 'manage-workspace-storage', 'leftovers.mjs'), event), timeout: 10 });
   writeFileSync(claude, `${JSON.stringify({ hooks: { SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [legacy('session-start')] }], Stop: [{ hooks: [{ type: 'command', command: 'other-stop' }] }, { hooks: [legacy('stop')] }] } }, null, 2)}\n`);
   writeFileSync(codex, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [legacy('session-start')] }], Stop: [{ hooks: [legacy('stop')] }] } }, null, 2)}\n`);
   const oldData = path.join(home, 'data', 'manage-workspace-storage'); mkdirSync(oldData, { recursive: true });
@@ -309,5 +311,86 @@ test('the skill documents processes and memory, and says free percentage ignores
   assert.match(skillText, /memory --need-mib/);
   assert.match(guide, /SessionEnd/);
   assert.match(guide, /Claude Code only/i);
+  assert.match(guide, /report.*stops nothing|stop nothing/i);
   assert.match(skillText, /formerly `manage-workspace-storage`|Formerly manage-workspace-storage/i);
+});
+
+test('setup writes nothing when one agent file is invalid, even if another is fine', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude')); mkdirSync(path.join(home, '.codex'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  writeFileSync(claude, `${JSON.stringify({ hooks: {} }, null, 2)}\n`);
+  writeFileSync(path.join(home, '.codex', 'hooks.json'), '{ broken');
+  const before = readFileSync(claude, 'utf8');
+  const r = cli('--yes');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /nothing was written/);
+  assert.equal(readFileSync(claude, 'utf8'), before, 'Claude Code settings untouched');
+  assert.ok(!existsSync(path.join(home, 'data', 'manage-workspace')), 'no script copy either');
+});
+
+test('uninstall for one agent keeps the shared scripts while the other still uses them', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude')); mkdirSync(path.join(home, '.codex'));
+  assert.equal(cli('--yes').status, 0);
+  const r = cli('uninstall', '--agent', 'codex', '--purge', '--yes');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Claude Code still has clean-up hooks/);
+  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'Claude Code hooks still have their script');
+  assert.doesNotMatch(readFileSync(path.join(home, '.codex', 'hooks.json'), 'utf8'), /leftovers\.mjs/);
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  assert.ok(!existsSync(path.join(home, 'data', 'manage-workspace')));
+});
+
+test('a hook a person wrote that runs the script is never claimed, rewritten or removed', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  const theirs = { type: 'command', command: `node "${path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')}" stop && echo audit >> /tmp/audit.log` };
+  writeFileSync(claude, `${JSON.stringify({ hooks: { Stop: [{ hooks: [theirs] }] } }, null, 2)}\n`);
+  assert.equal(cli('--yes').status, 0);
+  const c = JSON.parse(readFileSync(claude, 'utf8'));
+  assert.deepEqual(c.hooks.Stop[0].hooks[0], theirs, 'theirs is left as it was');
+  assert.equal(c.hooks.Stop.length, 2, 'ours is added beside it');
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).hooks.Stop, [{ hooks: [theirs] }]);
+});
+
+test('migration joins an old ledger into a new one, and refreshes an old script under another data folder', async () => {
+  const { home, env } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const otherData = path.join(home, 'elsewhere', 'manage-workspace-storage'); mkdirSync(otherData, { recursive: true });
+  writeFileSync(path.join(otherData, 'leftovers.mjs'), '// 1.2.0\n');
+  const script = path.join(otherData, 'leftovers.mjs');
+  const cmd = (event) => `if [ -x "${process.execPath}" ]; then exec "${process.execPath}" "${script}" ${event}; else exec node "${script}" ${event}; fi`;
+  writeFileSync(path.join(home, '.claude', 'settings.json'), `${JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: cmd('stop'), timeout: 10 }] }] } }, null, 2)}\n`);
+  const state = path.join(home, 'st');
+  mkdirSync(path.join(state, 'manage-workspace-storage', 'ledger'), { recursive: true });
+  mkdirSync(path.join(state, 'manage-workspace', 'ledger'), { recursive: true });
+  writeFileSync(path.join(state, 'manage-workspace-storage', 'ledger', 's1.jsonl'), '{"op":"note","kind":"path","path":"/tmp/old"}\n');
+  writeFileSync(path.join(state, 'manage-workspace', 'ledger', 's1.jsonl'), '{"op":"note","kind":"path","path":"/tmp/new"}\n');
+  const e2 = { ...env, XDG_STATE_HOME: state }; delete e2.MWS_STATE_DIR;
+  const r = spawnSync(process.execPath, [setup, '--yes'], { encoding: 'utf8', env: e2 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ledgers joined/);
+  assert.equal(readFileSync(path.join(state, 'manage-workspace', 'ledger', 's1.jsonl'), 'utf8'), '{"op":"note","kind":"path","path":"/tmp/old"}\n{"op":"note","kind":"path","path":"/tmp/new"}\n', 'old entries first');
+  assert.ok(!existsSync(path.join(state, 'manage-workspace-storage')));
+  assert.equal(spawnSync(process.execPath, [script, 'version'], { encoding: 'utf8' }).stdout.trim(), '2.0.0', 'the old path under the other data folder runs the new script');
+});
+
+test('memory changing state does not repeat a leftover reminder or block the turn again', async () => {
+  const { root, hook, env } = await sandbox();
+  const left = path.join(root, 'left2'); mkdirSync(left);
+  const transcript = path.join(root, 'm.jsonl'); writeFileSync(transcript, `${claudeLine(`mkdir -p ${left}`)}\n`);
+  const input = { session_id: 'mem1', transcript_path: transcript, hook_event_name: 'Stop', stop_hook_active: false };
+  const lowFile = path.join(root, 'low.json');
+  writeFileSync(lowFile, JSON.stringify({ memory: { platform: 'darwin', ramMiB: 36864, freePct: 42, swapUsedMiB: 19300, swapTotalMiB: 20480 } }));
+  const first = JSON.parse(hook('stop', input, { MWS_CLEANUP_MODE: 'block' }).stdout);
+  assert.equal(first.decision, 'block');
+  const low = hook('stop', input, { MWS_CLEANUP_MODE: 'block', MWS_MACHINE_FIXTURE: lowFile }).stdout;
+  assert.ok(!low.includes('"decision"'), 'memory falling low does not block again');
+  assert.match(JSON.parse(low).systemMessage, /Memory is low/);
+  assert.doesNotMatch(JSON.parse(low).systemMessage, /Clean-up reminder/, 'and does not repeat the leftovers');
+  assert.equal(hook('stop', input, { MWS_CLEANUP_MODE: 'block', MWS_MACHINE_FIXTURE: lowFile }).stdout, '', 'low memory is said once');
+  assert.equal(hook('stop', input, { MWS_CLEANUP_MODE: 'block', MWS_MACHINE_FIXTURE: env.MWS_MACHINE_FIXTURE }).stdout, '', 'recovering is quiet too');
 });
