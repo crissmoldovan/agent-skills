@@ -76,7 +76,9 @@ It reads the process table once (`ps -A -ww -o pid=,ppid=,etime=,rss=,args=`) an
 Whether a Claude Code session is still running comes from Claude Code's session files
 (`~/.claude/sessions/<pid>.json`, or under `$CLAUDE_CONFIG_DIR`), each naming a process and its
 `sessionId`. Those files are not a documented interface. When the folder is missing or unreadable,
-liveness is reported as unknown, and unknown never counts as ended.
+liveness is reported as unknown, and unknown never counts as ended. When the folder is there, a
+session without a file counts as not running: every session an editor started was seen to write one,
+but a headless run has not been checked, so read the preview before stopping anything it lists.
 
 ## What is stopped, and when
 
