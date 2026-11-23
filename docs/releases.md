@@ -8,7 +8,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `describe-changes`, `release-notes`, `investigate-codebase`, `blast-area`,
 `visualise-blast-area`, `decision-journal`, `delphi-ground`, `delphi-imagine`, `land-complex-change`,
 `resolve-problem-report`, `new-ux-discovery`, `workspace-governance`, `report-progress`,
-`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
+`work-in-external-repo`, `layer-repository-docs`, `isolated-change-validation`, `manage-workspace`, `onboard-project`, `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear`, plus the canonical lifecycle runtime package under
 `packages/agent-lifecycle`, the journal runtime package under `packages/agent-journal`,
 and the separately installable workspace-governance CLI package under
 `packages/workspace-governance`.
@@ -58,15 +58,19 @@ and the bundle an unattended run is handed over in. The moment the change is lan
 repository it is `land-complex-change`'s; the map it is budgeted from is `blast-area`'s; and the
 verdict it produces authorizes nothing beyond itself.
 
-`manage-workspace-storage` owns project-local context budgets, workspace headroom, and
-retiring disposable scratch after preserving required evidence. Its guard reports and blocks
-on the measured limits. Its cleanup helper previews and accepts only its own closed runs.
-It also owns clean-up after a task: noting what an agent creates outside the repository, keeping
-the evidence, then removing worktrees, containers, virtual machines, caches and signed-in
-configurations. An optional setup script installs a session-start policy and an end-of-turn
-leftover check for Claude Code and Codex, off until a person runs it, as with every hook in this
-pack; it reads only the session's own transcript and notes and ships non-blocking, with a switch
-to block.
+`manage-workspace` (formerly `manage-workspace-storage`) owns project-local context budgets,
+workspace headroom, and retiring disposable scratch after preserving required evidence. Its guard
+reports and blocks on the measured limits. Its cleanup helper previews and accepts only its own
+closed runs. It also owns clean-up after a task: noting what an agent creates outside the
+repository, keeping the evidence, then removing worktrees, containers, virtual machines, caches,
+background processes and signed-in configurations. It owns the machine's headroom for agent work
+too: a memory check that counts swap, and a report of the processes agents leave running (plugin
+helpers whose session ended or whose folder is gone, agent CLIs whose editor died, a session served
+by two processes). An optional setup script installs a session-start policy and machine check and an
+end-of-turn leftover check for Claude Code and Codex, and in Claude Code an end-of-session stop of
+the session's own helpers, off until a person runs it, as with every hook in this pack; it reads
+only the session's own transcript and notes, stops only helpers whose environment names the session,
+and ships non-blocking, with a switch to block.
 Asked to install or update the skill, an agent does the whole setup: the skill for each agent
 present, the setup script, a read-back of both hook files, and the Codex trust step (the person's
 `/hooks` by default; guarded self-approval only when the request explicitly authorises it). Codex

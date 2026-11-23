@@ -71,10 +71,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.34.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.34.0');
-  assert.equal(rootLock.version, '0.34.0');
-  assert.equal(rootLock.packages[''].version, '0.34.0');
+test('v0.35.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.35.0');
+  assert.equal(rootLock.version, '0.35.0');
+  assert.equal(rootLock.packages[''].version, '0.35.0');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -116,7 +116,7 @@ test('README presents the complete pack and human, agent, and update paths', () 
 
 test('README has concrete examples across the pack', () => {
   const howTo = section(readme, 'Use the skills');
-  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'manage-workspace-storage', 'onboard-project', 'mine-session-transcripts', 'resume-after-limit', 'coding-teacher', 'rotate-shared-secret', 'codex-review-loop', 'preregistered-model-study', 'track-in-linear', 'analyse-ticket', 'implement-ticket', 'promote-release', 'publish-to-linear']) {
+  for (const name of ['model-routing', 'agent-lifecycle', 'request-blocks-review', 'secure-credential-setup', 'derive-codebase-context', 'publish-agent-skill', 'update-agent-skills', 'release-ledger', 'github-webhooks', 'describe-changes', 'investigate-codebase', 'blast-area', 'visualise-blast-area', 'land-complex-change', 'resolve-problem-report', 'new-ux-discovery', 'decision-journal', 'delphi-ground', 'delphi-imagine', 'workspace-governance', 'report-progress', 'work-in-external-repo', 'release-notes', 'isolated-change-validation', 'manage-workspace', 'onboard-project', 'mine-session-transcripts', 'resume-after-limit', 'coding-teacher', 'rotate-shared-secret', 'codex-review-loop', 'preregistered-model-study', 'track-in-linear', 'analyse-ticket', 'implement-ticket', 'promote-release', 'publish-to-linear']) {
     assert.ok(howTo.includes(name), `README use examples missing: ${name}`);
   }
 });

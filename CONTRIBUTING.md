@@ -11,7 +11,7 @@ This public catalog ships `model-routing`, `agent-lifecycle`, `blocks`,
 `visualise-blast-area`, `land-complex-change`, `resolve-problem-report`,
 `new-ux-discovery`, `decision-journal`, `delphi-ground`, `delphi-imagine`,
 `workspace-governance`, `report-progress`, `work-in-external-repo`,
-`layer-repository-docs`, `isolated-change-validation`, `manage-workspace-storage`, `onboard-project`,
+`layer-repository-docs`, `isolated-change-validation`, `manage-workspace`, `onboard-project`,
 `request-answers`, `handoff-prompt`, `mine-session-transcripts`, `resume-after-limit`, `coding-teacher`, `rotate-shared-secret`, `codex-review-loop`, `preregistered-model-study`, `track-in-linear`, `analyse-ticket`, `implement-ticket`, `promote-release`, and `publish-to-linear` — forty-one in all. Routing
 owns exact model selection and scoped intent; lifecycle owns evidence-backed child
 visibility; Blocks owns GitHub-hosted review interaction and bounded status waits;
@@ -39,10 +39,11 @@ decides whether a rewrite is fit to hand over; a request enters it through `audi
 `isolated-change-validation` owns the sandbox a change is proven in before it may land —
 the physically separate lane, the hash-pinned source identity, the gates the parent runs
 itself rather than believing a builder's report, and the handoff bundle the run is
-transferred in; and `manage-workspace-storage` owns local context budgets, scratch capacity,
-evidence retention and scoped cleanup after a run, and the clean-up of what an agent leaves behind —
-noted when created, evidenced, then removed — with an optional off-until-run setup script for the
-session-start policy and end-of-turn leftover hooks in Claude Code and Codex; and `onboard-project` owns which skills a repository uses and how they are put in
+transferred in; and `manage-workspace` owns local context budgets, scratch capacity, memory
+headroom with swap counted, evidence retention and scoped cleanup after a run, and the clean-up of
+what an agent leaves behind, files and processes alike — noted when created, evidenced, then removed —
+with an optional off-until-run setup script for the session-start policy, end-of-turn leftover and
+(in Claude Code) end-of-session helper hooks; and `onboard-project` owns which skills a repository uses and how they are put in
 front of every session in it — the declared `fit.json` each skill carries, the profile beside the
 Skills CLI's lock file, and the generated `.claude/rules/skill-routing.md`, which names a
 project's adapted copy of a skill rather than the skill it adapts — while installing nothing
@@ -179,9 +180,12 @@ it is not discovered, `npx skills add` does not install it, and
   mutate an installation ships off, is installed by a user running its installer,
   and is removed by that same installer. No skill installs one, and no agent
   installs one on a user's behalf.
-  One narrow exception, for `manage-workspace-storage` alone: an agent runs that skill's setup script
+  One narrow exception, for `manage-workspace` alone: an agent runs that skill's setup script
   only when a person explicitly asks to install or update that skill, which is the consent, and the
-  script still previews, backs up and removes only what it wrote. An agent approves that skill's two
+  script still previews, backs up and removes only what it wrote. Its hooks stop processes in two
+  cases only, both limited to helpers whose environment names the hook's own session (at session end
+  all of them, at the end of a turn those whose folder is gone), by asking the helper on its own socket
+  to shut down, never with a signal; a switch makes them report instead. An agent approves that skill's two
   Codex hooks itself only with the machine owner's explicit authorisation in the request, by the
   guarded procedure in its enforcement guide; without it, the person trusts them in `/hooks`.
   Nothing else here changes: no other skill's hook, and no agent acting on its own initiative,
