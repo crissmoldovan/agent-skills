@@ -44,7 +44,11 @@ They send no signal: each helper is asked to shut itself down on its own socket,
 `broker/shutdown` request, after a check that it is not busy; a busy helper is left running, and one with no socket is left
 running and, at the end of a turn or from `processes`, reported with the `kill <pid>` a person can run.
 Another session's processes are reported, never stopped, by a hook, and session end leaves a broker
-whose folder another live session works in, since the plugin reuses a broker by folder. Before asking, the
+whose folder another live session works in, since the plugin reuses a broker by folder; which folder that
+is comes from git, asked as the plugin asks it, within an 8-second budget. Two known limits: git is asked
+with the ending session's environment, so a session that sets `GIT_DIR` or `GIT_WORK_TREE` for its whole
+life can misjudge another session's folder, and that session's next Codex call then starts a new broker;
+and the budget runs on the wall clock and can be raised past the hook's timeout. Before asking, the
 process table is read again: a helper must still have the same command line and a known, matching
 session. `setup-enforcement.mjs helpers report --yes` (or
 `MWS_HELPERS=report`) makes the hooks stop nothing; `mode off` turns everything off. Setup checks every

@@ -158,6 +158,16 @@ that names its folder. Without a session variable it can be reported but never s
   of its own. Git runs with the session's environment, as the plugin's does, so `GIT_DIR` and its
   kin count. The git calls of one hook share an 8-second budget, each at most 1.5 seconds and killed at
   its limit; when git times out, does not start, or the budget is spent, the helper is kept.
+- Git is asked with the environment of the session whose hook runs, but each other session's plugin
+  asked it with its own. A session that sets `GIT_DIR` or `GIT_WORK_TREE` for its whole life can
+  therefore key another session's folder differently from that session's own plugin, in either
+  direction, and a broker the other session uses between requests can be asked to shut down. A request
+  in progress is still protected by the busy check, and that session's next Codex call starts a new
+  broker, as it does after the plugin's own session-end hook, which stops its folder's broker without
+  checking for other sessions at all.
+- The git budget runs on the wall clock, and `MWS_GIT_BUDGET_MS` can raise it: a value over the hook's
+  timeout, or a clock set back while the hook runs, lets the lookups outlast the hook. The agent then
+  stops the hook; the lookups come before any request, so nothing has been asked to shut down.
 - The machine check at session start reports at most twelve items, and a process table that cannot be
   read within its time budget yields no report rather than a wrong one.
 - A process started under a name the check does not know is not reported. Note what you start.
