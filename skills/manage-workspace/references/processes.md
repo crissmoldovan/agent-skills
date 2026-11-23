@@ -92,7 +92,7 @@ exits. Before asking, a harmless request checks it is not busy: a broker serving
 
 | When | What is asked to shut down | Scope |
 | --- | --- | --- |
-| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the nearest folder above it with `.git`, which is how the plugin keys a broker), and, without the session files, except any whose folder still exists | any folder |
+| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the nearest folder above it with `.git`, which is how the plugin keys a broker, paths compared canonical as the plugin does); without the session files, none, since sharing cannot be ruled out | any folder |
 | `Stop` hook (each turn) | this session's helpers whose folder no longer exists, unless another live session works in their workspace; without the session files, none | this session only |
 | `processes --stop-helpers --yes`, on a person's word | helpers of a known session whose folder is gone, and helpers whose session is known to have ended unless another live session works in their workspace | machine-wide, or one `--session` |
 | never | a busy helper, a helper whose session is unknown, a live session's helper in an existing folder, agent CLIs, virtual machines, containers | |

@@ -498,12 +498,19 @@ test('round six: ownership needs the matching event and a timeout, a ; boundary 
   const c = JSON.parse(readFileSync(claude, 'utf8'));
   const endUnderStop = { hooks: [{ ...c.hooks.SessionEnd[0].hooks[0] }] };
   const noTimeout = { hooks: [{ type: 'command', command: c.hooks.Stop[0].hooks[0].command }] };
-  const semicolon = { hooks: [{ type: 'command', command: `cd ${path.join(home, 'data', 'manage-workspace')}; exec node ./leftovers.mjs list` }] };
-  c.hooks.Stop.push(endUnderStop, noTimeout); c.hooks.UserPromptSubmit = [semicolon];
+  c.hooks.Stop.push(endUnderStop, noTimeout);
   writeFileSync(claude, `${JSON.stringify(c, null, 2)}\n`);
   assert.equal(cli('uninstall', '--yes').status, 0);
   const after = JSON.parse(readFileSync(claude, 'utf8'));
   assert.deepEqual(after.hooks.Stop, [endUnderStop, noTimeout], 'a session-end command under Stop, and a copy without a timeout, are a person\'s');
+
+  // on its own: the only hook left runs the script after a cd and a ;
+  assert.equal(cli('--yes').status, 0);
+  const semicolon = { hooks: [{ type: 'command', command: `cd ${path.join(home, 'data', 'manage-workspace')}; exec node ./leftovers.mjs list` }] };
+  writeFileSync(claude, `${JSON.stringify({ hooks: { ...JSON.parse(readFileSync(claude, 'utf8')).hooks, Stop: undefined, UserPromptSubmit: [semicolon] } }, null, 2)}\n`);
+  const fresh = JSON.parse(readFileSync(claude, 'utf8')); delete fresh.hooks.Stop; fresh.hooks.SessionStart = []; fresh.hooks.SessionEnd = [];
+  writeFileSync(claude, `${JSON.stringify(fresh, null, 2)}\n`);
+  assert.equal(cli('uninstall', '--yes').status, 0);
   assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'a ; after the folder still counts as a user');
 
   const shared = path.join(home, 'shared-config'); mkdirSync(shared);

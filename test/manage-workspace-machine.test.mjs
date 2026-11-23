@@ -413,3 +413,13 @@ test('a reply whose error message is not a string does not fail the hook', async
   const out = hook('stop', { session_id: sid, transcript_path: transcript, hook_event_name: 'Stop' });
   assert.equal(out.status, 0, out.stderr);
 });
+
+test('the workspace guard compares canonical paths, as the plugin does', async () => {
+  const root = await tempDir('mw-canon-');
+  const repo = path.join(root, 'Repo'); mkdirSync(path.join(repo, '.git'), { recursive: true }); mkdirSync(path.join(repo, 'one'));
+  const link = path.join(root, 'repo-link'); symlinkSync(repo, link);
+  const h = { folder: path.join(repo, 'one') };
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: link }], 'a'), true, 'another session in the same repository through a symlink');
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: root }], 'a'), false, 'a session above the repository does not share it');
+  assert.equal(machine.sharedWithLiveSession(h, null, 'a'), true, 'without the session files, sharing cannot be ruled out');
+});

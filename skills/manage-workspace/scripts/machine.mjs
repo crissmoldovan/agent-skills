@@ -12,7 +12,7 @@
 //     which are not a documented interface; liveness is "unknown", never "ended", unless every
 //     running Claude Code process is accounted for in those files.
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import net from 'node:net';
 import { homedir, totalmem } from 'node:os';
 import path from 'node:path';
@@ -34,8 +34,9 @@ export const HELPERS = [{
     const m = new RegExp(`^${PATH_TO('node')}\\s+(${PATH_TO('app-server-broker\\.mjs')})\\s+serve\\s+--endpoint\\s+(.+?)\\s+--cwd\\s+(.+)\\s+--pid-file\\s+(.+)$`).exec(args);
     return m ? { folder: m[3], endpoint: m[2] } : null;
   },
-  // The plugin's own shutdown request, and the reply it gives a second client while it serves one.
-  shutdown: { method: 'broker/shutdown', busy: /busy/i },
+  // The plugin's own shutdown request, and the reply it gives a second client while it serves one
+  // (its BROKER_BUSY_RPC_CODE, -32001, with "Shared Codex broker is busy.").
+  shutdown: { method: 'broker/shutdown', busy: /busy/i, busyCode: -32001 },
 }];
 
 const AGENT_CLIS = ['claude', 'codex'];
@@ -272,7 +273,7 @@ export function stoppable(scan, { session } = {}) {
 // answered "not busy", which keeps the window in which another client could start a request as short as
 // the protocol allows (it has no "shut down only if idle"). Resolves to { probe, reply }; a missing
 // socket, a refused or closed connection or the time limit leave the missing part null.
-function probeThenShutdown(socketPath, probe, shutdown, busy, ms) {
+function probeThenShutdown(socketPath, probe, shutdown, isBusy, ms) {
   return new Promise((resolve) => {
     const got = { probe: null, reply: null }; let done = false; let buffer = '';
     const finish = () => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* closed */ } resolve(got); };
@@ -289,7 +290,7 @@ function probeThenShutdown(socketPath, probe, shutdown, busy, ms) {
           if (!msg || typeof msg !== 'object') continue;
           if (msg.id === probe.id && !got.probe) {
             got.probe = msg;
-            if (msg.error && busy.test(typeof msg.error.message === 'string' ? msg.error.message : '')) return finish();
+            if (isBusy(msg)) return finish();
             sock.write(`${JSON.stringify(shutdown)}\n`);
           } else if (msg.id === shutdown.id) { got.reply = msg; return finish(); }
         }
@@ -319,9 +320,10 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
     if (!p || !got || p.args !== h.args || !h.session || (envNow.get(h.pid)?.[def.sessionEnv] || null) !== h.session) { skipped.push({ pid: h.pid, why: 'no longer the same helper' }); return; }
     const endpoint = /^unix:(.+)$/.exec(got.endpoint)?.[1];
     if (!endpoint || !isSocket(endpoint)) { skipped.push({ pid: h.pid, why: `it has no socket to ask, so it cannot shut itself down; to stop it: ${killHint(h)}` }); return; }
-    const { probe, reply } = await probeThenShutdown(endpoint, { id: 'manage-workspace-probe', method: 'manage-workspace/probe', params: {} }, { id: 'manage-workspace-shutdown', method: def.shutdown.method, params: {} }, def.shutdown.busy, timeoutMs);
+    const isBusy = (msg) => Boolean(msg?.error) && (msg.error.code === def.shutdown.busyCode || def.shutdown.busy.test(typeof msg.error.message === 'string' ? msg.error.message : ''));
+    const { probe, reply } = await probeThenShutdown(endpoint, { id: 'manage-workspace-probe', method: 'manage-workspace/probe', params: {} }, { id: 'manage-workspace-shutdown', method: def.shutdown.method, params: {} }, isBusy, timeoutMs);
     if (!probe) { skipped.push({ pid: h.pid, why: `it did not answer on its socket; to stop it: ${killHint(h)}` }); return; }
-    if (probe.error && def.shutdown.busy.test(typeof probe.error.message === 'string' ? probe.error.message : '')) { skipped.push({ pid: h.pid, why: 'it is busy serving a request, so it is left running' }); return; }
+    if (isBusy(probe)) { skipped.push({ pid: h.pid, why: 'it is busy serving a request, so it is left running' }); return; }
     if (reply && !reply.error) stopped.push(h.pid); else skipped.push({ pid: h.pid, why: `it did not accept the shutdown request; to stop it: ${killHint(h)}` });
   }));
   return { stopped, skipped };
@@ -330,11 +332,18 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
 // Another live session works in this helper's workspace (the nearest folder above it with .git, which
 // is how the plugin keys and reuses a broker), so that session may be using it now. Without the session
 // files this cannot be known, and the answer is yes.
+// Paths are compared as the plugin compares them, canonical: real path, symlinks resolved, and on a
+// case-insensitive volume the case the disk holds.
+const canonical = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
 export function sharedWithLiveSession(h, sessions, session) {
   if (!h.folder) return false;
   if (!sessions) return true;
-  const root = workspaceRoot(h.folder);
-  return sessions.some((s) => s.sessionId !== session && s.cwd && (s.cwd === root || s.cwd.startsWith(`${root}/`) || workspaceRoot(s.cwd) === root));
+  const root = canonical(workspaceRoot(h.folder));
+  return sessions.some((s) => {
+    if (s.sessionId === session || !s.cwd) return false;
+    const cwd = canonical(s.cwd);
+    return cwd === root || cwd.startsWith(`${root}/`) || canonical(workspaceRoot(s.cwd)) === root;
+  });
 }
 
 // ---- wording -----------------------------------------------------------------------------------
