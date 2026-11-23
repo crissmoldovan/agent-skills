@@ -19,6 +19,9 @@ node scripts/setup-enforcement.mjs uninstall --purge --yes   # also removes sess
 Run from the installed skill folder. It is idempotent: a second run reports "already up to date" and
 rewrites nothing; after a skill update, run it again to refresh the copy.
 
+An agent asked to install or update the skill does this, with the Skills CLI first, in the order the
+skill's [Install or update (agents)](../SKILL.md#install-or-update-agents) section gives.
+
 | Agent | File edited | Found by |
 | --- | --- | --- |
 | Claude Code | `settings.json` in `$CLAUDE_CONFIG_DIR` or `~/.claude` | the folder exists |
@@ -29,9 +32,75 @@ uninstall removes only entries whose command runs this script. Before the first 
 the previous bytes are copied beside it as `<file>.bak-manage-workspace-storage` (a timestamp is
 added if that name exists). A file that is not valid JSON is left alone and setup stops.
 
-Codex runs a hook only after it has been reviewed: after installing, open `/hooks` in Codex and
-trust the two new entries. Claude Code runs them from the next session; running sessions keep the
-hooks they started with.
+Claude Code runs the hooks from the next session; running sessions keep the hooks they started with.
+Codex runs a hook only after it has been reviewed and trusted, which is a separate step: see
+[Trusting the hooks in Codex](#trusting-the-hooks-in-codex).
+
+## Trusting the hooks in Codex
+
+Codex does not run a hook it has not been told to trust, so after setup the two new entries (one
+`SessionStart`, one `Stop`, both running `leftovers.mjs`) sit idle until they are trusted.
+
+**Trust is per machine.** Codex keeps it in that machine's `~/.codex/config.toml`, so it has to be
+done on every Mac or Linux box the hooks are installed on. It also has to be **done again whenever a
+hook's command changes**, because Codex then shows the entry as new. The command embeds the path of the
+`node` that ran setup and the path of the script copy, so a moved Node.js or a different data folder
+changes it; a plain skill update that only refreshes the script copy does not. Setup prints
+`update ... entry` when it rewrites a command, and that is the signal to trust again.
+
+Codex stores the trust as a table named for the hook's position, with a hash of what it reviewed:
+
+```toml
+[hooks.state."<absolute path of hooks.json>:<event in snake_case>:<group index>:<hook index>"]
+trusted_hash = "sha256:<hex>"
+```
+
+`node scripts/setup-enforcement.mjs status` reads those tables and prints `Codex trust: SessionStart
+trusted; Stop trusted` (or `not trusted`). It can only see that a hash is stored, not that it matches
+the current command, so after a command change `/hooks` is the authority.
+
+### Default: the person reviews in `/hooks`
+
+1. Ask the person to open Codex and run `/hooks`.
+2. They press `t` on the new `manage-workspace-storage` entries: one `SessionStart`, one `Stop`.
+3. Verify by reading back: `setup-enforcement.mjs status` shows both as trusted, and
+   `~/.codex/config.toml` has a `trusted_hash` under each of the two hook keys.
+
+An agent must not skip the review, and must say plainly that the hooks are not active until it is done.
+
+### Guarded self-approval
+
+Opt-in. Use this only when the person's request **explicitly authorises self-approval** of these hooks, for
+example "install it and approve the Codex hooks yourself". Without that sentence, use `/hooks`.
+
+Say the trade-off before doing it, and keep it in the report. Self-approval **bypasses Codex's review
+step**: the person does not look at the hooks before they run. It is for the **machine owner's own
+setup**, never for someone else's machine, a shared one, or a hook the person has not asked for. It
+relies on how Codex fingerprints a hook, which is internal and not a documented interface, so **a
+Codex update can break it**, and a wrong write would make Codex list the hooks as needing review again
+(the safe failure) or, worse, trust something it should not. That is why every step below can stop
+the procedure and hand back to `/hooks`.
+
+1. **Scope.** Find exactly the two manage-workspace-storage hooks in `hooks.json`: `SessionStart`
+   running `leftovers.mjs session-start`, and `Stop` running `leftovers.mjs stop`. Nothing else. Stop
+   if either is missing, or does more than run that script.
+2. **Back up** `config.toml` beside itself. Never read `auth.json` or any credential.
+3. **Derive the fingerprint method from Codex's open source** (github.com/openai/codex), at the tag of
+   the installed version (`codex --version`). A plain sha256 of the command string, or of the hook's
+   JSON, is not assumed to be it: on the machine this was tested on, neither matched. Then **prove**
+   the method on a hook the owner already trusted through `/hooks`: it must reproduce the stored
+   `trusted_hash` as an **exact match**. If there is no exact match, or no already-trusted hook to
+   test against, stop and hand back to `/hooks`. Never write an unproven value.
+4. **Write only the two entries**, in the existing form of the file, under the two keys for those hooks.
+5. **Verify.** The file differs from the backup only by those two entries, and Codex itself no longer
+   lists them as needing review (use whatever the installed Codex offers to list hooks and their
+   review state, a non-interactive listing if it has one, otherwise ask the person to open `/hooks`;
+   the file alone is not proof). Otherwise restore the backup and hand back to `/hooks`.
+6. **Report** the Codex version, the method (source file and function), the proof (which trusted hook
+   matched), the two entries written and the backup path.
+
+Never use `--dangerously-bypass-hook-trust`, never edit `hooks.json` to make a hook look trusted, and
+never trust any other hook, whatever it is.
 
 ## The two hooks
 

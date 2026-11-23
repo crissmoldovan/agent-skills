@@ -179,6 +179,13 @@ it is not discovered, `npx skills add` does not install it, and
   mutate an installation ships off, is installed by a user running its installer,
   and is removed by that same installer. No skill installs one, and no agent
   installs one on a user's behalf.
+  One narrow exception, for `manage-workspace-storage` alone: an agent runs that skill's setup script
+  only when a person explicitly asks to install or update that skill, which is the consent, and the
+  script still previews, backs up and removes only what it wrote. An agent approves that skill's two
+  Codex hooks itself only with the machine owner's explicit authorisation in the request, by the
+  guarded procedure in its enforcement guide; without it, the person trusts them in `/hooks`.
+  Nothing else here changes: no other skill's hook, and no agent acting on its own initiative,
+  installs or trusts one.
 - **Never fail what you observe.** Every path exits 0, every stdin read is fenced by
   a timeout, and a hook's own failure is never the session's.
 - **State the limits everywhere the hook is introduced.** A string-matching gate
