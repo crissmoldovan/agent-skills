@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -445,3 +445,37 @@ test('the workspace guard keys a folder as the plugin does: git\'s top level for
   assert.equal(machine.sharedWithLiveSession({ folder: plain }, [{ sessionId: 'b', cwd: path.join(plain, 'below') }], 'a'), false, 'outside a repository each folder is its own workspace');
   assert.equal(machine.sharedWithLiveSession({ folder: path.join(plain, 'gone') }, [{ sessionId: 'b', cwd: plain }], 'a'), false, 'a deleted folder outside a repository is its own workspace');
 });
+
+// Runs the guard in a fresh process, so its environment and PATH are the test's to set.
+const guardIn = (env, h, sessions) => {
+  const code = `const m = await import(${JSON.stringify(path.join(dir, 'machine.mjs'))}); const t = Date.now(); const shared = m.sharedWithLiveSession(${JSON.stringify(h)}, ${JSON.stringify(sessions)}, 'a'); console.log(JSON.stringify({ shared, ms: Date.now() - t }));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', env: { ...process.env, ...env } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout.trim());
+};
+
+test('the workspace guard asks git with the environment the plugin has', async () => {
+  const root = await tempDir('mw-env-');
+  const repo = path.join(root, 'repo'); gitInit(repo);
+  const one = path.join(root, 'one'); const two = path.join(root, 'two'); mkdirSync(one); mkdirSync(two);
+  const sessions = [{ sessionId: 'b', cwd: two }];
+  assert.equal(guardIn({}, { folder: one }, sessions).shared, false, 'two plain folders are two workspaces');
+  assert.equal(guardIn({ GIT_DIR: path.join(repo, '.git'), GIT_WORK_TREE: repo }, { folder: one }, sessions).shared, true, 'with GIT_DIR and GIT_WORK_TREE set, git puts both in one repository, as it does for the plugin');
+});
+
+test('the workspace guard keeps a helper when git hangs, within one time budget', async () => {
+  const root = await tempDir('mw-hang-');
+  const bin = path.join(root, 'bin'); mkdirSync(bin);
+  const slow = path.join(root, 'slow'); const hung = path.join(root, 'hung'); mkdirSync(slow); mkdirSync(hung);
+  writeFileSync(path.join(slow, 'git'), '#!/bin/sh\nsleep 0.9\nexit 128\n'); chmodSync(path.join(slow, 'git'), 0o755);
+  writeFileSync(path.join(hung, 'git'), "#!/bin/sh\ntrap '' TERM\nsleep 5\n"); chmodSync(path.join(hung, 'git'), 0o755);
+  const folders = Array.from({ length: 6 }, (_, i) => { const f = path.join(root, `f${i}`); mkdirSync(f); return f; });
+  const sessions = folders.slice(1).map((cwd, i) => ({ sessionId: `s${i}`, cwd }));
+  const answering = guardIn({ PATH: `${slow}:${process.env.PATH}`, MWS_GIT_BUDGET_MS: '2000' }, { folder: folders[0] }, sessions);
+  assert.equal(answering.shared, true, 'once the budget is spent, a key not yet known counts as shared');
+  assert.ok(answering.ms < 4000, `six slow answers stop at the budget instead of taking 5.4 s (took ${answering.ms} ms)`);
+  const hanging = guardIn({ PATH: `${hung}:${process.env.PATH}`, MWS_GIT_BUDGET_MS: '2000' }, { folder: folders[0] }, sessions);
+  assert.equal(hanging.shared, true, 'a key git did not give in time counts as shared');
+  assert.ok(hanging.ms < 3000, `a git that ignores SIGTERM is killed at its timeout (took ${hanging.ms} ms)`);
+});
+

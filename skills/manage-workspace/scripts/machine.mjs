@@ -331,12 +331,17 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
 // folders share a broker exactly when their keys are equal. Git cannot be asked about a deleted folder,
 // so it is asked about the nearest folder that still exists: inside a repository the key is that
 // repository's, outside one it is the deleted path itself. A key that cannot be known (git timed out or
-// did not start) counts as shared.
+// did not start) counts as shared. Git runs with this process's environment, the session's, as the
+// plugin's does. All the git calls of one process share one time budget, so a hook stays inside its own;
+// once it is spent, every key not yet known counts as shared.
 const canonical = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
 const isDir = (d) => { try { return statSync(d).isDirectory(); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; } };
+const gitBudget = { until: 0 };
 function gitTop(dir) {
-  const env = { ...process.env }; delete env.GIT_DIR; delete env.GIT_WORK_TREE;
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, env, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] });
+  if (!gitBudget.until) gitBudget.until = Date.now() + (Number(process.env.MWS_GIT_BUDGET_MS) > 0 ? Number(process.env.MWS_GIT_BUDGET_MS) : 8000);
+  const left = gitBudget.until - Date.now();
+  if (left <= 0) return undefined;
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8', timeout: Math.min(1500, left), killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'ignore'] });
   if (r.error) return r.error.code === 'ENOENT' ? { top: dir, repo: false } : undefined;
   if (r.signal) return undefined;
   const top = r.status === 0 ? r.stdout.trim() : '';

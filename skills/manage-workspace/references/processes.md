@@ -155,7 +155,9 @@ that names its folder. Without a session variable it can be reported but never s
   `.git` folder git does not accept as a repository makes no new one. Git cannot be asked about a
   deleted folder, so it is asked about the nearest folder that still exists: a deleted folder inside a
   repository another live session works in keeps its broker, even when it was a worktree with a broker
-  of its own. When git times out or does not start, the helper is kept.
+  of its own. Git runs with the session's environment, as the plugin's does, so `GIT_DIR` and its
+  kin count. The git calls of one hook share an 8-second budget, each at most 1.5 seconds and killed at
+  its limit; when git times out, does not start, or the budget is spent, the helper is kept.
 - The machine check at session start reports at most twelve items, and a process table that cannot be
   read within its time budget yields no report rather than a wrong one.
 - A process started under a name the check does not know is not reported. Note what you start.
