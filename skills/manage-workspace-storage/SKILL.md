@@ -1,9 +1,9 @@
 ---
 name: manage-workspace-storage
-description: "Clean up after every task and keep agent context small: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget and volume headroom, give each run a project-owned scratch directory, and end by listing what was left and removed. An optional setup script makes it a standing rule in Claude Code and Codex with a session-start policy and an end-of-turn leftover check. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, a large build needs a storage preflight, or clean-up should be enforced."
+description: "Clean up after every task and keep agent context small: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget and volume headroom, give each run a project-owned scratch directory, and end by listing what was left and removed. An optional setup script makes it a standing rule in Claude Code and Codex with a session-start policy and an end-of-turn leftover check, and an agent asked to install or update it does the whole setup. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, a large build needs a storage preflight, or clean-up should be enforced."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files and disk usage. The bundled guard, scratch helper and enforcement hooks require Node.js 22 or newer on macOS or Linux. Git is needed only to inspect or retire Git worktrees; Docker and Tart are only queried when a session used them. Nothing makes a network request."
-metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
+metadata: "group=workflow; lifecycle=release; version=1.2.0; author=crissmoldovan"
 allowed-tools: Read Grep Glob Bash
 ---
 
@@ -108,7 +108,59 @@ node scripts/setup-enforcement.mjs            # preview
 node scripts/setup-enforcement.mjs --yes      # apply
 ```
 
+## Install or update (agents)
+
+When a person asks you to "install manage-workspace-storage" or "update manage-workspace-storage",
+do the whole setup yourself, in this order. Their request is the consent for steps 1 to 3; step 4 has
+its own rule. Run no test suites, make no network calls beyond the Skills CLI, and change no other
+file. If the skill is not installed yet, the README's bootstrap prompt does the same from scratch.
+
+1. **Install or update the skill for every agent present.** Check `node --version` (22 or newer),
+   `codex --version` and `codex features list` (hooks must be on), and whether Claude Code is
+   installed. For each agent found, run the Skills CLI at user level, with the form already installed
+   (`--copy` if the existing install is a copy):
+
+   ```bash
+   npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --global --agent claude-code --yes
+   npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --global --agent codex --yes
+   ```
+
+   Read the installed `SKILL.md` back and confirm `version` is the one you meant to install.
+2. **Run the setup script from the installed skill folder.** Preview first with
+   `node scripts/setup-enforcement.mjs`, read what it would change, then
+   `node scripts/setup-enforcement.mjs --yes`. After an update, run it again: it refreshes the script
+   copy the hooks call, and rewrites a hook entry only if its command changed.
+3. **Read back.** Both hook files (`settings.json` in `~/.claude`, `hooks.json` in `~/.codex`): the
+   two manage-workspace-storage entries are there, and every other hook is still there, in the same
+   order. `node scripts/setup-enforcement.mjs status` lists them, and a second `--yes` run says
+   "already up to date". Pipe a `session-start` payload to the installed script
+   (`echo '{"session_id":"t"}' | node "$XDG_DATA_HOME/manage-workspace-storage/leftovers.mjs"
+   session-start`, with `~/.local/share` when unset) and see the policy printed.
+4. **Get the Codex hooks trusted.** Codex trust is per machine and is needed again whenever a hook
+   command changes (setup prints `update ... entry` when it does). Default: ask the person to run
+   `/hooks` in Codex and press `t` on the two new `manage-workspace-storage` entries, then check
+   `status` reports both trusted and `trusted_hash` entries exist in `~/.codex/config.toml` for
+   those hook keys. Only when the person's request explicitly authorises self-approval, follow the
+   guarded procedure in [the enforcement guide](references/enforcement.md#guarded-self-approval),
+   and stop and hand back to `/hooks` the moment any step cannot be proven. Never use
+   `--dangerously-bypass-hook-trust`, never edit `hooks.json` to look trusted, never trust another hook.
+5. **Report** the installed versions per agent, the files edited and their backups, the hook
+   entries, whether Codex trust is done or waiting for the person, that the mode is `warn` unless set,
+   and the commands for `mode block` and `uninstall`.
+
+**Complete when:** the installed version is the intended one for every agent present, both hook files
+read back with every pre-existing hook in place, and the Codex trust is either verified or reported
+as waiting for the person.
+
 ## Usage Examples
+
+```text
+Install manage-workspace-storage.
+```
+
+```text
+Update manage-workspace-storage.
+```
 
 ```text
 Use manage-workspace-storage before the browser suite. Check the target volume, keep .context small, and clean up this run's scratch after retaining its result.

@@ -75,6 +75,25 @@ function planRemove(json) {
   return { next, changes };
 }
 
+// Codex keeps trust in config.toml as [hooks.state."<hooks.json>:<event>:<group>:<hook>"] with a
+// trusted_hash once a person has reviewed the hook in /hooks. Presence of a hash is all this can
+// read: it cannot tell a hash for the current command from one for an older command.
+function codexTrust(hooksFile, json) {
+  let toml; try { toml = readFileSync(path.join(path.dirname(hooksFile), 'config.toml'), 'utf8'); } catch { toml = ''; }
+  const found = [];
+  for (const [event, list] of Object.entries(json.hooks ?? {})) {
+    if (!Array.isArray(list)) continue;
+    list.forEach((g, gi) => (g.hooks ?? []).forEach((h, hi) => {
+      if (!ours(h)) return;
+      const header = `[hooks.state."${hooksFile}:${event.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}:${gi}:${hi}"]`;
+      const at = toml.indexOf(header);
+      const body = at < 0 ? '' : toml.slice(at + header.length).split(/^\[/m)[0];
+      found.push(`${event} ${/^\s*trusted_hash\s*=\s*"sha256:[0-9a-f]+"/m.test(body) ? 'trusted' : 'not trusted'}`);
+    }));
+  }
+  return found;
+}
+
 function backupAndWrite(file, json, original) {
   if (original !== null) {
     let b = `${file}.bak-manage-workspace-storage`;
@@ -116,6 +135,9 @@ function main(argv) {
       let has = [];
       try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([, l]) => Array.isArray(l) && l.some((g) => g.hooks?.some(ours))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
       out(`${AGENTS[a].label}: ${existsSync(AGENTS[a].dir()) ? f : 'not present'}: ${has.length ? has.join(', ') : 'no clean-up hooks'}`);
+      if (a === 'codex' && has.length) {
+        try { out(`Codex trust: ${codexTrust(f, readJson(f).json).join('; ')} (a stored hash only; /hooks in Codex is the authority, and a changed command needs trusting again)`); } catch { /* unreadable: reported above */ }
+      }
     }
     return 0;
   }
@@ -132,7 +154,7 @@ function main(argv) {
     if (!apply) { out(`${label}: ${f}: would ${changes.join('; ')}`); continue; }
     const backup = backupAndWrite(f, next, read.text);
     out(`${label}: ${f}: ${changes.join('; ')}${backup ? `; backup ${backup}` : ''}`);
-    if (a === 'codex' && action === 'install') notes.push('Codex: review the new hooks once with /hooks in Codex; non-managed hooks do not run until trusted.');
+    if (a === 'codex' && action === 'install') notes.push('Codex: trust the new hooks with /hooks in Codex (press t on each manage-workspace-storage entry); non-managed hooks do not run until trusted. Trust is per machine, and needed again whenever a hook command changes.');
   }
 
   if (action === 'install') {

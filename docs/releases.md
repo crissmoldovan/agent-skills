@@ -67,6 +67,10 @@ configurations. An optional setup script installs a session-start policy and an 
 leftover check for Claude Code and Codex, off until a person runs it, as with every hook in this
 pack; it reads only the session's own transcript and notes and ships non-blocking, with a switch
 to block.
+Asked to install or update the skill, an agent does the whole setup: the skill for each agent
+present, the setup script, a read-back of both hook files, and the Codex trust step (the person's
+`/hooks` by default; guarded self-approval only when the request explicitly authorises it). Codex
+trust is per machine and is needed again when a hook command changes.
 
 `update-agent-skills` moves installed copies wherever they live, and owns the adapted copy a
 project makes of a pack skill: it composes the copy from a pinned release and the project's

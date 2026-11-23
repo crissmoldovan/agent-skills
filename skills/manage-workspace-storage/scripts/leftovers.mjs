@@ -19,7 +19,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 const HOME = () => process.env.HOME || homedir();
 const ROOTS = () => [
   '/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp', '/var/folders', '/private/var/folders',
@@ -388,7 +388,7 @@ function list(argv) {
   process.stdout.write(items.length ? `${describe(items)}\n` : 'nothing left by this session\n');
 }
 
-const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
 const invoked = process.argv[1] && real(process.argv[1]) === real(self());
 if (invoked) {
   const [event, ...rest] = process.argv.slice(2);

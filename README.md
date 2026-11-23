@@ -425,7 +425,7 @@ More: [Skill](skills/isolated-change-validation/SKILL.md) · [Evidence contract]
 
 ### `manage-workspace-storage`
 
-Clean up after every task and keep agent context small: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget and volume headroom, give each run a project-owned scratch directory, and end by listing what was left and removed. An optional setup script makes it a standing rule in Claude Code and Codex with a session-start policy and an end-of-turn leftover check. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, a large build needs a storage preflight, or clean-up should be enforced.
+Clean up after every task and keep agent context small: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget and volume headroom, give each run a project-owned scratch directory, and end by listing what was left and removed. An optional setup script makes it a standing rule in Claude Code and Codex with a session-start policy and an end-of-turn leftover check, and an agent asked to install or update it does the whole setup. Use when .context keeps growing, old worktrees or test artifacts fill a shared disk, a large build needs a storage preflight, or clean-up should be enforced.
 
 ```bash
 npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage
@@ -442,6 +442,8 @@ npx skills add crissmoldovan/agent-skills --skill manage-workspace-storage --glo
 npx skills update manage-workspace-storage --global --yes
 ```
 
+Or tell any agent, Claude Code or Codex, on any machine where the skill is installed: *"Install manage-workspace-storage"* or *"Update manage-workspace-storage"*. It installs or updates the skill for each agent present, runs the setup script below, reads the hook files back, and gets the Codex hooks trusted. On a machine without the skill, paste the prompt under [Install or update with an agent](#install-or-update-with-an-agent).
+
 What it does: it makes clean-up a step of every task. Note each item you create outside the repository (path, size, purpose, when it can go), keep the evidence in the project's durable record, then remove it: worktrees once their branch is merged or dropped, containers and virtual machines when their step ends, caches, temporary and shared-folder copies, and signed-in configurations. It also keeps `.context` small, checks volume headroom, gives each run a scratch directory, and ends every task by listing what was left and what was removed. It never deletes what another session or project owns, or anything unpublished, running or needed later.
 
 To make that a standing rule, run its setup script once. It installs two hooks for Claude Code and for Codex, whichever are present, and is off until you run it:
@@ -457,15 +459,33 @@ node scripts/setup-enforcement.mjs uninstall --yes    # remove exactly what it a
 - A **session-start hook** puts a short clean-up policy in every new session, with the commands to record what the session creates.
 - An **end-of-turn hook** checks what this session created and still left: worktrees, named containers, Tart VMs, and new folders or files in temporary, shared and cache locations. It reads the session's own transcript and notes, never the whole machine, so other sessions' items are never flagged. It stays well under two seconds and prints nothing when nothing is left.
 - **Warn mode** (the default) shows a reminder to the person, once per set of leftovers. **Block mode** makes the agent remove each item or record a reason before the turn can end, once per set so it cannot loop. `off` silences both hooks.
-- It edits `settings.json` in `~/.claude` and `hooks.json` in `~/.codex`, only adds its own entries, and uninstall removes only those. Codex asks you to review new hooks once with `/hooks`. Running sessions keep the hooks they started with. After updating the skill, run the setup script again to refresh its copy.
+- It edits `settings.json` in `~/.claude` and `hooks.json` in `~/.codex`, only adds its own entries, and uninstall removes only those. Codex runs a new hook only after you trust it: open `/hooks` in Codex and press `t` on the two `manage-workspace-storage` entries. That trust is per machine, and is needed again whenever a hook's command changes. Running sessions keep the hooks they started with. After updating the skill, run the setup script again to refresh its copy.
 
 Limits: it reads the commands a session ran, so a folder a script creates or a container started without a name goes unseen unless the agent records it. See [the enforcement guide](skills/manage-workspace-storage/references/enforcement.md).
 
 Ask it:
 
+- *"Install manage-workspace-storage."* / *"Update manage-workspace-storage."*
 - *"Use manage-workspace-storage before the browser suite. Check the target volume, keep .context small, and clean up this run's scratch after retaining its result."*
-- *"Tell me what filled this project's disk and which files are safe to remove."*
 - *"Use manage-workspace-storage: end this task by listing what you left behind and what you removed, and remove the worktree and containers you created."*
+
+#### Install or update with an agent
+
+Paste this into Claude Code or Codex on a machine that does not have the skill yet (or to update it). It pins the install to release `v0.34.0`. Your pasting it is the consent for the install and the setup script; it asks for no other change.
+
+```text
+Install or update the Agent Skill manage-workspace-storage from crissmoldovan/agent-skills at release v0.34.0, for every agent on this machine, and set up its enforcement hooks. Do all of it yourself, one step at a time. Run no test suites, make no network calls beyond the Skills CLI install, and change no other files.
+
+1. Check what is here: `node --version` (needs 22 or newer), `codex --version` and `codex features list` (the hooks feature must be on), and whether Claude Code is installed. Stop and tell me if Node is too old.
+2. For each agent present, install at user level, with `--copy`:
+   npx skills add 'crissmoldovan/agent-skills#v0.34.0' --skill manage-workspace-storage --global --agent codex --yes --copy
+   npx skills add 'crissmoldovan/agent-skills#v0.34.0' --skill manage-workspace-storage --global --agent claude-code --yes --copy
+   Read the installed SKILL.md and confirm its version is 1.2.0.
+3. From the installed skill folder, run `node scripts/setup-enforcement.mjs` to preview and show me what it would change, then `node scripts/setup-enforcement.mjs --yes`.
+4. Read back: both hook files (settings.json in ~/.claude, hooks.json in ~/.codex) and their .bak-manage-workspace-storage backups, with every pre-existing hook still present and in the same order; `node scripts/setup-enforcement.mjs status`; a second `--yes` run that says "already up to date"; and a smoke test that pipes {"session_id":"t"} into `node ~/.local/share/manage-workspace-storage/leftovers.mjs session-start` (or under $XDG_DATA_HOME) and prints the policy.
+5. Codex trust: Codex does not run a hook until it is trusted, trust is per machine, and it is needed again whenever a hook command changes. Ask me to run /hooks in Codex and press t on the two new manage-workspace-storage entries (one SessionStart, one Stop), then check `status` and ~/.codex/config.toml show a trusted_hash for both hook keys. Do not approve them for me unless I wrote here that you may; if I did, follow "Guarded self-approval" in references/enforcement.md exactly and stop at the first step you cannot prove. Never use --dangerously-bypass-hook-trust.
+6. Report: the installed version per agent, the paths and backups, the hook entries added, whether Codex trust is done or waiting for me, that the default mode is warn, and the commands for `mode block --yes` and `uninstall --yes`.
+```
 
 More: [Skill](skills/manage-workspace-storage/SKILL.md) · [Guard and cleanup commands](skills/manage-workspace-storage/references/commands.md) · [Enforcement guide](skills/manage-workspace-storage/references/enforcement.md)
 
@@ -840,7 +860,7 @@ it decides whether a skill applies.
 Three skills have a **mechanical half**: a hook that runs outside the conversation, where no
 model sits in the enforcement path. Each is off until a human installs it, each is
 removed by the same installer that wrote it, and no skill and no agent may install any of
-them on a user's behalf. They live in [`adapters/`](adapters/), beside the payload captures they
+them on a user's behalf (the one exception, below, needs the person's explicit request). They live in [`adapters/`](adapters/), beside the payload captures they
 were built against — [`adapters/NOTES.md`](adapters/NOTES.md) for the shapes Claude Code
 sends, [`adapters/HOOK-OUTPUT-NOTES.md`](adapters/HOOK-OUTPUT-NOTES.md) for what a hook can
 print back and have the harness act on. Where a document and those notes disagree, the notes
@@ -855,6 +875,12 @@ machine. `decision-journal`'s journal hook,
 [`adapters/claude-code/journal-hook.sh`](adapters/claude-code/journal-hook.sh), records what the agent
 did beside the decisions it records, and is wired into your settings by hand as
 [the adapter's README](adapters/claude-code/README.md) describes, and taken out the same way.
+
+`manage-workspace-storage` carries two hooks of its own (a session-start policy and an end-of-turn
+leftover check), installed and removed by `scripts/setup-enforcement.mjs`. An agent runs that script only
+when you ask it to install or update the skill, and approves its two Codex hooks itself only if you
+authorise that in the same request; otherwise you trust them in Codex's `/hooks`. Both stay off until
+then, and the default mode only shows you a reminder.
 
 One skill carries a scheduler rather than a hook, off until you install it. `resume-after-limit`'s
 installer (`node <skill-folder>/scripts/install-scheduler.mjs --install`, and `--remove` to take it

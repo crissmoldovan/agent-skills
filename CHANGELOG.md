@@ -5,6 +5,53 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.34.0
+
+### Tell any agent "install manage-workspace-storage" and it does the whole setup
+
+**What.** `manage-workspace-storage` (1.2.0) now carries an "Install or update (agents)" procedure.
+Asked to install or update the skill, Claude Code or Codex, on any machine, does all of it: installs
+or updates the skill for every agent present with the Skills CLI, runs `scripts/setup-enforcement.mjs`
+(preview, then `--yes`; after an update it runs again to refresh the hook script copy), reads both hook
+files back, and gets the Codex hooks trusted. The README gains a ready-to-paste bootstrap prompt, pinned
+to `v0.34.0`, that does the same on a machine that does not have the skill yet.
+
+Codex trust is now documented as what it is: **per machine**, and needed **again whenever a hook's
+command changes**, because Codex then shows the entry as new. The README no longer says "once". The
+enforcement guide gives two ways to trust the two hooks. The default is the person running `/hooks` in
+Codex and pressing `t` on the two `manage-workspace-storage` entries. The opt-in, only when the request
+explicitly authorises it, is a guarded self-approval: the agent derives Codex's hook fingerprint from
+its open source, proves it by reproducing the stored hash of a hook the owner already trusted, writes
+only the two entries, and checks the result, stopping and handing back to `/hooks` at the first step
+it cannot prove. That route **bypasses Codex's review step**, is for the machine owner's own setup,
+relies on an internal Codex detail, and **a Codex update can break it**.
+
+`setup-enforcement.mjs status` now also prints whether each Codex hook has a stored trust hash, and the
+install note tells the person how to trust the hooks. Nothing else in the script changed.
+
+**Why.** Setting this up meant three separate things on each machine (the skill per agent, the hooks,
+the Codex review), and the last was easy to forget or to describe wrongly.
+
+**Impact.** Nothing changes on a machine until someone updates the skill and asks for the setup.
+`CONTRIBUTING.md` still says no skill or agent installs a hook on a user's behalf, with one narrow
+exception for this skill: the setup script runs only when a person explicitly asks to install or update
+it, and self-approval of the Codex hooks happens only with the owner's explicit authorisation in the
+request. A hook command is unchanged by this release, so a machine that already trusted the hooks keeps
+that trust; setup prints `update ... entry` if a command does change.
+
+**Compatibility.** Minor. No migration. Node.js 22 or newer, as before.
+
+**Who should update.** Anyone who installed `manage-workspace-storage` 1.1.0 or earlier, and anyone who
+runs it on more than one machine or both agents.
+
+```bash
+npx skills update manage-workspace-storage --global --yes
+node scripts/setup-enforcement.mjs --yes     # from the installed skill folder: refreshes the hook script copy
+```
+
+Or tell an agent: "Update manage-workspace-storage." On a machine without the skill, paste the prompt
+under "Install or update with an agent" in the README.
+
 ## 0.33.0
 
 ### Clean-up after every task, for Claude Code and Codex

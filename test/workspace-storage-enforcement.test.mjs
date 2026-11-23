@@ -164,3 +164,79 @@ test('setup skips an agent that is not installed, refuses invalid JSON, and sets
   assert.equal(hook('mode', {}).stdout.trim(), 'block');
   assert.equal(cli('mode', 'loud').status, 2);
 });
+
+test('status reads Codex trust from config.toml by hook key, and says nothing about other hooks', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.codex'));
+  const hooks = path.join(home, '.codex', 'hooks.json');
+  writeFileSync(hooks, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'other-start' }] }] } }, null, 2)}\n`);
+  assert.equal(cli('--yes').status, 0);
+  // our SessionStart entry is group 1, hook 0; our Stop entry is group 0, hook 0
+  assert.match(cli('status').stdout, /Codex trust: SessionStart not trusted; Stop not trusted/);
+  const hash = `sha256:${'a'.repeat(64)}`;
+  writeFileSync(path.join(home, '.codex', 'config.toml'), [
+    '[hooks.state]', '',
+    `[hooks.state."${hooks}:session_start:0:0"]`, `trusted_hash = "${hash}"`, '',
+    `[hooks.state."${hooks}:session_start:1:0"]`, 'enabled = true', '',
+    `[hooks.state."${hooks}:stop:0:0"]`, 'enabled = true', `trusted_hash = "${hash}"`, '',
+  ].join('\n'));
+  assert.match(cli('status').stdout, /Codex trust: SessionStart not trusted; Stop trusted/, 'a hash on another hook, or none on this one, does not count');
+  writeFileSync(path.join(home, '.codex', 'config.toml'), `[hooks.state."${hooks}:session_start:1:0"]\ntrusted_hash = "${hash}"\n[hooks.state."${hooks}:stop:0:0"]\ntrusted_hash = "${hash}"\n`);
+  assert.match(cli('status').stdout, /Codex trust: SessionStart trusted; Stop trusted/);
+});
+
+test('the Codex note says trust is per machine and needed again when a command changes', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.codex'));
+  const out = cli('--yes').stdout;
+  assert.match(out, /\/hooks in Codex/);
+  assert.match(out, /per machine/);
+  assert.match(out, /again whenever a hook command changes/);
+});
+
+const skillDir = fileURLToPath(new URL('../skills/manage-workspace-storage/', import.meta.url));
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+const skillText = readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
+const guide = readFileSync(path.join(skillDir, 'references/enforcement.md'), 'utf8').replace(/\s+/g, ' ');
+const readme = read('../README.md');
+const readmeEntry = readme.slice(readme.indexOf('### `manage-workspace-storage`'), readme.indexOf('### `onboard-project`'));
+
+test('SKILL.md carries the install-or-update procedure an agent follows end to end', () => {
+  assert.match(skillText, /version=1\.2\.0/);
+  const s = skillText.slice(skillText.indexOf('## Install or update (agents)'), skillText.indexOf('## Usage Examples'));
+  assert.ok(s.length > 300, 'section present');
+  for (const re of [/--agent claude-code/, /--agent codex/, /--global/, /setup-enforcement\.mjs/, /--yes/, /\/hooks/, /trusted_hash/, /already up to date/, /explicit/i, /references\/enforcement\.md/]) assert.match(s, re);
+  assert.match(s, /never .*--dangerously-bypass-hook-trust/is);
+  assert.match(skillText, /\[the enforcement guide\]\(references\/enforcement\.md\)/);
+  assert.ok(skillText.split('\n').length <= 484);
+});
+
+test('the enforcement guide states Codex trust is per machine, and gives both ways to trust', () => {
+  assert.match(guide, /per machine/i);
+  assert.match(guide, /command changes/i);
+  assert.match(guide, /## Trusting the hooks in Codex/);
+  assert.match(guide, /`\/hooks`/);
+  assert.match(guide, /press `t`/);
+  assert.match(guide, /## Guarded self-approval/);
+  for (const re of [/bypasses Codex's review step/, /machine owner's own setup/, /Codex update can break it/, /explicitly authoris/i, /github\.com\/openai\/codex/, /exact match/, /never write an unproven value/i, /--dangerously-bypass-hook-trust/, /auth\.json/, /needing review|needs review/i]) assert.match(guide, re);
+});
+
+test('the README entry has a pasteable, machine-agnostic bootstrap prompt pinned to the release', () => {
+  assert.match(readmeEntry, /#### Install or update with an agent/);
+  const prompt = readmeEntry.slice(readmeEntry.indexOf('#### Install or update with an agent'), readmeEntry.indexOf('More:'));
+  assert.match(prompt, /```text/);
+  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.34\.0|v0\.34\.0/);
+  for (const re of [/codex --version/, /codex features list/, /--agent codex/, /--agent claude-code/, /--global/, /--copy/, /setup-enforcement\.mjs/, /status/, /already up to date/, /session-start/, /\/hooks/]) assert.match(prompt, re);
+  assert.doesNotMatch(prompt, /\/Users\/|linear|@[a-z0-9-]+\.(com|dev)|token|secret/i);
+  assert.doesNotMatch(readmeEntry, /review the new hooks once|trust .* once/i, 'trust is not "once"');
+  assert.match(readmeEntry, /per machine/);
+  assert.match(readmeEntry, /npx skills update manage-workspace-storage --global --yes/, 'the human commands stay');
+});
+
+test('CONTRIBUTING lets the setup script run on request and self-approval only with the owner explicit authorisation', () => {
+  const c = read('../CONTRIBUTING.md');
+  assert.match(c, /No skill installs one/);
+  assert.match(c, /manage-workspace-storage/);
+  assert.match(c, /explicitly asks to install or update (that|the) skill/);
+  assert.match(c, /explicit authorisation in the request/);
+});
