@@ -423,3 +423,18 @@ test('the workspace guard compares canonical paths, as the plugin does', async (
   assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: root }], 'a'), false, 'a session above the repository does not share it');
   assert.equal(machine.sharedWithLiveSession(h, null, 'a'), true, 'without the session files, sharing cannot be ruled out');
 });
+
+test('the workspace guard keys a folder as the plugin does: the nearest .git above its real path', async () => {
+  const root = await tempDir('mw-key-');
+  const outer = path.join(root, 'outer'); mkdirSync(path.join(outer, '.git'), { recursive: true });
+  const inner = path.join(outer, 'vendor', 'inner'); mkdirSync(path.join(inner, '.git'), { recursive: true });
+  const sub = path.join(outer, 'sub'); mkdirSync(sub);
+  const aliases = path.join(root, 'aliases'); mkdirSync(aliases);
+  symlinkSync(inner, path.join(aliases, 'inner')); symlinkSync(sub, path.join(aliases, 'sub'));
+  const h = { folder: outer };
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: inner }], 'a'), false, 'a nested repository has its own broker');
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: path.join(aliases, 'inner') }], 'a'), false, 'a nested repository reached through a symlink has its own broker');
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: path.join(aliases, 'sub') }], 'a'), true, 'a symlink to a folder inside the repository shares its broker');
+  assert.equal(machine.sharedWithLiveSession(h, [{ sessionId: 'b', cwd: path.join(sub, 'deleted') }], 'a'), true, 'a deleted folder inside the repository still keys to it');
+  assert.equal(machine.sharedWithLiveSession({ folder: inner }, [{ sessionId: 'b', cwd: outer }], 'a'), false, 'the outer repository does not share the nested one');
+});

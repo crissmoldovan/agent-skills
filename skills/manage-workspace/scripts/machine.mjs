@@ -332,18 +332,17 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
 // Another live session works in this helper's workspace (the nearest folder above it with .git, which
 // is how the plugin keys and reuses a broker), so that session may be using it now. Without the session
 // files this cannot be known, and the answer is yes.
-// Paths are compared as the plugin compares them, canonical: real path, symlinks resolved, and on a
-// case-insensitive volume the case the disk holds.
+// A folder is keyed as the plugin keys it: the nearest folder with .git above its real path (symlinks
+// resolved, and on a case-insensitive volume the case the disk holds), itself when there is none. Two
+// folders share a broker exactly when their keys are equal, so a repository nested inside another has
+// its own. A deleted folder cannot be resolved, so it is walked up as written and its key resolved.
 const canonical = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
+const brokerKey = (p) => canonical(workspaceRoot(canonical(p)));
 export function sharedWithLiveSession(h, sessions, session) {
   if (!h.folder) return false;
   if (!sessions) return true;
-  const root = canonical(workspaceRoot(h.folder));
-  return sessions.some((s) => {
-    if (s.sessionId === session || !s.cwd) return false;
-    const cwd = canonical(s.cwd);
-    return cwd === root || cwd.startsWith(`${root}/`) || canonical(workspaceRoot(s.cwd)) === root;
-  });
+  const key = brokerKey(h.folder);
+  return sessions.some((s) => s.sessionId !== session && Boolean(s.cwd) && brokerKey(s.cwd) === key);
 }
 
 // ---- wording -----------------------------------------------------------------------------------
