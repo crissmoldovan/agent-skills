@@ -34,7 +34,10 @@ uninstall removes only its own. An entry counts as its own only in the exact sha
 the script some other way is left alone. Every agent's file is read and checked first, and nothing at all
 is written if one is not valid JSON; the scripts are copied before any hook is pointed at them. Uninstall
 for one agent leaves the shared scripts, state and settings while any hook, its own or one a person
-wrote, still runs them. Before the first write to a file,
+wrote, still runs them, in the selected agent folders or the default ones; a second profile in another
+folder cannot be seen, so uninstall there first. Setup claims its own entries only under `SessionStart`,
+`Stop` and `SessionEnd`. Removing an entry in Codex shifts the position of the hooks after it, and Codex
+keys trust by position, so it asks to trust those again. Before the first write to a file,
 the previous bytes are copied beside it as `<file>.bak-manage-workspace` (a timestamp is added if
 that name exists). A file that is not valid JSON is left alone and setup stops.
 
@@ -133,8 +136,8 @@ never trust any other hook, whatever it is.
 | Event | Agents | Matcher | What it does |
 | --- | --- | --- | --- |
 | `SessionStart` | both | `startup\|resume\|clear\|compact` | Adds the clean-up policy to the session's context, with the session id, the `note`, `keep` and `done` commands and the memory check; then a machine check, when it finds anything: helpers of ended sessions or deleted folders, agent CLIs with no parent, a session served by two processes, low memory. The agent is told to tell the user and never to stop another live session's processes. |
-| `Stop` | both | none (ends each agent turn) | Lists what this session created and still left; stops this session's own helpers whose folder is gone and says so; says when memory is low. Silent when there is nothing. |
-| `SessionEnd` | Claude Code only | none | Stops every helper whose environment names the ending session, in any folder, except one in a folder another live session works in, since the plugin reuses a broker by folder. Prints nothing. |
+| `Stop` | both | none (ends each agent turn) | Lists what this session created and still left; asks this session's own helpers whose folder is gone to shut down and says so; says when memory is low. It reads the session's transcript and notes and, for helpers, the process table. Silent when there is nothing. |
+| `SessionEnd` | Claude Code only | none | Asks every helper whose environment names the ending session to shut down, in any folder, except one in a workspace another live session works in, since the plugin reuses a broker by workspace. Sends no signal; a busy helper is left running. Prints nothing. |
 
 Codex 0.171.0 carries an input schema for `SessionEnd` (`session-end.command.input`: `session_id`,
 `transcript_path`, `cwd`, `hook_event_name`, `reason`), but it has not been observed firing there, so
@@ -167,7 +170,8 @@ items are skipped.
 Limits, stated plainly: this reads commands, not effects. A script that creates a folder, a
 container started without `--name`, a cache folder a tool picks for itself, and a signed-in
 configuration are invisible to it unless the agent runs `note`. It shows a reminder; it removes no
-file. The only processes the hooks stop are helpers whose environment names this session (see
+file. The only processes the hooks stop are helpers whose environment names this session, and they do
+it by asking the helper to shut itself down, never with a signal (see
 [the process and memory guide](processes.md)); an editor that dies does not end its sessions, so no
 `SessionEnd` runs for them, and the next session's machine check reports what they left.
 
@@ -201,7 +205,7 @@ MWS_CLEANUP_MODE=block                                  # the environment overri
 
 | `helpers` | Effect |
 | --- | --- |
-| `stop` (default) | `SessionEnd` stops this session's helpers; `Stop` stops its helpers in deleted folders. |
+| `stop` (default) | `SessionEnd` asks this session's helpers to shut down; `Stop` asks its helpers in deleted folders. |
 | `report` | The hooks stop nothing: `SessionEnd` does nothing, and `Stop` lists this session's helpers in deleted folders instead. The session-start check reports helpers of ended sessions in either mode. |
 
 ```bash

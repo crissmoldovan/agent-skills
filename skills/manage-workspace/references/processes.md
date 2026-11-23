@@ -84,22 +84,28 @@ ended. A folder counts as deleted only when it does not exist; one that cannot b
 
 ## What is stopped, and when
 
-| When | What is stopped | Scope |
+Nothing here sends a signal. A helper is **asked to shut itself down**, on its own socket, the way its
+plugin's session-end hook does it: for the Codex companion broker, a `broker/shutdown` request on the
+socket named by its `--endpoint`, after which the broker closes its own app server and children and
+exits. Before asking, a harmless request checks it is not busy: a broker serving another client answers
+"Shared Codex broker is busy", and is left running.
+
+| When | What is asked to shut down | Scope |
 | --- | --- | --- |
 | `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the nearest folder above it with `.git`, which is how the plugin keys a broker), and, without the session files, except any whose folder still exists | any folder |
 | `Stop` hook (each turn) | this session's helpers whose folder no longer exists | this session only |
-| `processes --stop-helpers --yes`, on a person's word | helpers whose folder is gone, and helpers whose session is known to have ended unless another live session works in their workspace | machine-wide, or one `--session` |
-| never | agent CLIs, virtual machines, containers, a live session's helper in an existing folder, a helper whose liveness is unknown | |
+| `processes --stop-helpers --yes`, on a person's word | helpers of a known session whose folder is gone, and helpers whose session is known to have ended unless another live session works in their workspace | machine-wide, or one `--session` |
+| never | a busy helper, a helper whose session is unknown, a live session's helper in an existing folder, agent CLIs, virtual machines, containers | |
 
 The hooks never stop another session's process: another session's leftovers are reported at session
 start so the agent tells the user, and stopping them is the user's call. `--stop-helpers` without
 `--yes` only previews.
 
-Stopping reads the process table again first and skips a helper unless its pid still has the same
-command line and its environment still names the same session; its tree is taken from that fresh
-table, and a tree that holds the process doing the stopping, or one of its ancestors, is skipped. Then
-`SIGTERM` goes to the tree, and after 1.5 seconds `SIGKILL` goes to each pid that is still there with an
-unchanged command line, so a pid reused in between is left alone. To have the hooks stop nothing (the
+Before asking, the process table is read again, and a helper is skipped unless its pid still has the
+same command line and its environment still names the same session. A helper with no socket (a broker
+replaced without being stopped has lost its socket), one that does not answer, or one that refuses is
+left running, and the report gives the `kill <pid>` a person can run after checking it is not in use.
+A helper counts as stopped once it has accepted the request. To have the hooks ask nothing (the
 end-of-turn check then lists this session's helpers in deleted folders instead, and session end does
 nothing):
 
@@ -134,8 +140,11 @@ that names its folder. Without a session variable it can be reported but never s
 - A folder is "deleted" only when it does not exist; a symlink is followed, and a folder that cannot be
   read is unknown. A session file whose process started at another time than its pid's (the pid was
   reused) is ignored.
-- A helper counts as stopped only when its pid no longer has its command line afterwards; one that
-  survives is reported as skipped, not stopped.
+- Asking a helper to stop connects to the socket its command line names. A process that merely
+  carries a broker's command line would receive the request on that socket; nothing else is sent to
+  it, and no signal is sent to anything.
+- Between the busy check and the shutdown request a new request could begin; the plugin's own
+  session-end hook does not check at all.
 - The machine check at session start reports at most twelve items, and a process table that cannot be
   read within its time budget yields no report rather than a wrong one.
 - A process started under a name the check does not know is not reported. Note what you start.

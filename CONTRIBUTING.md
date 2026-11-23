@@ -184,8 +184,8 @@ it is not discovered, `npx skills add` does not install it, and
   only when a person explicitly asks to install or update that skill, which is the consent, and the
   script still previews, backs up and removes only what it wrote. Its hooks stop processes in two
   cases only, both limited to helpers whose environment names the hook's own session (at session end
-  all of them, at the end of a turn those whose folder is gone), and a switch makes them report
-  instead. An agent approves that skill's two
+  all of them, at the end of a turn those whose folder is gone), by asking the helper on its own socket
+  to shut down, never with a signal; a switch makes them report instead. An agent approves that skill's two
   Codex hooks itself only with the machine owner's explicit authorisation in the request, by the
   guarded procedure in its enforcement guide; without it, the person trusts them in `/hooks`.
   Nothing else here changes: no other skill's hook, and no agent acting on its own initiative,

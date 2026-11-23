@@ -429,3 +429,16 @@ test('round three: ledgers are joined in time order', async () => {
   const lines = readFileSync(path.join(state, 'manage-workspace', 'ledger', 's.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).op);
   assert.deepEqual(lines, ['note', 'keep'], 'the later keep still follows its note');
 });
+
+test('the generated command copied into another event is a person\'s hook and is never removed', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  assert.equal(cli('--yes').status, 0);
+  const c = JSON.parse(readFileSync(claude, 'utf8'));
+  const copied = { matcher: 'Bash', hooks: [{ ...c.hooks.Stop[0].hooks[0], timeout: 5 }] };
+  c.hooks.PreToolUse = [copied];
+  writeFileSync(claude, `${JSON.stringify(c, null, 2)}\n`);
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).hooks.PreToolUse, [copied]);
+});

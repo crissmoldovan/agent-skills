@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -129,17 +129,29 @@ async function decoys(t) {
   const plugin = path.join(root, 'plugin', 'scripts');
   mkdirSync(plugin, { recursive: true });
   const broker = path.join(plugin, 'app-server-broker.mjs');
+  // A decoy that speaks the plugin's protocol: busy reply on request, broker/shutdown stops its child and exits.
   writeFileSync(broker, [
-    "import { spawn } from 'node:child_process';",
-    "if (!process.argv.includes('--child')) spawn(process.execPath, [process.argv[1], '--child'], { stdio: 'ignore' });",
-    'setInterval(() => {}, 1000);',
+    "import { spawn } from 'node:child_process'; import net from 'node:net'; import fs from 'node:fs';",
+    "const a = process.argv;",
+    "if (a.includes('--child')) { setInterval(() => {}, 1000); } else {",
+    "  const child = spawn(process.execPath, [a[1], '--child'], { stdio: 'ignore' });",
+    "  const sock = a[a.indexOf('--endpoint') + 1].slice('unix:'.length);",
+    "  if (!process.env.DECOY_NO_SOCKET) {",
+    "    const server = net.createServer((s) => { s.setEncoding('utf8'); let b = ''; s.on('data', (c) => { b += c; for (let i = b.indexOf('\\n'); i !== -1; i = b.indexOf('\\n')) { const m = JSON.parse(b.slice(0, i)); b = b.slice(i + 1);",
+    "      if (m.method === 'broker/shutdown') { s.write(JSON.stringify({ id: m.id, result: {} }) + '\\n'); child.kill(); server.close(); try { fs.unlinkSync(sock); } catch {} setTimeout(() => process.exit(0), 20); }",
+    "      else s.write(JSON.stringify({ id: m.id, error: process.env.DECOY_BUSY ? { code: -32001, message: 'Shared Codex broker is busy.' } : { code: -32601, message: 'Method not found' } }) + '\\n'); } }); });",
+    "    server.listen(sock);",
+    "  }",
+    "  setInterval(() => {}, 1000);",
+    "}",
   ].join('\n'));
-  const started = [];
-  const start = (session, folder) => {
-    const child = spawn(process.execPath, [broker, 'serve', '--endpoint', `unix:${path.join(root, `${randomUUID()}.sock`)}`, '--cwd', folder, '--pid-file', path.join(root, 'x.pid')], {
-      env: { ...process.env, CODEX_COMPANION_SESSION_ID: session }, detached: true, stdio: 'ignore',
+  const started = []; let n = 0;
+  const start = (session, folder, extra = {}) => {
+    n += 1; const sock = path.join(root, `s${n}.sock`);
+    const child = spawn(process.execPath, [broker, 'serve', '--endpoint', `unix:${sock}`, '--cwd', folder, '--pid-file', path.join(root, 'x.pid')], {
+      env: { ...process.env, CODEX_COMPANION_SESSION_ID: session, ...extra }, detached: true, stdio: 'ignore',
     });
-    child.unref(); started.push(child.pid); return child.pid;
+    child.unref(); started.push(child.pid); child.sock = sock; return child.pid;
   };
   t.after(() => { for (const pid of started) { for (const c of childrenOf(pid)) try { process.kill(c, 'SIGKILL'); } catch { /* gone */ } try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } });
   const home = path.join(root, 'home');
@@ -167,6 +179,7 @@ test('session end stops every helper the ending session started, in any folder, 
   const a = start(mine, path.join(root, 'lane-a')); const b = start(mine, root); const other = start(theirs, root);
   assert.ok(await until(() => childrenOf(a).length && childrenOf(b).length && childrenOf(other).length), 'decoys running');
   const kids = [...childrenOf(a), ...childrenOf(b)];
+  await until(() => existsSync(path.join(root, 's1.sock')) && existsSync(path.join(root, 's2.sock')));
 
   const ended = hook('session-end', { session_id: mine, hook_event_name: 'SessionEnd', reason: 'other', cwd: root, transcript_path: null });
   assert.equal(ended.status, 0, ended.stderr);
@@ -185,7 +198,7 @@ test('the end-of-turn check stops this session\'s helpers whose folder is gone, 
   const sid = `mw-test-${randomUUID()}`;
   const lane = path.join(root, 'lane-b'); mkdirSync(lane);
   const kept = start(sid, root); const orphaned = start(sid, lane);
-  assert.ok(await until(() => childrenOf(kept).length && childrenOf(orphaned).length));
+  assert.ok(await until(() => childrenOf(kept).length && childrenOf(orphaned).length && existsSync(path.join(root, 's2.sock'))));
   rmSync(lane, { recursive: true });
   const transcript = path.join(root, 't.jsonl'); writeFileSync(transcript, '');
 
@@ -195,7 +208,7 @@ test('the end-of-turn check stops this session\'s helpers whose folder is gone, 
 
   const turn = hook('stop', { session_id: sid, transcript_path: transcript, hook_event_name: 'Stop' });
   assert.equal(turn.status, 0, turn.stderr);
-  assert.match(JSON.parse(turn.stdout).systemMessage, /Stopped 1 helper/);
+  assert.match(JSON.parse(turn.stdout).systemMessage, /Asked 1 helper .* to shut down/);
   assert.ok(await until(() => !alive(orphaned)), 'the helper of a deleted folder is stopped');
   assert.ok(alive(kept), 'a helper whose folder still exists is left for session end');
 });
@@ -205,7 +218,7 @@ test('processes lists and, on request, stops the helpers of a named session', as
   const sid = `mw-test-${randomUUID()}`;
   const gone = path.join(root, 'removed-lane'); mkdirSync(gone);
   const pid = start(sid, gone);
-  assert.ok(await until(() => childrenOf(pid).length));
+  assert.ok(await until(() => childrenOf(pid).length && existsSync(path.join(root, 's1.sock'))));
   rmSync(gone, { recursive: true });
 
   const listed = cli('processes', '--session', sid, '--json');
@@ -332,4 +345,26 @@ test('session end leaves a broker in a workspace another live session works in, 
   hook('session-end', { session_id: sid });
   await new Promise((r) => setTimeout(r, 300));
   assert.ok(alive(pid), 'without the session files sharing cannot be ruled out, so an existing folder\'s broker stays');
+});
+
+test('no signal is sent: a busy helper and one without a socket are left running, with a kill hint', async (t) => {
+  const { root, start, hook } = await decoys(t);
+  const sid = `mw-test-${randomUUID()}`;
+  const lane = path.join(root, 'lane-busy'); mkdirSync(lane);
+  const busy = start(sid, lane, { DECOY_BUSY: '1' });
+  const mute = start(sid, lane, { DECOY_NO_SOCKET: '1' });
+  assert.ok(await until(() => childrenOf(busy).length && childrenOf(mute).length && existsSync(path.join(root, 's1.sock'))));
+  rmSync(lane, { recursive: true });
+  const transcript = path.join(root, 'b.jsonl'); writeFileSync(transcript, '');
+  const out = hook('stop', { session_id: sid, transcript_path: transcript, hook_event_name: 'Stop' });
+  assert.equal(out.status, 0, out.stderr);
+  const message = JSON.parse(out.stdout).systemMessage;
+  assert.match(message, new RegExp(`Left helper pid ${busy} running: it is busy`));
+  assert.match(message, new RegExp(`Left helper pid ${mute} running: it has no socket.*kill ${mute}`));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(alive(busy) && alive(mute), 'neither was signalled');
+  assert.equal(hook('stop', { session_id: sid, transcript_path: transcript, hook_event_name: 'Stop' }).stdout, '', 'said once');
+  assert.equal(hook('session-end', { session_id: sid }).status, 0);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(alive(busy) && alive(mute), 'session end does not signal them either');
 });

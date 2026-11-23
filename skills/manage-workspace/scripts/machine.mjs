@@ -1,6 +1,7 @@
 // Machine checks for agent sessions: processes agents leave running, and memory headroom that counts
-// swap. Read-only except stopHelpers(), which signals only the helper trees it is given, after checking
-// each process still has the command line it was found with. No network. Node.js 22 or newer.
+// swap. Read-only except shutdownHelpers(), which sends no signal: it asks a helper to shut itself down
+// through its own socket, the way its plugin does, and only when the helper says it is not busy. No
+// network beyond that local socket. Node.js 22 or newer.
 //
 // What it can see, stated plainly (references/processes.md has the detail):
 //   - "resident" sizes are RSS: pages that are compressed or swapped out are not counted, so a
@@ -12,6 +13,7 @@
 //     running Claude Code process is accounted for in those files.
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import net from 'node:net';
 import { homedir, totalmem } from 'node:os';
 import path from 'node:path';
 
@@ -30,8 +32,10 @@ export const HELPERS = [{
   sessionEnv: 'CODEX_COMPANION_SESSION_ID',
   parse(args) {
     const m = new RegExp(`^${PATH_TO('node')}\\s+(${PATH_TO('app-server-broker\\.mjs')})\\s+serve\\s+--endpoint\\s+(.+?)\\s+--cwd\\s+(.+)\\s+--pid-file\\s+(.+)$`).exec(args);
-    return m ? { folder: m[3] } : null;
+    return m ? { folder: m[3], endpoint: m[2] } : null;
   },
+  // The plugin's own shutdown request, and the reply it gives a second client while it serves one.
+  shutdown: { method: 'broker/shutdown', busy: /busy/i },
 }];
 
 const AGENT_CLIS = ['claude', 'codex'];
@@ -258,48 +262,59 @@ export function scanProcesses({ ps = readPs(), envs = readEnvs, sessions = readS
   return { helpers, agents, duplicates, vms, sessions: sessions ? current : null };
 }
 
-// A helper may be stopped when its folder is gone (it can never be reused) or its session is known
-// to have ended. Unknown never counts as either. A session filter narrows to one session.
+// A helper may be asked to stop when its session is known (an unknown owner never is) and its folder is
+// gone (it can never be reused) or its session is known to have ended. A session filter narrows to one.
 export function stoppable(scan, { session } = {}) {
-  return scan.helpers.filter((h) => (session === undefined ? true : h.session === session) && (h.folderGone === true || h.sessionLive === false));
+  return scan.helpers.filter((h) => h.session && (session === undefined ? true : h.session === session) && (h.folderGone === true || h.sessionLive === false));
 }
 
-const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+// One JSON-RPC exchange over a helper's own unix socket. Resolves to the reply, or to null on no socket,
+// a refused connection, a closed socket or the time limit.
+function ask(socketPath, message, ms) {
+  return new Promise((resolve) => {
+    let done = false; let buffer = '';
+    const finish = (v) => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* closed */ } resolve(v); };
+    const timer = setTimeout(() => finish(null), ms);
+    const sock = net.createConnection(socketPath);
+    sock.setEncoding('utf8');
+    sock.on('connect', () => sock.write(`${JSON.stringify(message)}\n`));
+    sock.on('data', (chunk) => {
+      buffer += chunk;
+      for (let i = buffer.indexOf('\n'); i !== -1; i = buffer.indexOf('\n')) {
+        const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
+        try { const reply = JSON.parse(line); if (reply.id === message.id) return finish(reply); } catch { /* not ours */ }
+      }
+    });
+    sock.on('error', () => finish(null));
+    sock.on('close', () => finish(null));
+  });
+}
 
-// Signals each helper's tree: TERM, then KILL what is left after graceMs. The process table is read
-// again first: a helper is signalled only if its pid still has the same command line and its
-// environment still names the same session, and its tree is taken from that fresh table. A tree that
-// holds this process or one of its ancestors is never signalled. Before KILL the table is read once
-// more and only pids with an unchanged command line are signalled, so a reused pid is left alone.
-export function stopHelpers(list, { graceMs = 1500 } = {}) {
+const isSocket = (p) => { try { return statSync(p).isSocket(); } catch { return false; } };
+const killHint = (h) => `kill ${h.pid} (after checking it is not in use)`;
+
+// Asks each helper to shut itself down. No signal is ever sent. Before asking, the process table is read
+// again and a helper is skipped unless its pid still has the same command line and its environment still
+// names the same, known session. Then, on the helper's own socket, a harmless request checks it is not
+// busy (a helper serving another client says so, and is left alone), and its shutdown request follows:
+// the helper closes its own app server and children and exits. A helper with no socket, a busy one, or
+// one that does not answer is skipped, with the command a person can run after checking.
+export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
   const stopped = []; const skipped = [];
-  if (usingFixture()) return { stopped, skipped: list.map((h) => ({ pid: h.pid, why: 'fixture: nothing is signalled' })) };
+  if (usingFixture()) return { stopped, skipped: list.map((h) => ({ pid: h.pid, why: 'fixture: nothing is stopped' })) };
   const now = parsePs(readPs()); const byPid = new Map(now.map((p) => [p.pid, p]));
-  const kids = new Map(); for (const p of now) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(p.pid); }
-  const descendants = (pid) => { const out = []; const stack = [pid]; while (stack.length) { const q = stack.pop(); out.push(q); for (const c of kids.get(q) || []) stack.push(c); } return out; };
-  const mine = new Set(); for (let q = process.pid; q > 1 && byPid.has(q); q = byPid.get(q).ppid) mine.add(q);
   const envNow = readEnvs(list.map((h) => byPid.get(h.pid)).filter(Boolean));
-  const targets = [];
-  for (const h of list) {
-    const p = byPid.get(h.pid); const def = HELPERS.find((x) => x.id === h.helper);
-    if (!p || !def || p.args !== h.args || !def.parse(p.args) || (envNow.get(h.pid)?.[def.sessionEnv] || null) !== h.session) { skipped.push({ pid: h.pid, why: 'no longer the same helper' }); continue; }
-    const pids = descendants(h.pid).filter((q) => q > 1);
-    if (pids.some((q) => mine.has(q))) { skipped.push({ pid: h.pid, why: 'its tree holds the process stopping it' }); continue; }
-    const nested = pids.filter((q) => q !== h.pid && HELPERS.some((x) => x.parse(byPid.get(q).args)));
-    if (nested.length) { skipped.push({ pid: h.pid, why: 'its tree holds another helper' }); continue; }
-    targets.push({ h, procs: pids.map((q) => ({ pid: q, args: byPid.get(q).args })) });
-  }
-  for (const t of targets) for (const q of t.procs) { try { process.kill(q.pid, 'SIGTERM'); } catch { /* gone */ } }
-  const all = targets.flatMap((t) => t.procs);
-  const deadline = Date.now() + graceMs;
-  while (Date.now() < deadline && all.some((q) => isAlive(q.pid))) spawnSync('sleep', ['0.1']);
-  if (all.some((q) => isAlive(q.pid))) {
-    const again = new Map(parsePs(readPs()).map((p) => [p.pid, p.args]));
-    for (const q of all) if (again.get(q.pid) === q.args) { try { process.kill(q.pid, 'SIGKILL'); } catch { /* gone */ } }
-  }
-  if (all.length) spawnSync('sleep', ['0.2']);
-  const after = new Map(parsePs(readPs()).map((p) => [p.pid, p.args]));
-  for (const t of targets) { if (after.get(t.h.pid) === t.h.args) skipped.push({ pid: t.h.pid, why: 'still running after SIGKILL' }); else stopped.push(t.h.pid); }
+  await Promise.all(list.map(async (h) => {
+    const p = byPid.get(h.pid); const def = HELPERS.find((x) => x.id === h.helper); const got = def?.parse(p?.args || '');
+    if (!p || !got || p.args !== h.args || !h.session || (envNow.get(h.pid)?.[def.sessionEnv] || null) !== h.session) { skipped.push({ pid: h.pid, why: 'no longer the same helper' }); return; }
+    const endpoint = /^unix:(.+)$/.exec(got.endpoint)?.[1];
+    if (!endpoint || !isSocket(endpoint)) { skipped.push({ pid: h.pid, why: `it has no socket to ask, so it cannot shut itself down; to stop it: ${killHint(h)}` }); return; }
+    const probe = await ask(endpoint, { id: 'manage-workspace-probe', method: 'manage-workspace/probe', params: {} }, timeoutMs);
+    if (!probe) { skipped.push({ pid: h.pid, why: `it did not answer on its socket; to stop it: ${killHint(h)}` }); return; }
+    if (probe.error && def.shutdown.busy.test(String(probe.error.message || ''))) { skipped.push({ pid: h.pid, why: 'it is busy serving a request, so it is left running' }); return; }
+    const reply = await ask(endpoint, { id: 'manage-workspace-shutdown', method: def.shutdown.method, params: {} }, timeoutMs);
+    if (reply && !reply.error) stopped.push(h.pid); else skipped.push({ pid: h.pid, why: `it did not accept the shutdown request; to stop it: ${killHint(h)}` });
+  }));
   return { stopped, skipped };
 }
 

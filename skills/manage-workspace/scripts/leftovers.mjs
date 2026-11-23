@@ -12,7 +12,9 @@
 //           SessionEnd: nothing (its output is not read)
 // Every failure path exits 0 and prints nothing: a hook's own failure is never the session's.
 // It stops processes in two cases only, both limited to helpers whose environment names THIS session:
-// at SessionEnd all of them, and at Stop those whose folder is gone. MWS_HELPERS=report turns that off.
+// at SessionEnd all of them, and at Stop those whose folder is gone. It sends no signal: it asks each
+// helper, on the helper's own socket, to shut itself down, and leaves a busy one running.
+// MWS_HELPERS=report turns that off.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -24,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   describeAgent, describeDuplicate, describeHelper, describeMemory, describeVm, memoryVerdict, readMemory, scanProcesses,
-  sharedWithLiveSession, stopHelpers, stoppable,
+  sharedWithLiveSession, shutdownHelpers, stoppable,
 } from './machine.mjs';
 
 export const VERSION = '2.0.0';
@@ -383,31 +385,37 @@ function sessionStart() {
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } })}\n`);
 }
 
-// This session's own helpers whose folder is gone can never be reused: stop them (or list them).
-function ownHelpers(sid) {
+// This session's own helpers whose folder is gone can never be reused: ask them to stop (or list them).
+// What is said about them is text for the person, never an item that can block a turn.
+async function ownHelpers(sid) {
   try {
     const scan = scanProcesses();
     const mine = scan.helpers.filter((h) => h.session === sid && h.folderGone === true);
-    if (!mine.length) return { lines: [], items: [] };
-    if (readHelpers() === 'report') return { lines: [], items: mine.map((h) => ({ what: 'helper', where: describeHelper(h), id: `helper:${h.pid}` })) };
-    const { stopped } = stopHelpers(mine);
-    return { lines: stopped.length ? [`Stopped ${stopped.length} helper${stopped.length === 1 ? '' : 's'} this session left in deleted folders: ${mine.filter((h) => stopped.includes(h.pid)).map(describeHelper).join('; ')}.`] : [], items: [] };
-  } catch { return { lines: [], items: [] }; }
+    if (!mine.length) return { lines: [], keys: [] };
+    if (readHelpers() === 'report') return { lines: [`This session left ${mine.length} helper${mine.length === 1 ? '' : 's'} in deleted folders (helpers: report, so none was stopped): ${mine.map(describeHelper).join('; ')}.`], keys: mine.map((h) => `report:${h.pid}`) };
+    const { stopped, skipped } = await shutdownHelpers(mine);
+    const lines = [];
+    if (stopped.length) lines.push(`Asked ${stopped.length} helper${stopped.length === 1 ? '' : 's'} this session left in deleted folders to shut down: ${mine.filter((h) => stopped.includes(h.pid)).map(describeHelper).join('; ')}.`);
+    for (const x of skipped) lines.push(`Left helper pid ${x.pid} running: ${x.why}.`);
+    return { lines, keys: [...stopped.map((p) => `stopped:${p}`), ...skipped.map((x) => `left:${x.pid}`)] };
+  } catch { return { lines: [], keys: [] }; }
 }
 
 // Leftovers are announced once per distinct set, and only they can block a turn. A helper this turn
 // stopped is announced once, as is memory falling low; neither repeats or re-blocks the leftovers.
-function stop() {
+async function stop() {
   const input = readStdin(); const mode = readMode();
   if (mode === 'off' || !input.session_id) return;
-  const { state, items: found } = findLeftovers(input.session_id, input.transcript_path);
-  const helpers = ownHelpers(input.session_id);
-  const items = [...found, ...helpers.items];
+  const { state, items } = findLeftovers(input.session_id, input.transcript_path);
+  const helpers = await ownHelpers(input.session_id);
   let memory; try { memory = memoryVerdict(readMemory()); } catch { memory = { ok: false, unknown: true }; }
   const low = !memory.ok && !memory.unknown;
-  const extra = [...helpers.lines];
+  // a helper note is said once per helper and outcome
+  const said = new Set(Array.isArray(state.helperNotes) ? state.helperNotes : []);
+  const extra = helpers.lines.filter((_, i) => !said.has(helpers.keys[i]));
+  state.helperNotes = [...said, ...helpers.keys].slice(-64);
   if (low && !state.memoryLow) extra.push(`Memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)}). Stop VMs, containers and helpers that are no longer needed before more heavy work.`);
-  const memoryChanged = Boolean(state.memoryLow) !== low; state.memoryLow = low;
+  state.memoryLow = low;
   const sig = items.length ? createHash('sha256').update(items.map((i) => i.id).sort().join('\n')).digest('hex').slice(0, 16) : '';
   // Every set already announced (or blocked on) since the session last had nothing left is remembered,
   // so a set that comes back (A, then B, then A) is not announced or blocked on again.
@@ -423,19 +431,19 @@ function stop() {
   }
   const reminder = items.length && !seen('reportedSets').includes(sig) ? `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` : '';
   if (reminder) remember('reportedSets');
-  if (reminder || extra.length || memoryChanged || !items.length) saveState(input.session_id, state);
+  saveState(input.session_id, state);
   const message = [reminder, ...extra].filter(Boolean).join('\n');
   if (message) process.stdout.write(`${JSON.stringify({ systemMessage: message })}\n`);
 }
 
 // At session end every helper this session started is done with, wherever its folder is, unless
 // another live session works in that folder and may be reusing it.
-function sessionEnd() {
+async function sessionEnd() {
   const input = readStdin();
   if (readMode() === 'off' || readHelpers() === 'report' || !input.session_id) return;
   const scan = scanProcesses();
   const mine = scan.helpers.filter((h) => h.session === input.session_id && (h.folderGone === true || !sharedWithLiveSession(h, scan.sessions, input.session_id)));
-  if (mine.length) stopHelpers(mine);
+  if (mine.length) await shutdownHelpers(mine);
 }
 
 function parseFlags(argv) {
@@ -475,7 +483,7 @@ function memoryCommand(argv) {
   if (!v.ok) process.exitCode = 1;
 }
 
-function processesCommand(argv) {
+async function processesCommand(argv) {
   const f = parseFlags(argv);
   if (Object.hasOwn(f, 'session') && (typeof f.session !== 'string' || f.session === '')) { process.stderr.write('usage: leftovers.mjs processes [--session <id>] [--json] [--stop-helpers [--yes]]: --session needs a session id\n'); process.exitCode = 2; return; }
   const session = typeof f.session === 'string' ? f.session : undefined;
@@ -487,8 +495,8 @@ function processesCommand(argv) {
     const targets = stoppable(scan, { session }).filter((h) => h.folderGone === true || !sharedWithLiveSession(h, scan.sessions, h.session));
     if (!targets.length) { process.stdout.write('no helper of an ended session or a deleted folder is running\n'); return; }
     if (f.yes !== true) { process.stdout.write(`would stop ${targets.length}:\n${targets.map((h) => `- ${describeHelper(h)}`).join('\n')}\npreview only: re-run with --yes to stop them\n`); return; }
-    const { stopped, skipped } = stopHelpers(targets);
-    process.stdout.write(`stopped ${stopped.length}${stopped.length ? `: pids ${stopped.join(', ')}` : ''}${skipped.length ? `; skipped ${skipped.map((x) => `${x.pid} (${x.why})`).join(', ')}` : ''}\n`);
+    const { stopped, skipped } = await shutdownHelpers(targets);
+    process.stdout.write(`stopped ${stopped.length}${stopped.length ? `: pids ${stopped.join(', ')} were asked to shut down and accepted` : ''}\n${skipped.map((x) => `left pid ${x.pid} running: ${x.why}\n`).join('')}`);
     return;
   }
   if (f.json) { process.stdout.write(`${JSON.stringify(report, null, 2)}\n`); return; }
@@ -506,11 +514,11 @@ if (invoked) {
   const [event, ...rest] = process.argv.slice(2);
   try {
     if (event === 'session-start') sessionStart();
-    else if (event === 'stop') stop();
-    else if (event === 'session-end') sessionEnd();
+    else if (event === 'stop') await stop();
+    else if (event === 'session-end') await sessionEnd();
     else if (['note', 'keep', 'done'].includes(event)) ledgerCommand(event, rest);
     else if (event === 'list') list(rest);
-    else if (event === 'processes') processesCommand(rest);
+    else if (event === 'processes') await processesCommand(rest);
     else if (event === 'memory') memoryCommand(rest);
     else if (event === 'mode') process.stdout.write(`${readMode()}\n`);
     else if (event === 'helpers') process.stdout.write(`${readHelpers()}\n`);

@@ -117,14 +117,15 @@ installs hooks for Claude Code and for Codex, whichever are present:
 - a **session-start** hook that puts the policy above in front of every new session, with a
   machine check: helpers of ended sessions or deleted folders, agent CLIs with no parent, a session
   served by two processes, and low memory, each named so the agent tells the user;
-- an **end-of-turn** hook that checks what this session created and still left, and stops this
-  session's own helpers whose folder is gone;
-- in Claude Code, an **end-of-session** hook that stops every helper this session started, in any
-  folder, except one in a folder another live session works in. Codex gets the other two until its
+- an **end-of-turn** hook that checks what this session created and still left, and asks this
+  session's own helpers whose folder is gone to shut down;
+- in Claude Code, an **end-of-session** hook that asks every helper this session started to shut
+  down, in any folder, except one in a workspace another live session works in. Codex gets the other two until its
   `SessionEnd` has been observed.
 
 It reads the session's own transcript and notes, so another session's or project's items are never
-flagged as this session's, and it stops only processes whose environment names this session. It
+flagged as this session's. It sends no signal: it asks only helpers whose environment names this
+session to shut themselves down, and leaves a busy one running. It
 shows a preview unless given `--yes`, merges without touching existing hooks, backs each file up,
 and has an uninstall. A person runs it; an agent installs it only when the user asks. Modes, the
 blocking switch, the helper switch, the limits and the contracts it relies on are in

@@ -73,6 +73,8 @@ export function oursScript(h) {
   return script;
 }
 const ours = (h) => oursScript(h) !== null;
+// Setup writes only these events; the same command copied into another event is a person's hook.
+const OUR_EVENTS = ['SessionStart', 'Stop', 'SessionEnd'];
 // Any hook, ours or a person's, whose command runs one of this skill's script copies.
 const usesScripts = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? [])
   .some((h) => typeof h?.command === 'string' && new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs`).test(h.command));
@@ -112,7 +114,7 @@ function planInstall(json, agent) {
 function planRemove(json) {
   const next = structuredClone(json); const changes = [];
   for (const [event, list] of Object.entries(next.hooks ?? {})) {
-    if (!Array.isArray(list)) continue;
+    if (!Array.isArray(list) || !OUR_EVENTS.includes(event)) continue;
     for (const g of list) {
       const before = g.hooks?.length ?? 0;
       if (g.hooks) g.hooks = g.hooks.filter((h) => !ours(h));
@@ -123,7 +125,7 @@ function planRemove(json) {
   }
   return { next, changes };
 }
-const scriptsIn = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? []).map(oursScript).filter(Boolean);
+const scriptsIn = (json) => Object.entries(json.hooks ?? {}).filter(([e]) => OUR_EVENTS.includes(e)).flatMap(([, l]) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? []).map(oursScript).filter(Boolean);
 
 // Codex keeps trust in config.toml as [hooks.state."<hooks.json>:<event>:<group>:<hook>"] with a
 // trusted_hash once a person has reviewed the hook in /hooks. Presence of a hash is all this can
@@ -297,16 +299,22 @@ function main(argv) {
 
   if (action === 'uninstall') {
     // The scripts and state are shared: they go only when no agent's file still has an entry of ours.
-    const stillUsed = Object.keys(AGENTS).filter((a) => {
-      const planned = plans.find((p) => p.a === a); if (planned) return usesScripts(planned.next);
-      try { return usesScripts(readJson(agentFile(a)).json); } catch { return true; }
-    });
+    // every agent file this run planned, plus the default ones (a second Claude Code or Codex profile in
+    // its default folder shares this data folder); another profile elsewhere cannot be seen
+    const planned = new Map(plans.map((p) => [p.f, p]));
+    const files = new Map(Object.keys(AGENTS).map((a) => [agentFile(a), AGENTS[a].label]));
+    files.set(path.join(HOME(), '.claude', 'settings.json'), 'Claude Code'); files.set(path.join(HOME(), '.codex', 'hooks.json'), 'Codex');
+    const stillUsed = [...new Set([...files].filter(([f]) => {
+      if (planned.has(f)) return usesScripts(planned.get(f).next);
+      if (!existsSync(f)) return false;
+      try { return usesScripts(readJson(f).json); } catch { return true; }
+    }).map(([, label]) => label))];
     // the copies under this data folder, and an old-name copy under another one that a removed entry named,
     // when that folder holds nothing but this skill's scripts
     const named = plans.flatMap((p) => scriptsIn(p.read.json)).map((s) => path.dirname(s))
       .filter((d) => [NAME, LEGACY].includes(path.basename(d)) && existsSync(d) && readdirSync(d).every((f) => SCRIPTS.includes(f)));
     const dirs = [...new Set([dataDir(), legacyDataDir(), ...named])].filter(existsSync);
-    if (stillUsed.length) notes.push(`${stillUsed.map((a) => AGENTS[a].label).join(' and ')} still ${stillUsed.length === 1 ? 'has' : 'have'} clean-up hooks, so the shared scripts${flags.has('--purge') ? ', state and settings' : ''} stay; uninstall for ${stillUsed.length === 1 ? 'it' : 'them'} too to remove them`);
+    if (stillUsed.length) notes.push(`${stillUsed.join(' and ')} still ${stillUsed.length === 1 ? 'has' : 'have'} clean-up hooks, so the shared scripts${flags.has('--purge') ? ', state and settings' : ''} stay; uninstall for ${stillUsed.length === 1 ? 'it' : 'them'} too to remove them`);
     else if (apply) {
       for (const d of dirs) { rmSync(d, { recursive: true, force: true }); out(`removed ${d}`); }
       if (flags.has('--purge')) {
