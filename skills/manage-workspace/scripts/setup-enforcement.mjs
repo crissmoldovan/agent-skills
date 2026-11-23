@@ -27,7 +27,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOME = () => process.env.HOME || homedir();
 const NAME = 'manage-workspace';
 const LEGACY = 'manage-workspace-storage';
-const SCRIPTS = ['leftovers.mjs', 'machine.mjs'];
+// machine.mjs first: leftovers.mjs imports it, so a copy interrupted between the two never leaves a
+// leftovers.mjs whose dependency is missing.
+const SCRIPTS = ['machine.mjs', 'leftovers.mjs'];
 const dataRoot = () => process.env.XDG_DATA_HOME || path.join(HOME(), '.local/share');
 const stateRoot = () => process.env.XDG_STATE_HOME || path.join(HOME(), '.local/state');
 const configRoot = () => process.env.XDG_CONFIG_HOME || path.join(HOME(), '.config');
@@ -52,10 +54,11 @@ function command(event) {
 }
 // SessionEnd is observed in Claude Code; Codex 0.171.0 carries its input schema but it has not been
 // observed firing there, so Codex gets the other two until it is.
+// Stop and SessionEnd may stop helpers, which on a loaded machine takes several seconds: 30 s each.
 const wanted = (agent) => ({
   SessionStart: { matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command: command('session-start'), timeout: 10 }] },
-  Stop: { hooks: [{ type: 'command', command: command('stop'), timeout: 10 }] },
-  ...(agent === 'claude' ? { SessionEnd: { hooks: [{ type: 'command', command: command('session-end'), timeout: 10 }] } } : {}),
+  Stop: { hooks: [{ type: 'command', command: command('stop'), timeout: 30 }] },
+  ...(agent === 'claude' ? { SessionEnd: { hooks: [{ type: 'command', command: command('session-end'), timeout: 30 }] } } : {}),
 });
 
 // An entry is ours only in the exact shape command() writes, under the new or the old name. A hook a
@@ -64,17 +67,24 @@ const Q = '"((?:[^"\\\\]|\\\\.)*)"';
 const OURS = new RegExp(`^if \\[ -x ${Q} \\]; then exec ${Q} ${Q} (session-start|stop|session-end); else exec node ${Q} \\4; fi$`);
 export function oursScript(h) {
   if (typeof h?.command !== 'string') return null;
-  const m = OURS.exec(h.command); if (!m) return null;
+  const m = OURS.exec(h.command); if (!m || m[1] !== m[2]) return null;
   const script = undq(m[3]);
   if (undq(m[5]) !== script || !new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs$`).test(script)) return null;
   return script;
 }
 const ours = (h) => oursScript(h) !== null;
+// Any hook, ours or a person's, whose command runs one of this skill's script copies.
+const usesScripts = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? [])
+  .some((h) => typeof h?.command === 'string' && new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs`).test(h.command));
 
 function readJson(file) {
   if (!existsSync(file)) return { json: {}, text: null };
   const text = readFileSync(file, 'utf8');
-  try { return { json: JSON.parse(text), text }; } catch (e) { throw new Error(`${file} is not valid JSON; nothing changed (${e.message})`); }
+  let json; try { json = JSON.parse(text); } catch (e) { throw new Error(`${file} is not valid JSON; nothing changed (${e.message})`); }
+  const plain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!plain(json)) throw new Error(`${file} is not a JSON object; nothing changed`);
+  if (json.hooks !== undefined && !plain(json.hooks)) throw new Error(`${file}: "hooks" is not an object; nothing changed`);
+  return { json, text };
 }
 
 // Returns {next, changes[]} without writing.
@@ -172,8 +182,11 @@ function mergeInto(from, to) {
     mkdirSync(path.dirname(dst), { recursive: true });
     if (!existsSync(dst)) { renameSync(src, dst); moved += 1; continue; }
     if (rel.startsWith(`ledger${path.sep}`) && rel.endsWith('.jsonl')) {
-      const both = readFileSync(src, 'utf8') + readFileSync(dst, 'utf8');
-      const tmp = `${dst}.mw-${process.pid}.tmp`; writeFileSync(tmp, both); renameSync(tmp, dst); joined += 1;
+      // joined in time order, so a later keep or done written under either name still follows its note
+      const lines = [...readFileSync(src, 'utf8').split('\n'), ...readFileSync(dst, 'utf8').split('\n')].filter(Boolean)
+        .map((l, i) => { let ts = ''; try { ts = JSON.parse(l).ts || ''; } catch { /* keep its place */ } return { l, i, ts }; })
+        .sort((a, b) => (a.ts && b.ts && a.ts !== b.ts ? (a.ts < b.ts ? -1 : 1) : a.i - b.i));
+      const tmp = `${dst}.mw-${process.pid}.tmp`; writeFileSync(tmp, `${lines.map((x) => x.l).join('\n')}\n`); renameSync(tmp, dst); joined += 1;
     }
     rmSync(src, { force: true });
   }
@@ -285,10 +298,14 @@ function main(argv) {
   if (action === 'uninstall') {
     // The scripts and state are shared: they go only when no agent's file still has an entry of ours.
     const stillUsed = Object.keys(AGENTS).filter((a) => {
-      const planned = plans.find((p) => p.a === a); if (planned) return scriptsIn(planned.next).length > 0;
-      try { return scriptsIn(readJson(agentFile(a)).json).length > 0; } catch { return true; }
+      const planned = plans.find((p) => p.a === a); if (planned) return usesScripts(planned.next);
+      try { return usesScripts(readJson(agentFile(a)).json); } catch { return true; }
     });
-    const dirs = [dataDir(), legacyDataDir()].filter(existsSync);
+    // the copies under this data folder, and an old-name copy under another one that a removed entry named,
+    // when that folder holds nothing but this skill's scripts
+    const named = plans.flatMap((p) => scriptsIn(p.read.json)).map((s) => path.dirname(s))
+      .filter((d) => [NAME, LEGACY].includes(path.basename(d)) && existsSync(d) && readdirSync(d).every((f) => SCRIPTS.includes(f)));
+    const dirs = [...new Set([dataDir(), legacyDataDir(), ...named])].filter(existsSync);
     if (stillUsed.length) notes.push(`${stillUsed.map((a) => AGENTS[a].label).join(' and ')} still ${stillUsed.length === 1 ? 'has' : 'have'} clean-up hooks, so the shared scripts${flags.has('--purge') ? ', state and settings' : ''} stay; uninstall for ${stillUsed.length === 1 ? 'it' : 'them'} too to remove them`);
     else if (apply) {
       for (const d of dirs) { rmSync(d, { recursive: true, force: true }); out(`removed ${d}`); }

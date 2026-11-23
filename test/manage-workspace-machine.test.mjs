@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -143,7 +143,8 @@ async function decoys(t) {
   };
   t.after(() => { for (const pid of started) { for (const c of childrenOf(pid)) try { process.kill(c, 'SIGKILL'); } catch { /* gone */ } try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } });
   const home = path.join(root, 'home');
-  mkdirSync(home);
+  // an empty Claude Code session folder, as on a machine running Claude Code with no other session here
+  mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
   const fixture = path.join(root, 'fixture.json');
   writeFileSync(fixture, JSON.stringify({ memory: healthy }));
   const env = { ...process.env, HOME: home, MWS_STATE_DIR: path.join(home, 'state'), MWS_CONFIG_DIR: path.join(home, 'config'), MWS_MACHINE_FIXTURE: fixture };
@@ -246,7 +247,7 @@ test('session end leaves a helper whose folder another live session works in', a
   const shared = path.join(root, 'shared-lane'); mkdirSync(shared);
   const pid = start(sid, shared);
   assert.ok(await until(() => childrenOf(pid).length));
-  const home = path.join(root, 'home'); mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  const home = path.join(root, 'home');
   writeFileSync(path.join(home, '.claude', 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'other-live', cwd: shared }));
   assert.equal(hook('session-end', { session_id: sid }).status, 0);
   await new Promise((r) => setTimeout(r, 300));
@@ -284,4 +285,51 @@ test('session start adds a machine check when helpers of ended sessions, parentl
   write(healthy);
   writeFileSync(fixture, JSON.stringify({ memory: healthy, ps: psLine(1, 0, '1-00:00:00', 1, 'launchd'), env: {} }));
   assert.doesNotMatch(start(), /Machine check/, 'nothing found, nothing added');
+});
+
+test('round three: a wrapper with a dash, a doubled marker, a symlinked folder and a stale session file are all read safely', async () => {
+  const wrapper = psLine(20, 1, '1:00', 1, '/bin/sh -c /opt/bin/node /p/app-server-broker.mjs serve --endpoint unix:/t/z.sock --cwd /work/z --pid-file /t/z.pid');
+  assert.equal(machine.scanProcesses({ ps: wrapper, envs: { 20: { CODEX_COMPANION_SESSION_ID: 's' } }, sessions: [], exists: () => true }).helpers.length, 0, 'a shell line is never a node path');
+
+  const args = 'node /p/app-server-broker.mjs serve --endpoint unix:/t/a --cwd /w --pid-file /t/p';
+  assert.deepEqual(machine.envFromPsE(`${args} LABEL=x CODEX_COMPANION_SESSION_ID=alpha CODEX_COMPANION_SESSION_ID=beta`, args), {}, 'two values: ambiguous, so unknown');
+  assert.deepEqual(machine.envFromPsE(`${args} CODEX_COMPANION_SESSION_ID=beta A=1`, args), { CODEX_COMPANION_SESSION_ID: 'beta' });
+
+  const root = await tempDir('mw-round3-');
+  const real = path.join(root, 'real'); mkdirSync(real); const link = path.join(root, 'link'); symlinkSync(real, link);
+  writeFileSync(path.join(root, 'file'), 'x');
+  assert.equal(machine.folderState(link), 'present', 'a symlink to a folder is followed');
+  assert.equal(machine.folderState(path.join(root, 'file')), 'unknown', 'a file is not a deleted folder');
+  assert.equal(machine.folderState(path.join(root, 'nope')), 'gone');
+
+  const ps = [psLine(1, 0, '1-00:00:00', 1, 'launchd'), psLine(200, 1, '10:00', 1, '/ext/claude --output-format stream-json'),
+    psLine(100, 1, '1:00', 1, 'node /p/app-server-broker.mjs serve --endpoint unix:/t/a --cwd /w --pid-file /t/p')].join('\n');
+  const stale = [{ pid: 200, sessionId: 'old', startedAt: Date.now() - 5 * 86400 * 1000 }];
+  const scan = machine.scanProcesses({ ps, envs: { 100: { CODEX_COMPANION_SESSION_ID: 'ended' } }, sessions: stale, exists: () => true });
+  assert.equal(scan.helpers[0].sessionLive, null, 'a stale session file does not make the registry complete');
+  assert.equal(scan.duplicates.length, 0);
+});
+
+test('round three: an unreadable or malformed memory reading refuses, and an empty session id is a usage error', async () => {
+  const root = await tempDir('mw-round3m-');
+  const f = path.join(root, 'true.json'); writeFileSync(f, JSON.stringify({ memory: true }));
+  assert.equal(spawnSync(process.execPath, [leftovers, 'memory'], { encoding: 'utf8', env: { ...process.env, MWS_MACHINE_FIXTURE: f } }).status, 1);
+  assert.equal(spawnSync(process.execPath, [leftovers, 'processes', '--session', '', '--json'], { encoding: 'utf8', env: { ...process.env, MWS_MACHINE_FIXTURE: f } }).status, 2);
+});
+
+test('session end leaves a broker in a workspace another live session works in, even from another subfolder', async (t) => {
+  const { root, start, hook } = await decoys(t);
+  const repo = path.join(root, 'repo'); mkdirSync(path.join(repo, 'one'), { recursive: true }); mkdirSync(path.join(repo, 'two')); mkdirSync(path.join(repo, '.git'));
+  const sid = `mw-test-${randomUUID()}`;
+  const pid = start(sid, path.join(repo, 'one'));
+  assert.ok(await until(() => childrenOf(pid).length));
+  const home = path.join(root, 'home');
+  writeFileSync(path.join(home, '.claude', 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'other-live', cwd: path.join(repo, 'two') }));
+  assert.equal(hook('session-end', { session_id: sid }).status, 0);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(alive(pid), 'same workspace root, so it may be reused');
+  rmSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  hook('session-end', { session_id: sid });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(alive(pid), 'without the session files sharing cannot be ruled out, so an existing folder\'s broker stays');
 });

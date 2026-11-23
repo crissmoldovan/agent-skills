@@ -11,14 +11,15 @@
 //     which are not a documented interface; liveness is "unknown", never "ended", unless every
 //     running Claude Code process is accounted for in those files.
 import { spawnSync } from 'node:child_process';
-import { lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import path from 'node:path';
 
 const HOME = () => process.env.HOME || homedir();
 
-// A path made of segments, each of which may contain spaces: /seg/seg with spaces/name
-const PATH_TO = (name) => `(?:\\/(?:[^/\\n]+\\/)*)?${name}`;
+// A path made of segments, each of which may contain spaces but never a space followed by a dash, so a
+// shell line such as `/bin/sh -c /opt/bin/node …` cannot pass for a path: /seg/seg with spaces/name
+const PATH_TO = (name) => `(?:\\/(?:(?:(?!\\s-)[^/\\n])+\\/)*)?${name}`;
 
 // Helpers a plugin starts detached, keyed to a folder, and stops only from its own session-end hook.
 // `parse` takes a whole command line and returns { folder } only for the exact shape the plugin starts:
@@ -68,7 +69,11 @@ export function parseMeminfo(text) {
   return { platform: 'linux', ramMiB: total / 1024, freePct: (avail / total) * 100, swapUsedMiB: (swapTotal - swapFree) / 1024, swapTotalMiB: swapTotal / 1024 };
 }
 
+const validReading = (r) => (r && typeof r === 'object' && [r.ramMiB, r.freePct, r.swapUsedMiB].every(Number.isFinite) && r.ramMiB > 0 ? r : null);
 export function readMemory() {
+  try { return validReading(rawMemory()); } catch { return null; }
+}
+function rawMemory() {
   const f = fixture();
   if (f && 'memory' in f) return f.memory === 'unreadable' ? null : f.memory;
   if (process.platform === 'darwin') {
@@ -128,12 +133,17 @@ export function readPs() {
   return run('ps', ['-A', '-ww', '-o', 'pid=,ppid=,etime=,rss=,args='], 1500) || '';
 }
 
-// `ps -E -o command=` prints the arguments and then the environment in one string. Only what follows
-// the arguments, exactly as the process table showed them, is read as the environment.
+// `ps -E -o command=` prints the arguments and then the environment in one string, entries separated
+// by spaces, so a value with spaces in it can look like another entry. Only what follows the arguments,
+// exactly as the process table showed them, is read, and a variable that appears with two different
+// values is ambiguous and read as absent: an unknown session is never stopped.
 export function envFromPsE(line, args) {
   if (!line.startsWith(args)) return {};
-  const env = {};
-  for (const h of HELPERS) { const m = new RegExp(`(?:^|\\s)${h.sessionEnv}=(\\S+)`).exec(line.slice(args.length)); if (m) env[h.sessionEnv] = m[1]; }
+  const env = {}; const rest = line.slice(args.length);
+  for (const h of HELPERS) {
+    const values = new Set([...rest.matchAll(new RegExp(`(?:^|\\s)${h.sessionEnv}=(\\S+)`, 'g'))].map((m) => m[1]));
+    if (values.size === 1) env[h.sessionEnv] = [...values][0];
+  }
   return env;
 }
 
@@ -167,14 +177,23 @@ export function readSessions() {
   const out = [];
   for (const n of names) {
     if (!/^\d+\.json$/.test(n)) continue;
-    try { const d = JSON.parse(readFileSync(path.join(dir, n), 'utf8')); if (d && Number.isInteger(d.pid) && d.sessionId) out.push({ pid: d.pid, sessionId: d.sessionId, name: d.name, cwd: d.cwd, procStart: d.procStart }); } catch { /* skip */ }
+    try { const d = JSON.parse(readFileSync(path.join(dir, n), 'utf8')); if (d && Number.isInteger(d.pid) && d.sessionId) out.push({ pid: d.pid, sessionId: d.sessionId, name: d.name, cwd: d.cwd, startedAt: d.startedAt }); } catch { /* skip */ }
   }
   return out;
 }
 
-// present | gone | unknown. Only "does not exist" counts as gone; an unreadable path is unknown.
+// present | gone | unknown. Only "does not exist" (ENOENT) counts as gone; a symlink is followed; a path
+// that cannot be read, or is not a directory, is unknown.
 export function folderState(p) {
-  try { return lstatSync(p).isDirectory() ? 'present' : 'gone'; } catch (e) { return e.code === 'ENOENT' || e.code === 'ENOTDIR' ? 'gone' : 'unknown'; }
+  try { return statSync(p).isDirectory() ? 'present' : 'unknown'; } catch (e) { return e.code === 'ENOENT' ? 'gone' : 'unknown'; }
+}
+
+// The nearest folder at or above p that holds a .git entry: the plugin keys a broker by workspace root.
+export function workspaceRoot(p) {
+  for (let d = path.resolve(p); ; d = path.dirname(d)) {
+    try { statSync(path.join(d, '.git')); return d; } catch { /* keep going */ }
+    if (path.dirname(d) === d) return path.resolve(p);
+  }
 }
 
 const firstWord = (args) => path.basename(args.split(/\s+/)[0] || '');
@@ -201,9 +220,12 @@ export function scanProcesses({ ps = readPs(), envs = readEnvs, sessions = readS
 
   // A session absent from the registry has ended only if every running Claude Code process is in it;
   // a process from another config folder or a headless run that writes no file makes absence unknown.
+  // A session file whose process started at another time is stale (its pid was reused) and is ignored.
+  const now = Date.now();
+  const current = (sessions || []).filter((s) => byPid.has(s.pid) && (!Number.isFinite(s.startedAt) || Math.abs((now - byPid.get(s.pid).ageS * 1000) - s.startedAt) < 120_000));
   const live = sessions ? new Map() : null;
-  if (sessions) for (const s of sessions) if (byPid.has(s.pid)) { if (!live.has(s.sessionId)) live.set(s.sessionId, []); live.get(s.sessionId).push(s); }
-  const registered = new Set((sessions || []).map((s) => s.pid));
+  if (sessions) for (const s of current) { if (!live.has(s.sessionId)) live.set(s.sessionId, []); live.get(s.sessionId).push(s); }
+  const registered = new Set(current.map((s) => s.pid));
   const complete = Boolean(sessions) && procs.filter(isClaudeCli).every((p) => registered.has(p.pid));
 
   const candidates = [];
@@ -224,7 +246,7 @@ export function scanProcesses({ ps = readPs(), envs = readEnvs, sessions = readS
   const agents = [];
   for (const p of procs) {
     const agent = agentOf(p); if (!agent) continue;
-    const s = sessions?.find((x) => x.pid === p.pid);
+    const s = current.find((x) => x.pid === p.pid);
     const t = tree(p.pid);
     agents.push({ kind: 'agent', agent, pid: p.pid, ageS: p.ageS, rssKiB: rssOf(t), processes: t.length, session: s?.sessionId || null, name: s?.name || null, cwd: s?.cwd || null });
   }
@@ -233,7 +255,7 @@ export function scanProcesses({ ps = readPs(), envs = readEnvs, sessions = readS
   if (live) for (const [session, list] of live) if (list.length > 1) duplicates.push({ kind: 'duplicate', session, name: list[0].name || null, pids: list.map((s) => s.pid).sort((a, b) => a - b) });
 
   const vms = procs.filter((p) => VM_PROCESS.test(p.args)).map((p) => ({ kind: 'vm', pid: p.pid, ageS: p.ageS, rssKiB: p.rssKiB, what: VM_PROCESS.exec(p.args)[1] }));
-  return { helpers, agents, duplicates, vms, sessions: sessions && sessions.filter((s) => byPid.has(s.pid)) };
+  return { helpers, agents, duplicates, vms, sessions: sessions ? current : null };
 }
 
 // A helper may be stopped when its folder is gone (it can never be reused) or its session is known
@@ -263,6 +285,8 @@ export function stopHelpers(list, { graceMs = 1500 } = {}) {
     if (!p || !def || p.args !== h.args || !def.parse(p.args) || (envNow.get(h.pid)?.[def.sessionEnv] || null) !== h.session) { skipped.push({ pid: h.pid, why: 'no longer the same helper' }); continue; }
     const pids = descendants(h.pid).filter((q) => q > 1);
     if (pids.some((q) => mine.has(q))) { skipped.push({ pid: h.pid, why: 'its tree holds the process stopping it' }); continue; }
+    const nested = pids.filter((q) => q !== h.pid && HELPERS.some((x) => x.parse(byPid.get(q).args)));
+    if (nested.length) { skipped.push({ pid: h.pid, why: 'its tree holds another helper' }); continue; }
     targets.push({ h, procs: pids.map((q) => ({ pid: q, args: byPid.get(q).args })) });
   }
   for (const t of targets) for (const q of t.procs) { try { process.kill(q.pid, 'SIGTERM'); } catch { /* gone */ } }
@@ -273,15 +297,20 @@ export function stopHelpers(list, { graceMs = 1500 } = {}) {
     const again = new Map(parsePs(readPs()).map((p) => [p.pid, p.args]));
     for (const q of all) if (again.get(q.pid) === q.args) { try { process.kill(q.pid, 'SIGKILL'); } catch { /* gone */ } }
   }
-  for (const t of targets) stopped.push(t.h.pid);
+  if (all.length) spawnSync('sleep', ['0.2']);
+  const after = new Map(parsePs(readPs()).map((p) => [p.pid, p.args]));
+  for (const t of targets) { if (after.get(t.h.pid) === t.h.args) skipped.push({ pid: t.h.pid, why: 'still running after SIGKILL' }); else stopped.push(t.h.pid); }
   return { stopped, skipped };
 }
 
-// Another live session works in this folder (its directory is the folder or inside it): the plugin
-// reuses a broker by folder, so that session may be using it now.
+// Another live session works in this helper's workspace (the nearest folder above it with .git, which
+// is how the plugin keys and reuses a broker), so that session may be using it now. Without the session
+// files this cannot be known, and the answer is yes.
 export function sharedWithLiveSession(h, sessions, session) {
-  if (!h.folder || !sessions) return false;
-  return sessions.some((s) => s.sessionId !== session && s.cwd && (s.cwd === h.folder || s.cwd.startsWith(`${h.folder}/`)));
+  if (!h.folder) return false;
+  if (!sessions) return true;
+  const root = workspaceRoot(h.folder);
+  return sessions.some((s) => s.sessionId !== session && s.cwd && (s.cwd === root || s.cwd.startsWith(`${root}/`) || workspaceRoot(s.cwd) === root));
 }
 
 // ---- wording -----------------------------------------------------------------------------------

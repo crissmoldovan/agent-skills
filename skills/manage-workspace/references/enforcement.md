@@ -33,7 +33,8 @@ uninstall removes only its own. An entry counts as its own only in the exact sha
 "<same script>" <event>; fi` (or the same with `manage-workspace-storage`); a hook a person wrote that runs
 the script some other way is left alone. Every agent's file is read and checked first, and nothing at all
 is written if one is not valid JSON; the scripts are copied before any hook is pointed at them. Uninstall
-for one agent leaves the shared scripts, state and settings while another agent's hooks still use them. Before the first write to a file,
+for one agent leaves the shared scripts, state and settings while any hook, its own or one a person
+wrote, still runs them. Before the first write to a file,
 the previous bytes are copied beside it as `<file>.bak-manage-workspace` (a timestamp is added if
 that name exists). A file that is not valid JSON is left alone and setup stops.
 
@@ -46,12 +47,13 @@ The skill was called `manage-workspace-storage` until 2.0.0. Setup recognises th
   entry of its own in one event is removed);
 - moves the session state (`$XDG_STATE_HOME/manage-workspace-storage`) and the settings
   (`$XDG_CONFIG_HOME/manage-workspace-storage`) to the new name, file by file, unless `MWS_STATE_DIR` or
-  `MWS_CONFIG_DIR` names a folder; where a ledger exists under both names they are joined, the older
-  entries first, and any other file keeps its new copy;
+  `MWS_CONFIG_DIR` names a folder; where a ledger exists under both names they are joined in time
+  order, and any other file keeps its new copy;
 - refreshes every old script path still in use (the default one, and any an old entry names under
   another data folder) with the new scripts, so a session that started before the rename, and still
   runs the old hook command or was told the old path in its policy, keeps working. `status` says it is
-  there; uninstall removes it.
+  there. Uninstall removes the copies under the current data folder, and an old-name copy under another
+  one that a removed entry named, when its folder holds nothing but this skill's scripts.
 
 A rewritten command is a changed command, so Codex asks for trust again (below). The environment
 variables keep their names: `MWS_CLEANUP_MODE`, `MWS_HELPERS`, `MWS_STATE_DIR`, `MWS_CONFIG_DIR`.
@@ -226,4 +228,5 @@ the repository's hook notes; Codex's is DOCUMENTED in its binary only. Re-check 
   is JSONL with `response_item` entries of type `function_call`, `custom_tool_call` or
   `local_shell_call`. Codex documents its transcript format as not stable; the reader skips lines it
   does not recognise and a hook failure never fails the session (every path exits 0).
-- Codex hook timeouts are in seconds; the entries use 10.
+- Codex hook timeouts are in seconds, as are Claude Code's; the entries use 10 for `SessionStart` and 30 for `Stop` and
+  `SessionEnd`, which may stop helpers and on a loaded machine take several seconds.

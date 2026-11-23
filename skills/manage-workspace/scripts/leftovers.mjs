@@ -409,16 +409,20 @@ function stop() {
   if (low && !state.memoryLow) extra.push(`Memory is low: ${memory.reasons.join('; ')} (${describeMemory(memory)}). Stop VMs, containers and helpers that are no longer needed before more heavy work.`);
   const memoryChanged = Boolean(state.memoryLow) !== low; state.memoryLow = low;
   const sig = items.length ? createHash('sha256').update(items.map((i) => i.id).sort().join('\n')).digest('hex').slice(0, 16) : '';
-  if (!items.length) { state.reported = ''; state.blocked = ''; }
+  // Every set already announced (or blocked on) since the session last had nothing left is remembered,
+  // so a set that comes back (A, then B, then A) is not announced or blocked on again.
+  const seen = (key) => (Array.isArray(state[key]) ? state[key] : []);
+  const remember = (key) => { state[key] = [...seen(key).filter((x) => x !== sig), sig].slice(-32); };
+  if (!items.length) { state.reported = ''; state.blocked = ''; state.reportedSets = []; state.blockedSets = []; }
   const body = items.length ? `This session created these and they still exist (${items.length}):\n${describe(items)}` : '';
-  if (items.length && mode === 'block' && !input.stop_hook_active && state.blocked !== sig) {
-    state.blocked = sig; state.reported = sig; saveState(input.session_id, state);
+  if (items.length && mode === 'block' && !input.stop_hook_active && !seen('blockedSets').includes(sig)) {
+    remember('blockedSets'); remember('reportedSets'); saveState(input.session_id, state);
     const howto = `node "${self()}" keep --session ${input.session_id} --path <path or name> --reason "<why>"`;
     process.stdout.write(`${JSON.stringify({ decision: 'block', reason: `${body}\nBefore you finish: for each, keep the evidence in the project's durable record and remove it, or, if it must stay (another session owns it, it is unpublished, running, or needed later), run ${howto}. Then end with what you left behind and what you removed.${extra.length ? `\n${extra.join('\n')}` : ''}` })}\n`);
     return;
   }
-  const reminder = items.length && state.reported !== sig ? `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` : '';
-  if (reminder) state.reported = sig;
+  const reminder = items.length && !seen('reportedSets').includes(sig) ? `Clean-up reminder. ${body}\nRemove each when its work is done, or say in the final message why it stays.` : '';
+  if (reminder) remember('reportedSets');
   if (reminder || extra.length || memoryChanged || !items.length) saveState(input.session_id, state);
   const message = [reminder, ...extra].filter(Boolean).join('\n');
   if (message) process.stdout.write(`${JSON.stringify({ systemMessage: message })}\n`);
@@ -473,13 +477,14 @@ function memoryCommand(argv) {
 
 function processesCommand(argv) {
   const f = parseFlags(argv);
-  if (Object.hasOwn(f, 'session') && typeof f.session !== 'string') { process.stderr.write('usage: leftovers.mjs processes [--session <id>] [--json] [--stop-helpers [--yes]]: --session needs a session id\n'); process.exitCode = 2; return; }
+  if (Object.hasOwn(f, 'session') && (typeof f.session !== 'string' || f.session === '')) { process.stderr.write('usage: leftovers.mjs processes [--session <id>] [--json] [--stop-helpers [--yes]]: --session needs a session id\n'); process.exitCode = 2; return; }
   const session = typeof f.session === 'string' ? f.session : undefined;
   const scan = scanProcesses();
   const keep = (x) => !session || x.session === session;
   const report = { helpers: scan.helpers.filter(keep), agents: scan.agents.filter(keep), duplicates: scan.duplicates.filter(keep), vms: session ? [] : scan.vms, memory: memoryVerdict(readMemory()) };
   if (f['stop-helpers']) {
-    const targets = stoppable(scan, { session });
+    // A folder that still exists may be another live session's workspace: its broker is left alone.
+    const targets = stoppable(scan, { session }).filter((h) => h.folderGone === true || !sharedWithLiveSession(h, scan.sessions, h.session));
     if (!targets.length) { process.stdout.write('no helper of an ended session or a deleted folder is running\n'); return; }
     if (f.yes !== true) { process.stdout.write(`would stop ${targets.length}:\n${targets.map((h) => `- ${describeHelper(h)}`).join('\n')}\npreview only: re-run with --yes to stop them\n`); return; }
     const { stopped, skipped } = stopHelpers(targets);

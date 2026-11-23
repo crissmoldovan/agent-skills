@@ -394,3 +394,38 @@ test('memory changing state does not repeat a leftover reminder or block the tur
   assert.equal(hook('stop', input, { MWS_CLEANUP_MODE: 'block', MWS_MACHINE_FIXTURE: lowFile }).stdout, '', 'low memory is said once');
   assert.equal(hook('stop', input, { MWS_CLEANUP_MODE: 'block', MWS_MACHINE_FIXTURE: env.MWS_MACHINE_FIXTURE }).stdout, '', 'recovering is quiet too');
 });
+
+test('round three: setup refuses a hooks array, claims no entry whose two node paths differ, and keeps scripts a person\'s hook runs', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  writeFileSync(claude, '{"hooks": []}\n');
+  const bad = cli('--yes');
+  assert.equal(bad.status, 1);
+  assert.match(bad.stdout, /"hooks" is not an object/);
+  assert.equal(readFileSync(claude, 'utf8'), '{"hooks": []}\n');
+
+  const script = path.join(home, 'data', 'manage-workspace', 'leftovers.mjs');
+  const odd = { type: 'command', command: `if [ -x "/usr/bin/true" ]; then exec "${process.execPath}" "${script}" stop; else exec node "${script}" stop; fi` };
+  writeFileSync(claude, `${JSON.stringify({ hooks: { Stop: [{ hooks: [odd] }] } }, null, 2)}\n`);
+  assert.equal(cli('--yes').status, 0);
+  const c = JSON.parse(readFileSync(claude, 'utf8'));
+  assert.deepEqual(c.hooks.Stop[0].hooks[0], odd, 'not the shape setup writes, so not claimed');
+  assert.equal(c.hooks.Stop.length, 2);
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  assert.ok(existsSync(script), 'a hook still runs the script, so it stays');
+});
+
+test('round three: ledgers are joined in time order', async () => {
+  const { home, env } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const state = path.join(home, 'st3');
+  mkdirSync(path.join(state, 'manage-workspace-storage', 'ledger'), { recursive: true });
+  mkdirSync(path.join(state, 'manage-workspace', 'ledger'), { recursive: true });
+  writeFileSync(path.join(state, 'manage-workspace', 'ledger', 's.jsonl'), '{"ts":"2026-11-23T01:00:00Z","op":"note","kind":"path","path":"/tmp/a"}\n');
+  writeFileSync(path.join(state, 'manage-workspace-storage', 'ledger', 's.jsonl'), '{"ts":"2026-11-23T02:00:00Z","op":"keep","kind":"path","path":"/tmp/a","reason":"r"}\n');
+  const e2 = { ...env, XDG_STATE_HOME: state }; delete e2.MWS_STATE_DIR;
+  assert.equal(spawnSync(process.execPath, [setup, '--yes'], { encoding: 'utf8', env: e2 }).status, 0);
+  const lines = readFileSync(path.join(state, 'manage-workspace', 'ledger', 's.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).op);
+  assert.deepEqual(lines, ['note', 'keep'], 'the later keep still follows its note');
+});

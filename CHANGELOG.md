@@ -46,7 +46,9 @@ the process table is read again: a helper must still have the same command line 
 whose command line changed is never signalled. `setup-enforcement.mjs helpers report --yes` (or
 `MWS_HELPERS=report`) makes the hooks stop nothing; `mode off` turns everything off. Setup checks every
 agent's file before writing any, copies the scripts before pointing a hook at them, claims only entries
-in the exact shape it writes, and leaves the shared scripts in place while another agent still uses them. Sizes are resident memory, so under pressure a process's real share is larger.
+in the exact shape it writes, and leaves the shared scripts in place while any hook still runs them. The
+end-of-turn and end-of-session hooks get a 30-second timeout, since stopping a helper on a loaded machine
+can take several seconds. Sizes are resident memory, so under pressure a process's real share is larger.
 Liveness of a Claude Code session is read from Claude Code's own session files, which are not a
 documented interface; without them it is "unknown", which never counts as ended. `CONTRIBUTING.md`'s
 exception for this skill's setup script now names it `manage-workspace` and says what its hooks stop.

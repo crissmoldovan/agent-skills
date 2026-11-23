@@ -86,9 +86,9 @@ ended. A folder counts as deleted only when it does not exist; one that cannot b
 
 | When | What is stopped | Scope |
 | --- | --- | --- |
-| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one whose folder another live session works in | any folder |
+| `SessionEnd` hook (Claude Code only) | every helper whose environment names the ending session, except one in a workspace another live session works in (the nearest folder above it with `.git`, which is how the plugin keys a broker), and, without the session files, except any whose folder still exists | any folder |
 | `Stop` hook (each turn) | this session's helpers whose folder no longer exists | this session only |
-| `processes --stop-helpers --yes`, on a person's word | helpers whose session is known to have ended, or whose folder is gone | machine-wide, or one `--session` |
+| `processes --stop-helpers --yes`, on a person's word | helpers whose folder is gone, and helpers whose session is known to have ended unless another live session works in their workspace | machine-wide, or one `--session` |
 | never | agent CLIs, virtual machines, containers, a live session's helper in an existing folder, a helper whose liveness is unknown | |
 
 The hooks never stop another session's process: another session's leftovers are reported at session
@@ -128,7 +128,14 @@ that names its folder. Without a session variable it can be reported but never s
 - Sizes are resident (RSS): what is in physical memory now. Pages compressed or swapped out are not
   counted, so under pressure a process's real share is larger than shown.
 - A helper's environment is read with `ps -E` on macOS and `/proc/<pid>/environ` on Linux, for the
-  current user's processes only.
+  current user's processes only. `ps -E` runs entries together with spaces, so a value with a space in it
+  can look like another entry: when the session variable appears with two different values, the session
+  is read as unknown and the helper is never stopped.
+- A folder is "deleted" only when it does not exist; a symlink is followed, and a folder that cannot be
+  read is unknown. A session file whose process started at another time than its pid's (the pid was
+  reused) is ignored.
+- A helper counts as stopped only when its pid no longer has its command line afterwards; one that
+  survives is reported as skipped, not stopped.
 - The machine check at session start reports at most twelve items, and a process table that cannot be
   read within its time budget yields no report rather than a wrong one.
 - A process started under a name the check does not know is not reported. Note what you start.
