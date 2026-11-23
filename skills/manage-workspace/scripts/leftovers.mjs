@@ -390,7 +390,8 @@ function sessionStart() {
 async function ownHelpers(sid) {
   try {
     const scan = scanProcesses();
-    const mine = scan.helpers.filter((h) => h.session === sid && h.folderGone === true);
+    // a deleted subfolder may sit in a repository another live session is still using the broker from
+    const mine = scan.helpers.filter((h) => h.session === sid && h.folderGone === true && !sharedWithLiveSession(h, scan.sessions, sid));
     if (!mine.length) return { lines: [], keys: [] };
     if (readHelpers() === 'report') return { lines: [`This session left ${mine.length} helper${mine.length === 1 ? '' : 's'} in deleted folders (helpers: report, so none was stopped): ${mine.map(describeHelper).join('; ')}.`], keys: mine.map((h) => `report:${h.pid}`) };
     const { stopped, skipped } = await shutdownHelpers(mine);
@@ -511,6 +512,7 @@ async function processesCommand(argv) {
 const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
 const invoked = process.argv[1] && real(process.argv[1]) === real(self());
 if (invoked) {
+  process.stdout.on('error', () => { /* the runner closed the pipe: nothing to say to it */ });
   const [event, ...rest] = process.argv.slice(2);
   try {
     if (event === 'session-start') sessionStart();

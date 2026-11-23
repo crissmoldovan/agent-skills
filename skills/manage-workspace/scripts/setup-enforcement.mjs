@@ -55,8 +55,13 @@ function command(event) {
 // SessionEnd is observed in Claude Code; Codex 0.171.0 carries its input schema but it has not been
 // observed firing there, so Codex gets the other two until it is.
 // Stop and SessionEnd may stop helpers, which on a loaded machine takes several seconds: 30 s each.
+// fork is Codex's source for a forked session; Claude Code never sends it, and the matcher is a pattern.
+const MATCHER = 'startup|resume|clear|compact|fork';
+const KNOWN_MATCHERS = [MATCHER, 'startup|resume|clear|compact'];
+// A group is ours only with the matcher setup writes: SessionStart's, and none for the other events.
+const ourGroup = (event, g) => (event === 'SessionStart' ? KNOWN_MATCHERS.includes(g?.matcher) : !g?.matcher);
 const wanted = (agent) => ({
-  SessionStart: { matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command: command('session-start'), timeout: 10 }] },
+  SessionStart: { matcher: MATCHER, hooks: [{ type: 'command', command: command('session-start'), timeout: 10 }] },
   Stop: { hooks: [{ type: 'command', command: command('stop'), timeout: 30 }] },
   ...(agent === 'claude' ? { SessionEnd: { hooks: [{ type: 'command', command: command('session-end'), timeout: 30 }] } } : {}),
 });
@@ -75,9 +80,9 @@ export function oursScript(h) {
 const ours = (h) => oursScript(h) !== null;
 // Setup writes only these events; the same command copied into another event is a person's hook.
 const OUR_EVENTS = ['SessionStart', 'Stop', 'SessionEnd'];
-// Any hook, ours or a person's, whose command runs one of this skill's script copies.
+// Any hook, ours or a person's, that runs one of this skill's script copies, in its command or its args.
 const usesScripts = (json) => Object.values(json.hooks ?? {}).flatMap((l) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? [])
-  .some((h) => typeof h?.command === 'string' && new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs`).test(h.command));
+  .some((h) => new RegExp(`/(${NAME}|${LEGACY})/leftovers\\.mjs`).test(JSON.stringify(h ?? {})));
 
 function readJson(file) {
   if (!existsSync(file)) return { json: {}, text: null };
@@ -97,12 +102,13 @@ function planInstall(json, agent) {
     const list = (next.hooks[event] ??= []);
     let done = false;
     for (const g of list) {
-      if (!Array.isArray(g.hooks)) continue;
+      if (!Array.isArray(g.hooks) || !ourGroup(event, g)) continue;
       g.hooks = g.hooks.filter((h) => {
         if (!ours(h)) return true;
         if (done) { changes.push(`remove duplicate ${event} entry`); return false; }
         done = true;
         if (h.command !== group.hooks[0].command || h.timeout !== group.hooks[0].timeout) { h.command = group.hooks[0].command; h.timeout = group.hooks[0].timeout; changes.push(`update ${event} entry`); }
+        if (group.matcher && g.matcher !== group.matcher && g.hooks.length === 1) { g.matcher = group.matcher; changes.push(`update ${event} matcher`); }
         return true;
       });
     }
@@ -116,6 +122,7 @@ function planRemove(json) {
   for (const [event, list] of Object.entries(next.hooks ?? {})) {
     if (!Array.isArray(list) || !OUR_EVENTS.includes(event)) continue;
     for (const g of list) {
+      if (!ourGroup(event, g)) continue;
       const before = g.hooks?.length ?? 0;
       if (g.hooks) g.hooks = g.hooks.filter((h) => !ours(h));
       if (before !== (g.hooks?.length ?? 0)) changes.push(`remove ${event} entry`);
@@ -125,7 +132,8 @@ function planRemove(json) {
   }
   return { next, changes };
 }
-const scriptsIn = (json) => Object.entries(json.hooks ?? {}).filter(([e]) => OUR_EVENTS.includes(e)).flatMap(([, l]) => (Array.isArray(l) ? l : [])).flatMap((g) => g.hooks ?? []).map(oursScript).filter(Boolean);
+const scriptsIn = (json) => Object.entries(json.hooks ?? {}).filter(([e]) => OUR_EVENTS.includes(e))
+  .flatMap(([e, l]) => (Array.isArray(l) ? l : []).filter((g) => ourGroup(e, g))).flatMap((g) => g.hooks ?? []).map(oursScript).filter(Boolean);
 
 // Codex keeps trust in config.toml as [hooks.state."<hooks.json>:<event>:<group>:<hook>"] with a
 // trusted_hash once a person has reviewed the hook in /hooks. Presence of a hash is all this can
@@ -136,7 +144,7 @@ function codexTrust(hooksFile, json) {
   for (const [event, list] of Object.entries(json.hooks ?? {})) {
     if (!Array.isArray(list)) continue;
     list.forEach((g, gi) => (g.hooks ?? []).forEach((h, hi) => {
-      if (!ours(h)) return;
+      if (!ours(h) || !ourGroup(event, g)) return;
       const header = `[hooks.state."${hooksFile}:${event.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}:${gi}:${hi}"]`;
       const at = toml.indexOf(header);
       const body = at < 0 ? '' : toml.slice(at + header.length).split(/^\[/m)[0];
@@ -243,7 +251,7 @@ function main(argv) {
     for (const a of which) {
       const f = agentFile(a);
       let has = [];
-      try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([, l]) => Array.isArray(l) && l.some((g) => g.hooks?.some(ours))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
+      try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([e, l]) => OUR_EVENTS.includes(e) && Array.isArray(l) && l.some((g) => ourGroup(e, g) && g.hooks?.some(ours))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
       out(`${AGENTS[a].label}: ${existsSync(AGENTS[a].dir()) ? f : 'not present'}: ${has.length ? has.join(', ') : 'no clean-up hooks'}`);
       if (a === 'codex' && has.length) {
         try { out(`Codex trust: ${codexTrust(f, readJson(f).json).join('; ')} (a stored hash only; /hooks in Codex is the authority, and a changed command needs trusting again)`); } catch { /* unreadable: reported above */ }

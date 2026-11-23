@@ -258,7 +258,8 @@ test('setup migrates an install made under the old name, without duplicating a h
   const legacyCommand = (script, event) => `if [ -x "${process.execPath}" ]; then exec "${process.execPath}" "${script}" ${event}; else exec node "${script}" ${event}; fi`;
   const legacy = (event) => ({ type: 'command', command: legacyCommand(path.join(home, 'data', 'manage-workspace-storage', 'leftovers.mjs'), event), timeout: 10 });
   writeFileSync(claude, `${JSON.stringify({ hooks: { SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [legacy('session-start')] }], Stop: [{ hooks: [{ type: 'command', command: 'other-stop' }] }, { hooks: [legacy('stop')] }] } }, null, 2)}\n`);
-  writeFileSync(codex, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [legacy('session-start')] }], Stop: [{ hooks: [legacy('stop')] }] } }, null, 2)}\n`);
+  // as 1.1.0 and 1.2.0 wrote it for Codex too: the same matcher
+  writeFileSync(codex, `${JSON.stringify({ hooks: { SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [legacy('session-start')] }], Stop: [{ hooks: [legacy('stop')] }] } }, null, 2)}\n`);
   const oldData = path.join(home, 'data', 'manage-workspace-storage'); mkdirSync(oldData, { recursive: true });
   writeFileSync(path.join(oldData, 'leftovers.mjs'), '// 1.2.0\n');
   const oldState = path.join(home, 'old-state', 'manage-workspace-storage'); mkdirSync(path.join(oldState, 'ledger'), { recursive: true });
@@ -276,6 +277,7 @@ test('setup migrates an install made under the old name, without duplicating a h
   assert.equal(applied.status, 0, applied.stderr);
   const c = JSON.parse(readFileSync(claude, 'utf8'));
   assert.equal(c.hooks.SessionStart.length, 1, 'the old entry is rewritten in place, not added beside');
+  assert.equal(c.hooks.SessionStart[0].matcher, 'startup|resume|clear|compact|fork', 'and its matcher gains Codex forks');
   assert.equal(c.hooks.Stop.length, 2);
   assert.equal(c.hooks.Stop[0].hooks[0].command, 'other-stop', 'other hooks keep their place');
   for (const e of ['SessionStart', 'Stop', 'SessionEnd']) assert.match(JSON.stringify(c.hooks[e]), /manage-workspace\/leftovers\.mjs/);
@@ -441,4 +443,23 @@ test('the generated command copied into another event is a person\'s hook and is
   writeFileSync(claude, `${JSON.stringify(c, null, 2)}\n`);
   assert.equal(cli('uninstall', '--yes').status, 0);
   assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).hooks.PreToolUse, [copied]);
+});
+
+test('round four: the matcher covers Codex forks, a personal group is never claimed, and a hook running the script by args keeps it', async () => {
+  const { home, cli } = await sandbox();
+  mkdirSync(path.join(home, '.claude'));
+  const claude = path.join(home, '.claude', 'settings.json');
+  assert.equal(cli('--yes').status, 0);
+  let c = JSON.parse(readFileSync(claude, 'utf8'));
+  assert.equal(c.hooks.SessionStart[0].matcher, 'startup|resume|clear|compact|fork');
+  const ourCommand = c.hooks.SessionStart[0].hooks[0].command;
+  const personal = { matcher: 'resume', hooks: [{ type: 'command', command: ourCommand }] };
+  const execForm = { hooks: [{ type: 'command', command: 'node', args: [path.join(home, 'data', 'manage-workspace', 'leftovers.mjs'), 'list'] }] };
+  c.hooks.SessionStart.push(personal); c.hooks.UserPromptSubmit = [execForm];
+  writeFileSync(claude, `${JSON.stringify(c, null, 2)}\n`);
+  assert.match(cli('--yes').stdout, /already up to date/, 'the personal resume group is not taken for ours');
+  assert.equal(cli('uninstall', '--yes').status, 0);
+  c = JSON.parse(readFileSync(claude, 'utf8'));
+  assert.deepEqual(c.hooks.SessionStart, [personal], 'only the stock entry was removed');
+  assert.ok(existsSync(path.join(home, 'data', 'manage-workspace', 'leftovers.mjs')), 'scripts stay while a hook runs them by args or command');
 });

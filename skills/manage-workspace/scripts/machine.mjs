@@ -268,25 +268,32 @@ export function stoppable(scan, { session } = {}) {
   return scan.helpers.filter((h) => h.session && (session === undefined ? true : h.session === session) && (h.folderGone === true || h.sessionLive === false));
 }
 
-// One JSON-RPC exchange over a helper's own unix socket. Resolves to the reply, or to null on no socket,
-// a refused connection, a closed socket or the time limit.
-function ask(socketPath, message, ms) {
+// The busy check and the shutdown request on one connection, the second sent the moment the first is
+// answered "not busy", which keeps the window in which another client could start a request as short as
+// the protocol allows (it has no "shut down only if idle"). Resolves to { probe, reply }; a missing
+// socket, a refused or closed connection or the time limit leave the missing part null.
+function probeThenShutdown(socketPath, probe, shutdown, busy, ms) {
   return new Promise((resolve) => {
-    let done = false; let buffer = '';
-    const finish = (v) => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* closed */ } resolve(v); };
-    const timer = setTimeout(() => finish(null), ms);
+    const got = { probe: null, reply: null }; let done = false; let buffer = '';
+    const finish = () => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* closed */ } resolve(got); };
+    const timer = setTimeout(finish, ms);
     const sock = net.createConnection(socketPath);
     sock.setEncoding('utf8');
-    sock.on('connect', () => sock.write(`${JSON.stringify(message)}\n`));
+    sock.on('connect', () => sock.write(`${JSON.stringify(probe)}\n`));
     sock.on('data', (chunk) => {
       buffer += chunk;
       for (let i = buffer.indexOf('\n'); i !== -1; i = buffer.indexOf('\n')) {
         const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
-        try { const reply = JSON.parse(line); if (reply.id === message.id) return finish(reply); } catch { /* not ours */ }
+        let msg; try { msg = JSON.parse(line); } catch { continue; }
+        if (msg.id === probe.id && !got.probe) {
+          got.probe = msg;
+          if (msg.error && busy.test(String(msg.error.message || ''))) return finish();
+          sock.write(`${JSON.stringify(shutdown)}\n`);
+        } else if (msg.id === shutdown.id) { got.reply = msg; return finish(); }
       }
     });
-    sock.on('error', () => finish(null));
-    sock.on('close', () => finish(null));
+    sock.on('error', finish);
+    sock.on('close', finish);
   });
 }
 
@@ -309,10 +316,9 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
     if (!p || !got || p.args !== h.args || !h.session || (envNow.get(h.pid)?.[def.sessionEnv] || null) !== h.session) { skipped.push({ pid: h.pid, why: 'no longer the same helper' }); return; }
     const endpoint = /^unix:(.+)$/.exec(got.endpoint)?.[1];
     if (!endpoint || !isSocket(endpoint)) { skipped.push({ pid: h.pid, why: `it has no socket to ask, so it cannot shut itself down; to stop it: ${killHint(h)}` }); return; }
-    const probe = await ask(endpoint, { id: 'manage-workspace-probe', method: 'manage-workspace/probe', params: {} }, timeoutMs);
+    const { probe, reply } = await probeThenShutdown(endpoint, { id: 'manage-workspace-probe', method: 'manage-workspace/probe', params: {} }, { id: 'manage-workspace-shutdown', method: def.shutdown.method, params: {} }, def.shutdown.busy, timeoutMs);
     if (!probe) { skipped.push({ pid: h.pid, why: `it did not answer on its socket; to stop it: ${killHint(h)}` }); return; }
     if (probe.error && def.shutdown.busy.test(String(probe.error.message || ''))) { skipped.push({ pid: h.pid, why: 'it is busy serving a request, so it is left running' }); return; }
-    const reply = await ask(endpoint, { id: 'manage-workspace-shutdown', method: def.shutdown.method, params: {} }, timeoutMs);
     if (reply && !reply.error) stopped.push(h.pid); else skipped.push({ pid: h.pid, why: `it did not accept the shutdown request; to stop it: ${killHint(h)}` });
   }));
   return { stopped, skipped };

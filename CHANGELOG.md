@@ -41,8 +41,8 @@ the heavy jobs passed.
 **Impact.** The hooks stop processes in two cases only, both limited to helpers whose environment names
 the hook's own session: at session end all of them, and at the end of a turn those whose folder is gone.
 They send no signal: each helper is asked to shut itself down on its own socket, with the plugin's own
-`broker/shutdown` request, after a check that it is not busy; a busy helper, or one with no socket, is
-left running and reported with the `kill <pid>` a person can run.
+`broker/shutdown` request, after a check that it is not busy; a busy helper is left running, and one with no socket is left
+running and, at the end of a turn or from `processes`, reported with the `kill <pid>` a person can run.
 Another session's processes are reported, never stopped, by a hook, and session end leaves a broker
 whose folder another live session works in, since the plugin reuses a broker by folder. Before asking, the
 process table is read again: a helper must still have the same command line and a known, matching

@@ -143,8 +143,11 @@ that names its folder. Without a session variable it can be reported but never s
 - Asking a helper to stop connects to the socket its command line names. A process that merely
   carries a broker's command line would receive the request on that socket; nothing else is sent to
   it, and no signal is sent to anything.
-- Between the busy check and the shutdown request a new request could begin; the plugin's own
-  session-end hook does not check at all.
+- The busy check and the shutdown request go on one connection, the second the moment the first is
+  answered, but the protocol has no "shut down only if idle": a request another client starts in that
+  instant is cut off. The plugin's own session-end hook does not check at all.
+- The workspace guard walks up from a helper's folder, deleted or not, to the nearest `.git`; a
+  deleted folder inside a repository another live session works in keeps its broker.
 - The machine check at session start reports at most twelve items, and a process table that cannot be
   read within its time budget yields no report rather than a wrong one.
 - A process started under a name the check does not know is not reported. Note what you start.

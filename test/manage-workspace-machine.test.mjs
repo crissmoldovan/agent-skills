@@ -368,3 +368,17 @@ test('no signal is sent: a busy helper and one without a socket are left running
   await new Promise((r) => setTimeout(r, 300));
   assert.ok(alive(busy) && alive(mute), 'session end does not signal them either');
 });
+
+test('the end-of-turn check leaves a deleted subfolder\'s broker that another live session uses from the repository', async (t) => {
+  const { root, start, hook } = await decoys(t);
+  const repo = path.join(root, 'repo2'); const sub = path.join(repo, 'tmp-sub'); mkdirSync(sub, { recursive: true }); mkdirSync(path.join(repo, '.git'));
+  const sid = `mw-test-${randomUUID()}`;
+  const pid = start(sid, sub);
+  assert.ok(await until(() => childrenOf(pid).length && existsSync(path.join(root, 's1.sock'))));
+  rmSync(sub, { recursive: true });
+  writeFileSync(path.join(root, 'home', '.claude', 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'other-live', cwd: repo }));
+  const transcript = path.join(root, 'r.jsonl'); writeFileSync(transcript, '');
+  assert.equal(hook('stop', { session_id: sid, transcript_path: transcript, hook_event_name: 'Stop' }).status, 0);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(alive(pid), 'the repository is still another live session\'s workspace');
+});

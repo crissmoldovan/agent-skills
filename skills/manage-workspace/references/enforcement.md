@@ -146,7 +146,7 @@ setup does not install it for Codex yet. What stops and when, and why, is in
 
 ### What the end-of-turn check looks at
 
-It never scans the machine. It reads this session's transcript (`transcript_path` in the hook
+For leftovers it never scans the machine (for helpers it reads the process table, see the hooks table). It reads this session's transcript (`transcript_path` in the hook
 input) from where it stopped last time, so each turn costs only the new lines, and collects what
 the session's own commands created:
 
@@ -232,5 +232,9 @@ the repository's hook notes; Codex's is DOCUMENTED in its binary only. Re-check 
   is JSONL with `response_item` entries of type `function_call`, `custom_tool_call` or
   `local_shell_call`. Codex documents its transcript format as not stable; the reader skips lines it
   does not recognise and a hook failure never fails the session (every path exits 0).
+- The hook commands are POSIX shell (`if … then … fi`). A harness that runs hooks through a shell of
+  another family, Fish for example, cannot start them; point its hook shell at `sh`.
+- Run setup once at a time: two setups at once (an install for one agent while another uninstalls the
+  last other agent) can remove the shared scripts after the installer has checked them.
 - Codex hook timeouts are in seconds, as are Claude Code's; the entries use 10 for `SessionStart` and 30 for `Stop` and
   `SessionEnd`, which may stop helpers and on a loaded machine take several seconds.
