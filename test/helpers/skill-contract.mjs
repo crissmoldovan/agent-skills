@@ -38,9 +38,14 @@ export function frontmatterField(source, key) {
 
 /**
  * A skill's `metadata` as the map a runtime reads: `metadata:` alone on its line, then one
- * `  key: value` line per entry, a value plain or double-quoted. Null when it is not that map,
- * a one-line string included: Codex reads `metadata` into a struct and skips the whole skill
- * when it is a string, and the Agent Skills specification defines it as a map.
+ * `  key: value` line per entry, each value a string. Null when it is not that map, a one-line
+ * string included: Codex reads `metadata` into a struct and skips the whole skill when it is a
+ * string, and the Agent Skills specification defines it as a map from string to string.
+ *
+ * Deliberately narrower than YAML, so it never calls a value a string that YAML would not: a
+ * value is double-quoted without escapes, or a plain word that starts with a letter and holds no
+ * space, colon or `#`, and is not one of YAML's boolean or null words. Blank lines and comment
+ * lines inside the block are skipped, as YAML skips them; a nested value gives null.
  */
 export function metadataOf(source) {
   const close = source.indexOf('\n---\n', 4);
@@ -48,14 +53,16 @@ export function metadataOf(source) {
   const lines = source.slice(4, close).split('\n');
   const at = lines.indexOf('metadata:');
   if (at < 0) return null;
-  const map = {};
+  const map = Object.create(null);
   for (const line of lines.slice(at + 1)) {
+    if (/^[ \t]*(?:#.*)?$/.test(line)) continue;
     if (!/^\s/.test(line)) break;
-    const entry = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*): (?:"([^"\\\n]*)"|([^\s"'#&*!|>%@`{[][^#\n]*?))[ \t]*$/);
-    if (!entry) return null;
+    const entry = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*):[ \t]+(?:"([^"\\\n]*)"|([A-Za-z][A-Za-z0-9_./+-]*))(?:[ \t]+#.*)?[ \t]*$/);
+    if (!entry || entry[1] in map) return null;
+    if (entry[3] !== undefined && /^(?:y|n|yes|no|on|off|true|false|null)$/i.test(entry[3])) return null;
     map[entry[1]] = entry[2] ?? entry[3];
   }
-  return Object.keys(map).length ? map : null;
+  return Object.keys(map).length ? { ...map } : null;
 }
 
 // Mirrors scripts/verify-skills.mjs: the cap applies to the body, not the file.

@@ -7,7 +7,7 @@ the next version. Entries before v0.12.0 live only on the Releases page.
 
 ## 0.35.1
 
-### Every catalogue skill now loads in Codex: `metadata` is a map
+### Forty of the pack's forty-one skills now load in Codex: `metadata` is a map
 
 **What.** Thirty-nine skills carried their `metadata` as one quoted string
 (`"group=workflow; lifecycle=release; version=…; author=…"`). Each now carries it as a map, one key per
@@ -41,6 +41,15 @@ Codex skips it until then. `agent-lifecycle` already used a map.
 
 ```bash
 npx skills update --global --yes
+```
+
+An install pinned to a tag stays on that tag: the Skills CLI records the ref it installed from and
+`update` checks the same ref. That includes an install made with the 0.35.0 README's
+`manage-workspace` prompt, which pinned `v0.35.0`. Install such a skill again from the new tag, for
+each agent, with the options it was installed with:
+
+```bash
+npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent codex --yes --copy
 ```
 
 A copied install (`--copy`) is replaced in place. Start a new Codex session afterwards; a running one

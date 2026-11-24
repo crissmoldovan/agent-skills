@@ -341,26 +341,52 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
   assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
 });
 
-// `metadata` is a map (CONTRIBUTING, "What every skill carries"). Codex reads it into a struct
-// and skips the whole skill when it is a string, so a string-form skill installs, lists, and is
-// never offered to the model. workspace-governance's metadata belongs to its own release, which
-// pins the string in its package's tests; it moves to a map with that release, and leaves this
-// list then.
-test('every skill\'s metadata is a map, the form Codex loads', async () => {
-  const ownRelease = new Set(['workspace-governance']);
+// `metadata` is a map from string to string (CONTRIBUTING, "What every skill carries"). Codex
+// reads it into a struct and skips the whole skill when it is a string, so a string-form skill
+// installs, lists, and is never offered to the model. Two skills keep the frontmatter of their own
+// releases, each held to the form it has today so that a change to it fails here and is looked at:
+// agent-lifecycle's is a map with a nested `hermes` map, which Codex loads; workspace-governance's
+// is a one-line string, which its package's tests pin and which Codex skips until that release
+// makes it a map.
+test('every skill\'s metadata is a map of strings, the form Codex loads', async () => {
+  const ownRelease = {
+    'agent-lifecycle': [/^metadata:\n {2}hermes:\n {4}\S/m, 'a map holding a nested hermes map'],
+    'workspace-governance': [/^metadata: "[^"\n]*"$/m, 'a one-line double-quoted string'],
+  };
   const wrong = [];
   for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const source = await read(`skills/${entry.name}/SKILL.md`);
-    const frontmatter = source.slice(4, source.indexOf('\n---\n', 4));
-    const inline = /^metadata:[ \t]*\S/m.test(frontmatter);
-    if (ownRelease.has(entry.name)) {
-      assert.ok(inline, `${entry.name}'s metadata is no longer a string: take it off the own-release list`);
+    if (Object.hasOwn(ownRelease, entry.name)) {
+      const [form, said] = ownRelease[entry.name];
+      const frontmatter = source.slice(4, source.indexOf('\n---\n', 4) + 1);
+      assert.match(frontmatter, form, `${entry.name}'s metadata is no longer ${said}: update its entry here`);
       continue;
     }
-    if (inline || (/^metadata:/m.test(frontmatter) && !/^metadata:\n {2}\S/m.test(frontmatter))) wrong.push(entry.name);
+    if (!metadataOf(source)) wrong.push(entry.name);
   }
-  assert.deepEqual(wrong, [], 'metadata is a string, or not a block map, so Codex skips the skill');
+  assert.deepEqual(wrong, [], 'metadata is a string, or not a map of strings, so Codex skips the skill or misreads it');
+});
+
+// The reader the test above relies on calls a value a string only where YAML does.
+test('metadataOf reads a map of strings and nothing else', () => {
+  const skill = (metadata) => `---\nname: x\ndescription: y\n${metadata}\nallowed-tools: Read\n---\n\n# x\n`;
+  const map = 'metadata:\n  group: workflow\n  lifecycle: release\n  version: "1.0.1"\n  author: someone';
+  assert.deepEqual(metadataOf(skill(map)), { group: 'workflow', lifecycle: 'release', version: '1.0.1', author: 'someone' });
+  assert.deepEqual(metadataOf(skill('metadata:\n  group: workflow\n\n  # a comment\n  lifecycle: release # its maturity')), { group: 'workflow', lifecycle: 'release' });
+  for (const [why, metadata] of [
+    ['a one-line string', 'metadata: "group=workflow; lifecycle=release; version=1.0.1; author=someone"'],
+    ['a flow map', 'metadata: {group: workflow}'],
+    ['a plain multi-line string', 'metadata:\n  just a string'],
+    ['a number', 'metadata:\n  author: 42'],
+    ['an unquoted version, which the catalogue quotes (1.0 would be a float)', 'metadata:\n  version: 1.0.1'],
+    ['a boolean', 'metadata:\n  internal: true'],
+    ['a value YAML rejects', 'metadata:\n  author: name: example'],
+    ['a nested map', 'metadata:\n  hermes:\n    tags: [a]'],
+    ['a key given twice', 'metadata:\n  group: a\n  group: b'],
+    ['no entries', 'metadata:'],
+  ]) assert.equal(metadataOf(skill(metadata)), null, why);
+  assert.equal(metadataOf('no frontmatter'), null);
 });
 
 // A skill's version is its own, and any change to its files moves it from the version last released
@@ -376,10 +402,14 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
     t.skip('no catalogue tag in this checkout\'s history');
     return;
   }
-  // A tag before 0.35.1 carries metadata as a one-line string; from 0.35.1 it is a map.
-  const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
-    ?? metadataOf(source)?.version?.match(/^\d+\.\d+\.\d+$/)?.[0]
-    ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
+  // A tag before 0.35.1 carries metadata as a one-line string; from 0.35.1 it is a map. Only the
+  // frontmatter is read, so an example in a skill's body is never taken for its version.
+  const versionOf = (source) => {
+    const frontmatter = source.startsWith('---\n') ? source.slice(4, source.indexOf('\n---\n', 4) + 1) : '';
+    return frontmatter.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+      ?? metadataOf(source)?.version?.match(/^\d+\.\d+\.\d+$/)?.[0]
+      ?? frontmatter.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
+  };
   const newer = (now, before) => {
     const [a, b] = [now, before].map((version) => version.split('.').map(Number));
     const i = a.findIndex((part, index) => part !== b[index]);
