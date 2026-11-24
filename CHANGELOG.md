@@ -52,8 +52,8 @@ each agent, with the options it was installed with:
 npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent codex --yes --copy
 ```
 
-A copied install (`--copy`) is replaced in place. Start a new Codex session afterwards; a running one
-keeps the skills it loaded.
+A copied install (`--copy`) is replaced in place. If a running Codex session does not show the
+updated skills, start a new one.
 
 ## 0.35.0
 

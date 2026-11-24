@@ -350,7 +350,7 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
 // makes it a map.
 test('every skill\'s metadata is a map of strings, the form Codex loads', async () => {
   const ownRelease = {
-    'agent-lifecycle': [/^metadata:\n {2}hermes:\n {4}\S/m, 'a map holding a nested hermes map'],
+    'agent-lifecycle': [/^metadata:\n {2}hermes:\n {4}[A-Za-z_][A-Za-z0-9_-]*:/m, 'a map holding a nested hermes map'],
     'workspace-governance': [/^metadata: "[^"\n]*"$/m, 'a one-line double-quoted string'],
   };
   const wrong = [];
@@ -363,9 +363,12 @@ test('every skill\'s metadata is a map of strings, the form Codex loads', async 
       assert.match(frontmatter, form, `${entry.name}'s metadata is no longer ${said}: update its entry here`);
       continue;
     }
-    if (!metadataOf(source)) wrong.push(entry.name);
+    const metadata = metadataOf(source);
+    if (!metadata) wrong.push(`${entry.name}: not a map of strings`);
+    else if (Object.keys(metadata).sort().join() !== 'author,group,lifecycle,version' || metadata.group !== 'workflow'
+      || !metadata.author || !/^\d+\.\d+\.\d+$/.test(metadata.version)) wrong.push(`${entry.name}: not group, lifecycle, version and author`);
   }
-  assert.deepEqual(wrong, [], 'metadata is a string, or not a map of strings, so Codex skips the skill or misreads it');
+  assert.deepEqual(wrong, [], 'metadata is a string, or not the catalogue\'s map of strings, so Codex skips the skill or the catalogue misreads it');
 });
 
 // The reader the test above relies on calls a value a string only where YAML does.
@@ -384,6 +387,9 @@ test('metadataOf reads a map of strings and nothing else', () => {
     ['a value YAML rejects', 'metadata:\n  author: name: example'],
     ['a nested map', 'metadata:\n  hermes:\n    tags: [a]'],
     ['a key given twice', 'metadata:\n  group: a\n  group: b'],
+    ['a second metadata key', 'metadata:\n  group: workflow\nmetadata: "legacy"'],
+    ['a boolean key', 'metadata:\n  true: enabled'],
+    ['a control character in a quoted value', 'metadata:\n  author: "a\u0000b"'],
     ['no entries', 'metadata:'],
   ]) assert.equal(metadataOf(skill(metadata)), null, why);
   assert.equal(metadataOf('no frontmatter'), null);

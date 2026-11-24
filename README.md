@@ -442,6 +442,8 @@ npx skills add crissmoldovan/agent-skills --skill manage-workspace --global --ag
 npx skills update manage-workspace --global --yes
 ```
 
+An install pinned to a release tag (`crissmoldovan/agent-skills#vX.Y.Z`, as the prompt under [Install or update with an agent](#install-or-update-with-an-agent) makes) stays on that tag when updated. To move it, run its `npx skills add` line again with the newer tag; an install from the `v0.35.0` prompt needs this to reach 2.0.1, the first version Codex loads.
+
 **Renamed in 2.0.0** from `manage-workspace-storage`. `npx skills update manage-workspace-storage` no longer finds it: install it under the new name as above, then remove the old one and run the setup script again, which moves the old hooks, state and mode across:
 
 ```bash
