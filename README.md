@@ -482,15 +482,15 @@ Ask it:
 
 #### Install or update with an agent
 
-Paste this into Claude Code or Codex on a machine that does not have the skill yet (or to update it, or to move from `manage-workspace-storage`). It pins the install to release `v0.35.0`. Your pasting it is the consent for the install and the setup script; it asks for no other change.
+Paste this into Claude Code or Codex on a machine that does not have the skill yet (or to update it, or to move from `manage-workspace-storage`). It pins the install to release `v0.35.1`. Your pasting it is the consent for the install and the setup script; it asks for no other change.
 
 ```text
-Install or update the Agent Skill manage-workspace from crissmoldovan/agent-skills at release v0.35.0, for every agent on this machine, and set up its enforcement hooks. Do all of it yourself, one step at a time. Run no test suites, make no network calls beyond the Skills CLI, and change no other files.
+Install or update the Agent Skill manage-workspace from crissmoldovan/agent-skills at release v0.35.1, for every agent on this machine, and set up its enforcement hooks. Do all of it yourself, one step at a time. Run no test suites, make no network calls beyond the Skills CLI, and change no other files.
 
 1. Check what is here: `node --version` (needs 22 or newer), `codex --version` and `codex features list` (the hooks feature must be on), whether Claude Code is installed, and whether the old skill manage-workspace-storage is installed (`npx skills list --global`). Stop and tell me if Node is too old.
 2. For each agent present, install at user level, with `--copy`:
-   npx skills add 'crissmoldovan/agent-skills#v0.35.0' --skill manage-workspace --global --agent codex --yes --copy
-   npx skills add 'crissmoldovan/agent-skills#v0.35.0' --skill manage-workspace --global --agent claude-code --yes --copy
+   npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent codex --yes --copy
+   npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent claude-code --yes --copy
    Read the installed SKILL.md and confirm its version is 2.0.0. If manage-workspace-storage is installed, remove it: npx skills remove manage-workspace-storage --global --yes
 3. From the installed manage-workspace folder, run `node scripts/setup-enforcement.mjs` to preview and show me what it would change, then `node scripts/setup-enforcement.mjs --yes`. It rewrites any manage-workspace-storage hook entries in place and moves their state and mode.
 4. Read back: both hook files (settings.json in ~/.claude, hooks.json in ~/.codex) and their .bak-manage-workspace backups, with every pre-existing hook still present and in the same order and no entry naming manage-workspace-storage; `node scripts/setup-enforcement.mjs status`; a second `--yes` run that says "already up to date"; and a smoke test that pipes {"session_id":"t"} into `node ~/.local/share/manage-workspace/leftovers.mjs session-start` (or under $XDG_DATA_HOME) and prints the policy.

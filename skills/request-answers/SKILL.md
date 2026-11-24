@@ -3,7 +3,11 @@ name: request-answers
 description: "The way to ask when work needs something only someone else can give — a person or another agent: a question, a decision, a clarification, a sign-off, a missing fact, wording, or why they did something. Drop every question you can answer yourself, then write one brief whose answer sheet can be replied to in a single block, at brief, normal or deep depth, showing the screen for each question about something a reader sees. Nothing reaches a person on the run's own word: it goes when a person sends it or approves its exact text, and only an ask to another agent is delivered by the run itself."
 license: MIT
 compatibility: "Any agent that can write to a person or another agent; nothing to install. Strongest where it can also read the system under discussion — repository, data, logs, a rendered page, the other party's code — because every item quotes a measured present state. Deep depth writes a file per item; brief and normal are transcript-only but for the images a question about a screen carries, rendered on this machine. Output is the brief, optional item files and shots, and a ledger row per question."
-metadata: "group=workflow; lifecycle=release; version=1.1.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.1.1"
+  author: crissmoldovan
 allowed-tools: Read Write Grep Glob Bash
 ---
 

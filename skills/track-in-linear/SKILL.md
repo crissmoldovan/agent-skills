@@ -3,7 +3,11 @@ name: track-in-linear
 description: "Write to Linear the way a team can rely on: one call at a time, each read back; every ticket classified as exactly one kind; decisions and progress recorded as comments, never as rewrites; labels changed without wiping the rest; another ticket mentioned only when it is really related; files attached, not linked; and work never marked accepted by the agent that did it. The team's own values come from its profile, and any it leaves out are asked for. Symptoms: open a ticket, what kind is this, move it to review, mark it shipped, it reached staging, record this on the ticket, who owes this, add the release label, a ticket with no assignee, a pull request that should link a ticket, a related link nobody asked for. Analysing a ticket is analyse-ticket's, building one implement-ticket's, moving a build between environments promote-release's, and putting rules or documents into Linear publish-to-linear's."
 license: MIT
 compatibility: "Linear's MCP server, or a client with the same tools (get_user, get_issue, list_comments, save_issue, save_comment, prepare_attachment_upload, create_attachment_from_upload, list_documents, get_document), signed in with write access to the team. The team's values come from a profile file, LINEAR.md by default; without one the skill asks for each value it needs. Output is the writes, each read back, and a short report of what changed and what was left alone."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Grep Glob Bash
 ---
 

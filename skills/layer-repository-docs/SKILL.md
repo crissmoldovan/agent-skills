@@ -3,7 +3,11 @@ name: layer-repository-docs
 description: "Make a repository's documentation legible when an organisation has more repos than anyone can track, through three entry points — audit read-only, draft the layers, update what a change overtook: classify every document by kind, list the rot where one fact is stated twice and the two disagree, draft only the layers the tier needs from the repo's own source rather than its README, audit every replaced file for rules silently dropped, and put a newcomer through a clean clone before claiming any of it works. Symptoms: nobody can tell what this repo is for, write a manual for this repo, check whether the docs are still true, update the docs after the code moved, our READMEs all say something different, too many repos to keep track of, the docs disagree with the code, where is this rule supposed to live. It writes the documentation people read; it does not write the context files agents load — that is derive-codebase-context."
 license: MIT
 compatibility: "Any repository the agent can read, with git to record a baseline revision and read files at it rather than through a README. A second clean clone makes the newcomer test real; without one it degrades, and the skill says so. A forge CLI compares the README description line with the registered description; without one that check is reported as not run. Output depends on the entry point: always a report, plus drafted files and a loss audit where something is replaced. Nothing is committed."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

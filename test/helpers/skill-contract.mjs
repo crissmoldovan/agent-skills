@@ -36,6 +36,28 @@ export function frontmatterField(source, key) {
   return match ? (match[1] ?? match[2] ?? match[3]) : '';
 }
 
+/**
+ * A skill's `metadata` as the map a runtime reads: `metadata:` alone on its line, then one
+ * `  key: value` line per entry, a value plain or double-quoted. Null when it is not that map,
+ * a one-line string included: Codex reads `metadata` into a struct and skips the whole skill
+ * when it is a string, and the Agent Skills specification defines it as a map.
+ */
+export function metadataOf(source) {
+  const close = source.indexOf('\n---\n', 4);
+  if (!source.startsWith('---\n') || close < 0) return null;
+  const lines = source.slice(4, close).split('\n');
+  const at = lines.indexOf('metadata:');
+  if (at < 0) return null;
+  const map = {};
+  for (const line of lines.slice(at + 1)) {
+    if (!/^\s/.test(line)) break;
+    const entry = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*): (?:"([^"\\\n]*)"|([^\s"'#&*!|>%@`{[][^#\n]*?))[ \t]*$/);
+    if (!entry) return null;
+    map[entry[1]] = entry[2] ?? entry[3];
+  }
+  return Object.keys(map).length ? map : null;
+}
+
 // Mirrors scripts/verify-skills.mjs: the cap applies to the body, not the file.
 export function bodyLineCount(source) {
   if (!source.startsWith('---\n')) return source.split('\n').length;
@@ -85,7 +107,7 @@ export function assertCatalogueShape(name, { skill, references, fit, readme }) {
   const compatibility = frontmatterField(skill, 'compatibility');
   assert.ok(compatibility.length > 0 && [...compatibility].length <= 500, 'compatibility missing or over 500 characters');
   assert.equal(frontmatterField(skill, 'license'), 'MIT');
-  assert.match(frontmatterField(skill, 'metadata'), /^group=workflow; lifecycle=release; version=\d+\.\d+\.\d+; author=crissmoldovan$/);
+  assert.match(skill, /^metadata:\n {2}group: workflow\n {2}lifecycle: release\n {2}version: "\d+\.\d+\.\d+"\n {2}author: crissmoldovan\n/m, 'metadata is not the catalogue map (group, lifecycle, quoted version, author)');
   assert.ok(frontmatterField(skill, 'allowed-tools'), 'allowed-tools missing');
   assert.ok(bodyLineCount(skill) <= 484, `body is ${bodyLineCount(skill)} lines; the cap is 484`);
 

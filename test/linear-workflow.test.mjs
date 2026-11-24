@@ -46,7 +46,7 @@ test('linear workflow: each skill says what it does, when to fire, and which sib
       assert.match(description, new RegExp(`\\b${sibling}'`), `${name}: the description does not hand ${sibling}'s job over`);
     }
     assert.match(frontmatter, /^license: MIT$/m);
-    assert.match(frontmatter, /^metadata: "group=workflow; lifecycle=release; version=1\.0\.0; author=crissmoldovan"$/m);
+    assert.match(frontmatter, /^metadata:\n {2}group: workflow\n {2}lifecycle: release\n {2}version: "1\.0\.1"\n {2}author: crissmoldovan$/m);
     assert.ok(readme.includes(description), `${name}: the README does not carry the description word for word`);
   }
 });

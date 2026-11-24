@@ -3,7 +3,11 @@ name: promote-release
 description: "Move one build from a developer's machine to production in steps, local, the shared preview, staging, production, each on its own go, under its own name (X.Y.Z-preview.N, X.Y.Z-staging.N, X.Y.Z) and through a pull request into that step's branch; check that the address serves the commit shipped; record the step and the way back; mark the tickets it carries; and draft who to tell for a person to send. Production happens only on an explicit yes that names production, every confirmation a step waits for is recorded, and every command comes from the project's own RELEASING.md, never guessed. Symptoms: release this, cut a preview, promote to staging, promote to production, is it on staging, what number is this release, roll it back, someone asks to skip staging, a -preview name about to reach staging, an address that may not be serving the new build. The note for the version is release-notes', the ticket marks track-in-linear's, and one ticket's own preview implement-ticket's."
 license: MIT
 compatibility: "A git repository whose project keeps a RELEASING.md with its commands (a template ships in references), a forge that takes pull requests, and a team profile naming each step's branch, address and who gives its go. Marks tickets through track-in-linear with Linear's MCP server; works without Linear when the team tracks elsewhere, and says so. Sends nothing. Output is the shipped step, its record, the ticket marks, and the drafted messages."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

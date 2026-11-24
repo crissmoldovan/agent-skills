@@ -3,7 +3,11 @@ name: codex-review-loop
 description: "Run an independent AI code review on a pull request in rounds until a round returns only lowest-severity findings: start the reviewer in the background writing to a file, read only the reviewer's final message, check every finding against the code before acting, fix everything above the lowest severity with a check you watched fail by breaking the fix on purpose, measure each finding's effect on any published result, write a review record per round, split the pull request when rounds keep finding new kinds of bug, and merge only a head whose required checks ran on that exact commit. Symptoms: run codex review, get a second opinion on this PR, review until clean, the reviewer flagged a P1, is this ready to merge, codex review --base origin/main. The Blocks-hosted review loop is request-blocks-review's; containing a risky change is land-complex-change's."
 license: MIT
 compatibility: "A git repository with a pull request, or a branch and its base, and a reviewer CLI that reviews a diff against a base and grades findings by severity. The examples use the Codex CLI; any reviewer with those two properties fits. Merge checks use the GitHub CLI. Output is the fixed branch, one review record per round, and either a merge pinned to the reviewed head or the stated reason it is not ready."
-metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.2"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

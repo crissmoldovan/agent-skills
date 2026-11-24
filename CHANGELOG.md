@@ -5,6 +5,47 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.35.1
+
+### Every catalogue skill now loads in Codex: `metadata` is a map
+
+**What.** Thirty-nine skills carried their `metadata` as one quoted string
+(`"group=workflow; lifecycle=release; version=…; author=…"`). Each now carries it as a map, one key per
+line, with the version quoted:
+
+```yaml
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "2.0.1"
+  author: crissmoldovan
+```
+
+Each of those skills moves by a patch version, so `manage-workspace` is 2.0.1, `onboard-project` 1.1.2,
+and the rest one patch past what they were. Nothing else in any skill changed. `CONTRIBUTING.md`
+writes the map down as the catalogue's form, and a test now fails on a skill whose `metadata` is a
+string.
+
+**Why.** Codex reads `metadata` into a structure and skips the whole skill when it is a string, so the
+skill installed and listed but was never offered to the model. On Codex 0.171.0, `codex debug
+prompt-input` left out a test skill with the string form and listed it with the map form. The Agent
+Skills specification defines `metadata` as a map from string to string, and Claude Code reads either
+form, so the map changes nothing there. The hooks `manage-workspace` installs ran in Codex all along;
+the skill's own instructions did not reach the model.
+
+**Impact.** No behaviour changes. One skill is not converted yet: `workspace-governance` keeps the
+metadata string of its own release, which its package tests pin and its next release changes, so
+Codex skips it until then. `agent-lifecycle` already used a map.
+
+**Update.** Codex users get the fix by updating the pack:
+
+```bash
+npx skills update --global --yes
+```
+
+A copied install (`--copy`) is replaced in place. Start a new Codex session afterwards; a running one
+keeps the skills it loaded.
+
 ## 0.35.0
 
 ### `manage-workspace`: the clean-up skill now watches memory and the processes agents leave running (breaking: renamed)

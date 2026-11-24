@@ -3,7 +3,11 @@ name: preregistered-model-study
 description: "Run a model or prompt comparison whose verdict can be trusted: before any paid call, commit the plan, a freeze of every input by hash, and a dry run proving each arm differs from production only where intended; put every later change in a dated addendum pushed before the calls it governs, or record it as a dated correction if found after them; cap the spend in code; prove the harness reproduces production before measuring; judge with three vendors who can see where each piece of evidence came from; and ship a reproduce script and checksum manifest that rebuild every number offline. Symptoms: compare these models, is the cheaper model good enough, bake-off, A/B this prompt, run an eval before we switch, can we trust this benchmark, the study overspent, the judge rewarded an answer that made things up. Which model runs everyday work is model-routing's; the review round on each study pull request is codex-review-loop's."
 license: MIT
 compatibility: "Any harness that can run scripts and commit to a repository. Every paid call goes through one research account, not production's: one key, one balance, reporting each call's cost and the key's account; on a shared account or with no balance endpoint the floor is recorded as unavailable. Judging needs three vendors' models on that account. Output is a committed study directory: plan, freeze, addenda, raw responses, scores, report, a reproduce script and a checksum manifest."
-metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.2"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

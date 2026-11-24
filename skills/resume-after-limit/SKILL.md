@@ -3,7 +3,11 @@ name: resume-after-limit
 description: "Make Claude Code sessions that a subscription usage limit stopped continue on their own once the quota returns, without spending tokens to check: a scheduler the user installs runs a tick every few minutes that reads each recent transcript's limit record and reset time, resumes a stopped session through its inbox socket when it is still open or with claude --bg --resume when it has exited, staggers resumes per account, and leaves alone any session dormant longer than the window (five hours by default). Turn it on for every session or only watched ones, ask for its status, change the interval. Use when sessions stall at 'You've hit your session limit', when you keep typing continue after a reset, or for: resume after limit, auto-continue, keep working when the quota resets, watch this session, is auto-resume on. It schedules nothing itself; arming the scheduler is the user's own run of its installer. It does not report progress (report-progress) or supervise child agents (agent-lifecycle)."
 license: MIT
 compatibility: "Claude Code CLI sessions (terminal, VS Code extension, background, -p) on a Claude subscription, macOS (launchd) or Linux (systemd user timer or cron); limit records as observed on Claude Code 2.1.281 to 2.1.295, inbox posts on 2.1.293 (references/evidence.md). Node 22+, nothing else. Reads transcripts, session files and the account; writes only its own state directory. Not for Codex, Windows, cloud sessions or API-key billing."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Bash
 ---
 

@@ -3,7 +3,11 @@ name: coding-teacher
 description: "Teach how a project's technologies and architecture work, in plain language, to someone from another field: ask or infer the learner's background, explain each idea with a comparison from their own work whose mechanism matches and that says where it stops matching, ground every claim about the project in its real files, and go one level deeper each time they ask. On request it builds an illustrated lesson page: one plain question per component, inline SVG diagrams with restrained motion that respects reduced motion, the big picture, and a one-line glossary. Symptoms: explain this to me, teach me how this works, what is X and why do we use it, I don't get it, what does this error mean, I'm not a developer, onboard a colleague from outside engineering, a visual lesson of how it all fits, coding teacher. It explains and changes nothing: no code, settings or data. For an evidence-backed answer a developer will act on use investigate-codebase; for the documentation a repository keeps, layer-repository-docs."
 license: MIT
 compatibility: "Any repository the agent can read; nothing to install. Strongest with the project's own docs and web access to official documentation; read-only access to the project's live state is optional. Answers are chat. A lesson page is one self-contained HTML file built from the carried template, published wherever the harness publishes pages or written outside the repository. Nothing in the project changes."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Grep Glob Bash WebFetch
 ---
 

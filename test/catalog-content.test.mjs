@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { metadataOf } from './helpers/skill-contract.mjs';
 import { tempDir } from './helpers/temp-dir.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -71,10 +72,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.35.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.35.0');
-  assert.equal(rootLock.version, '0.35.0');
-  assert.equal(rootLock.packages[''].version, '0.35.0');
+test('v0.35.1 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.35.1');
+  assert.equal(rootLock.version, '0.35.1');
+  assert.equal(rootLock.packages[''].version, '0.35.1');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -334,11 +335,32 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
   const wrong = [];
   for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
     if (!entry.isDirectory() || ownReleaseForm.has(entry.name)) continue;
-    const metadata = (await read(`skills/${entry.name}/SKILL.md`)).match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
-    const value = metadata.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]?.trim();
+    const value = metadataOf(await read(`skills/${entry.name}/SKILL.md`))?.lifecycle;
     if (value !== 'release') wrong.push(`${entry.name}: ${value ?? 'no lifecycle'}`);
   }
   assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
+});
+
+// `metadata` is a map (CONTRIBUTING, "What every skill carries"). Codex reads it into a struct
+// and skips the whole skill when it is a string, so a string-form skill installs, lists, and is
+// never offered to the model. workspace-governance's metadata belongs to its own release, which
+// pins the string in its package's tests; it moves to a map with that release, and leaves this
+// list then.
+test('every skill\'s metadata is a map, the form Codex loads', async () => {
+  const ownRelease = new Set(['workspace-governance']);
+  const wrong = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const source = await read(`skills/${entry.name}/SKILL.md`);
+    const frontmatter = source.slice(4, source.indexOf('\n---\n', 4));
+    const inline = /^metadata:[ \t]*\S/m.test(frontmatter);
+    if (ownRelease.has(entry.name)) {
+      assert.ok(inline, `${entry.name}'s metadata is no longer a string: take it off the own-release list`);
+      continue;
+    }
+    if (inline || (/^metadata:/m.test(frontmatter) && !/^metadata:\n {2}\S/m.test(frontmatter))) wrong.push(entry.name);
+  }
+  assert.deepEqual(wrong, [], 'metadata is a string, or not a block map, so Codex skips the skill');
 });
 
 // A skill's version is its own, and any change to its files moves it from the version last released
@@ -354,7 +376,9 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
     t.skip('no catalogue tag in this checkout\'s history');
     return;
   }
+  // A tag before 0.35.1 carries metadata as a one-line string; from 0.35.1 it is a map.
   const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+    ?? metadataOf(source)?.version?.match(/^\d+\.\d+\.\d+$/)?.[0]
     ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
   const newer = (now, before) => {
     const [a, b] = [now, before].map((version) => version.split('.').map(Number));
@@ -759,7 +783,9 @@ test('CONTRIBUTING writes down what every skill carries, lifecycle and version i
   const start = contributing.indexOf('\n### What every skill carries\n');
   assert.notEqual(start, -1, 'CONTRIBUTING has no "What every skill carries"');
   const standard = contributing.slice(start, contributing.indexOf('\n### ', start + 1));
-  assert.match(standard, /`"group=workflow; lifecycle=release; version=<x\.y\.z>; author=<handle>"`/);
+  assert.match(standard, /`metadata`† as a map, never a\s+one-line string/);
+  assert.match(standard, /`group: workflow`,\s+`lifecycle: release`,\s+`version: "<x\.y\.z>"`[^]*?`author: <handle>`/);
+  assert.doesNotMatch(standard, /group=workflow/);
   assert.match(standard, /`lifecycle`† is the skill's own maturity, not the stage of the work it serves/);
   assert.match(standard, /any change to the skill's files moves it† from the version last released: a patch for wording,\s+documentation, metadata or the description, a minor version for new behaviour/);
   for (const heading of ['When to Use', 'Prerequisites', 'Procedure', 'Usage Examples', 'What it looks like', 'Pitfalls', 'Verification', 'Deeper reading']) {

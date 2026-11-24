@@ -3,7 +3,11 @@ name: release-ledger
 description: "Build a what's-new feature into a product: capture merged work, categorise it nightly, and show each signed-in user only what shipped since they last looked, plus a digest and hand-written announcements. Symptoms: what's-new popup, in-app changelog for users, since-you-were-away digest, tell logged-in users what changed, product updates feed. This writes tables, jobs and UI into an app; it does not write the notes for one version — that is release-notes."
 license: MIT
 compatibility: "Any product with a version-controlled source of merged work, a durable store, a scheduler that can run once a day, and an authenticated user identity to hang a per-user watermark on. Automatic capture assumes a forge that emits webhooks; manual capture needs none. Analysis assumes a language model reachable from the job runner, and the digest assumes one chat or mail surface. No specific framework, database, or job runner is required."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

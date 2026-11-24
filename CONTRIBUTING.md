@@ -118,11 +118,13 @@ has the parts the others have. Those marked † are checked by `scripts/verify-s
 catalog and site tests; the rest is the shape the catalogue's skills already share.
 
 - **Frontmatter:** `name`† (the folder's name), `description`†, `license: MIT`, `compatibility`† (at
-  most 500 characters: what the skill needs and what it outputs), `metadata` as
-  `"group=workflow; lifecycle=release; version=<x.y.z>; author=<handle>"`, and `allowed-tools`. The
-  description is at most 1024 characters† and is what a runtime matches: what the skill does, then
-  `Symptoms:` or `Use when` with the words a person would type, then which sibling skill owns the job
-  next to it. `lifecycle`† is the skill's own maturity, not the stage of the work it serves, and
+  most 500 characters: what the skill needs and what it outputs), `metadata`† as a map, never a
+  one-line string (Codex skips a skill whose `metadata` is a string, and the Agent Skills
+  specification defines it as a map), holding `group: workflow`, `lifecycle: release`,
+  `version: "<x.y.z>"` (quoted, so YAML reads it as text) and `author: <handle>`, one per line, and
+  `allowed-tools`. The description is at most 1024 characters† and is what a runtime matches: what
+  the skill does, then `Symptoms:` or `Use when` with the words a person would type, then which
+  sibling skill owns the job next to it. `lifecycle`† is the skill's own maturity, not the stage of the work it serves, and
   every skill this catalogue publishes says `release`. The metadata `version` is the skill's own, and
   any change to the skill's files moves it† from the version last released: a patch for wording,
   documentation, metadata or the description, a minor version for new behaviour. A release that
