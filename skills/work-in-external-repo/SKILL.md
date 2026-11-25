@@ -3,7 +3,11 @@ name: work-in-external-repo
 description: "Work in a repository that is not the current working directory: establish the target by name, prove the checkout by its origin remote before writing, refresh the base ref, build in a dedicated worktree instead of a shared checkout, and name the repository, branch, worktree and commits in the result. Use when a change, a branch or a pull request is requested against another repository."
 license: MIT
 compatibility: "Any machine with git and a shell the agent can run commands in; nothing to install. Locating a checkout needs read access to the roots repositories live under. Refreshing the base ref needs the network: where the fetch fails the skill reports the ahead/behind as unknown rather than branching blind. A GitHub CLI is optional and used only where a pull request is asked for. Output is the change plus the repository, branch, worktree path and commits it landed in."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

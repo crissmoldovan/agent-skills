@@ -3,7 +3,11 @@ name: implement-ticket
 description: "Build or resolve one ticket through the team's own route, on the go of the person the session works for and nobody else: what else the change touches first, a worktree cut from the branch the team names, the repository's own checks, the ticket moved to in progress and then to review with its evidence, and, once it is on a preview, everyone whose request fed the ticket listed with one drafted update each, for a person to send. Invites, access grants, messages and anything on production are proposed, never done. Symptoms: implement ABC-12, do this ticket, build what the analysis planned, ship it, apply this data, a ticket on a preview whose requester has not heard, a ticket that asks for an invite or access, a request to go straight to production. Understanding a ticket first is analyse-ticket's, the Linear writes track-in-linear's, moving the build to staging and production promote-release's, and root-causing a reported problem resolve-problem-report's."
 license: MIT
 compatibility: "Linear's MCP server, or a client with the same tools, and a git repository the work can be cut from in a worktree of its own. Writes to Linear through track-in-linear's rules, and to the repository only as its own rules and the person allow. Sends nothing: invites, grants and updates are drafted for a person. Output is the change, the ticket's comments and moves, and a report with every proposed outward action word for word."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

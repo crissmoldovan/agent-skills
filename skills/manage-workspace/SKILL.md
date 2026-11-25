@@ -3,7 +3,11 @@ name: manage-workspace
 description: "Clean up after every task and keep the machine usable: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget, volume headroom and memory headroom that counts swap, give each run a project-owned scratch directory, and end by listing what was left and removed. It finds the processes agents leave running: agent CLIs whose editor died, a session served by two processes, plugin helpers whose session ended or whose folder is gone. Optional hooks for Claude Code and Codex add a session-start policy and machine check, an end-of-turn leftover check, and, in Claude Code, an end-of-session stop of the session's own helpers; an agent asked to install or update it does the whole setup. Use when .context keeps growing, a shared disk or memory fills, the machine swaps or freezes under agent sessions, or clean-up should be enforced. Formerly manage-workspace-storage."
 license: MIT
 compatibility: "The workflow works wherever the agent can inspect local files, disk usage and processes. The bundled scripts and hooks require Node.js 22 or newer on macOS or Linux. Git is needed only for Git worktrees; Docker and Tart are queried only when a session used them. The process check reads ps and, for helpers, the environment of the current user's processes. Nothing makes a network request."
-metadata: "group=workflow; lifecycle=release; version=2.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "2.0.1"
+  author: crissmoldovan
 allowed-tools: Read Grep Glob Bash
 ---
 

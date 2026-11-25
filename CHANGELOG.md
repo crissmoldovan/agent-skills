@@ -5,6 +5,66 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.35.1
+
+### Forty of the pack's forty-one skills now load in Codex: `metadata` is a map
+
+**What.** Thirty-nine skills carried their `metadata` as one quoted string
+(`"group=workflow; lifecycle=release; version=…; author=…"`). Each now carries it as a map, one key per
+line, with the version quoted:
+
+```yaml
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "2.0.1"
+  author: crissmoldovan
+```
+
+Each of those skills moves by a patch version, so `manage-workspace` is 2.0.1, `onboard-project` 1.1.2,
+and the rest one patch past what they were. Nothing else in any skill changed. `CONTRIBUTING.md`
+writes the map down as the catalogue's form, and a test now fails on a skill whose `metadata` is a
+string.
+
+**Why.** Codex reads `metadata` into a structure and skips the whole skill when it is a string, so the
+skill installed and listed but was never offered to the model. On Codex 0.171.0, `codex debug
+prompt-input` left out a test skill with the string form and listed it with the map form. The Agent
+Skills specification defines `metadata` as a map from string to string, and Claude Code reads either
+form, so the map changes nothing there. The hooks `manage-workspace` installs ran in Codex all along;
+the skill's own instructions did not reach the model.
+
+**Impact.** No behaviour changes. One skill is not converted yet: `workspace-governance`. Its version
+is its runtime's (`workspacectl` 0.3.0, tag `workspace-governance-v0.3.0`), and any change to a skill
+moves its version, so its `metadata` becomes a map with its own next release; Codex skips it until
+then. `agent-lifecycle` already used a map.
+
+**Update.** Codex users get the fix by updating their installed skills, at user level and in each
+project that installed skills of its own:
+
+```bash
+npx skills update --global --yes
+npx skills update --project --yes   # from the project's root
+```
+
+These update every skill installed at that scope, from any source. To update only some skills, name
+them: `npx skills update manage-workspace model-routing --global --yes`. A name matches whatever
+source that install came from, so check `npx skills list --global --json` when a fork or another pack
+installed a skill of the same name. A skill installed from a local folder updates from that folder,
+not from this repository. Coming from 0.34.0, follow 0.35.0's steps for the rename of
+`manage-workspace-storage` first.
+
+An install pinned to a tag stays on that tag: the Skills CLI records the ref it installed from and
+`update` checks the same ref. That includes an install made with the 0.35.0 README's
+`manage-workspace` prompt, which pinned `v0.35.0`. Install such a skill again from the new tag, for
+each agent, with the options it was installed with, its `--rename` included:
+
+```bash
+npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent codex --yes --copy
+```
+
+A copied install (`--copy`) is replaced in place. If a running Codex session does not show the
+updated skills, start a new one.
+
 ## 0.35.0
 
 ### `manage-workspace`: the clean-up skill now watches memory and the processes agents leave running (breaking: renamed)

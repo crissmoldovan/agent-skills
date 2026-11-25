@@ -3,7 +3,11 @@ name: describe-changes
 description: "Describe a change that already landed — one commit, PR, merge or tag range — classified, and written short, medium and long with every claim anchored to a hunk. Symptoms: what did this PR actually do, describe this commit, what changed between these two tags, write the changelog entry / ledger row / ticket resolution for merged work. It does not cut a release: no version bump, no semver call, no destinations — for that use release-notes and hand it this as the 'what'."
 license: MIT
 compatibility: "Any version control history the agent can read — git locally, or a forge API. Diff access is required for the detailed register; without it the skill still produces the short and medium registers and says so rather than inventing detail. Output is markdown plus a JSON envelope, so it fits a changelog, a release note, a ledger row, or a ticket comment without change."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Grep Glob Bash
 ---
 

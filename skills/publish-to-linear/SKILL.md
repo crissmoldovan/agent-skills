@@ -3,7 +3,11 @@ name: publish-to-linear
 description: "Put a team's rules and reference into Linear so the people and agents working there can find them, written once in the repository and published one way: agent guidance for the workspace or a team, a team skill for Linear's agent, a document on a team, project or initiative, and the one page a team keeps in Linear itself, its Standing rules. Each place gets the form its reader needs and the rule's own words in full, the copy says where to edit it, every publish has the person's go and is read back, and a new standing rule is added in place the day it is given. Symptoms: add this to Linear's guidance, make a Linear skill for filing bugs, put the handbook in Linear, teach Linear's agent our rules, update the how-we-work document, save this as a standing rule, add it to the team's resources, the guidance in Linear differs from the repository. Writing to tickets is track-in-linear's; the record of why a rule was made is decision-journal's."
 license: MIT
 compatibility: "Linear's MCP server, or a client with the same tools (list_documents, get_document, save_document, list_agent_skills, get_agent_skill), signed in with write access to the team's documents, and the repository the rules are written in. Guidance and team skills have no MCP write tool: the skill prepares the exact text and a person adds it in Linear's settings (paths checked against Linear's documentation on 27 October 2026). Output is the published copies, read back, and a record of each publish."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

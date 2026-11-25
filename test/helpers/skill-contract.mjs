@@ -36,6 +36,40 @@ export function frontmatterField(source, key) {
   return match ? (match[1] ?? match[2] ?? match[3]) : '';
 }
 
+/**
+ * A skill's `metadata` as the map a runtime reads: `metadata:` alone on its line, then one
+ * `  key: value` line per entry, each value a string. Null when it is not that map, a one-line
+ * string included: Codex reads `metadata` into a struct and skips the whole skill when it is a
+ * string, and the Agent Skills specification defines it as a map from string to string.
+ *
+ * Deliberately narrower than YAML, so it never calls a value a string that YAML would not: a
+ * value is double-quoted printable ASCII without escapes, or a plain word that starts with
+ * a letter and holds no space, colon or `#`; neither a key nor a plain value is one of YAML's
+ * boolean or null words. Blank lines and comment lines inside the block are skipped, as YAML skips
+ * them; a nested value, or a second `metadata` key, quoted or not, gives null.
+ */
+export function metadataOf(source) {
+  if (!source.startsWith('---\n')) return null;
+  // The frontmatter ends at the first line that is `---` once trimmed, as Codex reads it.
+  const all = source.slice(4).split('\n');
+  const close = all.findIndex((line) => line.trim() === '---');
+  if (close < 0) return null;
+  const lines = all.slice(0, close);
+  const at = lines.indexOf('metadata:');
+  if (at < 0 || lines.filter((line) => /^(["']?)metadata\1[ \t]*:/.test(line)).length !== 1) return null;
+  const notString = /^(?:y|n|yes|no|on|off|true|false|null)$/i;
+  const map = Object.create(null);
+  for (const line of lines.slice(at + 1)) {
+    if (/^[ \t]*(?:#.*)?$/.test(line)) continue;
+    if (!/^\s/.test(line)) break;
+    const entry = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*):[ \t]+(?:"([\x20\x21\x23-\x5b\x5d-\x7e]*)"|([A-Za-z][A-Za-z0-9_./+-]*))(?:[ \t]+#.*)?[ \t]*$/);
+    if (!entry || entry[1] in map || notString.test(entry[1])) return null;
+    if (entry[3] !== undefined && notString.test(entry[3])) return null;
+    map[entry[1]] = entry[2] ?? entry[3];
+  }
+  return Object.keys(map).length ? { ...map } : null;
+}
+
 // Mirrors scripts/verify-skills.mjs: the cap applies to the body, not the file.
 export function bodyLineCount(source) {
   if (!source.startsWith('---\n')) return source.split('\n').length;
@@ -85,7 +119,7 @@ export function assertCatalogueShape(name, { skill, references, fit, readme }) {
   const compatibility = frontmatterField(skill, 'compatibility');
   assert.ok(compatibility.length > 0 && [...compatibility].length <= 500, 'compatibility missing or over 500 characters');
   assert.equal(frontmatterField(skill, 'license'), 'MIT');
-  assert.match(frontmatterField(skill, 'metadata'), /^group=workflow; lifecycle=release; version=\d+\.\d+\.\d+; author=crissmoldovan$/);
+  assert.match(skill, /^metadata:\n {2}group: workflow\n {2}lifecycle: release\n {2}version: "\d+\.\d+\.\d+"\n {2}author: crissmoldovan\n/m, 'metadata is not the catalogue map (group, lifecycle, quoted version, author)');
   assert.ok(frontmatterField(skill, 'allowed-tools'), 'allowed-tools missing');
   assert.ok(bodyLineCount(skill) <= 484, `body is ${bodyLineCount(skill)} lines; the cap is 484`);
 

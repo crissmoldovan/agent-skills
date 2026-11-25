@@ -208,7 +208,7 @@ const readmeEntry = readme.slice(readme.indexOf('### `manage-workspace`'), readm
 
 test('SKILL.md carries the install-or-update procedure an agent follows end to end', () => {
   assert.match(skillText, /^name: manage-workspace$/m);
-  assert.match(skillText, /version=2\.0\.0/);
+  assert.match(skillText, /^ {2}version: "2\.0\.1"$/m);
   const s = skillText.slice(skillText.indexOf('## Install or update (agents)'), skillText.indexOf('## Usage Examples'));
   assert.ok(s.length > 300, 'section present');
   for (const re of [/--agent claude-code/, /--agent codex/, /--global/, /setup-enforcement\.mjs/, /--yes/, /\/hooks/, /trusted_hash/, /already up to date/, /explicit/i, /references\/enforcement\.md/]) assert.match(s, re);
@@ -231,7 +231,7 @@ test('the README entry has a pasteable, machine-agnostic bootstrap prompt pinned
   assert.match(readmeEntry, /#### Install or update with an agent/);
   const prompt = readmeEntry.slice(readmeEntry.indexOf('#### Install or update with an agent'), readmeEntry.indexOf('More:'));
   assert.match(prompt, /```text/);
-  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.35\.0/);
+  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.35\.1/);
   for (const re of [/codex --version/, /codex features list/, /--agent codex/, /--agent claude-code/, /--global/, /--copy/, /setup-enforcement\.mjs/, /status/, /already up to date/, /session-start/, /\/hooks/]) assert.match(prompt, re);
   assert.doesNotMatch(prompt, /\/Users\/|linear|@[a-z0-9-]+\.(com|dev)|token|secret/i);
   assert.doesNotMatch(readmeEntry, /review the new hooks once|trust .* once/i, 'trust is not "once"');

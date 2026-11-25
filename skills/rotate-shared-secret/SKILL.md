@@ -3,7 +3,11 @@ name: rotate-shared-secret
 description: "Rotate a secret that services share without downtime: the receiver accepts the current key or a next key, with an empty value never matching; the next key is generated into a 0600 file and never printed; every sender moves to a secret store and is verified delivering; the old key is retired only after the receiver's handled requests in a fixed window match the senders' own delivery records exactly and a search finds no other caller; then the receiver is redeployed, the live domain is confirmed to serve the new build, and probes show the new key passing and the old key, a wrong key and no key refused. Symptoms: rotate the webhook secret, the shared key may have leaked, the key is a literal in a trigger or config file, change the token without breaking anything, who else calls with this key, retire the old secret. Placing a single credential is secure-credential-setup's; a change crossing code, schema and jobs is land-complex-change's."
 license: MIT
 compatibility: "A receiver you can redeploy and whose live domain can be traced to a deployment; senders that can read a secret store; request logs on the receiver and delivery records on each sender covering one window. A bash shell with openssl and curl. Output is the new key in place on every side, the old key refused, a reconciliation record and a probe record. No key value or hash appears in any output."
-metadata: "group=workflow; lifecycle=release; version=1.0.1; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.2"
+  author: crissmoldovan
 allowed-tools: Read Write Edit Grep Glob Bash
 ---
 

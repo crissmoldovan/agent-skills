@@ -291,7 +291,7 @@ An adapted copy names the skill it came from by three identities:
   that folder in the adapter's `base.path`: relative to the source's root, with no `..`, and inside
   the source. The tree is then that folder's, every diff above is read for it, and the record of the
   pin names it.
-- The `version=` in a skill's metadata is not a pin: it moves once in a release that changes the
+- The `version` in a skill's metadata is not a pin: it moves once in a release that changes the
   skill, so it names no commit or tree, and before 0.27.1 a change did not always move it.
 
 ## Changing a skill that projects adapt
@@ -301,7 +301,7 @@ contract ([versioning](releases.md#versioning)).
 
 **The number that moves** is the catalogue's version, the one a `vX.Y.Z` tag names, because every
 skill is released under it. Where the skill also has tags of its own, `<skill>-vX.Y.Z`, its own
-number moves the same way. The `version=` in the skill's metadata is not that number. Below 1.0.0,
+number moves the same way. The `version` in the skill's metadata is not that number. Below 1.0.0,
 a major change moves the middle number, as a minor one does, and its release note calls it
 breaking; from 1.0.0 it moves the first.
 

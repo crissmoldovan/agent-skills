@@ -3,7 +3,11 @@ name: delphi-ground
 description: "Build a verified-facts briefing before asking anyone — human or agent — to reason about an artefact, and refuse to certify one when too little can be checked. Use when a review, a fan-out or a persona exercise would otherwise run on invention."
 license: MIT
 compatibility: "Any repository or environment the agent can read. Every fact needs a checkable reference — a path and line, a command and its output, a URL, a commit — so the briefing's strength tracks what the environment exposes: rich in an established codebase with history, thin on a greenfield proposal. Thin is a supported outcome and the skill says so rather than padding. Output is a markdown briefing plus a coverage line; nothing is changed and nothing is committed."
-metadata: "group=workflow; lifecycle=release; version=1.0.0; author=crissmoldovan"
+metadata:
+  group: workflow
+  lifecycle: release
+  version: "1.0.1"
+  author: crissmoldovan
 allowed-tools: Read Write Grep Glob Bash
 ---
 

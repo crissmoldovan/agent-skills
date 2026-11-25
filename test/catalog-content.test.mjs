@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { metadataOf } from './helpers/skill-contract.mjs';
 import { tempDir } from './helpers/temp-dir.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -71,10 +72,10 @@ test('package README lists every discovered skill with description and detail li
   }
 });
 
-test('v0.35.0 release metadata, catalog, and review ownership cover the complete pack', async () => {
-  assert.equal(rootPackage.version, '0.35.0');
-  assert.equal(rootLock.version, '0.35.0');
-  assert.equal(rootLock.packages[''].version, '0.35.0');
+test('v0.35.1 release metadata, catalog, and review ownership cover the complete pack', async () => {
+  assert.equal(rootPackage.version, '0.35.1');
+  assert.equal(rootLock.version, '0.35.1');
+  assert.equal(rootLock.packages[''].version, '0.35.1');
 
   const entries = await (await import('node:fs/promises')).readdir(new URL('skills/', root), { withFileTypes: true });
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -334,11 +335,70 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
   const wrong = [];
   for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
     if (!entry.isDirectory() || ownReleaseForm.has(entry.name)) continue;
-    const metadata = (await read(`skills/${entry.name}/SKILL.md`)).match(/^metadata: "([^"\n]*)"$/m)?.[1] ?? '';
-    const value = metadata.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]?.trim();
+    const value = metadataOf(await read(`skills/${entry.name}/SKILL.md`))?.lifecycle;
     if (value !== 'release') wrong.push(`${entry.name}: ${value ?? 'no lifecycle'}`);
   }
   assert.deepEqual(wrong, [], 'lifecycle is the skill\'s maturity, not a work stage');
+});
+
+// `metadata` is a map from string to string (CONTRIBUTING, "What every skill carries"). Codex
+// reads it into a struct and skips the whole skill when it is a string, so a string-form skill
+// installs, lists, and is never offered to the model. Two skills keep the frontmatter of their own
+// releases, each held to the form it has today so that a change to it fails here and is looked at:
+// agent-lifecycle's is a map with a nested `hermes` map, which Codex loads, held here word for word;
+// workspace-governance's is a one-line string, which Codex skips. Its version is its runtime's, and
+// any change to a skill moves its version, so the map comes with its own next release.
+test('every skill\'s metadata is a map of strings, the form Codex loads', async () => {
+  const ownRelease = {
+    'agent-lifecycle': [/^metadata:\n {2}hermes:\n {4}tags: \[agents, observability, lifecycle, orchestration\]\n {4}related_skills: \[\]\n(?! )/m, 'its 0.2.1 map, word for word'],
+    'workspace-governance': [/^metadata: "[^"\n]*"$/m, 'a one-line double-quoted string'],
+  };
+  const wrong = [];
+  for (const entry of await readdir(new URL('skills/', root), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const source = await read(`skills/${entry.name}/SKILL.md`);
+    if (Object.hasOwn(ownRelease, entry.name)) {
+      const [form, said] = ownRelease[entry.name];
+      const frontmatter = source.slice(4, source.indexOf('\n---\n', 4) + 1);
+      assert.match(frontmatter, form, `${entry.name}'s metadata is no longer ${said}: update its entry here`);
+      continue;
+    }
+    const metadata = metadataOf(source);
+    if (!metadata) wrong.push(`${entry.name}: not a map of strings`);
+    else if (Object.keys(metadata).sort().join() !== 'author,group,lifecycle,version' || metadata.group !== 'workflow'
+      || !/\S/.test(metadata.author) || !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(metadata.version)) wrong.push(`${entry.name}: not group, lifecycle, version and author`);
+  }
+  assert.deepEqual(wrong, [], 'metadata is a string, or not the catalogue\'s map of strings, so Codex skips the skill or the catalogue misreads it');
+});
+
+// The reader the test above relies on calls a value a string only where YAML does.
+test('metadataOf reads a map of strings and nothing else', () => {
+  const skill = (metadata) => `---\nname: x\ndescription: y\n${metadata}\nallowed-tools: Read\n---\n\n# x\n`;
+  const map = 'metadata:\n  group: workflow\n  lifecycle: release\n  version: "1.0.1"\n  author: someone';
+  assert.deepEqual(metadataOf(skill(map)), { group: 'workflow', lifecycle: 'release', version: '1.0.1', author: 'someone' });
+  assert.deepEqual(metadataOf(skill('metadata:\n  group: workflow\n\n  # a comment\n  lifecycle: release # its maturity')), { group: 'workflow', lifecycle: 'release' });
+  for (const [why, metadata] of [
+    ['a one-line string', 'metadata: "group=workflow; lifecycle=release; version=1.0.1; author=someone"'],
+    ['a flow map', 'metadata: {group: workflow}'],
+    ['a plain multi-line string', 'metadata:\n  just a string'],
+    ['a number', 'metadata:\n  author: 42'],
+    ['an unquoted version, which the catalogue quotes (1.0 would be a float)', 'metadata:\n  version: 1.0.1'],
+    ['a boolean', 'metadata:\n  internal: true'],
+    ['a value YAML rejects', 'metadata:\n  author: name: example'],
+    ['a nested map', 'metadata:\n  hermes:\n    tags: [a]'],
+    ['a key given twice', 'metadata:\n  group: a\n  group: b'],
+    ['a second metadata key', 'metadata:\n  group: workflow\nmetadata: "legacy"'],
+    ['a boolean key', 'metadata:\n  true: enabled'],
+    ['a control character in a quoted value', 'metadata:\n  author: "a\u0000b"'],
+    ['a C1 control character in a quoted value', 'metadata:\n  author: "a\u0080b"'],
+    ['a second metadata key, quoted', 'metadata:\n  group: workflow\n"metadata": "legacy"'],
+    ['no entries', 'metadata:'],
+  ]) assert.equal(metadataOf(skill(metadata)), null, why);
+  assert.equal(metadataOf('no frontmatter'), null);
+  for (const close of ['--- ', '  ---']) {
+    const closed = `---\nname: x\ndescription: y\n${close}\n\n\`\`\`yaml\n${map}\n\`\`\`\n---\n`;
+    assert.equal(metadataOf(closed), null, `a block after a frontmatter closed with \`${close}\` is not the frontmatter`);
+  }
 });
 
 // A skill's version is its own, and any change to its files moves it from the version last released
@@ -354,8 +414,15 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
     t.skip('no catalogue tag in this checkout\'s history');
     return;
   }
-  const versionOf = (source) => source.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
-    ?? source.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
+  // A tag before 0.35.1 carries metadata as a one-line string; from 0.35.1 it is a map. Only the
+  // frontmatter is read, so an example in a skill's body is never taken for its version.
+  const versionOf = (source) => {
+    const lines = source.startsWith('---\n') ? source.slice(4).split('\n') : [];
+    const frontmatter = lines.slice(0, Math.max(0, lines.findIndex((line) => line.trim() === '---'))).join('\n');
+    return frontmatter.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
+      ?? metadataOf(source)?.version?.match(/^\d+\.\d+\.\d+$/)?.[0]
+      ?? frontmatter.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
+  };
   const newer = (now, before) => {
     const [a, b] = [now, before].map((version) => version.split('.').map(Number));
     const i = a.findIndex((part, index) => part !== b[index]);
@@ -759,7 +826,9 @@ test('CONTRIBUTING writes down what every skill carries, lifecycle and version i
   const start = contributing.indexOf('\n### What every skill carries\n');
   assert.notEqual(start, -1, 'CONTRIBUTING has no "What every skill carries"');
   const standard = contributing.slice(start, contributing.indexOf('\n### ', start + 1));
-  assert.match(standard, /`"group=workflow; lifecycle=release; version=<x\.y\.z>; author=<handle>"`/);
+  assert.match(standard, /`metadata`† as a map, never a\s+one-line string/);
+  assert.match(standard, /`group: workflow`,\s+`lifecycle: release`,\s+`version: "<x\.y\.z>"`[^]*?`author: <handle>`/);
+  assert.doesNotMatch(standard, /group=workflow/);
   assert.match(standard, /`lifecycle`† is the skill's own maturity, not the stage of the work it serves/);
   assert.match(standard, /any change to the skill's files moves it† from the version last released: a patch for wording,\s+documentation, metadata or the description, a minor version for new behaviour/);
   for (const heading of ['When to Use', 'Prerequisites', 'Procedure', 'Usage Examples', 'What it looks like', 'Pitfalls', 'Verification', 'Deeper reading']) {

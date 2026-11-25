@@ -35,7 +35,7 @@ test('coding-teacher: the description says what it does, when to fire, and what 
   for (const sibling of ['investigate-codebase', 'layer-repository-docs']) {
     assert.match(description, new RegExp(sibling), `the description does not hand ${sibling}'s job over`);
   }
-  assert.match(frontmatter, /^metadata: "group=workflow; lifecycle=release; version=1\.0\.0; author=crissmoldovan"$/m);
+  assert.match(frontmatter, /^metadata:\n {2}group: workflow\n {2}lifecycle: release\n {2}version: "1\.0\.1"\n {2}author: crissmoldovan$/m);
   assert.match(frontmatter, /^license: MIT$/m);
   // A teaching skill pre-approves no writing tool: it changes nothing in the project.
   const tools = frontmatter.match(/^allowed-tools: (.+)$/m)?.[1] ?? '';
