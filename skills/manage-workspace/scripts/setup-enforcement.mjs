@@ -190,10 +190,10 @@ function codexHookList(cwd) {
       if (!child?.pid) return;
       try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
     };
-    const onSignal = (signal) => { killGroup(); process.exit(signal === 'SIGINT' ? 130 : 143); };
+    const onSignal = (signal) => { killGroup(); process.exit({ SIGINT: 130, SIGHUP: 129 }[signal] ?? 143); };
     const finish = (result) => {
       if (done) return; done = true; clearTimeout(timer);
-      process.off('exit', killGroup); process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal);
+      process.off('exit', killGroup); for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(signal, onSignal);
       killGroup();
       child?.stdout?.destroy(); child?.stdin?.destroy(); child?.unref();
       resolve(result);
@@ -202,7 +202,7 @@ function codexHookList(cwd) {
     try {
       child = spawn(bin, ['app-server', '--disable', 'plugins'], { stdio: ['pipe', 'pipe', 'ignore'], detached: true });
     } catch (e) { finish({ error: e.message }); return; }
-    process.once('exit', killGroup); process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
+    process.once('exit', killGroup); for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, onSignal);
     const send = (message) => { try { child.stdin.write(`${JSON.stringify(message)}\n`); } catch { /* reported by close */ } };
     child.on('error', (e) => finish({ error: e.code === 'ENOENT' ? `${bin} is not installed` : e.message }));
     child.on('close', () => finish({ error: 'it exited before listing its hooks' }));
@@ -253,9 +253,13 @@ async function codexTrust(hooksFile, json, { askCodex = true, cwd = process.cwd(
   const hooks = codexHookKeys(hooksFile, json);
   const listed = askCodex ? await codexHookList(cwd) : { error: 'not asked: --no-codex' };
   if (listed.hooks) {
-    const verdict = new Map(listed.hooks.filter((h) => h && typeof h.key === 'string').map((h) => [sameKey(h.key), h]));
+    // the exact key first; the key with its path resolved only when no exact one is listed, so a
+    // project file that links to the user's hooks.json never stands in for the user's own entry
+    const valid = listed.hooks.filter((h) => h && typeof h.key === 'string');
+    const exact = new Map(valid.map((h) => [h.key, h]));
+    const resolved = new Map(valid.map((h) => [sameKey(h.key), h]));
     const words = hooks.map(({ event, key }) => {
-      const h = verdict.get(sameKey(key));
+      const h = exact.get(key) ?? resolved.get(sameKey(key));
       if (!h) return `${event} not listed by Codex`;
       const word = TRUST_WORDS[h.trustStatus] ?? String(h.trustStatus);
       return `${event} ${word}${h.enabled === false ? ', but turned off in Codex (enabled = false), so Codex does not run it' : ''}`;

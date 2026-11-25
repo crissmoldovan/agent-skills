@@ -35,7 +35,7 @@ been seen to cause harm: a stopped helper is restarted by that session's next Co
 killed mid-lookup stops nothing.
 
 **Impact.** `status` runs `codex app-server --disable plugins` while Codex answers, usually under a
-second and at most 10, and kills it, with any process it started, when done. That launch refreshes
+second and 10 by default, and kills it, with any process it started, when done. That launch refreshes
 Codex's model list from its provider, as every Codex launch does; `status --no-codex` starts no Codex
 and reads the stored hashes. The verdict is for the folder `status` runs in, which it names, since a
 project can turn hooks off. A hook that is trusted but set to `enabled = false` in Codex now reads as
@@ -53,9 +53,9 @@ npx skills update manage-workspace --global --yes
 node scripts/setup-enforcement.mjs --yes      # from the updated manage-workspace folder
 ```
 
-Codex trust stays unless setup rewrites a Codex hook entry, which it says with an `update` line (a
-different Node.js or data folder changes the command; an older matcher is brought up to date); run
-`status` afterwards, and trust the hooks again in `/hooks` if it says so.
+Codex trust usually stays: it is lost when setup rewrites or moves a Codex hook entry (a different
+Node.js or data folder, an older matcher brought up to date, or an empty group removed beside it).
+Run `status` afterwards, and trust the hooks again in `/hooks` if it says so.
 
 An install pinned to a tag stays on it under update; install it again from `#v0.35.2`, as the README's
 prompt does.
