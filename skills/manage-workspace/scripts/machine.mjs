@@ -331,46 +331,70 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
 // folders share a broker exactly when their keys are equal. Git cannot be asked about a deleted folder,
 // so it is asked about the nearest folder that still exists: inside a repository the key is that
 // repository's, outside one it is the deleted path itself. A key that cannot be known (git timed out or
-// did not start) counts as shared. Git runs with this process's environment, the session's, as the
-// plugin's does. All the git calls of one process share one time budget, so a hook stays inside its own;
-// once it is spent, every key not yet known counts as shared.
+// did not start) counts as shared.
+// Git runs with this process's environment, the session's, as the plugin's does. Another session's
+// plugin keyed its folders with that session's environment, which this one cannot see, so when this
+// session sets any GIT_ variable (GIT_DIR, GIT_WORK_TREE and the like change what git answers), every
+// folder is keyed a second time without them, and a match either way counts as shared.
+// All the git calls of one process share one time budget, read on the monotonic clock so a wall clock
+// that stops or steps back cannot stretch it, and capped at half the hooks' 30-second timeout so the
+// shutdown requests that follow still fit; once it is spent, every key not yet known counts as shared.
 const canonical = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
 const isDir = (d) => { try { return statSync(d).isDirectory(); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; } };
+const GIT_BUDGET_DEFAULT_MS = 8000;
+const GIT_BUDGET_CAP_MS = 15000;
+export function gitBudgetMs(env = process.env) {
+  const asked = Number(env.MWS_GIT_BUDGET_MS);
+  return asked > 0 ? Math.min(asked, GIT_BUDGET_CAP_MS) : GIT_BUDGET_DEFAULT_MS;
+}
 const gitBudget = { until: 0 };
-function gitTop(dir) {
-  if (!gitBudget.until) gitBudget.until = Date.now() + (Number(process.env.MWS_GIT_BUDGET_MS) > 0 ? Number(process.env.MWS_GIT_BUDGET_MS) : 8000);
-  const left = gitBudget.until - Date.now();
+let withoutGit;
+const gitEnv = (variant) => {
+  if (variant === 'session') return undefined; // inherit this process's environment
+  withoutGit ??= Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  return withoutGit;
+};
+const variants = () => (Object.keys(process.env).some((k) => k.startsWith('GIT_')) ? ['session', 'clean'] : ['session']);
+function gitTop(dir, variant) {
+  if (!gitBudget.until) gitBudget.until = performance.now() + gitBudgetMs();
+  const left = gitBudget.until - performance.now();
   if (left <= 0) return undefined;
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8', timeout: Math.min(1500, left), killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, env: gitEnv(variant), encoding: 'utf8', timeout: Math.max(1, Math.min(1500, Math.floor(left))), killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'ignore'] });
   if (r.error) return r.error.code === 'ENOENT' ? { top: dir, repo: false } : undefined;
   if (r.signal) return undefined;
   const top = r.status === 0 ? r.stdout.trim() : '';
   return top ? { top, repo: true } : { top: dir, repo: false };
 }
 const keys = new Map();
-function brokerKey(p) {
+function brokerKey(p, variant) {
   const abs = path.resolve(p);
-  if (!keys.has(abs)) {
+  const id = `${variant}\0${abs}`;
+  if (!keys.has(id)) {
     let key;
     try {
       let dir = abs; const rest = [];
       while (!isDir(dir) && path.dirname(dir) !== dir) { rest.unshift(path.basename(dir)); dir = path.dirname(dir); }
-      const got = gitTop(dir);
+      const got = gitTop(dir, variant);
       if (got) key = got.repo || !rest.length ? canonical(got.top) : path.join(canonical(dir), ...rest);
     } catch { key = undefined; }
-    keys.set(abs, key);
+    keys.set(id, key);
   }
-  return keys.get(abs);
+  return keys.get(id);
+}
+// A folder's keys, one per environment it is keyed with; undefined when any of them cannot be known.
+function brokerKeys(p) {
+  const all = variants().map((v) => brokerKey(p, v));
+  return all.includes(undefined) ? undefined : new Set(all);
 }
 export function sharedWithLiveSession(h, sessions, session) {
   if (!h.folder) return false;
   if (!sessions) return true;
-  const key = brokerKey(h.folder);
-  if (key === undefined) return true;
+  const mine = brokerKeys(h.folder);
+  if (mine === undefined) return true;
   return sessions.some((s) => {
     if (s.sessionId === session || !s.cwd) return false;
-    const k = brokerKey(s.cwd);
-    return k === undefined || k === key;
+    const theirs = brokerKeys(s.cwd);
+    return theirs === undefined || [...theirs].some((k) => mine.has(k));
   });
 }
 

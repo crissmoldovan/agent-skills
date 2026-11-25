@@ -86,16 +86,21 @@ Codex stores the trust as a table named for the hook's position, with a hash of 
 trusted_hash = "sha256:<hex>"
 ```
 
-`node scripts/setup-enforcement.mjs status` reads those tables and prints `Codex trust: SessionStart
-trusted; Stop trusted` (or `not trusted`). It can only see that a hash is stored, not that it matches
-the current command, so after a command change `/hooks` is the authority.
+The hash is Codex's fingerprint of a normalised form of the hook, an internal method, so a stored
+hash cannot say whether it is for the current command. `node scripts/setup-enforcement.mjs status`
+therefore asks Codex: it starts `codex app-server`, sends `hooks/list` (what `/hooks` reads) and
+prints Codex's own verdict for each of the two hooks, `Codex trust: SessionStart trusted; Stop
+trusted (as Codex reports it)`, with `not trusted`, or `changed since it was trusted, so Codex does
+not run it: trust it again in /hooks` for a hash stored for an older command. When Codex cannot be
+asked (not installed, no answer within 10 seconds), it reads the stored hashes instead and says so,
+naming why; `/hooks` is then the authority. `MWS_CODEX_BIN` names the `codex` to ask.
 
 ### Default: the person reviews in `/hooks`
 
 1. Ask the person to open Codex and run `/hooks`.
 2. They press `t` on the new `manage-workspace` entries: one `SessionStart`, one `Stop`.
-3. Verify by reading back: `setup-enforcement.mjs status` shows both as trusted, and
-   `~/.codex/config.toml` has a `trusted_hash` under each of the two hook keys.
+3. Verify by reading back: `setup-enforcement.mjs status` shows both as trusted, as Codex reports
+   it.
 
 An agent must not skip the review, and must say plainly that the hooks are not active until it is done.
 
@@ -125,8 +130,9 @@ the procedure and hand back to `/hooks`.
 4. **Write only the two entries**, in the existing form of the file, under the two keys for those hooks.
 5. **Verify.** The file differs from the backup only by those two entries, and Codex itself no longer
    lists them as needing review (use whatever the installed Codex offers to list hooks and their
-   review state, a non-interactive listing if it has one, otherwise ask the person to open `/hooks`;
-   the file alone is not proof). Otherwise restore the backup and hand back to `/hooks`.
+   review state: `setup-enforcement.mjs status` asks it, and must say `trusted` for both, as Codex
+   reports it; if it fell back to the stored hashes, ask the person to open `/hooks`, since the file
+   alone is not proof). Otherwise restore the backup and hand back to `/hooks`.
 6. **Report** the Codex version, the method (source file and function), the proof (which trusted hook
    matched), the two entries written and the backup path.
 

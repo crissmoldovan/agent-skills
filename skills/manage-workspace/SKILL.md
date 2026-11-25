@@ -6,7 +6,7 @@ compatibility: "The workflow works wherever the agent can inspect local files, d
 metadata:
   group: workflow
   lifecycle: release
-  version: "2.0.1"
+  version: "2.0.2"
   author: crissmoldovan
 allowed-tools: Read Grep Glob Bash
 ---
@@ -178,8 +178,8 @@ the same from scratch.
 5. **Get the Codex hooks trusted.** Codex trust is per machine and is needed again whenever a hook
    command changes, as it does when an old-name entry is rewritten (setup prints `update ... entry`).
    Default: ask the person to run `/hooks` in Codex and press `t` on the two `manage-workspace`
-   entries, then check `status` reports both trusted and `trusted_hash` entries exist in
-   `~/.codex/config.toml` for those hook keys. Only when the person's request explicitly authorises
+   entries, then check `status` reports both trusted, as Codex reports it (it asks Codex; a line that
+   says it fell back to stored hashes is not proof). Only when the person's request explicitly authorises
    self-approval, follow the guarded procedure in
    [the enforcement guide](references/enforcement.md#guarded-self-approval), and stop and hand back to
    `/hooks` the moment any step cannot be proven. Never use `--dangerously-bypass-hook-trust`, never
