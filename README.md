@@ -831,7 +831,7 @@ npx skills update model-routing agent-lifecycle --global --yes
 
 An unnamed `update` updates every skill installed at that scope, from any source. An install pinned to a
 release tag (`crissmoldovan/agent-skills#vX.Y.Z`) stays on that tag when updated: to move it, install
-it again from the newer tag, with the scope, agents and `--copy` it was installed with.
+it again from the newer tag, with the scope, agents, `--copy` and `--rename` it was installed with.
 
 For missing global projections across all supported agents:
 

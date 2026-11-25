@@ -46,13 +46,17 @@ npx skills update --global --yes
 npx skills update --project --yes   # from the project's root
 ```
 
-These update every skill installed at that scope, from any source. To update only this pack's skills,
-name them: `npx skills update manage-workspace model-routing --global --yes`.
+These update every skill installed at that scope, from any source. To update only some skills, name
+them: `npx skills update manage-workspace model-routing --global --yes`. A name matches whatever
+source that install came from, so check `npx skills list --global --json` when a fork or another pack
+installed a skill of the same name. A skill installed from a local folder updates from that folder,
+not from this repository. Coming from 0.34.0, follow 0.35.0's steps for the rename of
+`manage-workspace-storage` first.
 
 An install pinned to a tag stays on that tag: the Skills CLI records the ref it installed from and
 `update` checks the same ref. That includes an install made with the 0.35.0 README's
 `manage-workspace` prompt, which pinned `v0.35.0`. Install such a skill again from the new tag, for
-each agent, with the options it was installed with:
+each agent, with the options it was installed with, its `--rename` included:
 
 ```bash
 npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent codex --yes --copy
