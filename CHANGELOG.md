@@ -37,10 +37,12 @@ the skill's own instructions did not reach the model.
 metadata string of its own release, which its package tests pin and its next release changes, so
 Codex skips it until then. `agent-lifecycle` already used a map.
 
-**Update.** Codex users get the fix by updating the pack:
+**Update.** Codex users get the fix by updating the pack, at user level and in each project that
+installed skills of its own:
 
 ```bash
 npx skills update --global --yes
+npx skills update --project --yes   # from the project's root
 ```
 
 An install pinned to a tag stays on that tag: the Skills CLI records the ref it installed from and

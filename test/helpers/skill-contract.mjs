@@ -43,23 +43,26 @@ export function frontmatterField(source, key) {
  * string, and the Agent Skills specification defines it as a map from string to string.
  *
  * Deliberately narrower than YAML, so it never calls a value a string that YAML would not: a
- * value is double-quoted without escapes or control characters, or a plain word that starts with
+ * value is double-quoted printable ASCII without escapes, or a plain word that starts with
  * a letter and holds no space, colon or `#`; neither a key nor a plain value is one of YAML's
  * boolean or null words. Blank lines and comment lines inside the block are skipped, as YAML skips
- * them; a nested value, or a second `metadata` key, gives null.
+ * them; a nested value, or a second `metadata` key, quoted or not, gives null.
  */
 export function metadataOf(source) {
-  const close = source.indexOf('\n---\n', 4);
-  if (!source.startsWith('---\n') || close < 0) return null;
-  const lines = source.slice(4, close).split('\n');
+  if (!source.startsWith('---\n')) return null;
+  // The frontmatter ends at the first line that is `---`, trailing blanks allowed, as Codex reads it.
+  const all = source.slice(4).split('\n');
+  const close = all.findIndex((line) => /^---[ \t]*$/.test(line));
+  if (close < 0) return null;
+  const lines = all.slice(0, close);
   const at = lines.indexOf('metadata:');
-  if (at < 0 || lines.filter((line) => /^metadata[ \t]*:/.test(line)).length !== 1) return null;
+  if (at < 0 || lines.filter((line) => /^(["']?)metadata\1[ \t]*:/.test(line)).length !== 1) return null;
   const notString = /^(?:y|n|yes|no|on|off|true|false|null)$/i;
   const map = Object.create(null);
   for (const line of lines.slice(at + 1)) {
     if (/^[ \t]*(?:#.*)?$/.test(line)) continue;
     if (!/^\s/.test(line)) break;
-    const entry = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*):[ \t]+(?:"([^"\\\x00-\x1f\x7f]*)"|([A-Za-z][A-Za-z0-9_./+-]*))(?:[ \t]+#.*)?[ \t]*$/);
+    const entry = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*):[ \t]+(?:"([\x20\x21\x23-\x5b\x5d-\x7e]*)"|([A-Za-z][A-Za-z0-9_./+-]*))(?:[ \t]+#.*)?[ \t]*$/);
     if (!entry || entry[1] in map || notString.test(entry[1])) return null;
     if (entry[3] !== undefined && notString.test(entry[3])) return null;
     map[entry[1]] = entry[2] ?? entry[3];

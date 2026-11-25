@@ -350,7 +350,7 @@ test("every skill's metadata lifecycle is its maturity, and every published skil
 // makes it a map.
 test('every skill\'s metadata is a map of strings, the form Codex loads', async () => {
   const ownRelease = {
-    'agent-lifecycle': [/^metadata:\n {2}hermes:\n {4}[A-Za-z_][A-Za-z0-9_-]*:/m, 'a map holding a nested hermes map'],
+    'agent-lifecycle': [/^metadata:\n {2}hermes:\n {4}[A-Za-z_][A-Za-z0-9_-]*:(?:[ \t]|$)/m, 'a map holding a nested hermes map'],
     'workspace-governance': [/^metadata: "[^"\n]*"$/m, 'a one-line double-quoted string'],
   };
   const wrong = [];
@@ -390,9 +390,13 @@ test('metadataOf reads a map of strings and nothing else', () => {
     ['a second metadata key', 'metadata:\n  group: workflow\nmetadata: "legacy"'],
     ['a boolean key', 'metadata:\n  true: enabled'],
     ['a control character in a quoted value', 'metadata:\n  author: "a\u0000b"'],
+    ['a C1 control character in a quoted value', 'metadata:\n  author: "a\u0080b"'],
+    ['a second metadata key, quoted', 'metadata:\n  group: workflow\n"metadata": "legacy"'],
     ['no entries', 'metadata:'],
   ]) assert.equal(metadataOf(skill(metadata)), null, why);
   assert.equal(metadataOf('no frontmatter'), null);
+  const closedWithBlank = `---\nname: x\ndescription: y\n--- \n\n\`\`\`yaml\n${map}\n\`\`\`\n---\n`;
+  assert.equal(metadataOf(closedWithBlank), null, 'a block after a frontmatter closed with `--- ` is not the frontmatter');
 });
 
 // A skill's version is its own, and any change to its files moves it from the version last released
@@ -411,7 +415,8 @@ test('a skill changed since the last catalogue tag moves its version', async (t)
   // A tag before 0.35.1 carries metadata as a one-line string; from 0.35.1 it is a map. Only the
   // frontmatter is read, so an example in a skill's body is never taken for its version.
   const versionOf = (source) => {
-    const frontmatter = source.startsWith('---\n') ? source.slice(4, source.indexOf('\n---\n', 4) + 1) : '';
+    const lines = source.startsWith('---\n') ? source.slice(4).split('\n') : [];
+    const frontmatter = lines.slice(0, Math.max(0, lines.findIndex((line) => /^---[ \t]*$/.test(line)))).join('\n');
     return frontmatter.match(/^metadata: "[^"\n]*\bversion=(\d+\.\d+\.\d+)/m)?.[1]
       ?? metadataOf(source)?.version?.match(/^\d+\.\d+\.\d+$/)?.[0]
       ?? frontmatter.match(/^version: (\d+\.\d+\.\d+)$/m)?.[1];
