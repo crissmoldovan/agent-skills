@@ -369,6 +369,9 @@ npx skills add crissmoldovan/agent-skills --skill workspace-governance
 # its CLI installs separately — see packages/workspace-governance/README.md
 ```
 
+Codex does not load it yet: its `metadata` is still the one-line string of its 0.3.0 release, which
+Codex skips, and its next release makes it a map. Claude Code loads it.
+
 Ask it:
 
 - *"Use workspace-governance to validate this declared catalog, explain inherited policy and produce one workspace report covering hierarchy, checkout placement…"*
@@ -825,6 +828,10 @@ npx skills update --project --yes
 npx skills update --global --yes
 npx skills update model-routing agent-lifecycle --global --yes
 ```
+
+An unnamed `update` updates every skill installed at that scope, from any source. An install pinned to a
+release tag (`crissmoldovan/agent-skills#vX.Y.Z`) stays on that tag when updated: to move it, install
+it again from the newer tag, with the scope, agents and `--copy` it was installed with.
 
 For missing global projections across all supported agents:
 

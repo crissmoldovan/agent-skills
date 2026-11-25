@@ -33,17 +33,21 @@ Skills specification defines `metadata` as a map from string to string, and Clau
 form, so the map changes nothing there. The hooks `manage-workspace` installs ran in Codex all along;
 the skill's own instructions did not reach the model.
 
-**Impact.** No behaviour changes. One skill is not converted yet: `workspace-governance` keeps the
-metadata string of its own release, which its package tests pin and its next release changes, so
-Codex skips it until then. `agent-lifecycle` already used a map.
+**Impact.** No behaviour changes. One skill is not converted yet: `workspace-governance`. Its version
+is its runtime's (`workspacectl` 0.3.0, tag `workspace-governance-v0.3.0`), and any change to a skill
+moves its version, so its `metadata` becomes a map with its own next release; Codex skips it until
+then. `agent-lifecycle` already used a map.
 
-**Update.** Codex users get the fix by updating the pack, at user level and in each project that
-installed skills of its own:
+**Update.** Codex users get the fix by updating their installed skills, at user level and in each
+project that installed skills of its own:
 
 ```bash
 npx skills update --global --yes
 npx skills update --project --yes   # from the project's root
 ```
+
+These update every skill installed at that scope, from any source. To update only this pack's skills,
+name them: `npx skills update manage-workspace model-routing --global --yes`.
 
 An install pinned to a tag stays on that tag: the Skills CLI records the ref it installed from and
 `update` checks the same ref. That includes an install made with the 0.35.0 README's

@@ -50,9 +50,9 @@ export function frontmatterField(source, key) {
  */
 export function metadataOf(source) {
   if (!source.startsWith('---\n')) return null;
-  // The frontmatter ends at the first line that is `---`, trailing blanks allowed, as Codex reads it.
+  // The frontmatter ends at the first line that is `---` once trimmed, as Codex reads it.
   const all = source.slice(4).split('\n');
-  const close = all.findIndex((line) => /^---[ \t]*$/.test(line));
+  const close = all.findIndex((line) => line.trim() === '---');
   if (close < 0) return null;
   const lines = all.slice(0, close);
   const at = lines.indexOf('metadata:');
