@@ -172,24 +172,32 @@ test('setup skips an agent that is not installed, refuses invalid JSON, and sets
   assert.equal(cli('mode', 'loud').status, 2);
 });
 
-// A stand-in for `codex app-server`: it answers initialize, then hooks/list with the hooks in
-// FAKE_CODEX_HOOKS, and records each request it got. With FAKE_CODEX_EXIT set it exits at once.
+// A stand-in for `codex app-server`: it records its arguments and each request it got, answers
+// initialize (after a stray `null` line), then hooks/list with the hooks in FAKE_CODEX_HOOKS and the
+// errors in FAKE_CODEX_ERRORS. With FAKE_CODEX_EXIT it exits at once; with FAKE_CODEX_HANG it starts
+// a child that holds its output open, as a wrapper script would, and never answers.
 function fakeCodex(root) {
   const bin = path.join(root, 'fake-codex');
   writeFileSync(bin, `#!${process.execPath}
 const fs = require('node:fs');
+fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');
 if (process.argv[2] !== 'app-server') process.exit(3);
 if (process.env.FAKE_CODEX_EXIT) process.exit(1);
-let buf = '';
-process.stdin.on('data', (d) => {
-  buf += d; let i;
-  while ((i = buf.indexOf('\\n')) >= 0) {
-    const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
-    fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(m) + '\\n');
-    if (m.id === 1) process.stdout.write(JSON.stringify({ id: 1, result: { userAgent: 'fake' } }) + '\\n');
-    if (m.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { data: [{ cwd: m.params.cwds[0], hooks: JSON.parse(process.env.FAKE_CODEX_HOOKS) }] } }) + '\\n');
-  }
-});
+if (process.env.FAKE_CODEX_HANG) {
+  require('node:child_process').spawn('sleep', [process.env.FAKE_CODEX_HANG], { stdio: 'inherit' });
+  setInterval(() => {}, 1000);
+} else {
+  let buf = '';
+  process.stdin.on('data', (d) => {
+    buf += d; let i;
+    while ((i = buf.indexOf('\\n')) >= 0) {
+      const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+      fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(m) + '\\n');
+      if (m.id === 1) process.stdout.write('null\\n' + JSON.stringify({ id: 1, result: { userAgent: 'fake' } }) + '\\n');
+      if (m.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { data: [{ cwd: m.params.cwds[0], hooks: JSON.parse(process.env.FAKE_CODEX_HOOKS), errors: JSON.parse(process.env.FAKE_CODEX_ERRORS || '[]') }] } }) + '\\n');
+    }
+  });
+}
 `);
   chmodSync(bin, 0o755);
   return bin;
@@ -209,26 +217,39 @@ test('status asks Codex for its own trust verdict, and says when it could not', 
   const hash = `sha256:${'a'.repeat(64)}`;
   writeFileSync(path.join(home, '.codex', 'config.toml'), `[hooks.state."${hooks}:session_start:1:0"]\ntrusted_hash = "${hash}"\n[hooks.state."${hooks}:stop:0:0"]\ntrusted_hash = "${hash}"\n`);
   const log = path.join(root, 'codex-requests.jsonl');
-  const listed = (start, stop) => JSON.stringify([
-    { key: `${hooks}:session_start:0:0`, eventName: 'sessionStart', trustStatus: 'untrusted' },
-    { key: `${hooks}:session_start:1:0`, eventName: 'sessionStart', trustStatus: start },
-    { key: `${hooks}:stop:0:0`, eventName: 'stop', trustStatus: stop },
+  const listed = (start, stop, stopEnabled = true) => JSON.stringify([
+    { key: `${hooks}:session_start:0:0`, eventName: 'sessionStart', trustStatus: 'untrusted', enabled: true },
+    { key: `${hooks}:session_start:1:0`, eventName: 'sessionStart', trustStatus: start, enabled: true },
+    { key: `${hooks}:stop:0:0`, eventName: 'stop', trustStatus: stop, enabled: stopEnabled },
   ]);
   const fake = { MWS_CODEX_BIN: fakeCodex(root), FAKE_CODEX_LOG: log };
   let out = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'modified') }).stdout;
   assert.match(out, /Codex trust: SessionStart trusted; Stop changed since it was trusted, so Codex does not run it: trust it again in \/hooks \(as Codex reports it\)/);
   const asked = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(asked.map((m) => m.method), ['initialize', 'initialized', 'hooks/list']);
-  assert.deepEqual(asked[2].params, { cwds: [home] });
+  assert.deepEqual(asked[0].argv, ['app-server', '--disable', 'plugins'], 'plugins are disabled, so Codex starts no plugin refresh');
+  assert.deepEqual(asked.slice(1).map((m) => m.method), ['initialize', 'initialized', 'hooks/list']);
+  assert.deepEqual(asked[3].params, { cwds: [home] });
   out = status({ ...fake, FAKE_CODEX_HOOKS: listed('untrusted', 'trusted') }).stdout;
   assert.match(out, /Codex trust: SessionStart not trusted; Stop trusted \(as Codex reports it\)/);
+  out = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'trusted', false) }).stdout;
+  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted, but turned off in Codex \(enabled = false\), so Codex does not run it \(as Codex reports it\)/);
   out = status({ ...fake, FAKE_CODEX_HOOKS: JSON.stringify([]) }).stdout;
   assert.match(out, /Codex trust: SessionStart not listed by Codex; Stop not listed by Codex \(as Codex reports it\)/);
-  // Codex cannot be asked: the stored hashes, said to be only that, and why
+  // Codex cannot be asked, or reports errors while listing: the stored hashes, said to be only that, and why
   out = status({ ...fake, FAKE_CODEX_EXIT: '1', FAKE_CODEX_HOOKS: '[]' }).stdout;
   assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, which cannot tell the current command from an older one: Codex could not be asked \(it exited before listing its hooks\)\. \/hooks in Codex is the authority\)/);
+  out = status({ ...fake, FAKE_CODEX_HOOKS: '[]', FAKE_CODEX_ERRORS: JSON.stringify([{ message: 'config.toml: invalid TOML' }]) }).stdout;
+  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, [^\n]*Codex could not be asked \(it reported config\.toml: invalid TOML\)/);
   out = status({}).stdout;
   assert.match(out, /Codex could not be asked \([^)]*not installed[^)]*\)/);
+  // a wrapper that never answers and whose child holds the output open: status still ends, and the
+  // whole process group, the child included, is gone
+  const marker = '31.7';
+  const hung = spawnSync(process.execPath, [setup, 'status'], { encoding: 'utf8', timeout: 20000, env: { ...env, ...fake, FAKE_CODEX_HANG: marker, FAKE_CODEX_HOOKS: '[]', MWS_CODEX_ANSWER_MS: '1500' } });
+  assert.equal(hung.status, 0, `status ended (${hung.error?.code ?? 'ok'})`);
+  assert.match(hung.stdout, /Codex could not be asked \(it did not answer within 1\.5 s\)/);
+  const left = spawnSync('pgrep', ['-f', `sleep ${marker}`], { encoding: 'utf8' });
+  assert.equal(left.stdout.trim(), '', 'the wrapper\'s child was killed with it');
 });
 
 test('status reads Codex trust from config.toml by hook key, and says nothing about other hooks', async () => {

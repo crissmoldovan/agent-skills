@@ -3,7 +3,8 @@
 `scripts/setup-enforcement.mjs` installs three hooks in Claude Code and two in Codex. All call one
 script, `leftovers.mjs`, which setup copies with `machine.mjs` to `$XDG_DATA_HOME/manage-workspace/`
 (default `~/.local/share/...`) so the hook entries keep working wherever the skill itself is installed
-or updated. Needs Node.js 22 or newer. Makes no network request.
+or updated. Needs Node.js 22 or newer. The scripts make no network request; `status` starts Codex's
+app-server with plugins disabled, which skips the plugin refresh Codex otherwise starts at launch.
 
 ## Install, preview, remove
 
@@ -88,12 +89,14 @@ trusted_hash = "sha256:<hex>"
 
 The hash is Codex's fingerprint of a normalised form of the hook, an internal method, so a stored
 hash cannot say whether it is for the current command. `node scripts/setup-enforcement.mjs status`
-therefore asks Codex: it starts `codex app-server`, sends `hooks/list` (what `/hooks` reads) and
-prints Codex's own verdict for each of the two hooks, `Codex trust: SessionStart trusted; Stop
-trusted (as Codex reports it)`, with `not trusted`, or `changed since it was trusted, so Codex does
-not run it: trust it again in /hooks` for a hash stored for an older command. When Codex cannot be
-asked (not installed, no answer within 10 seconds), it reads the stored hashes instead and says so,
-naming why; `/hooks` is then the authority. `MWS_CODEX_BIN` names the `codex` to ask.
+therefore asks Codex: it starts `codex app-server --disable plugins` in a process group of its own,
+sends `hooks/list` (what `/hooks` reads), prints Codex's own verdict for each of the two hooks and
+kills the group. `Codex trust: SessionStart trusted; Stop trusted (as Codex reports it)`, with
+`not trusted`, `changed since it was trusted, so Codex does not run it: trust it again in /hooks` for
+a hash stored for an older command, and `but turned off in Codex` for a hook set to `enabled = false`.
+When Codex cannot be asked (not installed, an error it reports while listing, no answer within 10
+seconds), it reads the stored hashes instead and says so, naming why; `/hooks` is then the authority.
+`MWS_CODEX_BIN` names the `codex` to ask, and `MWS_CODEX_ANSWER_MS` the wait.
 
 ### Default: the person reviews in `/hooks`
 

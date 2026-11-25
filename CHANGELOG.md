@@ -33,18 +33,24 @@ the next version. Entries before v0.12.0 live only on the Releases page.
 been seen to cause harm: a stopped helper is restarted by that session's next Codex call, and a hook
 killed mid-lookup stops nothing.
 
-**Impact.** `status` takes up to a second longer while Codex answers, and runs `codex app-server` for
-that time; `MWS_CODEX_BIN` names another `codex`. One narrower limit remains: another session's
-environment cannot be seen, so a session that itself sets `GIT_DIR` or `GIT_WORK_TREE` is keyed as if
-it did not.
+**Impact.** `status` runs `codex app-server --disable plugins` while Codex answers, usually under a
+second and at most 10, and kills it, with any process it started, when done; with plugins disabled,
+Codex starts no plugin refresh over the network. `MWS_CODEX_BIN` names another `codex`. A hook that is
+trusted but set to `enabled = false` in Codex now reads as turned off. One narrower limit remains:
+another session's environment cannot be seen, so a session that itself sets `GIT_DIR` or
+`GIT_WORK_TREE` is keyed as if it did not.
 
-**Update.** Update the skill, then run its setup script again so the hooks run the new scripts (the
-hook commands do not change, so Codex trust stays):
+**Update.** Update the skill, then run its setup script again from the updated `manage-workspace`
+folder, so the hooks run the new scripts. That folder is `~/.agents/skills/manage-workspace`, or
+`~/.claude/skills/manage-workspace` on a machine where only Claude Code has the skill:
 
 ```bash
 npx skills update manage-workspace --global --yes
-node ~/.agents/skills/manage-workspace/scripts/setup-enforcement.mjs --yes
+node scripts/setup-enforcement.mjs --yes      # from the updated manage-workspace folder
 ```
+
+The hook commands stay the same unless setup prints `update ... entry` (a different Node.js, or a
+different data folder), so Codex trust usually stays; `status` says whether it did.
 
 An install pinned to a tag stays on it under update; install it again from `#v0.35.2`, as the README's
 prompt does.

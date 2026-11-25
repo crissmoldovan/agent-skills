@@ -168,36 +168,49 @@ function storedTrust(hooksFile, hooks) {
     return `${event} ${/^\s*trusted_hash\s*=\s*"sha256:[0-9a-f]+"/m.test(body) ? 'trusted' : 'not trusted'}`;
   });
 }
-const CODEX_ANSWER_MS = 10000;
-// One exchange with `codex app-server` over stdio: initialize, initialized, hooks/list. It is killed
-// when it answers, exits, or has not answered in 10 s; the result is the hooks it listed, or why not.
+const codexAnswerMs = () => (Number(process.env.MWS_CODEX_ANSWER_MS) > 0 ? Number(process.env.MWS_CODEX_ANSWER_MS) : 10000);
+// One exchange with `codex app-server` over stdio: initialize, initialized, hooks/list. Plugins are
+// disabled for it, which skips the plugin refresh Codex otherwise starts over the network; the hooks in
+// hooks.json are listed all the same. It runs in a process group of its own, killed whole when it has
+// answered, exited, or not answered in time (10 s), so a wrapper's children go with it. The result is
+// the hooks Codex listed, or why it could not be asked, including errors Codex reports while listing.
 function codexHookList(cwd) {
   const bin = process.env.MWS_CODEX_BIN || 'codex';
+  const limit = codexAnswerMs();
   return new Promise((resolve) => {
     let child; let buf = ''; let done = false;
     const finish = (result) => {
       if (done) return; done = true; clearTimeout(timer);
-      try { child?.kill('SIGKILL'); } catch { /* already gone */ }
+      if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } } }
+      child?.stdout?.destroy(); child?.stdin?.destroy(); child?.unref();
       resolve(result);
     };
-    const timer = setTimeout(() => finish({ error: `it did not answer within ${CODEX_ANSWER_MS / 1000} s` }), CODEX_ANSWER_MS);
-    try { child = spawn(bin, ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'] }); } catch (e) { finish({ error: e.message }); return; }
+    const timer = setTimeout(() => finish({ error: `it did not answer within ${limit / 1000} s` }), limit);
+    try {
+      child = spawn(bin, ['app-server', '--disable', 'plugins'], { stdio: ['pipe', 'pipe', 'ignore'], detached: true });
+    } catch (e) { finish({ error: e.message }); return; }
     const send = (message) => { try { child.stdin.write(`${JSON.stringify(message)}\n`); } catch { /* reported by close */ } };
     child.on('error', (e) => finish({ error: e.code === 'ENOENT' ? `${bin} is not installed` : e.message }));
     child.on('close', () => finish({ error: 'it exited before listing its hooks' }));
     child.stdin.on('error', () => { /* reported by close */ });
+    child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => {
       buf += d; let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
+      while (!done && (i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
         let m; try { m = JSON.parse(line); } catch { continue; }
+        if (!m || typeof m !== 'object') continue;
         if (m.id === 1) {
           if (m.error) { finish({ error: `initialize failed: ${m.error.message ?? JSON.stringify(m.error)}` }); return; }
           send({ method: 'initialized' });
           send({ id: 2, method: 'hooks/list', params: { cwds: [cwd] } });
         } else if (m.id === 2) {
-          if (m.error) finish({ error: `hooks/list failed: ${m.error.message ?? JSON.stringify(m.error)}` });
-          else finish({ hooks: (m.result?.data ?? []).flatMap((entry) => (Array.isArray(entry.hooks) ? entry.hooks : [])) });
+          const data = m.result?.data;
+          if (m.error) { finish({ error: `hooks/list failed: ${m.error.message ?? JSON.stringify(m.error)}` }); return; }
+          if (!Array.isArray(data)) { finish({ error: 'hooks/list returned no list' }); return; }
+          const errors = data.flatMap((entry) => (Array.isArray(entry?.errors) ? entry.errors : []));
+          if (errors.length) { finish({ error: `it reported ${errors.map((e) => (typeof e === 'string' ? e : e?.message ?? JSON.stringify(e))).join('; ')}` }); return; }
+          finish({ hooks: data.flatMap((entry) => (Array.isArray(entry?.hooks) ? entry.hooks : [])) });
         }
       }
     });
@@ -222,10 +235,12 @@ async function codexTrust(hooksFile, json) {
   const hooks = codexHookKeys(hooksFile, json);
   const listed = await codexHookList(HOME());
   if (listed.hooks) {
-    const verdict = new Map(listed.hooks.filter((h) => typeof h?.key === 'string').map((h) => [sameKey(h.key), h.trustStatus]));
+    const verdict = new Map(listed.hooks.filter((h) => h && typeof h.key === 'string').map((h) => [sameKey(h.key), h]));
     const words = hooks.map(({ event, key }) => {
-      const v = verdict.get(sameKey(key));
-      return `${event} ${v === undefined ? 'not listed by Codex' : TRUST_WORDS[v] ?? v}`;
+      const h = verdict.get(sameKey(key));
+      if (!h) return `${event} not listed by Codex`;
+      const word = TRUST_WORDS[h.trustStatus] ?? String(h.trustStatus);
+      return `${event} ${word}${h.enabled === false ? ', but turned off in Codex (enabled = false), so Codex does not run it' : ''}`;
     });
     return `${words.join('; ')} (as Codex reports it)`;
   }

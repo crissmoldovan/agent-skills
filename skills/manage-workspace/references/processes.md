@@ -156,10 +156,12 @@ that names its folder. Without a session variable it can be reported but never s
   deleted folder, so it is asked about the nearest folder that still exists: a deleted folder inside a
   repository another live session works in keeps its broker, even when it was a worktree with a broker
   of its own. Git runs with the session's environment, as the plugin's does, so `GIT_DIR` and its
-  kin count. Each other session's plugin asked git with that session's environment, which the hook
-  cannot see, so when the hook's session sets any `GIT_` variable, every folder is keyed a second time
-  without them, and a match either way keeps the broker: a session that sets `GIT_DIR` for its whole
-  life can no longer split a repository another session works in. The git calls of one hook share an
+  kin count, and the hook's own helpers, keyed by its plugin with that environment, are keyed that way
+  alone. Each other session's plugin asked git with that session's environment, which the hook cannot
+  see, so when the hook's session sets any `GIT_` variable, another session's folder is keyed both with
+  and without them, and a match with either keeps the broker: a session that sets `GIT_DIR` for its
+  whole life can no longer split a repository another session works in. `processes --stop-helpers`
+  runs outside any session, so there a helper's folder is keyed both ways too. The git calls of one hook share an
   8-second budget, each at most 1.5 seconds and killed at its limit; when git times out, does not
   start, or the budget is spent, the helper is kept. The budget is read on the monotonic clock, so a
   wall clock that stops or is set back does not stretch it, and `MWS_GIT_BUDGET_MS` can set it to at

@@ -449,8 +449,8 @@ test('the workspace guard keys a folder as the plugin does: git\'s top level for
 // Runs the guard in a fresh process, so its environment and PATH are the test's to set.
 // `before` runs in the child ahead of the import, to change what the guard sees (a frozen clock).
 // Time is measured on the monotonic clock, which `before` leaves alone.
-const guardIn = (env, h, sessions, before = '') => {
-  const code = `${before} const m = await import(${JSON.stringify(path.join(dir, 'machine.mjs'))}); const t = performance.now(); const shared = m.sharedWithLiveSession(${JSON.stringify(h)}, ${JSON.stringify(sessions)}, 'a'); console.log(JSON.stringify({ shared, ms: Math.round(performance.now() - t) }));`;
+const guardIn = (env, h, sessions, before = '', opts = {}) => {
+  const code = `${before} const m = await import(${JSON.stringify(path.join(dir, 'machine.mjs'))}); const t = performance.now(); const shared = m.sharedWithLiveSession(${JSON.stringify(h)}, ${JSON.stringify(sessions)}, 'a', ${JSON.stringify(opts)}); console.log(JSON.stringify({ shared, ms: Math.round(performance.now() - t) }));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', env: { ...process.env, ...env } });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout.trim());
@@ -465,18 +465,26 @@ test('the workspace guard asks git with the environment the plugin has', async (
   assert.equal(guardIn({ GIT_DIR: path.join(repo, '.git'), GIT_WORK_TREE: repo }, { folder: one }, sessions).shared, true, 'with GIT_DIR and GIT_WORK_TREE set, git puts both in one repository, as it does for the plugin');
 });
 
-// The ending session's own GIT_DIR or GIT_WORK_TREE says nothing about how another session's plugin
-// keyed that session's folder, so a folder is keyed both ways and a match either way is shared.
-// With GIT_DIR set alone, git takes the folder it is asked in as the top level, so `r2/sub` stops
-// matching `r2`, where the other session's plugin, without that variable, has one broker for both.
+// A hook's own helpers were keyed by its session's plugin with the session's environment, which the
+// hook has, so they are keyed that way alone (`ownEnv`). Another session's plugin keyed that session's
+// folder with an environment the hook cannot see, so the folder is keyed both with the hook's GIT_
+// variables and without them. With GIT_DIR set alone, git takes the folder it is asked in as the top
+// level: `r2/sub` no longer matches `r2` that way, while the other session's plugin, without that
+// variable, has one broker for both.
 test('the workspace guard counts a match with or without the session\'s git variables', async () => {
   const root = await tempDir('mw-gitenv-');
   const [r1, r2, r3] = ['r1', 'r2', 'r3'].map((n) => { const r = path.join(root, n); gitInit(r); return r; });
-  const sub = path.join(r2, 'sub'); mkdirSync(sub);
+  for (const d of ['sub', 'skills', 'test']) mkdirSync(path.join(r2, d));
   const withGitDir = { GIT_DIR: path.join(r1, '.git') };
-  assert.equal(guardIn({}, { folder: r2 }, [{ sessionId: 'b', cwd: sub }]).shared, true, 'a subfolder shares its repository\'s broker');
-  assert.equal(guardIn(withGitDir, { folder: r2 }, [{ sessionId: 'b', cwd: sub }]).shared, true, 'the session\'s GIT_DIR does not split a repository another session works in');
-  assert.equal(guardIn(withGitDir, { folder: r2 }, [{ sessionId: 'b', cwd: r3 }]).shared, false, 'two repositories stay two either way');
+  const own = { ownEnv: true };
+  assert.equal(guardIn({}, { folder: r2 }, [{ sessionId: 'b', cwd: path.join(r2, 'sub') }], '', own).shared, true, 'a subfolder shares its repository\'s broker');
+  // the hook's helper in r2 is keyed r2; the other session's r2/sub is r2 only without GIT_DIR
+  assert.equal(guardIn(withGitDir, { folder: r2 }, [{ sessionId: 'b', cwd: path.join(r2, 'sub') }], '', own).shared, true, 'the session\'s GIT_DIR does not split a repository another session works in');
+  // the hook's helper in r2/skills was keyed r2/skills by its own plugin; no other session can reuse it
+  assert.equal(guardIn(withGitDir, { folder: path.join(r2, 'skills') }, [{ sessionId: 'b', cwd: path.join(r2, 'test') }], '', own).shared, false, 'a helper keyed with the session\'s own GIT_DIR is not kept for a session that cannot reuse it');
+  // outside a hook (`processes`), the helper's own environment is not known here, so both ways
+  assert.equal(guardIn(withGitDir, { folder: path.join(r2, 'skills') }, [{ sessionId: 'b', cwd: path.join(r2, 'test') }]).shared, true, 'a helper keyed in an environment not known here is keyed both ways');
+  assert.equal(guardIn(withGitDir, { folder: r2 }, [{ sessionId: 'b', cwd: r3 }], '', own).shared, false, 'two repositories stay two either way');
 });
 
 // The budget is read on the monotonic clock, so a wall clock that stops or steps back does not

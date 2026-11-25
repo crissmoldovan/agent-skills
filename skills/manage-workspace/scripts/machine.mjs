@@ -332,10 +332,12 @@ export async function shutdownHelpers(list, { timeoutMs = 2500 } = {}) {
 // so it is asked about the nearest folder that still exists: inside a repository the key is that
 // repository's, outside one it is the deleted path itself. A key that cannot be known (git timed out or
 // did not start) counts as shared.
-// Git runs with this process's environment, the session's, as the plugin's does. Another session's
-// plugin keyed its folders with that session's environment, which this one cannot see, so when this
-// session sets any GIT_ variable (GIT_DIR, GIT_WORK_TREE and the like change what git answers), every
-// folder is keyed a second time without them, and a match either way counts as shared.
+// Git runs with this process's environment. In a hook that is the session's, the one its own plugin
+// keyed its helpers with, so a hook passes `ownEnv` and its helper is keyed that way alone. Another
+// session's plugin keyed that session's folders with its environment, which cannot be seen here, so
+// when this process has any GIT_ variable (GIT_DIR, GIT_WORK_TREE and the like change what git
+// answers), another session's folder is keyed both with it and without the GIT_ variables, and a
+// match with either counts as shared. A helper outside a hook (`processes`) is keyed both ways too.
 // All the git calls of one process share one time budget, read on the monotonic clock so a wall clock
 // that stops or steps back cannot stretch it, and capped at half the hooks' 30-second timeout so the
 // shutdown requests that follow still fit; once it is spent, every key not yet known counts as shared.
@@ -382,14 +384,14 @@ function brokerKey(p, variant) {
   return keys.get(id);
 }
 // A folder's keys, one per environment it is keyed with; undefined when any of them cannot be known.
-function brokerKeys(p) {
-  const all = variants().map((v) => brokerKey(p, v));
+function brokerKeys(p, which = variants()) {
+  const all = which.map((v) => brokerKey(p, v));
   return all.includes(undefined) ? undefined : new Set(all);
 }
-export function sharedWithLiveSession(h, sessions, session) {
+export function sharedWithLiveSession(h, sessions, session, { ownEnv = false } = {}) {
   if (!h.folder) return false;
   if (!sessions) return true;
-  const mine = brokerKeys(h.folder);
+  const mine = brokerKeys(h.folder, ownEnv ? ['session'] : variants());
   if (mine === undefined) return true;
   return sessions.some((s) => {
     if (s.sessionId === session || !s.cwd) return false;
