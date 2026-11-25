@@ -391,7 +391,7 @@ async function ownHelpers(sid) {
   try {
     const scan = scanProcesses();
     // a deleted subfolder may sit in a repository another live session is still using the broker from
-    const mine = scan.helpers.filter((h) => h.session === sid && h.folderGone === true && !sharedWithLiveSession(h, scan.sessions, sid));
+    const mine = scan.helpers.filter((h) => h.session === sid && h.folderGone === true && !sharedWithLiveSession(h, scan.sessions, sid, { ownEnv: true }));
     if (!mine.length) return { lines: [], keys: [] };
     if (readHelpers() === 'report') return { lines: [`This session left ${mine.length} helper${mine.length === 1 ? '' : 's'} in deleted folders (helpers: report, so none was stopped): ${mine.map(describeHelper).join('; ')}.`], keys: mine.map((h) => `report:${h.pid}`) };
     const { stopped, skipped } = await shutdownHelpers(mine);
@@ -444,7 +444,7 @@ async function sessionEnd() {
   if (readMode() === 'off' || readHelpers() === 'report' || !input.session_id) return;
   const scan = scanProcesses();
   // the same workspace guard as the end-of-turn check, deleted folder or not
-  const mine = scan.helpers.filter((h) => h.session === input.session_id && !sharedWithLiveSession(h, scan.sessions, input.session_id));
+  const mine = scan.helpers.filter((h) => h.session === input.session_id && !sharedWithLiveSession(h, scan.sessions, input.session_id, { ownEnv: true }));
   if (mine.length) await shutdownHelpers(mine);
 }
 

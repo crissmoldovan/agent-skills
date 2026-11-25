@@ -5,6 +5,61 @@ Per-version record of what shipped. The public, reader-facing changelog is the
 mirror these entries; `docs/releases.md` carries the release process and the staged prose for
 the next version. Entries before v0.12.0 live only on the Releases page.
 
+## 0.35.2
+
+### `manage-workspace` 2.0.2: Codex trust as Codex reports it, and the two known limits of the helper guard closed
+
+**What.** Three fixes to `manage-workspace`, two of them the known limits 0.35.0 shipped with:
+
+- **`status` reports Codex trust as Codex reports it.** It used to read `~/.codex/config.toml` and call a
+  hook trusted whenever a hash was stored for it, so a hash stored for an older command still read as
+  trusted while Codex no longer ran the hook. Codex fingerprints a hook by an internal method, so
+  `status` now asks Codex itself: it starts `codex app-server`, sends `hooks/list` (what `/hooks`
+  reads) and prints Codex's verdict for each hook: `trusted`, `not trusted`, or `changed since it was
+  trusted, so Codex does not run it: trust it again in /hooks`. When Codex cannot be asked (not
+  installed, or no answer within 10 seconds), it reads the stored hashes as before and says so,
+  with the reason. The install steps now check trust this way.
+- **The end-of-session guard keys another session's folder with and without the session's `GIT_`
+  variables.** To leave a Codex helper running when another live session works in the same repository,
+  the guard asks git for each folder's repository, with the ending session's environment. A session
+  that set `GIT_DIR` for its whole life could make another session's folder look like a different
+  repository and stop a helper that session still used. When the session sets any `GIT_` variable,
+  another session's folder is now keyed both with and without them, and a match with either keeps the
+  helper; the session's own helper is keyed with its own environment, as its plugin keyed it.
+- **The guard's time budget cannot outlast the hook.** The git lookups' budget is read on the monotonic
+  clock, so a wall clock that stops or is set back no longer stretches it, and `MWS_GIT_BUDGET_MS` is
+  capped at 15 seconds, half the hook's 30-second timeout.
+
+**Why.** All three were found in review of 0.35.0 or right after it, and left as known limits. None had
+been seen to cause harm: a stopped helper is restarted by that session's next Codex call, and a hook
+killed mid-lookup stops nothing.
+
+**Impact.** `status` runs `codex app-server --disable plugins` while Codex answers, usually under a
+second and 10 by default, and kills it, with any process it started, when done. That launch refreshes
+Codex's model list from its provider, as every Codex launch does; `status --no-codex` starts no Codex
+and reads the stored hashes. The verdict is for the folder `status` runs in, which it names, since a
+project can turn hooks off. A hook that is trusted but set to `enabled = false` in Codex now reads as
+turned off. `MWS_CODEX_BIN` names another `codex`. One narrower limit remains:
+another session's environment cannot be seen, so a session that itself sets `GIT_DIR` or
+`GIT_WORK_TREE` is keyed as if it did not.
+
+**Update.** Update the skill, then run its setup script again from the updated `manage-workspace`
+folder, so the hooks run the new scripts. `npx skills list --global --json` prints where it is
+(usually `~/.agents/skills/manage-workspace`; under Claude Code's own folder on a machine where only
+Claude Code has the skill):
+
+```bash
+npx skills update manage-workspace --global --yes
+node scripts/setup-enforcement.mjs --yes      # from the updated manage-workspace folder
+```
+
+Codex trust usually stays: it is lost when setup rewrites or moves a Codex hook entry (a different
+Node.js or data folder, an older matcher brought up to date, or an empty group removed beside it).
+Run `status` afterwards, and trust the hooks again in `/hooks` if it says so.
+
+An install pinned to a tag stays on it under update; install it again from `#v0.35.2`, as the README's
+prompt does.
+
 ## 0.35.1
 
 ### Forty of the pack's forty-one skills now load in Codex: `metadata` is a map

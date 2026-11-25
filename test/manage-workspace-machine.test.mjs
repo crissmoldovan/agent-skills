@@ -447,8 +447,10 @@ test('the workspace guard keys a folder as the plugin does: git\'s top level for
 });
 
 // Runs the guard in a fresh process, so its environment and PATH are the test's to set.
-const guardIn = (env, h, sessions) => {
-  const code = `const m = await import(${JSON.stringify(path.join(dir, 'machine.mjs'))}); const t = Date.now(); const shared = m.sharedWithLiveSession(${JSON.stringify(h)}, ${JSON.stringify(sessions)}, 'a'); console.log(JSON.stringify({ shared, ms: Date.now() - t }));`;
+// `before` runs in the child ahead of the import, to change what the guard sees (a frozen clock).
+// Time is measured on the monotonic clock, which `before` leaves alone.
+const guardIn = (env, h, sessions, before = '', opts = {}) => {
+  const code = `${before} const m = await import(${JSON.stringify(path.join(dir, 'machine.mjs'))}); const t = performance.now(); const shared = m.sharedWithLiveSession(${JSON.stringify(h)}, ${JSON.stringify(sessions)}, 'a', ${JSON.stringify(opts)}); console.log(JSON.stringify({ shared, ms: Math.round(performance.now() - t) }));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', env: { ...process.env, ...env } });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout.trim());
@@ -461,6 +463,46 @@ test('the workspace guard asks git with the environment the plugin has', async (
   const sessions = [{ sessionId: 'b', cwd: two }];
   assert.equal(guardIn({}, { folder: one }, sessions).shared, false, 'two plain folders are two workspaces');
   assert.equal(guardIn({ GIT_DIR: path.join(repo, '.git'), GIT_WORK_TREE: repo }, { folder: one }, sessions).shared, true, 'with GIT_DIR and GIT_WORK_TREE set, git puts both in one repository, as it does for the plugin');
+});
+
+// A hook's own helpers were keyed by its session's plugin with the session's environment, which the
+// hook has, so they are keyed that way alone (`ownEnv`). Another session's plugin keyed that session's
+// folder with an environment the hook cannot see, so the folder is keyed both with the hook's GIT_
+// variables and without them. With GIT_DIR set alone, git takes the folder it is asked in as the top
+// level: `r2/sub` no longer matches `r2` that way, while the other session's plugin, without that
+// variable, has one broker for both.
+test('the workspace guard counts a match with or without the session\'s git variables', async () => {
+  const root = await tempDir('mw-gitenv-');
+  const [r1, r2, r3] = ['r1', 'r2', 'r3'].map((n) => { const r = path.join(root, n); gitInit(r); return r; });
+  for (const d of ['sub', 'skills', 'test']) mkdirSync(path.join(r2, d));
+  const withGitDir = { GIT_DIR: path.join(r1, '.git') };
+  const own = { ownEnv: true };
+  assert.equal(guardIn({}, { folder: r2 }, [{ sessionId: 'b', cwd: path.join(r2, 'sub') }], '', own).shared, true, 'a subfolder shares its repository\'s broker');
+  // the hook's helper in r2 is keyed r2; the other session's r2/sub is r2 only without GIT_DIR
+  assert.equal(guardIn(withGitDir, { folder: r2 }, [{ sessionId: 'b', cwd: path.join(r2, 'sub') }], '', own).shared, true, 'the session\'s GIT_DIR does not split a repository another session works in');
+  // the hook's helper in r2/skills was keyed r2/skills by its own plugin; no other session can reuse it
+  assert.equal(guardIn(withGitDir, { folder: path.join(r2, 'skills') }, [{ sessionId: 'b', cwd: path.join(r2, 'test') }], '', own).shared, false, 'a helper keyed with the session\'s own GIT_DIR is not kept for a session that cannot reuse it');
+  // outside a hook (`processes`), the helper's own environment is not known here, so both ways
+  assert.equal(guardIn(withGitDir, { folder: path.join(r2, 'skills') }, [{ sessionId: 'b', cwd: path.join(r2, 'test') }]).shared, true, 'a helper keyed in an environment not known here is keyed both ways');
+  assert.equal(guardIn(withGitDir, { folder: r2 }, [{ sessionId: 'b', cwd: r3 }], '', own).shared, false, 'two repositories stay two either way');
+});
+
+// The budget is read on the monotonic clock, so a wall clock that stops or steps back does not
+// stretch it, and it is capped below the hooks' 30-second timeout whatever MWS_GIT_BUDGET_MS says.
+test('the workspace guard\'s time budget ignores the wall clock and is capped', async () => {
+  const root = await tempDir('mw-clock-');
+  const slow = path.join(root, 'slow'); mkdirSync(slow);
+  writeFileSync(path.join(slow, 'git'), '#!/bin/sh\nsleep 0.9\nexit 128\n'); chmodSync(path.join(slow, 'git'), 0o755);
+  const folders = Array.from({ length: 6 }, (_, i) => { const f = path.join(root, `f${i}`); mkdirSync(f); return f; });
+  const sessions = folders.slice(1).map((cwd, i) => ({ sessionId: `s${i}`, cwd }));
+  const frozen = guardIn({ PATH: `${slow}:${process.env.PATH}`, MWS_GIT_BUDGET_MS: '2000' }, { folder: folders[0] }, sessions, 'Date.now = () => 0;');
+  assert.equal(frozen.shared, true, 'once the budget is spent, a key not yet known counts as shared');
+  assert.ok(frozen.ms < 4000, `with the wall clock frozen, six slow answers still stop at the budget instead of taking 5.4 s (took ${frozen.ms} ms)`);
+  const m = await import(path.join(dir, 'machine.mjs'));
+  assert.equal(m.gitBudgetMs({}), 8000);
+  assert.equal(m.gitBudgetMs({ MWS_GIT_BUDGET_MS: '2000' }), 2000);
+  assert.equal(m.gitBudgetMs({ MWS_GIT_BUDGET_MS: '600000' }), 15000, 'capped at half the hooks\' 30-second timeout');
+  for (const bad of ['0', '-5', 'soon', '']) assert.equal(m.gitBudgetMs({ MWS_GIT_BUDGET_MS: bad }), 8000, `"${bad}" falls back to the default`);
 });
 
 test('the workspace guard keeps a helper when git hangs, within one time budget', async () => {

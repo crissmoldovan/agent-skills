@@ -2,7 +2,9 @@
 // Installs, previews or removes the clean-up enforcement for Claude Code and Codex: a SessionStart
 // hook (policy and machine check), a Stop hook (what this session created and still left) and, for
 // Claude Code, a SessionEnd hook (stops the helpers this session started). Preview by default; --yes
-// applies. Idempotent. Never touches a hook it did not write. No network. Migrates an install made under
+// applies. Idempotent. Never touches a hook it did not write. No network, except that `status` asks
+// Codex for its hooks' trust by starting its app-server, which refreshes its model list as any Codex
+// launch does (`status --no-codex` does not). Migrates an install made under
 // the skill's old name, manage-workspace-storage: its entries are rewritten in place, its state and mode
 // move, and its script path is refreshed so sessions started before the rename keep working.
 //
@@ -14,10 +16,11 @@
 //   node setup-enforcement.mjs uninstall [--agent ...] [--purge] [--yes]
 //   node setup-enforcement.mjs mode warn|block|off [--yes]
 //   node setup-enforcement.mjs helpers stop|report [--yes]
-//   node setup-enforcement.mjs status
+//   node setup-enforcement.mjs status [--no-codex]
+import { spawn } from 'node:child_process';
 import {
-  chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync,
-  statSync, writeFileSync,
+  chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync,
+  rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -143,22 +146,128 @@ const scriptsIn = (json) => Object.entries(json.hooks ?? {}).filter(([e]) => OUR
   .flatMap(([e, l]) => (Array.isArray(l) ? l : []).filter((g) => ourGroup(e, g)).flatMap((g) => (g.hooks ?? []).map((h) => oursScript(h, e)))).filter(Boolean);
 
 // Codex keeps trust in config.toml as [hooks.state."<hooks.json>:<event>:<group>:<hook>"] with a
-// trusted_hash once a person has reviewed the hook in /hooks. Presence of a hash is all this can
-// read: it cannot tell a hash for the current command from one for an older command.
-function codexTrust(hooksFile, json) {
-  let toml; try { toml = readFileSync(path.join(path.dirname(hooksFile), 'config.toml'), 'utf8'); } catch { toml = ''; }
+// trusted_hash once a person has reviewed the hook in /hooks, and runs a hook only while that hash
+// equals one it computes from a normalised form of the hook: an internal method, not imitated here.
+// Codex's app-server lists every hook with its own verdict (`hooks/list`, which /hooks reads), so status
+// asks it. Only when Codex cannot be asked does it read the stored hashes, whose presence cannot tell a
+// hash for the current command from one for an older command.
+function codexHookKeys(hooksFile, json) {
   const found = [];
   for (const [event, list] of Object.entries(json.hooks ?? {})) {
     if (!Array.isArray(list)) continue;
-    list.forEach((g, gi) => (g.hooks ?? []).forEach((h, hi) => {
-      if (!ours(h, event) || !ourGroup(event, g)) return;
-      const header = `[hooks.state."${hooksFile}:${event.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}:${gi}:${hi}"]`;
-      const at = toml.indexOf(header);
-      const body = at < 0 ? '' : toml.slice(at + header.length).split(/^\[/m)[0];
-      found.push(`${event} ${/^\s*trusted_hash\s*=\s*"sha256:[0-9a-f]+"/m.test(body) ? 'trusted' : 'not trusted'}`);
+    list.forEach((g, gi) => (Array.isArray(g?.hooks) ? g.hooks : []).forEach((h, hi) => {
+      if (h && typeof h === 'object' && ours(h, event) && ourGroup(event, g)) found.push({ event, key: `${hooksFile}:${event.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}:${gi}:${hi}` });
     }));
   }
   return found;
+}
+function storedTrust(hooksFile, hooks) {
+  let toml; try { toml = readFileSync(path.join(path.dirname(hooksFile), 'config.toml'), 'utf8'); } catch { toml = ''; }
+  return hooks.map(({ event, key }) => {
+    const header = `[hooks.state."${key}"]`;
+    const at = toml.indexOf(header);
+    const body = at < 0 ? '' : toml.slice(at + header.length).split(/^\[/m)[0];
+    return `${event} ${/^\s*trusted_hash\s*=\s*"sha256:[0-9a-f]+"/m.test(body) ? 'trusted' : 'not trusted'}`;
+  });
+}
+const codexAnswerMs = () => {
+  const asked = Number(process.env.MWS_CODEX_ANSWER_MS);
+  return asked > 0 ? Math.min(asked, 60000) : 10000;
+};
+// One exchange with `codex app-server` over stdio: initialize, initialized, hooks/list. Plugins are
+// disabled for it, which skips the plugin refresh Codex otherwise starts; the hooks in hooks.json are
+// listed all the same. Its model-list refresh, which every Codex launch makes, cannot be turned off.
+// It runs in a process group of its own, killed whole when it has answered, exited, or not answered in
+// time (10 s), or when this process is interrupted, so a wrapper's children go with it. The result is
+// the hooks Codex listed with the warnings it gave, or why it could not be asked, including an error it
+// reports while listing.
+function codexHookList(cwd) {
+  const bin = process.env.MWS_CODEX_BIN || 'codex';
+  const limit = codexAnswerMs();
+  return new Promise((resolve) => {
+    let child; let buf = ''; let done = false;
+    const killGroup = () => {
+      if (!child?.pid) return;
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+    };
+    const onSignal = (signal) => { killGroup(); process.exit({ SIGINT: 130, SIGHUP: 129 }[signal] ?? 143); };
+    const finish = (result) => {
+      if (done) return; done = true; clearTimeout(timer);
+      process.off('exit', killGroup); for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(signal, onSignal);
+      killGroup();
+      child?.stdout?.destroy(); child?.stdin?.destroy(); child?.unref();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ error: `it did not answer within ${limit / 1000} s` }), limit);
+    try {
+      child = spawn(bin, ['app-server', '--disable', 'plugins'], { stdio: ['pipe', 'pipe', 'ignore'], detached: true });
+    } catch (e) { finish({ error: e.message }); return; }
+    process.once('exit', killGroup); for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, onSignal);
+    const send = (message) => { try { child.stdin.write(`${JSON.stringify(message)}\n`); } catch { /* reported by close */ } };
+    child.on('error', (e) => finish({ error: e.code === 'ENOENT' ? `${bin} is not installed` : e.message }));
+    child.on('close', () => finish({ error: 'it exited before listing its hooks' }));
+    child.stdin.on('error', () => { /* reported by close */ });
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => {
+      buf += d; let i;
+      while (!done && (i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        if (!m || typeof m !== 'object') continue;
+        if (m.id === 1) {
+          if (m.error) { finish({ error: `initialize failed: ${m.error.message ?? JSON.stringify(m.error)}` }); return; }
+          send({ method: 'initialized' });
+          send({ id: 2, method: 'hooks/list', params: { cwds: [cwd] } });
+        } else if (m.id === 2) {
+          const data = m.result?.data;
+          if (m.error) { finish({ error: `hooks/list failed: ${m.error.message ?? JSON.stringify(m.error)}` }); return; }
+          if (!Array.isArray(data)) { finish({ error: 'hooks/list returned no list' }); return; }
+          const errors = data.flatMap((entry) => (Array.isArray(entry?.errors) ? entry.errors : []));
+          if (errors.length) { finish({ error: `it reported ${errors.map((e) => (typeof e === 'string' ? e : e?.message ?? JSON.stringify(e))).join('; ')}` }); return; }
+          const warnings = data.flatMap((entry) => (Array.isArray(entry?.warnings) ? entry.warnings : []))
+            .map((w) => (typeof w === 'string' ? w : w?.message ?? JSON.stringify(w)));
+          finish({ hooks: data.flatMap((entry) => (Array.isArray(entry?.hooks) ? entry.hooks : [])), warnings });
+        }
+      }
+    });
+    send({ id: 1, method: 'initialize', params: { clientInfo: { name: NAME, version: '0' } } });
+  });
+}
+// A hook's key as Codex writes it, with its hooks.json path resolved, so a symlinked CODEX_HOME matches.
+function sameKey(key) {
+  const parts = key.split(':');
+  if (parts.length < 4) return key;
+  const file = parts.slice(0, -3).join(':');
+  let real; try { real = realpathSync.native(file); } catch { real = file; }
+  return [real, ...parts.slice(-3)].join(':');
+}
+const TRUST_WORDS = {
+  trusted: 'trusted',
+  modified: 'changed since it was trusted, so Codex does not run it: trust it again in /hooks',
+  untrusted: 'not trusted',
+  managed: 'managed by an administrator',
+};
+// Codex's verdict is for one folder: a project's own .codex/config.toml can turn hooks off, so status
+// asks about the folder it runs in and names it.
+async function codexTrust(hooksFile, json, { askCodex = true, cwd = process.cwd() } = {}) {
+  const hooks = codexHookKeys(hooksFile, json);
+  const listed = askCodex ? await codexHookList(cwd) : { error: 'not asked: --no-codex' };
+  if (listed.hooks) {
+    // the exact key first; the key with its path resolved only when no exact one is listed, so a
+    // project file that links to the user's hooks.json never stands in for the user's own entry
+    const valid = listed.hooks.filter((h) => h && typeof h.key === 'string');
+    const exact = new Map(valid.map((h) => [h.key, h]));
+    const resolved = new Map(valid.map((h) => [sameKey(h.key), h]));
+    const words = hooks.map(({ event, key }) => {
+      const h = exact.get(key) ?? resolved.get(sameKey(key));
+      if (!h) return `${event} not listed by Codex`;
+      const word = TRUST_WORDS[h.trustStatus] ?? String(h.trustStatus);
+      return `${event} ${word}${h.enabled === false ? ', but turned off in Codex (enabled = false), so Codex does not run it' : ''}`;
+    });
+    const warned = listed.warnings?.length ? `; Codex warned: ${listed.warnings.join('; ')}` : '';
+    return `${words.join('; ')} (as Codex reports it for ${cwd}${warned})`;
+  }
+  return `${storedTrust(hooksFile, hooks).join('; ')} (a stored hash only, which cannot tell the current command from an older one: Codex could not be asked (${listed.error}). /hooks in Codex is the authority)`;
 }
 
 function backupAndWrite(file, json, original) {
@@ -228,7 +337,7 @@ function copies(legacyScripts) {
   return out;
 }
 
-function main(argv) {
+async function main(argv) {
   const args = argv.slice(); const flags = new Set(); const kv = {};
   const pos = [];
   for (let i = 0; i < args.length; i += 1) {
@@ -261,7 +370,10 @@ function main(argv) {
       try { const { json } = readJson(f); has = Object.entries(json.hooks ?? {}).filter(([e, l]) => OUR_EVENTS.includes(e) && Array.isArray(l) && l.some((g) => ourGroup(e, g) && g.hooks?.some((h) => ours(h, e)))).map(([e]) => e); } catch (e) { has = [`unreadable: ${e.message}`]; }
       out(`${AGENTS[a].label}: ${existsSync(AGENTS[a].dir()) ? f : 'not present'}: ${has.length ? has.join(', ') : 'no clean-up hooks'}`);
       if (a === 'codex' && has.length) {
-        try { out(`Codex trust: ${codexTrust(f, readJson(f).json).join('; ')} (a stored hash only; /hooks in Codex is the authority, and a changed command needs trusting again)`); } catch { /* unreadable: reported above */ }
+        let json; try { ({ json } = readJson(f)); } catch { /* unreadable: reported above */ }
+        if (json) {
+          try { out(`Codex trust: ${await codexTrust(f, json, { askCodex: !flags.has('--no-codex') })}`); } catch (e) { out(`Codex trust: could not be read (${e.message})`); }
+        }
       }
     }
     return 0;
@@ -351,4 +463,4 @@ function main(argv) {
   return 0;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

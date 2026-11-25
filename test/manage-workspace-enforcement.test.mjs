@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,8 @@ async function sandbox() {
   writeFileSync(fixture, JSON.stringify({ memory: { platform: 'darwin', ramMiB: 36864, freePct: 55, swapUsedMiB: 900, swapTotalMiB: 2048 } }));
   const env = { ...process.env, HOME: home, MWS_STATE_DIR: path.join(home, 'state'), MWS_CONFIG_DIR: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'data'), MWS_MACHINE_FIXTURE: fixture };
   delete env.MWS_CLEANUP_MODE; delete env.MWS_HELPERS; delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
+  // status asks Codex for its hooks' trust; no test asks the Codex installed on the machine running it
+  env.MWS_CODEX_BIN = path.join(root, 'no-codex-here');
   const hook = (event, input, extra = {}) => spawnSync(process.execPath, [leftovers, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...env, ...extra } });
   const cli = (...args) => spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8', env });
   return { root, home, env, hook, cli };
@@ -170,6 +172,104 @@ test('setup skips an agent that is not installed, refuses invalid JSON, and sets
   assert.equal(cli('mode', 'loud').status, 2);
 });
 
+// A stand-in for `codex app-server`: it records its arguments and each request it got, answers
+// initialize (after a stray `null` line), then hooks/list with the hooks in FAKE_CODEX_HOOKS and the
+// errors in FAKE_CODEX_ERRORS. With FAKE_CODEX_EXIT it exits at once; with FAKE_CODEX_HANG it starts
+// a child that holds its output open, as a wrapper script would, and never answers.
+function fakeCodex(root) {
+  const bin = path.join(root, 'fake-codex');
+  writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');
+if (process.argv[2] !== 'app-server') process.exit(3);
+if (process.env.FAKE_CODEX_EXIT) process.exit(1);
+if (process.env.FAKE_CODEX_HANG) {
+  require('node:child_process').spawn('sleep', [process.env.FAKE_CODEX_HANG], { stdio: 'inherit' });
+  setInterval(() => {}, 1000);
+} else {
+  let buf = '';
+  process.stdin.on('data', (d) => {
+    buf += d; let i;
+    while ((i = buf.indexOf('\\n')) >= 0) {
+      const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+      fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(m) + '\\n');
+      if (m.id === 1) process.stdout.write('null\\n' + JSON.stringify({ id: 1, result: { userAgent: 'fake' } }) + '\\n');
+      if (m.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { data: [{ cwd: m.params.cwds[0], hooks: JSON.parse(process.env.FAKE_CODEX_HOOKS), errors: JSON.parse(process.env.FAKE_CODEX_ERRORS || '[]'), warnings: JSON.parse(process.env.FAKE_CODEX_WARNINGS || '[]') }] } }) + '\\n');
+    }
+  });
+}
+`);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+// Codex decides trust by hashing a normalised form of the hook, an internal method, and lists each
+// hook with its verdict over its app-server (`hooks/list`, what `/hooks` reads). status asks it, so
+// a hash stored for an older command shows as changed rather than trusted.
+test('status asks Codex for its own trust verdict, and says when it could not', async () => {
+  const { root, home, env } = await sandbox();
+  mkdirSync(path.join(home, '.codex'));
+  const hooks = path.join(home, '.codex', 'hooks.json');
+  writeFileSync(hooks, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'other-start' }] }] } }, null, 2)}\n`);
+  // run from the home folder: Codex's verdict is for the folder status runs in, which it names
+  const status = (extra, ...args) => spawnSync(process.execPath, [setup, 'status', ...args], { cwd: home, encoding: 'utf8', env: { ...env, ...extra } });
+  const here = realpathSync(home); // the folder as the process sees it, symlinks resolved
+  const asReported = (line) => `Codex trust: ${line} (as Codex reports it for ${here})`;
+  assert.equal(spawnSync(process.execPath, [setup, '--yes'], { encoding: 'utf8', env }).status, 0);
+  // a stored hash for both, which the file alone would call trusted
+  const hash = `sha256:${'a'.repeat(64)}`;
+  writeFileSync(path.join(home, '.codex', 'config.toml'), `[hooks.state."${hooks}:session_start:1:0"]\ntrusted_hash = "${hash}"\n[hooks.state."${hooks}:stop:0:0"]\ntrusted_hash = "${hash}"\n`);
+  const log = path.join(root, 'codex-requests.jsonl');
+  const listed = (start, stop, stopEnabled = true) => JSON.stringify([
+    { key: `${hooks}:session_start:0:0`, eventName: 'sessionStart', trustStatus: 'untrusted', enabled: true },
+    { key: `${hooks}:session_start:1:0`, eventName: 'sessionStart', trustStatus: start, enabled: true },
+    { key: `${hooks}:stop:0:0`, eventName: 'stop', trustStatus: stop, enabled: stopEnabled },
+  ]);
+  const fake = { MWS_CODEX_BIN: fakeCodex(root), FAKE_CODEX_LOG: log };
+  let out = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'modified') }).stdout;
+  assert.ok(out.includes(asReported('SessionStart trusted; Stop changed since it was trusted, so Codex does not run it: trust it again in /hooks')), out);
+  const asked = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(asked[0].argv, ['app-server', '--disable', 'plugins'], 'plugins are disabled, so Codex starts no plugin refresh');
+  assert.deepEqual(asked.slice(1).map((m) => m.method), ['initialize', 'initialized', 'hooks/list']);
+  assert.deepEqual(asked[3].params, { cwds: [here] }, 'asked about the folder status runs in');
+  out = status({ ...fake, FAKE_CODEX_HOOKS: listed('untrusted', 'trusted') }).stdout;
+  assert.ok(out.includes(asReported('SessionStart not trusted; Stop trusted')), out);
+  out = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'trusted', false) }).stdout;
+  assert.ok(out.includes(asReported('SessionStart trusted; Stop trusted, but turned off in Codex (enabled = false), so Codex does not run it')), out);
+  out = status({ ...fake, FAKE_CODEX_HOOKS: JSON.stringify([]) }).stdout;
+  assert.ok(out.includes(asReported('SessionStart not listed by Codex; Stop not listed by Codex')), out);
+  // Codex rejected hooks.json and said why in its warnings: its verdict stands, with the reason
+  out = status({ ...fake, FAKE_CODEX_HOOKS: JSON.stringify([]), FAKE_CODEX_WARNINGS: JSON.stringify([{ message: 'hooks.json: invalid PreToolUse' }]) }).stdout;
+  assert.ok(out.includes(`Codex trust: SessionStart not listed by Codex; Stop not listed by Codex (as Codex reports it for ${here}; Codex warned: hooks.json: invalid PreToolUse)`), out);
+  // Codex cannot be asked, or reports errors while listing: the stored hashes, said to be only that, and why
+  out = status({ ...fake, FAKE_CODEX_EXIT: '1', FAKE_CODEX_HOOKS: '[]' }).stdout;
+  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, which cannot tell the current command from an older one: Codex could not be asked \(it exited before listing its hooks\)\. \/hooks in Codex is the authority\)/);
+  out = status({ ...fake, FAKE_CODEX_HOOKS: '[]', FAKE_CODEX_ERRORS: JSON.stringify([{ message: 'config.toml: invalid TOML' }]) }).stdout;
+  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, [^\n]*Codex could not be asked \(it reported config\.toml: invalid TOML\)/);
+  out = status({}).stdout;
+  assert.match(out, /Codex could not be asked \([^)]*not installed[^)]*\)/);
+  // --no-codex reads the stored hashes and starts no Codex
+  const before = readFileSync(log, 'utf8');
+  out = status({ ...fake, FAKE_CODEX_HOOKS: '[]' }, '--no-codex').stdout;
+  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, [^\n]*Codex could not be asked \(not asked: --no-codex\)/);
+  assert.equal(readFileSync(log, 'utf8'), before, 'no Codex was started');
+  // a malformed group elsewhere in hooks.json is reported, not a crash
+  const current = JSON.parse(readFileSync(hooks, 'utf8'));
+  writeFileSync(hooks, `${JSON.stringify({ hooks: { ...current.hooks, PreToolUse: [null] } }, null, 2)}\n`);
+  const malformed = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'trusted') });
+  assert.equal(malformed.status, 0, malformed.stderr);
+  assert.match(malformed.stdout, /Codex trust: /);
+  writeFileSync(hooks, `${JSON.stringify(current, null, 2)}\n`);
+  // a wrapper that never answers and whose child holds the output open: status still ends, and the
+  // whole process group, the child included, is gone
+  const marker = '31.7';
+  const hung = spawnSync(process.execPath, [setup, 'status'], { encoding: 'utf8', timeout: 20000, env: { ...env, ...fake, FAKE_CODEX_HANG: marker, FAKE_CODEX_HOOKS: '[]', MWS_CODEX_ANSWER_MS: '1500' } });
+  assert.equal(hung.status, 0, `status ended (${hung.error?.code ?? 'ok'})`);
+  assert.match(hung.stdout, /Codex could not be asked \(it did not answer within 1\.5 s\)/);
+  const left = spawnSync('pgrep', ['-f', `sleep ${marker}`], { encoding: 'utf8' });
+  assert.equal(left.stdout.trim(), '', 'the wrapper\'s child was killed with it');
+});
+
 test('status reads Codex trust from config.toml by hook key, and says nothing about other hooks', async () => {
   const { home, cli } = await sandbox();
   mkdirSync(path.join(home, '.codex'));
@@ -208,10 +308,10 @@ const readmeEntry = readme.slice(readme.indexOf('### `manage-workspace`'), readm
 
 test('SKILL.md carries the install-or-update procedure an agent follows end to end', () => {
   assert.match(skillText, /^name: manage-workspace$/m);
-  assert.match(skillText, /^ {2}version: "2\.0\.1"$/m);
+  assert.match(skillText, /^ {2}version: "2\.0\.2"$/m);
   const s = skillText.slice(skillText.indexOf('## Install or update (agents)'), skillText.indexOf('## Usage Examples'));
   assert.ok(s.length > 300, 'section present');
-  for (const re of [/--agent claude-code/, /--agent codex/, /--global/, /setup-enforcement\.mjs/, /--yes/, /\/hooks/, /trusted_hash/, /already up to date/, /explicit/i, /references\/enforcement\.md/]) assert.match(s, re);
+  for (const re of [/--agent claude-code/, /--agent codex/, /--global/, /setup-enforcement\.mjs/, /--yes/, /\/hooks/, /as Codex reports it/, /already up to date/, /explicit/i, /references\/enforcement\.md/]) assert.match(s, re);
   assert.match(s, /never .*--dangerously-bypass-hook-trust/is);
   assert.match(skillText, /\[the enforcement guide\]\(references\/enforcement\.md\)/);
   assert.ok(skillText.split('\n').length <= 484);
@@ -231,7 +331,7 @@ test('the README entry has a pasteable, machine-agnostic bootstrap prompt pinned
   assert.match(readmeEntry, /#### Install or update with an agent/);
   const prompt = readmeEntry.slice(readmeEntry.indexOf('#### Install or update with an agent'), readmeEntry.indexOf('More:'));
   assert.match(prompt, /```text/);
-  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.35\.1/);
+  assert.match(prompt, /crissmoldovan\/agent-skills#v0\.35\.2/);
   for (const re of [/codex --version/, /codex features list/, /--agent codex/, /--agent claude-code/, /--global/, /--copy/, /setup-enforcement\.mjs/, /status/, /already up to date/, /session-start/, /\/hooks/]) assert.match(prompt, re);
   assert.doesNotMatch(prompt, /\/Users\/|linear|@[a-z0-9-]+\.(com|dev)|token|secret/i);
   assert.doesNotMatch(readmeEntry, /review the new hooks once|trust .* once/i, 'trust is not "once"');

@@ -2,11 +2,11 @@
 name: manage-workspace
 description: "Clean up after every task and keep the machine usable: note what you create outside the repository, keep the evidence, then remove worktrees, containers, VMs, disk images, caches, copies and signed-in configurations once their work is done. Check a context budget, volume headroom and memory headroom that counts swap, give each run a project-owned scratch directory, and end by listing what was left and removed. It finds the processes agents leave running: agent CLIs whose editor died, a session served by two processes, plugin helpers whose session ended or whose folder is gone. Optional hooks for Claude Code and Codex add a session-start policy and machine check, an end-of-turn leftover check, and, in Claude Code, an end-of-session stop of the session's own helpers; an agent asked to install or update it does the whole setup. Use when .context keeps growing, a shared disk or memory fills, the machine swaps or freezes under agent sessions, or clean-up should be enforced. Formerly manage-workspace-storage."
 license: MIT
-compatibility: "The workflow works wherever the agent can inspect local files, disk usage and processes. The bundled scripts and hooks require Node.js 22 or newer on macOS or Linux. Git is needed only for Git worktrees; Docker and Tart are queried only when a session used them. The process check reads ps and, for helpers, the environment of the current user's processes. Nothing makes a network request."
+compatibility: "The workflow works wherever the agent can inspect local files, disk usage and processes. The bundled scripts and hooks require Node.js 22 or newer on macOS or Linux. Git is needed only for Git worktrees; Docker and Tart are queried only when a session used them. The process check reads ps and, for helpers, the environment of the current user's processes. Only status makes a network request, by launching Codex to ask for hook trust."
 metadata:
   group: workflow
   lifecycle: release
-  version: "2.0.1"
+  version: "2.0.2"
   author: crissmoldovan
 allowed-tools: Read Grep Glob Bash
 ---
@@ -145,7 +145,7 @@ node scripts/setup-enforcement.mjs --yes      # apply
 When a person asks you to "install manage-workspace" or "update manage-workspace" (or still says
 "manage-workspace-storage"), do the whole setup yourself, in this order. Their request is the consent
 for steps 1 to 4; step 5 has its own rule. Run no test suites, make no network calls beyond the Skills
-CLI, and change no other file. If the skill is not installed yet, the README's bootstrap prompt does
+CLI and the Codex launch `status` makes to read hook trust, and change no other file yourself. If the skill is not installed yet, the README's bootstrap prompt does
 the same from scratch.
 
 1. **Install or update the skill for every agent present.** Check `node --version` (22 or newer),
@@ -178,8 +178,9 @@ the same from scratch.
 5. **Get the Codex hooks trusted.** Codex trust is per machine and is needed again whenever a hook
    command changes, as it does when an old-name entry is rewritten (setup prints `update ... entry`).
    Default: ask the person to run `/hooks` in Codex and press `t` on the two `manage-workspace`
-   entries, then check `status` reports both trusted and `trusted_hash` entries exist in
-   `~/.codex/config.toml` for those hook keys. Only when the person's request explicitly authorises
+   entries, then run `status` by its full path from the folder where `/hooks` was opened, and check
+   it reports both trusted, as Codex reports it for that folder (a line that says it fell back to
+   stored hashes is not proof). Only when the person's request explicitly authorises
    self-approval, follow the guarded procedure in
    [the enforcement guide](references/enforcement.md#guarded-self-approval), and stop and hand back to
    `/hooks` the moment any step cannot be proven. Never use `--dangerously-bypass-hook-trust`, never

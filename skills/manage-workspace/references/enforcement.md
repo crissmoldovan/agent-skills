@@ -3,7 +3,10 @@
 `scripts/setup-enforcement.mjs` installs three hooks in Claude Code and two in Codex. All call one
 script, `leftovers.mjs`, which setup copies with `machine.mjs` to `$XDG_DATA_HOME/manage-workspace/`
 (default `~/.local/share/...`) so the hook entries keep working wherever the skill itself is installed
-or updated. Needs Node.js 22 or newer. Makes no network request.
+or updated. Needs Node.js 22 or newer. The scripts make no network request, with one exception:
+`status` asks Codex for its hooks' trust by starting Codex's app-server, and that launch refreshes
+Codex's model list from its provider, as every Codex launch does. Plugins are disabled for it, so it
+starts no plugin refresh. `status --no-codex` starts no Codex.
 
 ## Install, preview, remove
 
@@ -86,16 +89,26 @@ Codex stores the trust as a table named for the hook's position, with a hash of 
 trusted_hash = "sha256:<hex>"
 ```
 
-`node scripts/setup-enforcement.mjs status` reads those tables and prints `Codex trust: SessionStart
-trusted; Stop trusted` (or `not trusted`). It can only see that a hash is stored, not that it matches
-the current command, so after a command change `/hooks` is the authority.
+The hash is Codex's fingerprint of a normalised form of the hook, an internal method, so a stored
+hash cannot say whether it is for the current command. `node scripts/setup-enforcement.mjs status`
+therefore asks Codex: it starts `codex app-server --disable plugins` in a process group of its own,
+sends `hooks/list` (what `/hooks` reads) for the folder it runs in, prints Codex's own verdict for
+each of the two hooks and kills the group. `Codex trust: SessionStart trusted; Stop trusted (as Codex
+reports it for <folder>)`, with `not trusted`, `changed since it was trusted, so Codex does not run
+it: trust it again in /hooks` for a hash stored for an older command, `but turned off in Codex` for a
+hook set to `enabled = false`, and any warning Codex gave while reading the hooks. The verdict is for
+that folder: a project's own `.codex/config.toml` can turn hooks off, so run `status` in the project to
+check it there. When Codex cannot be asked (not installed, an error it reports while listing, no
+answer within 10 seconds, or `--no-codex`), it reads the stored hashes instead and says so, naming
+why; `/hooks` is then the authority. `MWS_CODEX_BIN` names the `codex` to ask, and
+`MWS_CODEX_ANSWER_MS` the wait, at most 60 seconds.
 
 ### Default: the person reviews in `/hooks`
 
 1. Ask the person to open Codex and run `/hooks`.
 2. They press `t` on the new `manage-workspace` entries: one `SessionStart`, one `Stop`.
-3. Verify by reading back: `setup-enforcement.mjs status` shows both as trusted, and
-   `~/.codex/config.toml` has a `trusted_hash` under each of the two hook keys.
+3. Verify by reading back: `setup-enforcement.mjs status` shows both as trusted, as Codex reports
+   it.
 
 An agent must not skip the review, and must say plainly that the hooks are not active until it is done.
 
@@ -125,8 +138,9 @@ the procedure and hand back to `/hooks`.
 4. **Write only the two entries**, in the existing form of the file, under the two keys for those hooks.
 5. **Verify.** The file differs from the backup only by those two entries, and Codex itself no longer
    lists them as needing review (use whatever the installed Codex offers to list hooks and their
-   review state, a non-interactive listing if it has one, otherwise ask the person to open `/hooks`;
-   the file alone is not proof). Otherwise restore the backup and hand back to `/hooks`.
+   review state: `setup-enforcement.mjs status` asks it, and must say `trusted` for both, as Codex
+   reports it; if it fell back to the stored hashes, ask the person to open `/hooks`, since the file
+   alone is not proof). Otherwise restore the backup and hand back to `/hooks`.
 6. **Report** the Codex version, the method (source file and function), the proof (which trusted hook
    matched), the two entries written and the backup path.
 

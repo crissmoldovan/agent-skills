@@ -487,19 +487,19 @@ Ask it:
 
 #### Install or update with an agent
 
-Paste this into Claude Code or Codex on a machine that does not have the skill yet (or to update it, or to move from `manage-workspace-storage`). It pins the install to release `v0.35.1`. Your pasting it is the consent for the install and the setup script; it asks for no other change.
+Paste this into Claude Code or Codex on a machine that does not have the skill yet (or to update it, or to move from `manage-workspace-storage`). It pins the install to release `v0.35.2`. Your pasting it is the consent for the install and the setup script; it asks for no other change.
 
 ```text
-Install or update the Agent Skill manage-workspace from crissmoldovan/agent-skills at release v0.35.1, for every agent on this machine, and set up its enforcement hooks. Do all of it yourself, one step at a time. Run no test suites, make no network calls beyond the Skills CLI, and change no other files.
+Install or update the Agent Skill manage-workspace from crissmoldovan/agent-skills at release v0.35.2, for every agent on this machine, and set up its enforcement hooks. Do all of it yourself, one step at a time. Run no test suites, make no network calls beyond the Skills CLI and the Codex launch `status` makes to read hook trust, and change no other files yourself.
 
 1. Check what is here: `node --version` (needs 22 or newer), `codex --version` and `codex features list` (the hooks feature must be on), whether Claude Code is installed, and whether the old skill manage-workspace-storage is installed (`npx skills list --global`). Stop and tell me if Node is too old.
 2. For each agent present, install at user level, with `--copy`:
-   npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent codex --yes --copy
-   npx skills add 'crissmoldovan/agent-skills#v0.35.1' --skill manage-workspace --global --agent claude-code --yes --copy
-   Read the installed SKILL.md and confirm its version is 2.0.1. If manage-workspace-storage is installed, remove it: npx skills remove manage-workspace-storage --global --yes
+   npx skills add 'crissmoldovan/agent-skills#v0.35.2' --skill manage-workspace --global --agent codex --yes --copy
+   npx skills add 'crissmoldovan/agent-skills#v0.35.2' --skill manage-workspace --global --agent claude-code --yes --copy
+   Read the installed SKILL.md and confirm its version is 2.0.2. If manage-workspace-storage is installed, remove it: npx skills remove manage-workspace-storage --global --yes
 3. From the installed manage-workspace folder, run `node scripts/setup-enforcement.mjs` to preview and show me what it would change, then `node scripts/setup-enforcement.mjs --yes`. It rewrites any manage-workspace-storage hook entries in place and moves their state and mode.
 4. Read back: both hook files (settings.json in ~/.claude, hooks.json in ~/.codex) and their .bak-manage-workspace backups, with every pre-existing hook still present and in the same order and no entry naming manage-workspace-storage; `node scripts/setup-enforcement.mjs status`; a second `--yes` run that says "already up to date"; and a smoke test that pipes {"session_id":"t"} into `node ~/.local/share/manage-workspace/leftovers.mjs session-start` (or under $XDG_DATA_HOME) and prints the policy.
-5. Codex trust: Codex does not run a hook until it is trusted, trust is per machine, and it is needed again whenever a hook command changes, as it does when an old entry is rewritten. Ask me to run /hooks in Codex and press t on the two manage-workspace entries (one SessionStart, one Stop), then check `status` and ~/.codex/config.toml show a trusted_hash for both hook keys. Do not approve them for me unless I wrote here that you may; if I did, follow "Guarded self-approval" in references/enforcement.md exactly and stop at the first step you cannot prove. Never use --dangerously-bypass-hook-trust.
+5. Codex trust: Codex does not run a hook until it is trusted, trust is per machine, and it is needed again whenever a hook command changes, as it does when an old entry is rewritten. Ask me to run /hooks in Codex and press t on the two manage-workspace entries (one SessionStart, one Stop), then run `status` by its full path from the folder where /hooks was opened and check it reports both trusted, as Codex reports it for that folder (status asks Codex itself; a line saying it fell back to stored hashes is not proof). Do not approve them for me unless I wrote here that you may; if I did, follow "Guarded self-approval" in references/enforcement.md exactly and stop at the first step you cannot prove. Never use --dangerously-bypass-hook-trust.
 6. Report: the installed version per agent, whether the old skill was removed, the paths and backups, the hook entries added or rewritten, whether Codex trust is done or waiting for me, that the defaults are mode warn and helpers stop, and the commands for `mode block --yes`, `helpers report --yes` and `uninstall --yes`.
 ```
 
