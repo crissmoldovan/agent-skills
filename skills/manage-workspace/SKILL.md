@@ -145,7 +145,7 @@ node scripts/setup-enforcement.mjs --yes      # apply
 When a person asks you to "install manage-workspace" or "update manage-workspace" (or still says
 "manage-workspace-storage"), do the whole setup yourself, in this order. Their request is the consent
 for steps 1 to 4; step 5 has its own rule. Run no test suites, make no network calls beyond the Skills
-CLI, and change no other file. If the skill is not installed yet, the README's bootstrap prompt does
+CLI and the Codex launch `status` makes to read hook trust, and change no other file. If the skill is not installed yet, the README's bootstrap prompt does
 the same from scratch.
 
 1. **Install or update the skill for every agent present.** Check `node --version` (22 or newer),

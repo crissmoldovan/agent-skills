@@ -19,12 +19,13 @@ the next version. Entries before v0.12.0 live only on the Releases page.
   trusted, so Codex does not run it: trust it again in /hooks`. When Codex cannot be asked (not
   installed, or no answer within 10 seconds), it reads the stored hashes as before and says so,
   with the reason. The install steps now check trust this way.
-- **The end-of-session guard keys a folder with and without the session's `GIT_` variables.** To leave
-  a Codex helper running when another live session works in the same repository, the guard asks git
-  for each folder's repository, with the ending session's environment. A session that set `GIT_DIR`
-  for its whole life could make another session's folder look like a different repository and stop a
-  helper that session still used. When the session sets any `GIT_` variable, each folder is now keyed
-  a second time without them, and a match either way keeps the helper.
+- **The end-of-session guard keys another session's folder with and without the session's `GIT_`
+  variables.** To leave a Codex helper running when another live session works in the same repository,
+  the guard asks git for each folder's repository, with the ending session's environment. A session
+  that set `GIT_DIR` for its whole life could make another session's folder look like a different
+  repository and stop a helper that session still used. When the session sets any `GIT_` variable,
+  another session's folder is now keyed both with and without them, and a match with either keeps the
+  helper; the session's own helper is keyed with its own environment, as its plugin keyed it.
 - **The guard's time budget cannot outlast the hook.** The git lookups' budget is read on the monotonic
   clock, so a wall clock that stops or is set back no longer stretches it, and `MWS_GIT_BUDGET_MS` is
   capped at 15 seconds, half the hook's 30-second timeout.
@@ -34,23 +35,27 @@ been seen to cause harm: a stopped helper is restarted by that session's next Co
 killed mid-lookup stops nothing.
 
 **Impact.** `status` runs `codex app-server --disable plugins` while Codex answers, usually under a
-second and at most 10, and kills it, with any process it started, when done; with plugins disabled,
-Codex starts no plugin refresh over the network. `MWS_CODEX_BIN` names another `codex`. A hook that is
-trusted but set to `enabled = false` in Codex now reads as turned off. One narrower limit remains:
+second and at most 10, and kills it, with any process it started, when done. That launch refreshes
+Codex's model list from its provider, as every Codex launch does; `status --no-codex` starts no Codex
+and reads the stored hashes. The verdict is for the folder `status` runs in, which it names, since a
+project can turn hooks off. A hook that is trusted but set to `enabled = false` in Codex now reads as
+turned off. `MWS_CODEX_BIN` names another `codex`. One narrower limit remains:
 another session's environment cannot be seen, so a session that itself sets `GIT_DIR` or
 `GIT_WORK_TREE` is keyed as if it did not.
 
 **Update.** Update the skill, then run its setup script again from the updated `manage-workspace`
-folder, so the hooks run the new scripts. That folder is `~/.agents/skills/manage-workspace`, or
-`~/.claude/skills/manage-workspace` on a machine where only Claude Code has the skill:
+folder, so the hooks run the new scripts. `npx skills list --global --json` prints where it is
+(usually `~/.agents/skills/manage-workspace`; under Claude Code's own folder on a machine where only
+Claude Code has the skill):
 
 ```bash
 npx skills update manage-workspace --global --yes
 node scripts/setup-enforcement.mjs --yes      # from the updated manage-workspace folder
 ```
 
-The hook commands stay the same unless setup prints `update ... entry` (a different Node.js, or a
-different data folder), so Codex trust usually stays; `status` says whether it did.
+Codex trust stays unless setup rewrites a Codex hook entry, which it says with an `update` line (a
+different Node.js or data folder changes the command; an older matcher is brought up to date); run
+`status` afterwards, and trust the hooks again in `/hooks` if it says so.
 
 An install pinned to a tag stays on it under update; install it again from `#v0.35.2`, as the README's
 prompt does.

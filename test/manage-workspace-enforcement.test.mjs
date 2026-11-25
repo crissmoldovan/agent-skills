@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -194,7 +194,7 @@ if (process.env.FAKE_CODEX_HANG) {
       const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
       fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(m) + '\\n');
       if (m.id === 1) process.stdout.write('null\\n' + JSON.stringify({ id: 1, result: { userAgent: 'fake' } }) + '\\n');
-      if (m.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { data: [{ cwd: m.params.cwds[0], hooks: JSON.parse(process.env.FAKE_CODEX_HOOKS), errors: JSON.parse(process.env.FAKE_CODEX_ERRORS || '[]') }] } }) + '\\n');
+      if (m.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { data: [{ cwd: m.params.cwds[0], hooks: JSON.parse(process.env.FAKE_CODEX_HOOKS), errors: JSON.parse(process.env.FAKE_CODEX_ERRORS || '[]'), warnings: JSON.parse(process.env.FAKE_CODEX_WARNINGS || '[]') }] } }) + '\\n');
     }
   });
 }
@@ -211,7 +211,10 @@ test('status asks Codex for its own trust verdict, and says when it could not', 
   mkdirSync(path.join(home, '.codex'));
   const hooks = path.join(home, '.codex', 'hooks.json');
   writeFileSync(hooks, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'other-start' }] }] } }, null, 2)}\n`);
-  const status = (extra) => spawnSync(process.execPath, [setup, 'status'], { encoding: 'utf8', env: { ...env, ...extra } });
+  // run from the home folder: Codex's verdict is for the folder status runs in, which it names
+  const status = (extra, ...args) => spawnSync(process.execPath, [setup, 'status', ...args], { cwd: home, encoding: 'utf8', env: { ...env, ...extra } });
+  const here = realpathSync(home); // the folder as the process sees it, symlinks resolved
+  const asReported = (line) => `Codex trust: ${line} (as Codex reports it for ${here})`;
   assert.equal(spawnSync(process.execPath, [setup, '--yes'], { encoding: 'utf8', env }).status, 0);
   // a stored hash for both, which the file alone would call trusted
   const hash = `sha256:${'a'.repeat(64)}`;
@@ -224,17 +227,20 @@ test('status asks Codex for its own trust verdict, and says when it could not', 
   ]);
   const fake = { MWS_CODEX_BIN: fakeCodex(root), FAKE_CODEX_LOG: log };
   let out = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'modified') }).stdout;
-  assert.match(out, /Codex trust: SessionStart trusted; Stop changed since it was trusted, so Codex does not run it: trust it again in \/hooks \(as Codex reports it\)/);
+  assert.ok(out.includes(asReported('SessionStart trusted; Stop changed since it was trusted, so Codex does not run it: trust it again in /hooks')), out);
   const asked = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(asked[0].argv, ['app-server', '--disable', 'plugins'], 'plugins are disabled, so Codex starts no plugin refresh');
   assert.deepEqual(asked.slice(1).map((m) => m.method), ['initialize', 'initialized', 'hooks/list']);
-  assert.deepEqual(asked[3].params, { cwds: [home] });
+  assert.deepEqual(asked[3].params, { cwds: [here] }, 'asked about the folder status runs in');
   out = status({ ...fake, FAKE_CODEX_HOOKS: listed('untrusted', 'trusted') }).stdout;
-  assert.match(out, /Codex trust: SessionStart not trusted; Stop trusted \(as Codex reports it\)/);
+  assert.ok(out.includes(asReported('SessionStart not trusted; Stop trusted')), out);
   out = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'trusted', false) }).stdout;
-  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted, but turned off in Codex \(enabled = false\), so Codex does not run it \(as Codex reports it\)/);
+  assert.ok(out.includes(asReported('SessionStart trusted; Stop trusted, but turned off in Codex (enabled = false), so Codex does not run it')), out);
   out = status({ ...fake, FAKE_CODEX_HOOKS: JSON.stringify([]) }).stdout;
-  assert.match(out, /Codex trust: SessionStart not listed by Codex; Stop not listed by Codex \(as Codex reports it\)/);
+  assert.ok(out.includes(asReported('SessionStart not listed by Codex; Stop not listed by Codex')), out);
+  // Codex rejected hooks.json and said why in its warnings: its verdict stands, with the reason
+  out = status({ ...fake, FAKE_CODEX_HOOKS: JSON.stringify([]), FAKE_CODEX_WARNINGS: JSON.stringify([{ message: 'hooks.json: invalid PreToolUse' }]) }).stdout;
+  assert.ok(out.includes(`Codex trust: SessionStart not listed by Codex; Stop not listed by Codex (as Codex reports it for ${here}; Codex warned: hooks.json: invalid PreToolUse)`), out);
   // Codex cannot be asked, or reports errors while listing: the stored hashes, said to be only that, and why
   out = status({ ...fake, FAKE_CODEX_EXIT: '1', FAKE_CODEX_HOOKS: '[]' }).stdout;
   assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, which cannot tell the current command from an older one: Codex could not be asked \(it exited before listing its hooks\)\. \/hooks in Codex is the authority\)/);
@@ -242,6 +248,18 @@ test('status asks Codex for its own trust verdict, and says when it could not', 
   assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, [^\n]*Codex could not be asked \(it reported config\.toml: invalid TOML\)/);
   out = status({}).stdout;
   assert.match(out, /Codex could not be asked \([^)]*not installed[^)]*\)/);
+  // --no-codex reads the stored hashes and starts no Codex
+  const before = readFileSync(log, 'utf8');
+  out = status({ ...fake, FAKE_CODEX_HOOKS: '[]' }, '--no-codex').stdout;
+  assert.match(out, /Codex trust: SessionStart trusted; Stop trusted \(a stored hash only, [^\n]*Codex could not be asked \(not asked: --no-codex\)/);
+  assert.equal(readFileSync(log, 'utf8'), before, 'no Codex was started');
+  // a malformed group elsewhere in hooks.json is reported, not a crash
+  const current = JSON.parse(readFileSync(hooks, 'utf8'));
+  writeFileSync(hooks, `${JSON.stringify({ hooks: { ...current.hooks, PreToolUse: [null] } }, null, 2)}\n`);
+  const malformed = status({ ...fake, FAKE_CODEX_HOOKS: listed('trusted', 'trusted') });
+  assert.equal(malformed.status, 0, malformed.stderr);
+  assert.match(malformed.stdout, /Codex trust: /);
+  writeFileSync(hooks, `${JSON.stringify(current, null, 2)}\n`);
   // a wrapper that never answers and whose child holds the output open: status still ends, and the
   // whole process group, the child included, is gone
   const marker = '31.7';
